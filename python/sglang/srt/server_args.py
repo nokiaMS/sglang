@@ -1,3 +1,4 @@
+# 服务器参数定义模块：定义SGLang推理服务器的所有配置参数、默认值、验证逻辑和命令行接口
 # Copyright 2023-2024 SGLang Team
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -290,59 +291,72 @@ MAMBA_BACKEND_CHOICES = ["triton", "flashinfer"]
 LINEAR_ATTN_KERNEL_BACKEND_CHOICES = ["triton", "cutedsl", "flashinfer"]
 
 
-# Allow external code to add more choices
+# 允许外部代码扩展加载格式选项
 def add_load_format_choices(choices):
     LOAD_FORMAT_CHOICES.extend(choices)
 
 
+# 允许外部代码扩展量化方法选项
 def add_quantization_method_choices(choices):
     QUANTIZATION_CHOICES.extend(choices)
 
 
+# 允许外部代码扩展注意力后端选项
 def add_attention_backend_choices(choices):
     ATTENTION_BACKEND_CHOICES.extend(choices)
 
 
+# 允许外部代码扩展确定性注意力后端选项
 def add_deterministic_attention_backend_choices(choices):
     DETERMINISTIC_ATTENTION_BACKEND_CHOICES.extend(choices)
 
 
+# 允许外部代码扩展支持基数树的确定性注意力后端选项
 def add_radix_supported_deterministic_attention_backend_choices(choices):
     RADIX_SUPPORTED_DETERMINISTIC_ATTENTION_BACKEND.extend(choices)
 
 
+# 允许外部代码扩展分离部署传输后端选项
 def add_disagg_transfer_backend_choices(choices):
     DISAGG_TRANSFER_BACKEND_CHOICES.extend(choices)
 
 
+# 允许外部代码扩展语法后端选项
 def add_grammar_backend_choices(choices):
     GRAMMAR_BACKEND_CHOICES.extend(choices)
 
 
+# 允许外部代码扩展MoE运行器后端选项
 def add_moe_runner_backend_choices(choices):
     MOE_RUNNER_BACKEND_CHOICES.extend(choices)
 
 
+# 允许外部代码扩展FP8 GEMM运行器后端选项
 def add_fp8_gemm_runner_backend_choices(choices):
     FP8_GEMM_RUNNER_BACKEND_CHOICES.extend(choices)
 
 
+# 允许外部代码扩展FP4 GEMM运行器后端选项
 def add_fp4_gemm_runner_backend_choices(choices):
     FP4_GEMM_RUNNER_BACKEND_CHOICES.extend(choices)
 
 
+# 允许外部代码扩展基数缓存驱逐策略选项
 def add_radix_eviction_policy_choices(choices):
     RADIX_EVICTION_POLICY_CHOICES.extend(choices)
 
 
+# 允许外部代码扩展RL在线策略目标选项
 def add_rl_on_policy_target_choices(choices):
     RL_ON_POLICY_TARGET_CHOICES.extend(choices)
 
 
+# 允许外部代码扩展线性注意力内核后端选项
 def add_linear_attn_kernel_backend_choices(choices):
     LINEAR_ATTN_KERNEL_BACKEND_CHOICES.extend(choices)
 
 
+# SGLang服务器参数数据类：定义所有服务器配置参数、默认值、验证和自动调整逻辑
 @dataclasses.dataclass
 class ServerArgs:
     """
@@ -867,6 +881,7 @@ class ServerArgs:
     # For msProbe
     msprobe_dump_config: Optional[str] = None
 
+    # 服务器参数初始化后处理：协调各种参数的验证、默认值设置和自动调整
     def __post_init__(self):
         """
         Orchestrates the handling of various server arguments, ensuring proper configuration and validation.
@@ -1024,6 +1039,7 @@ class ServerArgs:
         # Handle any other necessary validations.
         self._handle_other_validations()
 
+    # 如果模型路径是RunAI对象存储URI，则下载模型
     def _maybe_download_model_for_runai(self):
         if is_runai_obj_uri(self.model_path):
             ObjectStorageModel.download_and_get_path(self.model_path)
@@ -1035,6 +1051,7 @@ class ServerArgs:
         ):
             ObjectStorageModel.download_and_get_path(self.tokenizer_path)
 
+    # 处理负载均衡方法的默认值设置
     def _handle_load_balance_method(self):
         if self.disaggregation_mode not in ("null", "prefill", "decode"):
             raise ValueError(
@@ -1053,6 +1070,7 @@ class ServerArgs:
             )
             return
 
+    # 验证SSL/TLS参数的一致性和文件存在性
     def _handle_ssl_validation(self):
         """Ensure SSL arguments are consistent and referenced files exist."""
         if self.ssl_keyfile and not self.ssl_certfile:
@@ -1116,6 +1134,7 @@ class ServerArgs:
                     "Multi-worker HTTP/2 support will be added in a future release."
                 )
 
+    # 验证多模态处理配置的结构
     def _handle_multimodal(self):
         """Validate mm_process_config structure before model loading."""
         if self.mm_process_config is not None:
@@ -1133,6 +1152,7 @@ class ServerArgs:
                         f"but got {type(self.mm_process_config[key])}"
                     )
 
+    # 处理已弃用的参数，将其转换为新参数
     def _handle_deprecated_args(self):
         # Handle deprecated tool call parsers
         deprecated_tool_call_parsers = {"qwen25": "qwen", "glm45": "glm"}
@@ -1171,6 +1191,7 @@ class ServerArgs:
                 f"SGLANG_GRPC_PORT ({self.grpc_port}) must be between 1 and 65535"
             )
 
+    # 处理预填充延迟器的环境变量向后兼容
     def _handle_prefill_delayer_env_compat(self):
         if envs.SGLANG_SCHEDULER_DECREASE_PREFILL_IDLE.get():
             self.enable_prefill_delayer = True
@@ -1179,6 +1200,7 @@ class ServerArgs:
         if x := envs.SGLANG_PREFILL_DELAYER_TOKEN_USAGE_LOW_WATERMARK.get():
             self.prefill_delayer_token_usage_low_watermark = x
 
+    # 设置缺失参数的默认值
     def _handle_missing_default_values(self):
         if self.tokenizer_path is None:
             self.tokenizer_path = self.model_path
@@ -1211,6 +1233,7 @@ class ServerArgs:
         elif self.speculative_draft_model_quantization == "unquant":
             self.speculative_draft_model_quantization = None
 
+    # 处理ModelScope模型路径解析和下载
     def _handle_modelscope_paths(self):
         """Resolve model / tokenizer / speculative-draft paths from the local
         ModelScope cache when possible, falling back to ``snapshot_download``
@@ -1275,11 +1298,13 @@ class ServerArgs:
                 revision=self.speculative_draft_model_revision or "main",
             )
 
+    # 设置HPU设备的后端
     def _handle_hpu_backends(self):
         if self.device == "hpu":
             self.attention_backend = "torch_native"
             self.sampling_backend = "pytorch"
 
+    # 设置CPU设备的后端
     def _handle_cpu_backends(self):
         if self.device == "cpu":
             if self.attention_backend is None:
@@ -1288,6 +1313,7 @@ class ServerArgs:
                 )
             self.sampling_backend = "pytorch"
 
+    # 设置NPU（昇腾）设备的后端
     def _handle_npu_backends(self):
         if self.device == "npu":
             from sglang.srt.hardware_backend.npu.utils import set_default_server_args
@@ -1301,11 +1327,13 @@ class ServerArgs:
                 )
                 self.piecewise_cuda_graph_compiler = "eager"
 
+    # 设置MPS（Apple Silicon）设备的后端
     def _handle_mps_backends(self):
         if self.device == "mps":
             if not use_mlx():
                 self.disable_overlap_schedule = True
 
+    # 设置XPU（Intel GPU）设备的后端
     def _handle_xpu_backends(self):
         if self.device == "xpu":
             if not self.disable_piecewise_cuda_graph:
@@ -1315,6 +1343,7 @@ class ServerArgs:
                 )
             self.disable_piecewise_cuda_graph = True
 
+    # 处理分段CUDA Graph的自动禁用条件
     def _handle_piecewise_cuda_graph(self):
         # Skip auto-disable when enforce flag is set (for testing)
         if self.enforce_piecewise_cuda_graph:
@@ -1388,6 +1417,7 @@ class ServerArgs:
         if self.enable_dsa_prefill_context_parallel:
             self.disable_piecewise_cuda_graph = True
 
+    # 设置和验证多项目评分(MIS)约束
     def _handle_multi_item_scoring(self):
         """Setup and validate multi-item scoring constraints.
 
@@ -1419,6 +1449,7 @@ class ServerArgs:
             f"Current backends: prefill={prefill_backend}, decode={decode_backend}"
         )
 
+    # 配置GPU内存相关设置：包括chunked_prefill_size、cuda_graph_max_bs和mem_fraction_static
     def _handle_gpu_memory_settings(self, gpu_mem):
         """
         Configure GPU memory-dependent settings including
@@ -1622,6 +1653,7 @@ class ServerArgs:
                 "Use environment variable SGLANG_SYMM_MEM_PREALLOC_GB_SIZE to change the prealloc size."
             )
 
+    # 根据cuda_graph_max_bs生成CUDA Graph捕获的批大小列表
     def _generate_cuda_graph_batch_sizes(self):
         """
         Generate the list of batch sizes for CUDA graph capture based on cuda_graph_max_bs.
@@ -1655,6 +1687,7 @@ class ServerArgs:
 
         return capture_bs
 
+    # 根据torch_compile_max_bs生成CPU Graph捕获的批大小列表
     def _generate_cpu_graph_batch_sizes(self):
         """
         Generate the list of batch sizes for CPU graph capture based on torch_compile_max_bs.
@@ -1675,6 +1708,7 @@ class ServerArgs:
 
         return capture_bs
 
+    # 根据piecewise_cuda_graph_max_tokens生成分段CUDA Graph捕获的token大小列表
     def _generate_piecewise_cuda_graph_tokens(self):
         """
         Generate the list of batch sizes for piecewise CUDA graph capture
@@ -1695,6 +1729,7 @@ class ServerArgs:
 
         return capture_sizes
 
+    # 设置DSA的默认KV缓存数据类型
     def _set_default_dsa_kv_cache_dtype(self, major: int, quantization: str) -> str:
         user_set_prefill = self.dsa_prefill_backend is not None
         user_set_decode = self.dsa_decode_backend is not None
@@ -1723,6 +1758,7 @@ class ServerArgs:
             "fp8_e4m3",
         ], "DeepSeek DSA only supports bf16/bfloat16 or fp8_e4m3 kv_cache_dtype"
 
+    # 设置DSA的默认预填充和解码后端
     def _set_default_dsa_backends(self, kv_cache_dtype: str, major: int) -> str:
         from sglang.srt.arg_groups.hisparse_hook import (
             apply_hisparse_dsa_backend_defaults,
@@ -1769,6 +1805,7 @@ class ServerArgs:
             f"Set DSA backends for {self.kv_cache_dtype} KV Cache: prefill={self.dsa_prefill_backend}, decode={self.dsa_decode_backend}."
         )
 
+    # 根据模型架构进行特定的参数调整和后端选择
     def _handle_model_specific_adjustments(self):
         from sglang.srt.configs.model_config import (
             get_mimo_v2_fused_qkv_expected_tp_size,
@@ -2611,6 +2648,7 @@ class ServerArgs:
                 "via --enforce-disable-flashinfer-allreduce-fusion."
             )
 
+    # 处理Mamba/混合模型的基数缓存配置
     def _handle_mamba_radix_cache(
         self,
         model_arch: str,
@@ -2700,12 +2738,14 @@ class ServerArgs:
                             "To use radix cache with speculative decoding, please use --mamba-scheduler-strategy extra_buffer and set SGLANG_ENABLE_SPEC_V2=1."
                         )
 
+    # 设置采样后端默认值
     def _handle_sampling_backend(self):
         if self.sampling_backend is None:
             self.sampling_backend = (
                 "flashinfer" if is_flashinfer_available() else "pytorch"
             )
 
+    # 自动选择最快的注意力后端
     def _get_default_attn_backend(self, use_mla_backend: bool, model_config):
         """
         Auto select the fastest attention backend.
@@ -2775,6 +2815,7 @@ class ServerArgs:
             else:
                 return "triton"
 
+    # 处理注意力后端的兼容性验证和自动配置
     def _handle_attention_backend_compatibility(self):
         model_config = self.get_model_config()
         use_mla_backend = self.use_mla_backend()
@@ -3026,6 +3067,7 @@ class ServerArgs:
             self.enable_mixed_chunk = False
             self.disable_radix_cache = True
 
+    # 检查FP4 KV缓存与注意力后端的兼容性
     def _handle_kv4_compatibility(self):
         """Check FP4 KV cache compatibility with the attention backend"""
         if self.kv_cache_dtype != "fp4_e2m1":
@@ -3105,6 +3147,7 @@ class ServerArgs:
         else:
             raise RuntimeError("KV4 is not tested on non-CUDA platforms.")
 
+    # 设置页面大小的默认值
     def _handle_page_size(self):
         if self.page_size is None:
             if not is_musa():
@@ -3112,10 +3155,12 @@ class ServerArgs:
             else:
                 self.page_size = 64
 
+    # 处理AMD/HIP平台的特定配置
     def _handle_amd_specifics(self):
         if is_hip():
             self.triton_attention_num_kv_splits = 16
 
+    # 处理NCCL预热配置
     def _handle_nccl_pre_warm(self):
         # pre_warm_nccl is only used with CUDA or HIP hardware
         if self.pre_warm_nccl and not (is_cuda() or is_hip()):
@@ -3125,10 +3170,12 @@ class ServerArgs:
             )
             self.pre_warm_nccl = False
 
+    # 设置语法后端默认值
     def _handle_grammar_backend(self):
         if self.grammar_backend is None:
             self.grammar_backend = "xgrammar"
 
+    # 验证Mamba后端可用性
     def _handle_mamba_backend(self):
         if self.mamba_backend == "flashinfer":
             if is_flashinfer_available():
@@ -3145,6 +3192,7 @@ class ServerArgs:
                     "FlashInfer mamba module not available, please check flashinfer installation."
                 )
 
+    # 处理线性注意力后端配置和兼容性验证
     def _handle_linear_attn_backend(self):
         import torch
 
@@ -3193,6 +3241,7 @@ class ServerArgs:
                 f"got CUDA {cuda_version or 'unknown'}"
             )
 
+    # 处理上下文并行性的验证和配置
     def _handle_context_parallelism(self):
         if (
             self.enable_prefill_context_parallel
@@ -3244,6 +3293,7 @@ class ServerArgs:
                 self.moe_dp_size == 1
             ), "attn_cp_size != moe_dp_size is only supported when moe_dp_size == 1"
 
+    # 处理数据并行性的配置和验证
     def _handle_data_parallelism(self):
         if self.dp_size == 1:
             self.enable_dp_attention = False
@@ -3262,6 +3312,7 @@ class ServerArgs:
                 self.enable_dp_attention
             ), "Please enable dp attention when setting enable_dp_lm_head. "
 
+    # 处理MoE内核配置和量化方法兼容性
     def _handle_moe_kernel_config(self):
         if self.quantization == "mxfp8":
             if self.moe_runner_backend == "auto":
@@ -3355,6 +3406,7 @@ class ServerArgs:
                 self.ep_size == 1
             ), "FP8/MXFP8 Cutlass MoE is only supported with ep_size == 1"
 
+    # 计算CuteDSL MoE单次前向通过的最大token数
     def cutedsl_moe_max_num_tokens(self) -> int:
         """Largest number of tokens a single forward routes through a CuteDSL
         MoE layer on one (DP) rank. Single source of truth for both the
@@ -3376,6 +3428,7 @@ class ServerArgs:
         decode_tokens = (self.cuda_graph_max_bs or 0) * num_tokens_per_bs
         return max(prefill_tokens, decode_tokens)
 
+    # 验证CuteDSL A2A分发器的token预算是否足够
     def _validate_cutedsl_a2a_token_budget(self):
         """Fail fast if the FlashInfer A2A dispatcher workspace cannot cover the
         largest CuteDSL MoE forward. Runs after speculative decoding is resolved
@@ -3411,6 +3464,7 @@ class ServerArgs:
                 f"(e.g. --max-prefill-tokens) to <= {max_cutedsl_tokens}."
             )
 
+    # 处理MoE All-to-All通信后端的配置
     def _handle_a2a_moe(self):
         if self.enable_deepep_waterfill and self.moe_a2a_backend != "deepep":
             logger.warning(
@@ -3524,6 +3578,7 @@ class ServerArgs:
                     self.chunked_prefill_size
                 ) <= envs.SGLANG_MORI_NUM_MAX_DISPATCH_TOKENS_PER_RANK.get(), "SGLANG_MORI_NUM_MAX_DISPATCH_TOKENS_PER_RANK (default 4096) must be larger or equal to chunked_prefill_size"
 
+    # 处理EPLB（专家并行负载均衡）和分发算法配置
     def _handle_eplb_and_dispatch(self):
         if self.enable_eplb and (self.expert_distribution_recorder_mode is None):
             self.expert_distribution_recorder_mode = "stat"
@@ -3539,6 +3594,7 @@ class ServerArgs:
         if self.enable_eplb:
             assert self.ep_size > 1
 
+    # 处理弹性专家并行配置
     def _handle_elastic_ep(self):
         if self.elastic_ep_backend is not None:
             if self.enable_eplb:
@@ -3560,6 +3616,7 @@ class ServerArgs:
                 self.elastic_ep_backend is not None
             ), "Elastic EP rejoin requires elastic_ep_backend to be set."
 
+    # 处理专家分布指标配置
     def _handle_expert_distribution_metrics(self):
         if self.enable_expert_distribution_metrics and (
             self.expert_distribution_recorder_mode is None
@@ -3572,6 +3629,7 @@ class ServerArgs:
             elif self.expert_distribution_recorder_mode is not None:
                 self.expert_distribution_recorder_buffer_size = 1000
 
+    # 处理流水线并行性配置
     def _handle_pipeline_parallelism(self):
         if self.pp_size > 1:
             self.disable_overlap_schedule = True
@@ -3579,6 +3637,7 @@ class ServerArgs:
                 "Pipeline parallelism is incompatible with overlap schedule."
             )
 
+    # 验证仅预填充禁用KV缓存的标志和前置条件约束
     def _validate_prefill_only_disable_kv_cache_args(self):
         """Validate --prefill-only-disable-kv-cache flag/precondition constraints.
 
@@ -3648,6 +3707,7 @@ class ServerArgs:
                 "HiSparse uses a dedicated pool family that is not the no-op MHA pool."
             )
 
+    # 验证仅预填充禁用KV缓存的后端约束
     def _handle_prefill_only_disable_kv_cache(self):
         """Validate --prefill-only-disable-kv-cache backend constraint.
 
@@ -3674,6 +3734,7 @@ class ServerArgs:
                 "workloads and backends may be supported in a future change."
             )
 
+    # 规范化层级缓存相关配置为有效的运行时配置
     def _handle_hicache(self):
         """Normalize hicache-related knobs into a valid runtime configuration.
 
@@ -3703,6 +3764,7 @@ class ServerArgs:
         if io_changed:
             self._resolve_layout_io_compatibility()
 
+    # 解析层级缓存的内存布局与I/O后端兼容性
     def _resolve_layout_io_compatibility(self):
         if (
             self.hicache_mem_layout == "page_first_direct"
@@ -3722,6 +3784,7 @@ class ServerArgs:
                 "Page first layout is not supported with direct IO backend, switching to page first direct layout"
             )
 
+    # 解析层级缓存的存储后端与内存布局兼容性
     def _resolve_storage_layout_compatibility(self):
         if (
             self.hicache_storage_backend != "mooncake"
@@ -3743,6 +3806,7 @@ class ServerArgs:
             f"switching to {new_layout} layout for {self.hicache_io_backend} io backend"
         )
 
+    # 解析层级缓存的I/O后端与解码注意力后端兼容性
     def _resolve_io_decode_attention_compatibility(self) -> bool:
         if self.hicache_io_backend != "kernel":
             return False
@@ -3778,6 +3842,7 @@ class ServerArgs:
             )
         return False
 
+    # 处理模型加载格式自动检测和配置
     def _handle_load_format(self):
         if (
             self.load_format == "auto" or self.load_format == "gguf"
@@ -3830,6 +3895,7 @@ class ServerArgs:
                 self.validate_transfer_engine()
             )
 
+    # 检查模型是否为Mistral原生格式
     def _is_mistral_native_format(self) -> bool:
         """True iff the checkpoint requires load_format=mistral.
 
@@ -3888,6 +3954,7 @@ class ServerArgs:
         except Exception:
             return False
 
+    # 处理编码器分离部署的配置验证
     def _handle_encoder_disaggregation(self):
         if self.enable_prefix_mm_cache and not self.encoder_only:
             raise ValueError(
@@ -3937,6 +4004,7 @@ class ServerArgs:
                 f"Supported architectures: Qwen2VL, Qwen3VL, Qwen3.5, InternS2, Qwen2Audio, Qwen2.5Omni, Kimi, MiMoV2."
             )
 
+    # 验证InfiniBand设备配置
     def _validate_ib_devices(self, device_str: Optional[str]) -> Optional[str]:
         """
         Validate IB devices before passing to mooncake.
@@ -4012,6 +4080,7 @@ class ServerArgs:
 
         return json.dumps(normalized_mapping, separators=(",", ":"))
 
+    # 处理分词器批处理配置验证
     def _handle_tokenizer_batching(self):
         if self.enable_tokenizer_batch_encode and self.enable_dynamic_batch_tokenizer:
             raise ValueError(
@@ -4045,6 +4114,7 @@ class ServerArgs:
                 )
                 self.enable_dynamic_batch_tokenizer = False
 
+    # 将服务器参数传播到环境变量
     def _handle_environment_variables(self):
         envs.SGLANG_ENABLE_TORCH_COMPILE.set("1" if self.enable_torch_compile else "0")
         if self.mamba_ssm_dtype is not None:
@@ -4088,6 +4158,7 @@ class ServerArgs:
                 )
             envs.SGLANG_OPT_FP8_WO_A_GEMM.set(False)
 
+    # 处理缓存兼容性验证
     def _handle_cache_compatibility(self):
         if self.enable_hierarchical_cache and self.disable_radix_cache:
             raise ValueError(
@@ -4108,6 +4179,7 @@ class ServerArgs:
         if not (0 < self.swa_full_tokens_ratio <= 1.0):
             raise ValueError("--swa-full-tokens-ratio should be in range (0, 1.0].")
 
+    # 处理确定性推理配置和后端选择
     def _handle_deterministic_inference(self):
         if self.rl_on_policy_target is not None:
             logger.warning(
@@ -4211,6 +4283,7 @@ class ServerArgs:
                         "NCCL_ALGO is set to 'allreduce:tree' and custom all reduce is disabled for deterministic inference when TP size > 1."
                     )
 
+    # 处理扩散语言模型(DLLM)推理配置
     def _handle_dllm_inference(self):
         if self.dllm_algorithm is None:
             return
@@ -4288,6 +4361,7 @@ class ServerArgs:
             )
             self.enable_mixed_chunk = False
 
+    # 验证语音识别/ASR相关参数
     def _handle_asr_validation(self):
         """Validate transcription/ASR-specific server args."""
         if self.asr_max_buffer_seconds <= 0:
@@ -4301,6 +4375,7 @@ class ServerArgs:
                 f"(got {self.asr_max_concurrent_sessions})."
             )
 
+    # 处理其他必要的参数验证
     def _handle_other_validations(self):
         # Handle model inference tensor dump.
         if self.debug_tensor_dump_output_folder is not None:
@@ -4342,11 +4417,13 @@ class ServerArgs:
                     self.preferred_sampling_params
                 )
 
+    # 处理调试工具配置
     def _handle_debug_utils(self):
         if is_in_ci() and self.soft_watchdog_timeout is None:
             logger.info("Set soft_watchdog_timeout since in CI")
             self.soft_watchdog_timeout = 300
 
+    # 向命令行参数解析器添加所有服务器参数的CLI定义
     @staticmethod
     def add_cli_args(parser: argparse.ArgumentParser):
 
@@ -7092,6 +7169,7 @@ class ServerArgs:
             help="The path of the JSON configuration file for msProbe. If specified, enables msProbe dump.",
         )
 
+    # 从命令行参数命名空间创建ServerArgs实例
     @classmethod
     def from_cli_args(cls, args: argparse.Namespace):
         args.tp_size = args.tensor_parallel_size
@@ -7109,6 +7187,7 @@ class ServerArgs:
         ]
         return cls(**{attr: getattr(args, attr) for attr in attrs})
 
+    # 生成服务器URL
     def url(self, port: Optional[int] = None):
         scheme = "https" if self.ssl_certfile else "http"
         # When binding to all interfaces, use loopback for internal requests.
@@ -7121,10 +7200,12 @@ class ServerArgs:
             scheme
         )
 
+    # 获取引擎引导URL
     @property
     def engine_info_bootstrap_url(self):
         return self.url(port=self.engine_info_bootstrap_port)
 
+    # 返回SSL验证参数值，用于requests库的verify参数
     def ssl_verify(self):
         """Return the value for the requests library's ``verify=`` parameter.
 
@@ -7151,6 +7232,7 @@ class ServerArgs:
             return False
         return True
 
+    # 懒加载获取模型配置
     def get_model_config(self):
         # Lazy init to avoid circular import
         from sglang.srt.configs.model_config import ModelConfig
@@ -7160,6 +7242,7 @@ class ServerArgs:
         self.model_config = ModelConfig.from_server_args(self)
         return self.model_config
 
+    # 获取预填充和解码阶段的注意力后端名称
     def get_attention_backends(self):
         prefill_attention_backend_str = (
             self.prefill_attention_backend
@@ -7173,12 +7256,14 @@ class ServerArgs:
         )
         return prefill_attention_backend_str, decode_attention_backend_str
 
+    # 判断模型是否使用MLA（多头潜在注意力）架构
     def use_mla_backend(self):
         from sglang.srt.configs.model_config import AttentionArch
 
         model_config = self.get_model_config()
         return model_config.attention_arch == AttentionArch.MLA
 
+    # 判断注意力后端是否未被用户显式设置
     def is_attention_backend_not_set(self):
         return (
             self.attention_backend is None
@@ -7186,9 +7271,11 @@ class ServerArgs:
             and self.decode_attention_backend is None
         )
 
+    # 判断是否启用了Mamba额外缓冲区调度策略
     def enable_mamba_extra_buffer(self) -> bool:
         return self.mamba_scheduler_strategy == "extra_buffer"
 
+    # 返回推测解码可能使用的最大草稿token数
     @cached_property
     def max_speculative_num_draft_tokens(self) -> Optional[int]:
         """Return the maximum draft-token count speculative decoding may use."""
@@ -7209,6 +7296,7 @@ class ServerArgs:
         # needs steps + 1 draft-token slots. Revisit this if topk>1 is supported.
         return max(candidate_steps) + 1
 
+    # 获取Mamba缓存的块大小
     @property
     def mamba_cache_chunk_size(self) -> int:
         # For mamba cache with extra buffer, the chunk size is the max of FLA_CHUNK_SIZE
@@ -7223,6 +7311,7 @@ class ServerArgs:
             self._mamba_cache_chunk_size = max(chunk_size, self.page_size)
         return self._mamba_cache_chunk_size
 
+    # 检查服务器参数的一致性和合法性
     def check_server_args(self):
         # Check parallel size constraints
         assert (
@@ -7416,6 +7505,7 @@ class ServerArgs:
                 "--kv-canary-sweep-interval requires --kv-canary in {log, raise}"
             )
 
+    # 检查LoRA相关服务器参数的合法性
     def check_lora_server_args(self):
         assert self.max_loras_per_batch > 0, "max_loras_per_batch must be positive"
 
@@ -7547,6 +7637,7 @@ class ServerArgs:
                 self.lora_drain_wait_threshold >= 0.0
             ), "--lora-drain-wait-threshold must be non-negative."
 
+    # 验证分桶规则的格式和参数
     def validate_buckets_rule(self, arg_name: str, buckets_rule: List[str]):
         if not buckets_rule:
             return
@@ -7595,6 +7686,7 @@ class ServerArgs:
                 val >= 0 for val in bucket_values
             ), f"{arg_name} custom rule bucket values should be non-negative"
 
+    # 为视觉语言模型调整静态内存比例
     def adjust_mem_fraction_for_vlm(self, model_config):
         vision_config = getattr(model_config.hf_config, "vision_config", None)
         if vision_config is None:
@@ -7633,6 +7725,7 @@ class ServerArgs:
             original_server_arg_mem_fraction * final_overall_factor
         )
 
+    # 验证TransferEngine是否可用作远程实例权重加载后端
     def validate_transfer_engine(self):
         try:
             mooncake_available = importlib.util.find_spec("mooncake.engine") is not None
@@ -7651,6 +7744,7 @@ class ServerArgs:
         else:
             return True
 
+    # 解析ModelExpress配置为字典
     @property
     def _parsed_modelexpress_config(self) -> dict:
         cache = getattr(self, "_mx_config_cache", None)
@@ -7665,15 +7759,18 @@ class ServerArgs:
         object.__setattr__(self, "_mx_config_cache", result)
         return result
 
+    # 获取ModelExpress的URL
     @property
     def modelexpress_url(self) -> Optional[str]:
         return self._parsed_modelexpress_config.get("url")
 
+    # 获取ModelExpress的传输后端类型
     @property
     def modelexpress_transport(self) -> str:
         """Transport backend for modelexpress."""
         return self._parsed_modelexpress_config.get("transport", "nixl")
 
+    # 判断远程实例权重加载器是否使用TransferEngine
     def remote_instance_weight_loader_use_transfer_engine(self):
         # Use TransferEngine as seed backend.
         if self.remote_instance_weight_loader_start_seed_via_transfer_engine:
@@ -7690,6 +7787,7 @@ class ServerArgs:
         else:
             return False
 
+    # 返回KV事件发布器的结构化描述，供KV感知路由器订阅
     def describe_kv_events_publisher(self) -> Optional[dict]:
         """Return a structured description of this server's KV-event
         publisher, or `None` if publishing is disabled / misconfigured.
@@ -7838,6 +7936,7 @@ DP_ATTENTION_HANDSHAKE_PORT_DELTA = 13
 
 
 @dataclasses.dataclass
+# 端口和IPC通信参数：定义服务器各进程间通信的端口和IPC名称
 class PortArgs:
     # The ipc filename for tokenizer to receive inputs from detokenizer (zmq)
     tokenizer_ipc_name: str
@@ -7866,6 +7965,7 @@ class PortArgs:
     # derive the /dev/shm path for load snapshots.
     instance_id: str = ""
 
+    # 初始化端口和IPC参数：根据服务器配置创建新的PortArgs实例
     @staticmethod
     def init_new(
         server_args: ServerArgs,

@@ -1,3 +1,4 @@
+# 文件名: test_planner.py - 规划器测试
 import sys
 
 import pytest
@@ -24,6 +25,7 @@ register_cpu_ci(est_time=1, suite="base-b-test-cpu")
 
 
 class TestComputeUnsharderPlan:
+    # 测试tp4plan
     def test_tp4_plan(self) -> None:
         dim_specs = parse_dims("b s h[tp] d").dims
         parallel_infos = [
@@ -36,6 +38,7 @@ class TestComputeUnsharderPlan:
         assert plans[0].params.dim_name == "h"
         assert plans[0].groups == [[0, 1, 2, 3]]
 
+    # 测试inconsistentaxissizeraises
     def test_inconsistent_axis_size_raises(self) -> None:
         dim_specs = parse_dims("h[tp]").dims
         parallel_infos = [
@@ -45,6 +48,7 @@ class TestComputeUnsharderPlan:
         with pytest.raises(ValueError, match="Inconsistent axis_size"):
             compute_unsharder_plan(dim_specs, parallel_infos)
 
+    # 测试missingaxisinallparallelinfosskipped
     def test_missing_axis_in_all_parallel_infos_skipped(self) -> None:
         """Axis in dims but absent from all parallel_infos -> axis_size=1, auto-skip.
         But CP is active and undeclared → raises undeclared error."""
@@ -53,11 +57,13 @@ class TestComputeUnsharderPlan:
         with pytest.raises(ValueError, match="not declared"):
             compute_unsharder_plan(dim_specs, parallel_infos)
 
+    # 测试emptyparallelinfosraises
     def test_empty_parallel_infos_raises(self) -> None:
         dim_specs = parse_dims("h[tp]").dims
         with pytest.raises(ValueError, match="must not be empty"):
             compute_unsharder_plan(dim_specs, [])
 
+    # 测试scrambledworldranks
     def test_scrambled_world_ranks(self) -> None:
         """world_rank order != axis_rank order."""
         dim_specs = parse_dims("h[tp]").dims
@@ -71,12 +77,14 @@ class TestComputeUnsharderPlan:
         assert len(plans) == 1
         assert plans[0].groups == [[1, 3, 0, 2]]
 
+    # 测试noshardedaxesreturnsempty
     def test_no_sharded_axes_returns_empty(self) -> None:
         dim_specs = parse_dims("b s d").dims
         parallel_infos = [{}]
         plans = compute_unsharder_plan(dim_specs, parallel_infos)
         assert plans == []
 
+    # 测试multiaxisplan
     def test_multi_axis_plan(self) -> None:
         """Multi-axis (TP + CP) produces a 2-step plan."""
         dim_specs = parse_dims("s[cp] h[tp]").dims
@@ -104,6 +112,7 @@ class TestComputeUnsharderPlan:
         assert plans[0].axis == ParallelAxis.CP
         assert plans[1].axis == ParallelAxis.TP
 
+    # 测试cptpplan
     def test_cp_tp_plan(self) -> None:
         """CP=2 + TP=4 produces correct 2-step plan with correct groups."""
         dim_specs = parse_dims("s[cp] h[tp]").dims
@@ -132,6 +141,7 @@ class TestComputeUnsharderPlan:
         assert len(tp_plan.groups) == 1
         assert len(tp_plan.groups[0]) == 4
 
+    # 测试cptpscrambledranks
     def test_cp_tp_scrambled_ranks(self) -> None:
         """Scrambled rank assignment still produces correct plan."""
         dim_specs = parse_dims("s[cp] h[tp]").dims
@@ -168,6 +178,7 @@ class TestComputeUnsharderPlan:
         assert len(tp_plan.groups) == 1
         assert len(tp_plan.groups[0]) == 2
 
+    # 测试axisrankcoverageincompleteraises
     def test_axis_rank_coverage_incomplete_raises(self) -> None:
         """TP size=4 but only ranks 0,1,3 provided (missing rank 2)."""
         dim_specs = parse_dims("h[tp]").dims
@@ -179,6 +190,7 @@ class TestComputeUnsharderPlan:
         with pytest.raises(ValueError, match="axis_rank coverage.*incomplete"):
             compute_unsharder_plan(dim_specs, parallel_infos)
 
+    # 测试reductionpartialreturnsreducesum
     def test_reduction_partial_returns_reduce_sum(self) -> None:
         dim_specs = parse_dims("h[tp:partial]").dims
         parallel_infos = [
@@ -191,6 +203,7 @@ class TestComputeUnsharderPlan:
         assert isinstance(plans[0].params, ReduceSumParams)
         assert plans[0].groups == [[0, 1]]
 
+    # 测试reductionpartialtp4
     def test_reduction_partial_tp4(self) -> None:
         """TP=4 with partial reduction produces a single ReduceSumParams step."""
         dim_specs = parse_dims("h[tp:partial]").dims
@@ -203,6 +216,7 @@ class TestComputeUnsharderPlan:
         assert isinstance(plans[0].params, ReduceSumParams)
         assert plans[0].groups == [[0, 1, 2, 3]]
 
+    # 测试multiaxiswithreductiononone
     def test_multi_axis_with_reduction_on_one(self) -> None:
         """CP concat + TP reduce produces a 2-step plan."""
         dim_specs = parse_dims("s[cp] h[tp:partial]").dims
@@ -224,6 +238,7 @@ class TestComputeUnsharderPlan:
         assert plans[1].axis == ParallelAxis.TP
         assert isinstance(plans[1].params, ReduceSumParams)
 
+    # 测试reductionscrambledranks
     def test_reduction_scrambled_ranks(self) -> None:
         """Scrambled world_rank order with partial reduction."""
         dim_specs = parse_dims("h[tp:partial]").dims
@@ -239,6 +254,7 @@ class TestComputeUnsharderPlan:
         assert isinstance(plans[0].params, ReduceSumParams)
         assert plans[0].groups == [[1, 3, 0, 2]]
 
+    # 测试orderingzigzagaccepted
     def test_ordering_zigzag_accepted(self) -> None:
         dim_specs = parse_dims("s[cp:zigzag]").dims
         parallel_infos = [
@@ -248,6 +264,7 @@ class TestComputeUnsharderPlan:
         assert len(plans) == 1
         assert plans[0].axis == ParallelAxis.CP
 
+    # 测试orderingnaturalaccepted
     def test_ordering_natural_accepted(self) -> None:
         dim_specs = parse_dims("s[cp:natural]").dims
         parallel_infos = [
@@ -257,6 +274,7 @@ class TestComputeUnsharderPlan:
         assert len(plans) == 1
         assert plans[0].axis == ParallelAxis.CP
 
+    # 测试threeaxisplan
     def test_three_axis_plan(self) -> None:
         """EP=2 + CP=2 + TP=2 produces a 3-step plan."""
         dim_specs = parse_dims("b e[ep] s[cp] h[tp]").dims
@@ -293,6 +311,7 @@ class TestComputeUnsharderPlan:
         assert len(plans[2].groups) == 1
         assert len(plans[2].groups[0]) == 2
 
+    # 测试samedimcpspplan
     def test_same_dim_cp_sp_plan(self) -> None:
         """t[cp:zigzag,sp] with CP=2 SP=2: SP unshards first (inner), then CP."""
         dim_specs = parse_dims("t[cp:zigzag,sp] 1 h").dims
@@ -327,6 +346,7 @@ class TestComputeUnsharderPlan:
         assert len(cp_plan.groups) == 1
         assert len(cp_plan.groups[0]) == 2
 
+    # 测试samedimcpspwiththd
     def test_same_dim_cp_sp_with_thd(self) -> None:
         """t[cp:zigzag,sp] with THD: SP → ConcatParams, CP → CpThdConcatParams."""
         from sglang.srt.debug_utils.comparator.aligner.unsharder.types import (
@@ -364,6 +384,7 @@ class TestComputeUnsharderPlan:
         assert cp_plan.params.dim_name == "t"
         assert cp_plan.params.seq_lens_per_rank == [50, 32]
 
+    # 测试spindimsbutnotinparallelinfo
     def test_sp_in_dims_but_not_in_parallel_info(self) -> None:
         """s[sp] in dims but SP absent from parallel_info (SP disabled), should auto-skip."""
         dim_specs = parse_dims("s[sp] b h[tp]").dims
@@ -375,6 +396,7 @@ class TestComputeUnsharderPlan:
         assert len(plans) == 1
         assert plans[0].axis == ParallelAxis.TP
 
+    # 测试alldimsshardedbutsinglegpu
     def test_all_dims_sharded_but_single_gpu(self) -> None:
         """Single GPU (TP=1, CP=1), dims has s[cp] h[tp] but parallel_info is empty."""
         dim_specs = parse_dims("b s[cp] h[tp] d").dims
@@ -382,6 +404,7 @@ class TestComputeUnsharderPlan:
         plans = compute_unsharder_plan(dim_specs, parallel_infos)
         assert plans == []
 
+    # 测试shardedaxismissingfromrankraises
     def test_sharded_axis_missing_from_rank_raises(self) -> None:
         """A world_rank missing a sharded axis raises ValueError."""
         dim_specs = parse_dims("s[cp] h[tp]").dims
@@ -398,6 +421,7 @@ class TestComputeUnsharderPlan:
         with pytest.raises(ValueError, match="missing parallel_info"):
             compute_unsharder_plan(dim_specs, parallel_infos)
 
+    # 测试tpshardedetpdependentautoresolved
     def test_tp_sharded_etp_dependent_auto_resolved(self) -> None:
         """dims=h[tp], active={TP, ETP, EP}, EP replicated, etp depends on tp → plan succeeds."""
         dim_specs = parse_dims("b h[tp] d # ep:replicated").dims
@@ -423,6 +447,7 @@ class TestComputeUnsharderPlan:
         assert ParallelAxis.EP in axes_in_plan
         assert ParallelAxis.ETP not in axes_in_plan
 
+    # 测试edpjointlydeterminedbytpandcp
     def test_edp_jointly_determined_by_tp_and_cp(self) -> None:
         """dims=t[cp:zigzag,sp] h # tp:replicated, EDP determined by (TP,CP) jointly → plan succeeds.
 
@@ -467,6 +492,7 @@ class TestComputeUnsharderPlan:
 
 
 class TestExplicitReplicatedAxes:
+    # 测试replicatedtpwithshardedcp
     def test_replicated_tp_with_sharded_cp(self) -> None:
         """CP2 TP2, dims='b s[cp] d # tp:replicated' → PickPlan(TP) + ConcatPlan(CP)."""
         dim_specs = parse_dims("b s[cp] d # tp:replicated").dims
@@ -504,6 +530,7 @@ class TestExplicitReplicatedAxes:
         assert isinstance(plans[1].params, ConcatParams)
         assert plans[1].params.dim_name == "s"
 
+    # 测试fullyreplicated
     def test_fully_replicated(self) -> None:
         """CP2 TP2, dims='b h d # cp:replicated tp:replicated' → PickPlan(CP) + PickPlan(TP)."""
         dim_specs = parse_dims("b h d # cp:replicated tp:replicated").dims
@@ -535,6 +562,7 @@ class TestExplicitReplicatedAxes:
         axes = {p.axis for p in plans}
         assert axes == {ParallelAxis.CP, ParallelAxis.TP}
 
+    # 测试multiplereplicatedonesharded
     def test_multiple_replicated_one_sharded(self) -> None:
         """CP2 TP2 EP2, dims='h[tp] # cp:replicated ep:replicated'."""
         dim_specs = parse_dims("h[tp] # cp:replicated ep:replicated").dims
@@ -565,6 +593,7 @@ class TestExplicitReplicatedAxes:
         replicated_axes_in_plan = {p.axis for p in pick_plans}
         assert replicated_axes_in_plan == {ParallelAxis.CP, ParallelAxis.EP}
 
+    # 测试replicatedscrambledranks
     def test_replicated_scrambled_ranks(self) -> None:
         """Scrambled world_rank order with explicit replicated axis."""
         dim_specs = parse_dims("h[tp] # cp:replicated").dims
@@ -597,6 +626,7 @@ class TestExplicitReplicatedAxes:
         assert plans[1].axis == ParallelAxis.TP
         assert isinstance(plans[1].params, ConcatParams)
 
+    # 测试replicatedaxisinconsistentsizeraises
     def test_replicated_axis_inconsistent_size_raises(self) -> None:
         """Replicated axis with inconsistent sizes raises ValueError."""
         dim_specs = parse_dims("h[tp] # cp:replicated").dims
@@ -616,6 +646,7 @@ class TestExplicitReplicatedAxes:
                 dim_specs, parallel_infos, explicit_replicated_axes=replicated
             )
 
+    # 测试replicatedaxismissingfromrankraises
     def test_replicated_axis_missing_from_rank_raises(self) -> None:
         """A rank missing a replicated axis that other ranks have raises ValueError."""
         dim_specs = parse_dims("h[tp] # cp:replicated").dims
@@ -635,6 +666,7 @@ class TestExplicitReplicatedAxes:
                 dim_specs, parallel_infos, explicit_replicated_axes=replicated
             )
 
+    # 测试recomputepseudoautoreplicated
     def test_recompute_pseudo_auto_replicated(self) -> None:
         """RECOMPUTE_PSEUDO is auto-replicated without explicit declaration."""
         dim_specs = parse_dims("h d").dims
@@ -649,6 +681,7 @@ class TestExplicitReplicatedAxes:
         assert isinstance(plans[0].params, PickParams)
         assert plans[0].groups == [[0, 1]]
 
+    # 测试recomputepseudoexplicitreplicatedalsoworks
     def test_recompute_pseudo_explicit_replicated_also_works(self) -> None:
         """RECOMPUTE_PSEUDO with explicit # recompute_pseudo:replicated also works."""
         dim_specs = parse_dims("h d # recompute_pseudo:replicated").dims
@@ -666,6 +699,7 @@ class TestExplicitReplicatedAxes:
         assert isinstance(plans[0].params, PickParams)
         assert plans[0].groups == [[0, 1]]
 
+    # 测试undeclaredactiveaxisraises
     def test_undeclared_active_axis_raises(self) -> None:
         """Active axis not declared as sharded or replicated raises ValueError."""
         dim_specs = parse_dims("b s[cp] d").dims
@@ -690,6 +724,7 @@ class TestExplicitReplicatedAxes:
         with pytest.raises(ValueError, match="tp.*not declared"):
             compute_unsharder_plan(dim_specs, parallel_infos)
 
+    # 测试replicatednotinparallelinfosraises
     def test_replicated_not_in_parallel_infos_raises(self) -> None:
         """Declaring replicated axis not in parallel_infos raises ValueError."""
         dim_specs = parse_dims("h[tp] # ep:replicated").dims
@@ -702,6 +737,7 @@ class TestExplicitReplicatedAxes:
                 dim_specs, parallel_infos, explicit_replicated_axes=replicated
             )
 
+    # 测试explicitreplicatedconflictswithshardedraises
     def test_explicit_replicated_conflicts_with_sharded_raises(self) -> None:
         """Planner-level defense: replicated overlaps sharded → ValueError."""
         dim_specs = parse_dims("h[tp]").dims
@@ -716,6 +752,7 @@ class TestExplicitReplicatedAxes:
 
 
 class TestComputeUnsharderPlanFusedDims:
+    # 测试fuseddimtp2
     def test_fused_dim_tp2(self) -> None:
         """Fused dim "(num_heads*head_dim)[tp]" should unshard on the fused tensor name."""
         dim_specs = parse_dims("t (num_heads*head_dim)[tp]").dims
@@ -730,6 +767,7 @@ class TestComputeUnsharderPlanFusedDims:
         assert plans[0].params.dim_name == "num_heads___head_dim"
         assert plans[0].groups == [[0, 1]]
 
+    # 测试fuseddimmodifieronsecondsub
     def test_fused_dim_modifier_on_second_sub(self) -> None:
         """Modifier on fused dim: "(a*b)[tp]" should produce concat plan."""
         dim_specs = parse_dims("t (a*b)[tp]").dims
@@ -743,6 +781,7 @@ class TestComputeUnsharderPlanFusedDims:
         assert isinstance(plans[0].params, ConcatParams)
         assert plans[0].params.dim_name == "a___b"
 
+    # 测试fuseddimnomodifier
     def test_fused_dim_no_modifier(self) -> None:
         """Fused dim without modifier + explicit replicated TP → PickParams."""
         dim_specs = parse_dims("t (a*b) # tp:replicated").dims
@@ -757,6 +796,7 @@ class TestComputeUnsharderPlanFusedDims:
         assert len(plans) == 1
         assert isinstance(plans[0].params, PickParams)
 
+    # 测试fuseddimwithreduction
     def test_fused_dim_with_reduction(self) -> None:
         """Fused dim with partial reduction: "(a*b)[tp:partial]"."""
         dim_specs = parse_dims("t (a*b)[tp:partial]").dims
@@ -771,6 +811,7 @@ class TestComputeUnsharderPlanFusedDims:
 
 
 class TestAxisContainment:
+    # 测试tpreplicatedautoresolvesdependentaxes
     def test_tp_replicated_auto_resolves_dependent_axes(self) -> None:
         """tp:replicated + attn_tp/moe_tp active but undeclared → no error, correct pick."""
         dim_specs = parse_dims("t h # tp:replicated").dims
@@ -806,6 +847,7 @@ class TestAxisContainment:
         assert isinstance(plans[0].params, PickParams)
         assert plans[0].groups == [[0, 1, 2, 3]]
 
+    # 测试independentaxisstillrequiresdeclaration
     def test_independent_axis_still_requires_declaration(self) -> None:
         """cp independent of tp → cp undeclared still raises."""
         dim_specs = parse_dims("t h # tp:replicated").dims
@@ -833,6 +875,7 @@ class TestAxisContainment:
                 dim_specs, parallel_infos, explicit_replicated_axes=replicated
             )
 
+    # 测试backwardcompatexplicitchildren
     def test_backward_compat_explicit_children(self) -> None:
         """Both tp:replicated and attn_tp:replicated → ValueError (not orthogonal)."""
         dim_specs = parse_dims(
@@ -873,6 +916,7 @@ class TestDpFilteredAxis:
     """Tests for dp_filtered_axis parameter: DP axis handled by upstream DP filter
     should be excluded from unsharder validation."""
 
+    # 测试dpfilteredskipsundeclarederror
     def test_dp_filtered_skips_undeclared_error(self) -> None:
         """DP active but dp_filtered_axis=DP → no error, no DP plan produced."""
         dim_specs = parse_dims("b h d").dims
@@ -884,6 +928,7 @@ class TestDpFilteredAxis:
         )
         assert plans == []
 
+    # 测试dpfilteredwithshardedtp
     def test_dp_filtered_with_sharded_tp(self) -> None:
         """DP2 + TP2, dims='t h[tp]', dp_filtered_axis=DP → only TP concat plan."""
         dim_specs = parse_dims("t h[tp]").dims
@@ -905,6 +950,7 @@ class TestDpFilteredAxis:
         assert plans[0].axis == ParallelAxis.TP
         assert isinstance(plans[0].params, ConcatParams)
 
+    # 测试dpfilteredwithreplicatedtp
     def test_dp_filtered_with_replicated_tp(self) -> None:
         """DP2 + TP2, dims='b h # tp:replicated', dp_filtered_axis=DP → only TP pick plan."""
         dim_specs = parse_dims("b h # tp:replicated").dims
@@ -930,6 +976,7 @@ class TestDpFilteredAxis:
         assert plans[0].axis == ParallelAxis.TP
         assert isinstance(plans[0].params, PickParams)
 
+    # 测试dpfiltereddoesnotaffectotherundeclared
     def test_dp_filtered_does_not_affect_other_undeclared(self) -> None:
         """DP filtered + EP active but undeclared (independent of TP) → still raises for EP."""
         dim_specs = parse_dims("t h[tp]").dims
@@ -947,6 +994,7 @@ class TestDpFilteredAxis:
                 dim_specs, parallel_infos, dp_filtered_axis=ParallelAxis.DP
             )
 
+    # 测试dpfilterednonestillraisesforundeclareddp
     def test_dp_filtered_none_still_raises_for_undeclared_dp(self) -> None:
         """Default dp_filtered_axis=None, DP active but undeclared (independent of TP) → raises."""
         dim_specs = parse_dims("t h[tp]").dims
@@ -961,6 +1009,7 @@ class TestDpFilteredAxis:
         with pytest.raises(ValueError, match="dp.*not declared"):
             compute_unsharder_plan(dim_specs, parallel_infos)
 
+    # 测试dpfilteredcustomalias
     def test_dp_filtered_custom_alias(self) -> None:
         """dp_filtered_axis=MOE_DP (custom alias) skips undeclared error for moe_dp."""
         dim_specs = parse_dims("t h[tp]").dims
@@ -981,6 +1030,7 @@ class TestDpFilteredAxis:
         assert len(plans) == 1
         assert plans[0].axis == ParallelAxis.TP
 
+    # 测试dpfilterednotinparallelinfosisharmless
     def test_dp_filtered_not_in_parallel_infos_is_harmless(self) -> None:
         """dp_filtered_axis=DP but DP not in parallel_infos → no error, no effect."""
         dim_specs = parse_dims("t h[tp]").dims
@@ -994,6 +1044,7 @@ class TestDpFilteredAxis:
         assert len(plans) == 1
         assert plans[0].axis == ParallelAxis.TP
 
+    # 测试dpfilteredwithmultiaxissharding
     def test_dp_filtered_with_multi_axis_sharding(self) -> None:
         """DP2 + TP2 + CP2, dims='s[cp] h[tp]', dp_filtered_axis=DP → CP+TP plans only."""
         dim_specs = parse_dims("s[cp] h[tp]").dims
@@ -1017,6 +1068,7 @@ class TestDpFilteredAxis:
 
 
 class TestIsDependentAxis:
+    # 测试childdeterminedbyparent
     def test_child_determined_by_parent(self) -> None:
         """attn_tp uniquely determined by tp → dependent."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1041,6 +1093,7 @@ class TestIsDependentAxis:
             parallel_infos, parent=ParallelAxis.TP, child=ParallelAxis.ATTN_TP
         )
 
+    # 测试childnotdeterminedbyparent
     def test_child_not_determined_by_parent(self) -> None:
         """dp varies independently of tp → not dependent."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1065,6 +1118,7 @@ class TestIsDependentAxis:
             parallel_infos, parent=ParallelAxis.TP, child=ParallelAxis.DP
         )
 
+    # 测试parentabsentfromallinfos
     def test_parent_absent_from_all_infos(self) -> None:
         """Parent axis not in any info → vacuously True."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1075,6 +1129,7 @@ class TestIsDependentAxis:
             parallel_infos, parent=ParallelAxis.TP, child=ParallelAxis.DP
         )
 
+    # 测试childabsentfromallinfos
     def test_child_absent_from_all_infos(self) -> None:
         """Child axis not in any info → vacuously True."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1085,6 +1140,7 @@ class TestIsDependentAxis:
             parallel_infos, parent=ParallelAxis.TP, child=ParallelAxis.DP
         )
 
+    # 测试singleinfoalwaysdependent
     def test_single_info_always_dependent(self) -> None:
         """With one info entry, any pair is trivially dependent."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1097,6 +1153,7 @@ class TestIsDependentAxis:
             parallel_infos, parent=ParallelAxis.TP, child=ParallelAxis.DP
         )
 
+    # 测试childmissingfromsomeinfosbutconsistent
     def test_child_missing_from_some_infos_but_consistent(self) -> None:
         """Child absent from some infos but consistent where present → dependent."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1117,12 +1174,14 @@ class TestIsDependentAxis:
             parallel_infos, parent=ParallelAxis.TP, child=ParallelAxis.ATTN_TP
         )
 
+    # 测试emptyparallelinfos
     def test_empty_parallel_infos(self) -> None:
         """No infos → vacuously True."""
         assert _is_dependent_axis(
             [], parent=ParallelAxis.TP, child=ParallelAxis.ATTN_TP
         )
 
+    # 测试sameparentrankdifferentchildranks
     def test_same_parent_rank_different_child_ranks(self) -> None:
         """Explicit conflict: parent_rank=0 maps to child_rank=0 and child_rank=1."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1141,6 +1200,7 @@ class TestIsDependentAxis:
 
 
 class TestComputeDependentAxes:
+    # 测试dependentchildfound
     def test_dependent_child_found(self) -> None:
         """parent={TP}, candidate={ETP}, etp depends on tp → returns {ETP}."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1160,6 +1220,7 @@ class TestComputeDependentAxes:
         )
         assert result == frozenset({ParallelAxis.ETP})
 
+    # 测试independentchildnotfound
     def test_independent_child_not_found(self) -> None:
         """parent={TP}, candidate={CP}, cp independent → returns empty."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1187,6 +1248,7 @@ class TestComputeDependentAxes:
         )
         assert result == frozenset()
 
+    # 测试multipleparents
     def test_multiple_parents(self) -> None:
         """parent={TP, EP}, candidate={ETP, MOE_EP}, both dependent → returns both."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1224,6 +1286,7 @@ class TestComputeDependentAxes:
 
 
 class TestValidateExplicitReplicated:
+    # 测试validallaxesdeclared
     def test_valid_all_axes_declared(self) -> None:
         """All axes declared as sharded or replicated → no error."""
         _validate_explicit_replicated(
@@ -1238,6 +1301,7 @@ class TestValidateExplicitReplicated:
             ],
         )
 
+    # 测试replicatednotinallaxesraises
     def test_replicated_not_in_all_axes_raises(self) -> None:
         """Declaring replicated axis absent from all_axes → ValueError."""
         with pytest.raises(ValueError, match="not found in parallel_infos"):
@@ -1250,6 +1314,7 @@ class TestValidateExplicitReplicated:
                 ],
             )
 
+    # 测试replicatedconflictswithshardedraises
     def test_replicated_conflicts_with_sharded_raises(self) -> None:
         """Same axis declared sharded and replicated → ValueError."""
         with pytest.raises(ValueError, match="both sharded and replicated"):
@@ -1262,6 +1327,7 @@ class TestValidateExplicitReplicated:
                 ],
             )
 
+    # 测试undeclaredactiveaxisraises
     def test_undeclared_active_axis_raises(self) -> None:
         """Active axis not sharded/replicated/implicitly_replicated → ValueError."""
         with pytest.raises(ValueError, match="dp.*not declared"):
@@ -1289,6 +1355,7 @@ class TestValidateExplicitReplicated:
                 ],
             )
 
+    # 测试dependentchildimplicitlyreplicated
     def test_dependent_child_implicitly_replicated(self) -> None:
         """Child axis dependent on replicated parent → no error (implicitly replicated)."""
         _validate_explicit_replicated(
@@ -1319,6 +1386,7 @@ class TestValidateExplicitReplicated:
             ],
         )
 
+    # 测试dpfilteredaxisexcludedfromundeclared
     def test_dp_filtered_axis_excluded_from_undeclared(self) -> None:
         """dp_filtered_axis is exempt from undeclared check."""
         _validate_explicit_replicated(
@@ -1334,6 +1402,7 @@ class TestValidateExplicitReplicated:
             dp_filtered_axis=ParallelAxis.DP,
         )
 
+    # 测试dpfiltereddoesnotexemptotheraxes
     def test_dp_filtered_does_not_exempt_other_axes(self) -> None:
         """dp_filtered_axis=DP, but EP still undeclared (independent of TP) → raises."""
         with pytest.raises(ValueError, match="ep.*not declared"):
@@ -1353,6 +1422,7 @@ class TestValidateExplicitReplicated:
                 dp_filtered_axis=ParallelAxis.DP,
             )
 
+    # 测试independentchildnotimplicitlyreplicated
     def test_independent_child_not_implicitly_replicated(self) -> None:
         """Child axis independent of replicated parent → still raises."""
         with pytest.raises(ValueError, match="dp.*not declared"):
@@ -1380,6 +1450,7 @@ class TestValidateExplicitReplicated:
                 ],
             )
 
+    # 测试shardedaxisdeterminesundeclaredimplicitlysharded
     def test_sharded_axis_determines_undeclared_implicitly_sharded(self) -> None:
         """TP sharded, ETP dependent on TP → no error (implicitly sharded)."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = []
@@ -1399,6 +1470,7 @@ class TestValidateExplicitReplicated:
             parallel_infos=parallel_infos,
         )
 
+    # 测试shardedaxisdoesnotresolveindependentchild
     def test_sharded_axis_does_not_resolve_independent_child(self) -> None:
         """TP sharded, CP active but independent of TP → still raises."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1427,6 +1499,7 @@ class TestValidateExplicitReplicated:
                 parallel_infos=parallel_infos,
             )
 
+    # 测试noaxesatall
     def test_no_axes_at_all(self) -> None:
         """Empty axes sets → no error."""
         _validate_explicit_replicated(
@@ -1436,6 +1509,7 @@ class TestValidateExplicitReplicated:
             parallel_infos=[{}],
         )
 
+    # 测试jointlydeterminedaxispasses
     def test_jointly_determined_axis_passes(self) -> None:
         """EDP determined by (TP, CP) jointly but not by either alone → no error.
 
@@ -1480,6 +1554,7 @@ class TestValidateExplicitReplicated:
             parallel_infos=parallel_infos,
         )
 
+    # 测试jointlyundeterminedaxisstillraises
     def test_jointly_undetermined_axis_still_raises(self) -> None:
         """Axis not determined even by the combination of all declared axes → raises.
 
@@ -1504,6 +1579,7 @@ class TestValidateExplicitReplicated:
 
 
 class TestIsJointlyDetermined:
+    # 测试edpdeterminedbytpandcp
     def test_edp_determined_by_tp_and_cp(self) -> None:
         """EDP rank = unique per (TP, CP) combination → True."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1534,6 +1610,7 @@ class TestIsJointlyDetermined:
             child=ParallelAxis.EDP,
         )
 
+    # 测试dpnotdeterminedbytpalone
     def test_dp_not_determined_by_tp_alone(self) -> None:
         """DP is orthogonal to TP → False."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1550,6 +1627,7 @@ class TestIsJointlyDetermined:
             child=ParallelAxis.DP,
         )
 
+    # 测试emptyparallelinfosreturnsfalse
     def test_empty_parallel_infos_returns_false(self) -> None:
         """No parallel_info entries → False (no evidence)."""
         assert not _is_jointly_determined(
@@ -1558,6 +1636,7 @@ class TestIsJointlyDetermined:
             child=ParallelAxis.EDP,
         )
 
+    # 测试childabsentfrominfosreturnsfalse
     def test_child_absent_from_infos_returns_false(self) -> None:
         """Child axis not present in any info → False."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1569,6 +1648,7 @@ class TestIsJointlyDetermined:
             child=ParallelAxis.EDP,
         )
 
+    # 测试emptyparentaxesreturnsfalse
     def test_empty_parent_axes_returns_false(self) -> None:
         """Empty parent_axes → False (no parents to determine child)."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1583,6 +1663,7 @@ class TestIsJointlyDetermined:
             child=ParallelAxis.EDP,
         )
 
+    # 测试singleparentdetermineschild
     def test_single_parent_determines_child(self) -> None:
         """Single parent tp_rank uniquely maps to edp_rank → True (degenerate joint case)."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1601,6 +1682,7 @@ class TestIsJointlyDetermined:
             child=ParallelAxis.EDP,
         )
 
+    # 测试conflictreturnsfalse
     def test_conflict_returns_false(self) -> None:
         """Same (tp_rank, cp_rank) maps to different edp_rank → False."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1621,6 +1703,7 @@ class TestIsJointlyDetermined:
             child=ParallelAxis.EDP,
         )
 
+    # 测试twoparentsjointlydeterminechild
     def test_two_parents_jointly_determine_child(self) -> None:
         """(tp_rank, cp_rank) tuple uniquely determines edp_rank → True."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1651,6 +1734,7 @@ class TestIsJointlyDetermined:
             child=ParallelAxis.EDP,
         )
 
+    # 测试threeparentsjointlydeterminechild
     def test_three_parents_jointly_determine_child(self) -> None:
         """(tp, cp, ep) triple uniquely determines edp → True."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1670,6 +1754,7 @@ class TestIsJointlyDetermined:
             child=ParallelAxis.EDP,
         )
 
+    # 测试parentpartiallyabsentcausesambiguity
     def test_parent_partially_absent_causes_ambiguity(self) -> None:
         """Some infos lack a parent axis → False, even if child values differ.
 
@@ -1694,6 +1779,7 @@ class TestIsJointlyDetermined:
             child=ParallelAxis.EDP,
         )
 
+    # 测试partialparentfirstinfomissingreturnsfalse
     def test_partial_parent_first_info_missing_returns_false(self) -> None:
         """First info lacks a parent axis; second info has all parents → False."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1714,6 +1800,7 @@ class TestIsJointlyDetermined:
             child=ParallelAxis.EDP,
         )
 
+    # 测试universallyabsentparentignoredremainingdetermines
     def test_universally_absent_parent_ignored_remaining_determines(self) -> None:
         """Parent axis absent from ALL infos is ignored; remaining parent determines child → True.
 
@@ -1736,6 +1823,7 @@ class TestIsJointlyDetermined:
             child=ParallelAxis.EDP,
         )
 
+    # 测试allparentsuniversallyabsentreturnsfalse
     def test_all_parents_universally_absent_returns_false(self) -> None:
         """Every parent axis absent from ALL infos → no active parents → False."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1752,6 +1840,7 @@ class TestIsJointlyDetermined:
             child=ParallelAxis.EDP,
         )
 
+    # 测试universallyabsentparentremainingconflictreturnsfalse
     def test_universally_absent_parent_remaining_conflict_returns_false(self) -> None:
         """Parent axis absent from ALL infos ignored, but remaining parent has conflict → False."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1770,6 +1859,7 @@ class TestIsJointlyDetermined:
             child=ParallelAxis.EDP,
         )
 
+    # 测试partialparentmatchingchildstillreturnsfalse
     def test_partial_parent_matching_child_still_returns_false(self) -> None:
         """Even when child values match across infos, incomplete parent → False.
 
@@ -1793,6 +1883,7 @@ class TestIsJointlyDetermined:
             child=ParallelAxis.EDP,
         )
 
+    # 测试manyinfosconsistentjointmapping
     def test_many_infos_consistent_joint_mapping(self) -> None:
         """8 ranks with (tp, cp) consistently mapping to edp → True."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1812,6 +1903,7 @@ class TestIsJointlyDetermined:
             child=ParallelAxis.EDP,
         )
 
+    # 测试partialparentmiddleinfomissingreturnsfalse
     def test_partial_parent_middle_info_missing_returns_false(self) -> None:
         """Middle info in a 3-info list lacks a parent → False."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1837,6 +1929,7 @@ class TestIsJointlyDetermined:
             child=ParallelAxis.EDP,
         )
 
+    # 测试childabsentfromsomeinfosstilltrue
     def test_child_absent_from_some_infos_still_true(self) -> None:
         """Child absent from some infos but consistent where present → True.
 
@@ -1865,6 +1958,7 @@ class TestIsJointlyDetermined:
             child=ParallelAxis.EDP,
         )
 
+    # 测试childabsentfromallinfosreturnsfalse
     def test_child_absent_from_all_infos_returns_false(self) -> None:
         """Child not present in any info → mapping is empty → False."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1877,6 +1971,7 @@ class TestIsJointlyDetermined:
             child=ParallelAxis.CP,
         )
 
+    # 测试parentpresentinsomebutmissingwithchildreturnsfalse
     def test_parent_present_in_some_but_missing_with_child_returns_false(self) -> None:
         """Parent present in some infos but absent in an info that has child.
 
@@ -1901,6 +1996,7 @@ class TestIsJointlyDetermined:
             child=ParallelAxis.EDP,
         )
 
+    # 测试singleinfowithallaxesreturnstrue
     def test_single_info_with_all_axes_returns_true(self) -> None:
         """Single info entry with parent and child → trivially determined → True."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1920,6 +2016,7 @@ class TestReplicatedAxesOrthogonality:
     """Tests for _validate_replicated_axes_orthogonal: every pair of explicitly
     replicated axes must be fully orthogonal (no dependency relationship)."""
 
+    # 测试tpdeterminesmoetpraises
     def test_tp_determines_moe_tp_raises(self) -> None:
         """TP4 + MOE_TP2 where tp_rank determines moe_tp_rank → ValueError."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1948,6 +2045,7 @@ class TestReplicatedAxesOrthogonality:
                 parallel_infos=parallel_infos,
             )
 
+    # 测试tpdeterminesspidenticalgroupraises
     def test_tp_determines_sp_identical_group_raises(self) -> None:
         """TP2 + SP2 where sp_rank == tp_rank → ValueError."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -1966,6 +2064,7 @@ class TestReplicatedAxesOrthogonality:
                 parallel_infos=parallel_infos,
             )
 
+    # 测试threeaxestwooverlappingpairsraises
     def test_three_axes_two_overlapping_pairs_raises(self) -> None:
         """TP4 + ATTN_TP2 + MOE_TP2, TP determines both → error mentions two pairs."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -2001,6 +2100,7 @@ class TestReplicatedAxesOrthogonality:
         assert "attn_tp" in msg
         assert "moe_tp" in msg
 
+    # 测试threeaxesoneoverlaponeorthogonalraises
     def test_three_axes_one_overlap_one_orthogonal_raises(self) -> None:
         """TP4 + MOE_TP2 (dependent) + CP2 (independent) → only tp/moe_tp pair errors."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = []
@@ -2026,6 +2126,7 @@ class TestReplicatedAxesOrthogonality:
         assert "moe_tp" in msg
         assert "cp" not in msg
 
+    # 测试singlereplicatedaxisnocheck
     def test_single_replicated_axis_no_check(self) -> None:
         """Only one replicated axis → no orthogonality check needed, passes."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [
@@ -2037,6 +2138,7 @@ class TestReplicatedAxesOrthogonality:
             parallel_infos=parallel_infos,
         )
 
+    # 测试twoindependentaxesok
     def test_two_independent_axes_ok(self) -> None:
         """TP2 + CP2 fully orthogonal → no error."""
         parallel_infos: list[dict[ParallelAxis, AxisInfo]] = [

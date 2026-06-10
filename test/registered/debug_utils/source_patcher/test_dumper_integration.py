@@ -1,3 +1,4 @@
+# 文件名: test_dumper_integration.py - 转储器集成测试
 """Test dumper.apply_source_patches() integration with source_patcher."""
 
 from pathlib import Path
@@ -15,11 +16,13 @@ SAMPLE_MODULE_NAME = "_source_patcher_test_fixtures.sample_module"
 
 
 class TestDumperApplySourcePatches:
+    # 测试noconfigisnoop
     def test_no_config_is_noop(self) -> None:
         config = DumperConfig(source_patcher_config=None)
         d = _Dumper(config=config)
         d.apply_source_patches()
 
+    # 测试patchesappliedfromyaml
     def test_patches_applied_from_yaml(
         self, sample_module: ModuleType, tmp_path: Path
     ) -> None:

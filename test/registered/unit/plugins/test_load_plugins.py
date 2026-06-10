@@ -1,3 +1,4 @@
+# 文件名: test_load_plugins.py - 加载插件
 """
 Unit tests for the plugin loading flow.
 
@@ -22,6 +23,7 @@ from sglang.test.test_utils import CustomTestCase
 register_cpu_ci(est_time=7, suite="base-a-test-cpu")
 
 
+# 内部方法_make_ep
 def _make_ep(name, dist_name=None, load_fn=None):
     """Create a mock entry point."""
     ep = MagicMock()
@@ -36,6 +38,7 @@ def _make_ep(name, dist_name=None, load_fn=None):
     return ep
 
 
+# 内部方法_reset_plugins_loaded
 def _reset_plugins_loaded():
     """Reset the _plugins_loaded flag so load_plugins() can run again."""
     import sglang.srt.plugins as plugins_mod
@@ -43,18 +46,22 @@ def _reset_plugins_loaded():
     plugins_mod._plugins_loaded = False
 
 
+# TestLoadPlugins类
 class TestLoadPlugins(CustomTestCase):
     """Tests for load_plugins() and related helpers."""
 
     def setUp(self):
         _reset_plugins_loaded()
 
+    # TestLoadPlugins类的测试清理
     def tearDown(self):
         _reset_plugins_loaded()
 
     @patch("sglang.srt.plugins.HookRegistry")
     @patch("sglang.srt.plugins.envs")
     @patch("sglang.srt.plugins.entry_points", return_value=[])
+
+    # TestLoadPlugins类的测试loadpluginsidempotentandcallsapply
     def test_load_plugins_idempotent_and_calls_apply(
         self, mock_eps, mock_envs, mock_registry
     ):
@@ -63,24 +70,28 @@ class TestLoadPlugins(CustomTestCase):
         mock_envs.SGLANG_PLUGINS.get.return_value = ""
 
         load_plugins()
-        self.assertEqual(mock_registry.apply_hooks.call_count, 1)
+        self.assertEqual(mock_registry.apply_hooks.call_count, 1)  # 断言相等
 
         load_plugins()  # should be skipped
-        self.assertEqual(mock_registry.apply_hooks.call_count, 1)
+        self.assertEqual(mock_registry.apply_hooks.call_count, 1)  # 断言相等
 
     @patch("sglang.srt.plugins.HookRegistry")
     @patch("sglang.srt.plugins.envs")
     @patch("sglang.srt.plugins.entry_points")
+
+    # TestLoadPlugins类的测试pluginexceptiondoesnotcrash
     def test_plugin_exception_does_not_crash(self, mock_eps, mock_envs, mock_registry):
         """A failing plugin should not prevent others from loading."""
         mock_envs.SGLANG_PLATFORM.get.return_value = ""
         mock_envs.SGLANG_PLUGINS.get.return_value = ""
 
+        # bad_plugin
         def bad_plugin():
-            raise RuntimeError("boom")
+            raise RuntimeError("boom")  # 抛出异常
 
         good_call_log = []
 
+        # good_plugin
         def good_plugin():
             good_call_log.append("ok")
 
@@ -93,12 +104,14 @@ class TestLoadPlugins(CustomTestCase):
         with self.assertLogs("sglang.srt.plugins", level="ERROR") as cm:
             load_plugins()
 
-        self.assertTrue(any("boom" in msg for msg in cm.output))
-        self.assertEqual(good_call_log, ["ok"])
+        self.assertTrue(any("boom" in msg for msg in cm.output))  # 断言为真
+        self.assertEqual(good_call_log, ["ok"])  # 断言相等
         mock_registry.apply_hooks.assert_called_once()
 
     @patch("sglang.srt.plugins.entry_points")
     @patch("sglang.srt.plugins.envs")
+
+    # TestLoadPlugins类的测试sglangpluginswhitelist
     def test_sglang_plugins_whitelist(self, mock_envs, mock_eps):
         """Only plugins named in SGLANG_PLUGINS should be loaded."""
         mock_envs.SGLANG_PLUGINS.get.return_value = "alpha,gamma"
@@ -116,17 +129,19 @@ class TestLoadPlugins(CustomTestCase):
         mock_eps.return_value = eps
 
         result = load_plugins_by_group("test.group")
-        self.assertIn("alpha", result)
-        self.assertNotIn("beta", result)
-        self.assertIn("gamma", result)
+        self.assertIn("alpha", result)  # 断言包含
+        self.assertNotIn("beta", result)  # 断言不包含
+        self.assertIn("gamma", result)  # 断言包含
 
     @patch("sglang.srt.plugins.entry_points")
     @patch("sglang.srt.plugins.envs")
+
+    # TestLoadPlugins类的测试excludeddists
     def test_excluded_dists(self, mock_envs, mock_eps):
         """SGLANG_PLATFORM excludes other platform dists; empty when unset."""
         # Case 1: no env set → empty
         mock_envs.SGLANG_PLATFORM.get.return_value = ""
-        self.assertEqual(_get_excluded_dists(), set())
+        self.assertEqual(_get_excluded_dists(), set())  # 断言相等
 
         # Case 2: env set → exclude other dists
         mock_envs.SGLANG_PLATFORM.get.return_value = "kunlun"
@@ -135,18 +150,21 @@ class TestLoadPlugins(CustomTestCase):
         mock_eps.return_value = [ep_kunlun, ep_other]
 
         excluded = _get_excluded_dists()
-        self.assertNotIn("kunlun-pkg", excluded)
-        self.assertIn("other-pkg", excluded)
+        self.assertNotIn("kunlun-pkg", excluded)  # 断言不包含
+        self.assertIn("other-pkg", excluded)  # 断言包含
 
     @patch("sglang.srt.plugins.HookRegistry")
     @patch("sglang.srt.plugins.envs")
     @patch("sglang.srt.plugins.entry_points")
+
+    # TestLoadPlugins类的测试currentpluginsourcesetduringandresetafter
     def test_current_plugin_source_set_during_and_reset_after(
         self, mock_eps, mock_envs, mock_registry
     ):
         """_current_plugin_source is set during plugin execution, reset after."""
         sources_seen = []
 
+        # spy_plugin
         def spy_plugin():
             sources_seen.append(_current_plugin_source.get())
 
@@ -156,15 +174,17 @@ class TestLoadPlugins(CustomTestCase):
 
         load_plugins()
         # During execution: source was set (not None)
-        self.assertEqual(len(sources_seen), 1)
-        self.assertIsNotNone(sources_seen[0])
-        self.assertEqual(sources_seen[0].plugin_name, "spy")
+        self.assertEqual(len(sources_seen), 1)  # 断言相等
+        self.assertIsNotNone(sources_seen[0])  # 断言不为None
+        self.assertEqual(sources_seen[0].plugin_name, "spy")  # 断言相等
         # After execution: source is back to None
-        self.assertIsNone(_current_plugin_source.get())
+        self.assertIsNone(_current_plugin_source.get())  # 断言为None
 
     @patch("sglang.srt.plugins.HookRegistry")
     @patch("sglang.srt.plugins.envs")
     @patch("sglang.srt.plugins.entry_points")
+
+    # TestLoadPlugins类的测试currentpluginsourceresetafterexception
     def test_current_plugin_source_reset_after_exception(
         self, mock_eps, mock_envs, mock_registry
     ):
@@ -172,13 +192,14 @@ class TestLoadPlugins(CustomTestCase):
         mock_envs.SGLANG_PLATFORM.get.return_value = ""
         mock_envs.SGLANG_PLUGINS.get.return_value = ""
 
+        # bad_plugin
         def bad_plugin():
-            raise RuntimeError("boom")
+            raise RuntimeError("boom")  # 抛出异常
 
         mock_eps.return_value = [_make_ep("bad", load_fn=bad_plugin)]
 
         load_plugins()
-        self.assertIsNone(_current_plugin_source.get())
+        self.assertIsNone(_current_plugin_source.get())  # 断言为None
 
 
 if __name__ == "__main__":

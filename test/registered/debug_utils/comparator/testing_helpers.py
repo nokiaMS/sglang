@@ -1,3 +1,4 @@
+# 文件名: testing_helpers.py - 测试辅助工具
 """Shared test helpers for comparator tests."""
 
 from __future__ import annotations
@@ -40,6 +41,7 @@ DEFAULT_ABS_DIFF_PERCENTILES: dict[int, float] = {
 }
 
 
+# 执行makestats
 def make_stats(
     mean: float = 0.0,
     abs_mean: float = 0.8,
@@ -58,6 +60,7 @@ def make_stats(
     )
 
 
+# 执行makediff
 def make_diff(
     rel_diff: float = 0.0001,
     max_abs_diff: float = 0.0005,
@@ -86,6 +89,7 @@ def make_diff(
 _ANSI_ESCAPE_RE = re.compile(r"\033\[([0-9;]*)m")
 
 
+# 执行assertrichtagsbalanced
 def assert_rich_tags_balanced(markup: str) -> None:
     """Render Rich markup to ANSI and verify no styles are active at the end.
 
@@ -115,6 +119,7 @@ def assert_rich_tags_balanced(markup: str) -> None:
     )
 
 
+# 执行maketensorinfo
 def make_tensor_info(
     shape: Optional[list[int]] = None,
     dtype: str = "torch.float32",

@@ -1,3 +1,4 @@
+# 文件名: test_decode_radix_lock_ref.py - 解码基数锁引用
 """
 Unit tests for lock_ref correctness in decode disagg radix cache scenarios.
 
@@ -39,6 +40,7 @@ from sglang.srt.mem_cache.base_prefix_cache import (
 from sglang.srt.mem_cache.radix_cache import RadixCache, RadixKey
 
 
+# 内部方法_make_cache_with_pools
 def _make_cache_with_pools(page_size=1):
     """Create a RadixCache with mock pools sufficient for cache_unfinished/finished_req."""
     mock_allocator = MagicMock()
@@ -62,6 +64,7 @@ def _make_cache_with_pools(page_size=1):
     return cache, req_to_token
 
 
+# MockReq类
 class MockReq:
     """Minimal mock Req with fields needed by cache_unfinished/finished_req."""
 
@@ -81,18 +84,22 @@ class MockReq:
         self.kv_allocated_len = len(fill_ids)
         self.kv_committed_freed = False
 
+    # MockReq类的pop_committed_kv_cache
     def pop_committed_kv_cache(self):
         self.kv_committed_freed = True
         return self.kv_committed_len
 
+    # MockReq类的pop_overallocated_kv_cache
     def pop_overallocated_kv_cache(self):
         return (self.kv_committed_len, self.kv_allocated_len)
 
 
+# 内部方法_make_req
 def _make_req(fill_ids, req_pool_idx=0, cache_protected_len=0, last_node=None):
     return MockReq(fill_ids, req_pool_idx, cache_protected_len, last_node)
 
 
+# TestDecodeLockRefScenarios类
 class TestDecodeLockRefScenarios(unittest.TestCase):
     """Test lock_ref balance across decode transfer scenarios."""
 
@@ -105,6 +112,7 @@ class TestDecodeLockRefScenarios(unittest.TestCase):
             )
         )
 
+    # TestDecodeLockRefScenarios类的测试incrementaltransfersuccess
     def test_incremental_transfer_success(self):
         """Scenario 1: prefix match > 0, transfer succeeds.
 
@@ -123,11 +131,11 @@ class TestDecodeLockRefScenarios(unittest.TestCase):
         result = cache.match_prefix(MatchPrefixParams(key=RadixKey(array("q", prefix))))
         matched_node = result.last_device_node
         prefix_len = len(result.device_indices)
-        self.assertEqual(prefix_len, 3)
+        self.assertEqual(prefix_len, 3)  # 断言相等
 
         # Step 1: inc_lock_ref (pop_preallocated locks the matched node)
         cache.inc_lock_ref(matched_node)
-        self.assertGreater(matched_node.lock_ref, 0)
+        self.assertGreater(matched_node.lock_ref, 0)  # 断言大于
 
         # Simulate _pre_alloc: write prefix + new tokens to req_to_token
         full_ids = [1, 2, 3, 4, 5]  # prefix + 2 new tokens
@@ -149,11 +157,12 @@ class TestDecodeLockRefScenarios(unittest.TestCase):
 
         # Verify: all non-root nodes should have lock_ref == 0
         # (root always has lock_ref == 1)
-        self.assertEqual(cache.root_node.lock_ref, 1)
-        self.assertEqual(cache.protected_size(), 0)
+        self.assertEqual(cache.root_node.lock_ref, 1)  # 断言相等
+        self.assertEqual(cache.protected_size(), 0)  # 断言相等
         # The evictable size should equal total inserted tokens
-        self.assertEqual(cache.evictable_size(), len(full_ids))
+        self.assertEqual(cache.evictable_size(), len(full_ids))  # 断言相等
 
+    # TestDecodeLockRefScenarios类的测试fulltransfersuccess
     def test_full_transfer_success(self):
         """Scenario 2: no prefix match, full KV transferred, succeeds.
 
@@ -169,7 +178,7 @@ class TestDecodeLockRefScenarios(unittest.TestCase):
             MatchPrefixParams(key=RadixKey(array("q", full_ids)))
         )
         matched_node = result.last_device_node
-        self.assertEqual(len(result.device_indices), 0)  # no match
+        self.assertEqual(len(result.device_indices), 0)  # no match  # 断言相等
         # matched_node is root
 
         root_lock_before = cache.root_node.lock_ref
@@ -177,7 +186,7 @@ class TestDecodeLockRefScenarios(unittest.TestCase):
         # Note: inc/dec_lock_ref skip the root node (while node != root_node),
         # so this is a no-op. Root always keeps lock_ref=1.
         cache.inc_lock_ref(matched_node)
-        self.assertEqual(cache.root_node.lock_ref, root_lock_before)  # no-op on root
+        self.assertEqual(cache.root_node.lock_ref, root_lock_before)  # no-op on root  # 断言相等
 
         # Write full KV to pool
         full_vals = [100, 200, 300]
@@ -197,10 +206,11 @@ class TestDecodeLockRefScenarios(unittest.TestCase):
         cache.cache_finished_req(req)
 
         # Root lock unchanged, all nodes unlocked
-        self.assertEqual(cache.root_node.lock_ref, root_lock_before)
-        self.assertEqual(cache.protected_size(), 0)
-        self.assertEqual(cache.evictable_size(), len(full_ids))
+        self.assertEqual(cache.root_node.lock_ref, root_lock_before)  # 断言相等
+        self.assertEqual(cache.protected_size(), 0)  # 断言相等
+        self.assertEqual(cache.evictable_size(), len(full_ids))  # 断言相等
 
+    # TestDecodeLockRefScenarios类的测试incrementaltransferfailure
     def test_incremental_transfer_failure(self):
         """Scenario 3: prefix match > 0, transfer fails.
 
@@ -221,7 +231,7 @@ class TestDecodeLockRefScenarios(unittest.TestCase):
 
         cache.inc_lock_ref(matched_node)
         # Prefix tokens should now be protected (locked)
-        self.assertGreater(cache.protected_size(), 0)
+        self.assertGreater(cache.protected_size(), 0)  # 断言大于
 
         # Simulate _pre_alloc with additional tokens
         full_ids = [1, 2, 3, 4, 5]
@@ -240,11 +250,12 @@ class TestDecodeLockRefScenarios(unittest.TestCase):
         cache.cache_finished_req(req, is_insert=False)
 
         # The prefix node should be unlocked (back to evictable)
-        self.assertEqual(cache.root_node.lock_ref, 1)
-        self.assertEqual(cache.protected_size(), 0)
+        self.assertEqual(cache.root_node.lock_ref, 1)  # 断言相等
+        self.assertEqual(cache.protected_size(), 0)  # 断言相等
         # Prefix tokens should still be in tree and evictable
-        self.assertEqual(cache.evictable_size(), len(prefix))
+        self.assertEqual(cache.evictable_size(), len(prefix))  # 断言相等
 
+    # TestDecodeLockRefScenarios类的测试fulltransferfailure
     def test_full_transfer_failure(self):
         """Scenario 4: no prefix match, transfer fails.
 
@@ -263,11 +274,11 @@ class TestDecodeLockRefScenarios(unittest.TestCase):
             MatchPrefixParams(key=RadixKey(array("q", full_ids)))
         )
         matched_node = result.last_device_node
-        self.assertIs(matched_node, cache.root_node)
+        self.assertIs(matched_node, cache.root_node)  # 断言是同一对象
 
         # inc_lock_ref(root) is a no-op
         cache.inc_lock_ref(matched_node)
-        self.assertEqual(cache.root_node.lock_ref, root_lock_before)
+        self.assertEqual(cache.root_node.lock_ref, root_lock_before)  # 断言相等
 
         full_vals = [100, 200, 300]
         req_to_token[0, : len(full_vals)] = torch.tensor(full_vals, dtype=torch.int64)
@@ -285,10 +296,11 @@ class TestDecodeLockRefScenarios(unittest.TestCase):
         cache.cache_finished_req(req, is_insert=False)
 
         # Root lock unchanged, nothing protected or evictable
-        self.assertEqual(cache.root_node.lock_ref, root_lock_before)
-        self.assertEqual(cache.protected_size(), 0)
-        self.assertEqual(cache.evictable_size(), 0)
+        self.assertEqual(cache.root_node.lock_ref, root_lock_before)  # 断言相等
+        self.assertEqual(cache.protected_size(), 0)  # 断言相等
+        self.assertEqual(cache.evictable_size(), 0)  # 断言相等
 
+    # TestDecodeLockRefScenarios类的测试poppreallocatedrechecksbudgetafterlock
     def test_pop_preallocated_rechecks_budget_after_lock(self):
         queue = DecodePreallocQueue.__new__(DecodePreallocQueue)
 
@@ -346,12 +358,13 @@ class TestDecodeLockRefScenarios(unittest.TestCase):
 
         preallocated, failed = queue.pop_preallocated()
 
-        self.assertEqual(preallocated, [])
-        self.assertEqual(failed, [])
+        self.assertEqual(preallocated, [])  # 断言相等
+        self.assertEqual(failed, [])  # 断言相等
         queue._pre_alloc.assert_not_called()
         queue.tree_cache.dec_lock_ref.assert_called_once_with(req.last_node)
-        self.assertEqual(queue._allocatable_token_budgets.call_count, 2)
+        self.assertEqual(queue._allocatable_token_budgets.call_count, 2)  # 断言相等
 
+    # TestDecodeLockRefScenarios类的测试repeatedincrementalnoleak
     def test_repeated_incremental_no_leak(self):
         """Multiple incremental transfers shouldn't leak lock_refs."""
         cache, req_to_token = _make_cache_with_pools()
@@ -387,8 +400,8 @@ class TestDecodeLockRefScenarios(unittest.TestCase):
             cache.cache_finished_req(req)
 
         # After all iterations, root lock should be 1, no protected nodes
-        self.assertEqual(cache.root_node.lock_ref, 1)
-        self.assertEqual(cache.protected_size(), 0)
+        self.assertEqual(cache.root_node.lock_ref, 1)  # 断言相等
+        self.assertEqual(cache.protected_size(), 0)  # 断言相等
 
 
 if __name__ == "__main__":

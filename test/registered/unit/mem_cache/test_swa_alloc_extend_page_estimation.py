@@ -1,3 +1,4 @@
+# 文件名: test_swa_alloc_extend_page_estimation.py - SWA分配扩展页面估计
 """Regression for SWA alloc_extend page estimation.
 
 Old gate in SWATokenToKVPoolAllocator.alloc_extend added one full page_size
@@ -18,6 +19,7 @@ from sglang.test.test_utils import CustomTestCase
 register_cpu_ci(est_time=2, suite="base-a-test-cpu")
 
 
+# 内部方法_make_self
 def _make_self(*, page_size: int, full_available: int, swa_available: int):
     full_indices = torch.tensor([10, 11], dtype=torch.int64)
     swa_indices = torch.tensor([20, 21], dtype=torch.int64)
@@ -37,6 +39,7 @@ def _make_self(*, page_size: int, full_available: int, swa_available: int):
     )
 
 
+# 内部方法_call
 def _call(stub, *, prefix_lens_cpu, seq_lens_cpu, extend_num_tokens):
     return SWATokenToKVPoolAllocator.alloc_extend(
         stub,
@@ -51,7 +54,10 @@ def _call(stub, *, prefix_lens_cpu, seq_lens_cpu, extend_num_tokens):
     )
 
 
+# TestSWAAllocExtendPageEstimation类
 class TestSWAAllocExtendPageEstimation(CustomTestCase):
+
+    # TestSWAAllocExtendPageEstimation类的测试zeronewpagesmustsucceed
     def test_zero_new_pages_must_succeed(self):
         # Old: 2 + 2*8 = 18 > 16 -> would refuse.
         # New: prefix 5 -> 6 stays in page 0, 0 new pages.
@@ -62,10 +68,11 @@ class TestSWAAllocExtendPageEstimation(CustomTestCase):
             seq_lens_cpu=torch.tensor([6, 6], dtype=torch.int64),
             extend_num_tokens=2,
         )
-        self.assertIsNotNone(result)
+        self.assertIsNotNone(result)  # 断言不为None
         stub.full_attn_allocator.alloc_extend.assert_called_once()
         stub.swa_attn_allocator.alloc_extend.assert_called_once()
 
+    # TestSWAAllocExtendPageEstimation类的测试onenewpagefits
     def test_one_new_page_fits(self):
         # Old: 6 + 2*8 = 22 > 16. New: 2 new pages == 16 // 8.
         stub = _make_self(page_size=8, full_available=16, swa_available=16)
@@ -75,8 +82,9 @@ class TestSWAAllocExtendPageEstimation(CustomTestCase):
             seq_lens_cpu=torch.tensor([10, 10], dtype=torch.int64),
             extend_num_tokens=6,
         )
-        self.assertIsNotNone(result)
+        self.assertIsNotNone(result)  # 断言不为None
 
+    # TestSWAAllocExtendPageEstimation类的测试fullpoolgenuinelyinsufficient
     def test_full_pool_genuinely_insufficient(self):
         stub = _make_self(page_size=8, full_available=8, swa_available=64)
         result = _call(
@@ -85,9 +93,10 @@ class TestSWAAllocExtendPageEstimation(CustomTestCase):
             seq_lens_cpu=torch.tensor([9, 9, 9, 9, 9], dtype=torch.int64),
             extend_num_tokens=5,
         )
-        self.assertIsNone(result)
+        self.assertIsNone(result)  # 断言为None
         stub.full_attn_allocator.alloc_extend.assert_not_called()
 
+    # TestSWAAllocExtendPageEstimation类的测试swapoolgenuinelyinsufficient
     def test_swa_pool_genuinely_insufficient(self):
         stub = _make_self(page_size=8, full_available=64, swa_available=8)
         result = _call(
@@ -96,9 +105,10 @@ class TestSWAAllocExtendPageEstimation(CustomTestCase):
             seq_lens_cpu=torch.tensor([9, 9, 9, 9, 9], dtype=torch.int64),
             extend_num_tokens=5,
         )
-        self.assertIsNone(result)
+        self.assertIsNone(result)  # 断言为None
         stub.swa_attn_allocator.alloc_extend.assert_not_called()
 
+    # TestSWAAllocExtendPageEstimation类的测试exactlyatcapacitysucceeds
     def test_exactly_at_capacity_succeeds(self):
         stub = _make_self(page_size=8, full_available=16, swa_available=16)
         result = _call(
@@ -107,8 +117,9 @@ class TestSWAAllocExtendPageEstimation(CustomTestCase):
             seq_lens_cpu=torch.tensor([9, 9], dtype=torch.int64),
             extend_num_tokens=2,
         )
-        self.assertIsNotNone(result)
+        self.assertIsNotNone(result)  # 断言不为None
 
+    # TestSWAAllocExtendPageEstimation类的测试oneovercapacityrefuses
     def test_one_over_capacity_refuses(self):
         stub = _make_self(page_size=8, full_available=16, swa_available=16)
         result = _call(
@@ -117,8 +128,9 @@ class TestSWAAllocExtendPageEstimation(CustomTestCase):
             seq_lens_cpu=torch.tensor([9, 9, 9], dtype=torch.int64),
             extend_num_tokens=3,
         )
-        self.assertIsNone(result)
+        self.assertIsNone(result)  # 断言为None
 
+    # TestSWAAllocExtendPageEstimation类的测试zeronewpagesacrosspagesizes
     def test_zero_new_pages_across_page_sizes(self):
         # Over-estimation gap grows with page_size; sweep to confirm fix
         # doesn't depend on the page_size=8 numbers above.
@@ -133,7 +145,7 @@ class TestSWAAllocExtendPageEstimation(CustomTestCase):
             result = _call(
                 stub, prefix_lens_cpu=prefix, seq_lens_cpu=seq, extend_num_tokens=4
             )
-            self.assertIsNotNone(result, f"page_size={page_size}")
+            self.assertIsNotNone(result, f"page_size={page_size}")  # 断言不为None
 
 
 if __name__ == "__main__":

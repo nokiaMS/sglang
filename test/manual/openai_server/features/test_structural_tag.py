@@ -1,3 +1,4 @@
+# 文件名: test_structural_tag.py - 测试结构化标签功能（常量字符串与JSON Schema约束）
 """
 python3 -m unittest test.srt.openai_server.features.test_structural_tag
 """
@@ -18,6 +19,7 @@ from sglang.test.test_utils import (
 )
 
 
+# 设置测试类（启动服务器）
 def setup_class(cls, backend: str):
     cls.model = DEFAULT_SMALL_MODEL_NAME_FOR_TEST
     cls.base_url = DEFAULT_URL_FOR_TEST
@@ -29,7 +31,7 @@ def setup_class(cls, backend: str):
         backend,
     ]
 
-    cls.process = popen_launch_server(
+    cls.process = popen_launch_server(  # 启动推理服务器
         cls.model,
         cls.base_url,
         timeout=DEFAULT_TIMEOUT_FOR_SERVER_LAUNCH,
@@ -43,13 +45,16 @@ class TestStructuralTagXGrammarBackend(CustomTestCase):
     process: Any
 
     @classmethod
+    # 类级别初始化，启动服务器或设置测试环境
     def setUpClass(cls):
         setup_class(cls, backend="xgrammar")
 
     @classmethod
+    # 类级别清理，关闭服务器或清理资源
     def tearDownClass(cls):
-        kill_process_tree(cls.process.pid)
+        kill_process_tree(cls.process.pid)  # 终止服务器进程
 
+    # 测试stag constant str openai功能
     def test_stag_constant_str_openai(self):
         client = openai.Client(api_key="EMPTY", base_url=f"{self.base_url}/v1")
 
@@ -77,8 +82,9 @@ class TestStructuralTagXGrammarBackend(CustomTestCase):
         )
 
         text = response.choices[0].message.content
-        self.assertEqual(text, answer)
+        self.assertEqual(text, answer)  # 断言值相等
 
+    # 测试stag json schema openai功能
     def test_stag_json_schema_openai(self):
         client = openai.Client(api_key="EMPTY", base_url=f"{self.base_url}/v1")
         json_schema = {

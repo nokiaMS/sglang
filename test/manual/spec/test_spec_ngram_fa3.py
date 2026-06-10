@@ -1,3 +1,4 @@
+# 文件名: test_spec_ngram_fa3.py - NGram推测解码FA3测试 - 使用FA3注意力后端验证NGram推测解码的GSM8K准确性
 """NGRAM speculative-decoding test, FA3 attention-backend variant.
 
 Backend: `--attention-backend fa3`.

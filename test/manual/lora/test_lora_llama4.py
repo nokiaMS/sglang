@@ -1,3 +1,4 @@
+# 文件名: test_lora_llama4.py - 测试Llama-4模型的LoRA支持
 import unittest
 from types import SimpleNamespace
 
@@ -21,13 +22,15 @@ MODELS = [
 @unittest.skipIf(is_in_ci(), "To reduce the CI execution time.")
 class TestLlama4LoRA(CustomTestCase):
     @classmethod
+    # 类级别初始化，启动服务器或设置测试环境
     def setUpClass(cls):
         cls.base_url = DEFAULT_URL_FOR_TEST
 
+    # 测试bringup功能
     def test_bringup(self):
         for model in MODELS:
             try:
-                process = popen_launch_server(
+                process = popen_launch_server(  # 启动推理服务器
                     model.model,
                     self.base_url,
                     timeout=3 * DEFAULT_TIMEOUT_FOR_SERVER_LAUNCH,
@@ -54,7 +57,7 @@ class TestLlama4LoRA(CustomTestCase):
                 if process is not None and process.poll() is None:
                     print(f"Cleaning up process {process.pid}")
                     try:
-                        kill_process_tree(process.pid)
+                        kill_process_tree(process.pid)  # 终止服务器进程
                     except Exception as e:
                         print(f"Error killing process: {e}")
 

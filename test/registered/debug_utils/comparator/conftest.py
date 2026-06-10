@@ -1,3 +1,4 @@
+# 文件名: conftest.py - Pytest配置和共享夹具
 import sys
 import warnings
 from pathlib import Path
@@ -19,6 +20,7 @@ from sglang.srt.debug_utils.comparator.report_sink import report_sink
 collect_ignore_glob: list[str] = []
 
 
+# 执行pytestconfigure
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "filterwarnings",
@@ -35,6 +37,7 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 @pytest.fixture(autouse=True)
+# 执行resetreportsink
 def _reset_report_sink() -> None:
     yield
     report_sink._reset()

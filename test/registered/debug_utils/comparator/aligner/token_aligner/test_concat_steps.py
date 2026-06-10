@@ -1,3 +1,4 @@
+# 文件名: test_concat_steps.py - 拼接步骤测试
 import sys
 
 import pytest
@@ -15,6 +16,7 @@ register_cpu_ci(est_time=1, suite="base-b-test-cpu")
 
 
 class TestExecuteConcat:
+    # 测试singlestepequallength
     def test_single_step_equal_length(self) -> None:
         x = torch.tensor([1.0, 2.0, 3.0])
         y = torch.tensor([4.0, 5.0, 6.0])
@@ -24,6 +26,7 @@ class TestExecuteConcat:
         assert torch.equal(result.x, x)
         assert torch.equal(result.y, y)
 
+    # 测试truncatestomin
     def test_truncates_to_min(self) -> None:
         x = torch.tensor([1.0, 2.0, 3.0, 4.0])
         y = torch.tensor([5.0, 6.0])
@@ -33,6 +36,7 @@ class TestExecuteConcat:
         assert torch.equal(result.x, torch.tensor([1.0, 2.0]))
         assert torch.equal(result.y, y)
 
+    # 测试multistepsortedconcat
     def test_multi_step_sorted_concat(self) -> None:
         result: Pair[torch.Tensor] = execute_token_aligner_concat_steps(
             tensor_of_step_pair=Pair(
@@ -43,6 +47,7 @@ class TestExecuteConcat:
         assert torch.equal(result.x, torch.tensor([1.0, 2.0, 3.0, 4.0]))
         assert torch.equal(result.y, torch.tensor([5.0, 6.0, 7.0, 8.0]))
 
+    # 测试namedtokendimnonzero
     def test_named_token_dim_nonzero(self) -> None:
         """Token dim at dim=1 (not dim=0) — concat and truncate along correct dim."""
         # shape [2, 3, 4]: dim0=batch, dim1=token, dim2=hidden
@@ -61,6 +66,7 @@ class TestExecuteConcat:
         assert result.x.shape == (2, 6, 4)
         assert result.y.shape == (2, 6, 4)
 
+    # 测试nameddimsnotokendimfallback
     def test_named_dims_no_token_dim_fallback(self) -> None:
         """Named dims without t or s → fallback to dim 0."""
         x = apply_dim_names(torch.randn(4, 8), ["b", "h"])
@@ -71,6 +77,7 @@ class TestExecuteConcat:
         assert result.x.shape == (3, 8)
         assert result.y.shape == (3, 8)
 
+    # 测试seqdimfallback
     def test_seq_dim_fallback(self) -> None:
         """Named dims with s but no t → uses s as token dim."""
         x = apply_dim_names(torch.randn(2, 5, 4), ["b", "s", "h"])

@@ -24,18 +24,21 @@ The PyTorch path constructors (``from_config``, ``get_quant_method``) raise
 this class is not a real PyTorch quantization implementation.
 """
 
-from __future__ import annotations
+# MLX后端量化预设的标记配置和自动检测钩子模块。MLX后端在模型加载时自行执行量化，本模块提供注册表注册和mlx-community HF仓库的自动检测功能。
 
-from typing import Any, Dict, List, Optional
+from __future__ import annotations  # 启用延迟注解评估
 
-import torch
+from typing import Any, Dict, List, Optional  # 类型注解
 
-from sglang.srt.layers.quantization.base_config import (
+import torch  # 深度学习框架
+
+from sglang.srt.layers.quantization.base_config import (  # 量化基础配置
     QuantizationConfig,
     QuantizeMethodBase,
 )
 
 
+# MLX量化配置类（标记配置，非真正量化实现）
 class MlxQuantizationConfig(QuantizationConfig):
     """Marker config for MLX backend on-the-fly quantization presets.
 
@@ -50,31 +53,38 @@ class MlxQuantizationConfig(QuantizationConfig):
         "quantize_model, not by this QuantizationConfig class. If you "
         "reached this error, SGLANG_USE_MLX=1 is likely not set."
     )
+    # 初始化方法
 
     def __init__(self, preset: str):
-        super().__init__()
+        super().__init__()  # 调用父类初始化
         self.preset = preset
+    # 获取量化方法名称
 
     @classmethod
     def get_name(cls) -> str:
-        return "mlx"
+        return "mlx"  # 返回结果
+    # 获取支持的激活数据类型
 
     @classmethod
     def get_supported_act_dtypes(cls) -> List[torch.dtype]:
-        return []
+        return []  # 返回结果
+    # 获取最低硬件能力要求
 
     @classmethod
     def get_min_capability(cls) -> int:
         # Capability check is for NVIDIA SM versions; not meaningful for MLX.
-        return 0
+        return 0  # 返回结果
+    # 获取配置文件名列表
 
     @classmethod
     def get_config_filenames(cls) -> List[str]:
-        return []
+        return []  # 返回结果
+    # 从配置字典创建实例
 
     @classmethod
     def from_config(cls, config: Dict[str, Any]) -> "MlxQuantizationConfig":
-        raise NotImplementedError(cls._ERR)
+        raise NotImplementedError(cls._ERR)  # 抛出未实现错误
+    # 覆盖量化方法（自动检测）
 
     @classmethod
     def override_quantization_method(cls, hf_quant_cfg, user_quant) -> Optional[str]:
@@ -101,24 +111,25 @@ class MlxQuantizationConfig(QuantizationConfig):
             # User passed --quantization explicitly; respect that choice
             # regardless of the HF config shape. Matches the moe_wna16 /
             # modelopt convention.
-            return None
+            return None  # 返回None
         if not isinstance(hf_quant_cfg, dict):
-            return None
+            return None  # 返回None
         if "quant_method" in hf_quant_cfg:
             # Configs that declare a quant_method belong to whichever method
             # registers under that name; do not hijack them.
-            return None
+            return None  # 返回None
         bits = hf_quant_cfg.get("bits")
         group_size = hf_quant_cfg.get("group_size")
         if not isinstance(bits, int) or not isinstance(group_size, int):
-            return None
+            return None  # 返回None
         if bits == 4:
-            return "mlx_q4"
+            return "mlx_q4"  # 返回结果
         if bits == 8:
-            return "mlx_q8"
-        return None
+            return "mlx_q8"  # 返回结果
+        return None  # 返回None
+    # 获取量化方法
 
     def get_quant_method(
         self, layer: torch.nn.Module, prefix: str
     ) -> Optional[QuantizeMethodBase]:
-        raise NotImplementedError(self._ERR)
+        raise NotImplementedError(self._ERR)  # 抛出未实现错误

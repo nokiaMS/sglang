@@ -1,3 +1,4 @@
+# 文件名: test_get_weights_by_name.py - 按名称获取权重测试 - 验证通过名称获取模型权重的功能
 import gc
 import unittest
 
@@ -21,6 +22,7 @@ from sglang.test.test_utils import (
 from sglang.utils import terminate_process
 
 
+# 内部方法: process return
 def _process_return(ret):
     if isinstance(ret, list) and len(ret) == 2:
         print(f"running assert_allclose on data parallel")
@@ -31,11 +33,13 @@ def _process_return(ret):
 
 class TestGetWeightsByName(CustomTestCase):
 
+    # init hf model
     def init_hf_model(self, model_name, tie_word_embeddings):
         self.hf_model = AutoModelForCausalLM.from_pretrained(
             model_name, torch_dtype="bfloat16", tie_word_embeddings=tie_word_embeddings
         ).to(get_device())
 
+    # init backend
     def init_backend(self, backend, dp, tp, model_name):
         self.backend = backend
         self.dp = dp
@@ -60,6 +64,7 @@ class TestGetWeightsByName(CustomTestCase):
                 ),
             )
 
+    # clean up
     def clean_up(self):
         del self.hf_model
         gc.collect()
@@ -69,6 +74,7 @@ class TestGetWeightsByName(CustomTestCase):
         else:
             terminate_process(self.process)
 
+    # assert tie word embeddings
     def assert_tie_word_embeddings(self, truncate_size):
         print("assert_tie_word_embeddings")
         if self.backend == "Engine":
@@ -104,6 +110,7 @@ class TestGetWeightsByName(CustomTestCase):
             .numpy()[:truncate_size],
         )
 
+    # assert weights all close
     def assert_weights_all_close(self, param_name, truncate_size):
         print(
             f"param_name: {param_name}, backend: {self.backend}, dp: {self.dp}, tp: {self.tp}"
@@ -124,6 +131,7 @@ class TestGetWeightsByName(CustomTestCase):
             runtime_ret = _process_return(runtime_ret)
             np.testing.assert_allclose(runtime_ret, param_np, rtol=1e-5, atol=1e-5)
 
+    # 测试get weights by name
     def test_get_weights_by_name(self):
         if is_in_ci():
             test_suits = [

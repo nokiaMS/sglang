@@ -1,3 +1,4 @@
+# 文件名: test_disaggregation_hicache.py - 测试分离式推理(PD)与分层缓存的集成，验证缓存命中和多轮对话
 import os
 import random
 import tempfile
@@ -21,6 +22,7 @@ class DisaggregationHiCacheBase(PDDisaggregationServerBase):
     """Base class for disaggregation with HiCache tests"""
 
     @classmethod
+    # 类级别初始化，启动服务器或设置测试环境
     def setUpClass(cls):
         super(DisaggregationHiCacheBase, cls).setUpClass()
 
@@ -38,6 +40,7 @@ class DisaggregationHiCacheBase(PDDisaggregationServerBase):
         cls.launch_lb()
 
     @classmethod
+    # 启动Prefill服务器
     def start_prefill(cls):
         # Prefill with HiCache enabled
         prefill_args = [
@@ -76,19 +79,22 @@ class DisaggregationHiCacheBase(PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 启动Decode服务器
     def start_decode(cls):
         pass
 
+    # 生成指定token数量的随机提示文本
     def gen_prompt(self, token_num: int) -> str:
         all_available_tokens = list(self.tokenizer.get_vocab().values())
         selected_tokens = random.choices(all_available_tokens, k=token_num)
         return self.tokenizer.decode(selected_tokens)
 
+    # 发送生成请求并返回响应
     def send_request(
         self, prompt: str, max_tokens: int = 100, temperature: float = 0.0
     ) -> Dict:
         """Send a generate request and return response"""
-        response = requests.post(
+        response = requests.post(  # 发送POST请求
             f"{self.lb_url}/generate",
             json={
                 "text": prompt,
@@ -101,7 +107,7 @@ class DisaggregationHiCacheBase(PDDisaggregationServerBase):
             timeout=60,
         )
 
-        self.assertEqual(
+        self.assertEqual(  # 断言值相等
             response.status_code,
             200,
             f"Request failed: {response.status_code} - {response.text}",
@@ -114,7 +120,7 @@ class DisaggregationHiCacheBase(PDDisaggregationServerBase):
         self.send_request(self.gen_prompt(1), max_tokens=150)
 
         # Flush device cache to force remote storage access.
-        res = requests.post(
+        res = requests.post(  # 发送POST请求
             f"{self.prefill_url}/flush_cache",
             params={"timeout": 30},
             timeout=40,
@@ -126,6 +132,7 @@ class TestDisaggregationPrefillWithHiCache(DisaggregationHiCacheBase):
     """Test disaggregation with HiCache enabled only on Prefill side"""
 
     @classmethod
+    # 启动Decode服务器
     def start_decode(cls):
         # Decode without HiCache offload
         decode_args = [
@@ -169,13 +176,14 @@ class TestDisaggregationPrefillWithHiCache(DisaggregationHiCacheBase):
         response2 = self.send_request(repeated_prompt, max_tokens=100)
 
         # Assert cached tokens cnt
-        self.assertGreater(response2["meta_info"]["cached_tokens"], 700)
+        self.assertGreater(response2["meta_info"]["cached_tokens"], 700)  # 断言精度大于阈值
 
 
 class TestDisaggregationDecodeWithHiCache(DisaggregationHiCacheBase):
     """Test disaggregation with HiCache enabled on both Prefill and Decode sides"""
 
     @classmethod
+    # 启动Decode服务器
     def start_decode(cls):
         # Decode with HiCache offload enabled
         decode_args = [
@@ -239,7 +247,7 @@ class TestDisaggregationDecodeWithHiCache(DisaggregationHiCacheBase):
             print(f"Improvement: {cached_tokens - previous_cached_tokens} tokens")
 
             # Assert cache improvement
-            self.assertGreater(
+            self.assertGreater(  # 断言精度大于阈值
                 cached_tokens,
                 previous_cached_tokens,
                 f"Turn {turn} should have more cached tokens than turn {turn-1}",

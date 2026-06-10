@@ -1,3 +1,4 @@
+# 文件名: test_tensor_dump_forward_hook.py - 张量转储前向钩子测试
 import unittest
 
 import torch
@@ -34,6 +35,7 @@ TEST_HIDDEN_SIZE = 32
 
 class SimpleModel(nn.Module):
 
+    # 执行init
     def __init__(self) -> None:
         super().__init__()
         self.hidden_size = TEST_HIDDEN_SIZE
@@ -48,6 +50,7 @@ class SimpleModel(nn.Module):
         self.layernorm = RMSNorm(self.hidden_size, eps=self.rms_norm_eps)
 
     @torch.no_grad()
+    # 前向传播
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -58,15 +61,18 @@ class SimpleModel(nn.Module):
 
 
 class MockCausalLM(nn.Module):
+    # 执行init
     def __init__(self) -> None:
         super().__init__()
         self.model = SimpleModel()
 
     @torch.no_grad()
+    # 前向传播
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         return self.model(hidden_states)
 
 
+# 初始化weights
 def init_weights(module):
     if isinstance(module, LinearBase):
         torch.nn.init.uniform_(module.weight)
@@ -76,6 +82,7 @@ def init_weights(module):
         torch.nn.init.ones_(module.weight)
 
 
+# 测试modelforwarddump
 def test_model_forward_dump(tmp_path):
     set_global_server_args_for_scheduler(ServerArgs(model_path="dummy"))
     init_distributed_environment(
@@ -88,19 +95,19 @@ def test_model_forward_dump(tmp_path):
     initialize_model_parallel()
     model = MockCausalLM()
     model.apply(init_weights)
-    model = model.cuda().bfloat16()
+    model = model.cuda().bfloat16()  # 转移到GPU
     dumper = register_forward_hook_for_model(
         model, tmp_path / "sglang_dump", [0], 0, 0, 0
     )
 
     dir_path = dumper.get_dump_dir()
     inp = torch.randn(4, TEST_HIDDEN_SIZE, dtype=torch.bfloat16) * 0.01
-    result = model(inp.cuda())
+    result = model(inp.cuda())  # 转移到GPU
     data = torch.load(f"{dir_path}/Pass00000.pt")
     assert "model.layernorm" in data
     assert "model.mlp.down_proj" in data
     assert torch.allclose(
-        data["model.mlp.down_proj"], result.cpu(), rtol=1e-5, atol=1e-5
+        data["model.mlp.down_proj"], result.cpu(), rtol=1e-5, atol=1e-5  # 转移到CPU
     )
 
 

@@ -1,3 +1,5 @@
+# 稀疏池化层实现：将隐藏状态转换为稀疏词汇空间嵌入，
+# 通过线性变换+ReLU计算token权重，映射到词汇空间并使用最大池化聚合
 from dataclasses import dataclass
 
 import torch
@@ -8,11 +10,13 @@ from transformers import PretrainedConfig
 from sglang.srt.model_executor.model_runner import ForwardBatch
 
 
+# 稀疏嵌入输出数据类
 @dataclass
 class SparseEmbeddingOutput:
     embeddings: torch.Tensor  # [batch_size, vocab_size]
 
 
+# 稀疏池化器：将隐藏状态池化为稀疏词汇空间嵌入
 class SparsePooler(nn.Module):
     """A layer that pools hidden states into sparse vocabulary-space embeddings.
 
@@ -31,6 +35,7 @@ class SparsePooler(nn.Module):
     def __init__(self, config: PretrainedConfig):
         super().__init__()
 
+        # 验证必需的配置属性
         # Validate required attributes
         if not hasattr(config, "vocab_size"):
             raise AttributeError(
@@ -42,9 +47,11 @@ class SparsePooler(nn.Module):
             )
 
         self.vocab_size = config.vocab_size
+        # 线性层：将隐藏状态映射到标量权重
         self.sparse_linear = nn.Linear(config.hidden_size, 1)
         self._weights_loaded = False
 
+    # 前向传播：计算稀疏词汇空间嵌入
     def forward(
         self, hidden_states: torch.Tensor, forward_batch: ForwardBatch
     ) -> SparseEmbeddingOutput:
@@ -63,11 +70,13 @@ class SparsePooler(nn.Module):
                 "Sparse pooling weights not loaded. Call load_weights() first"
             )
 
+        # 应用稀疏线性层+ReLU获取token权重
         # Apply sparse linear + ReLU to get token weights
         token_weights = F.relu(self.sparse_linear(hidden_states)).squeeze(
             -1
         )  # [total_tokens]
 
+        # 为打包序列创建批次索引
         # Create batch indices for packed sequences
         batch_indices = torch.repeat_interleave(
             torch.arange(
@@ -76,6 +85,7 @@ class SparsePooler(nn.Module):
             forward_batch.extend_seq_lens,
         )
 
+        # 初始化稀疏嵌入输出
         # Initialize sparse embedding output
         sparse_embedding = torch.zeros(
             len(forward_batch.extend_seq_lens),
@@ -84,6 +94,7 @@ class SparsePooler(nn.Module):
             device=token_weights.device,
         )
 
+        # 使用scatter_reduce和amax映射到词汇空间
         # Map to vocabulary space using scatter_reduce with amax
         flat_indices = batch_indices * self.vocab_size + forward_batch.input_ids
         sparse_embedding.view(-1).scatter_reduce_(
@@ -92,6 +103,7 @@ class SparsePooler(nn.Module):
 
         return SparseEmbeddingOutput(embeddings=sparse_embedding)
 
+    # 从状态字典加载权重
     def load_weights(self, state_dict: dict):
         """Load weights from state dict (called by the model)."""
         self.sparse_linear.load_state_dict(state_dict)

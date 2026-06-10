@@ -1,3 +1,4 @@
+# 文件名: test_source_editor.py - 源代码编辑器测试
 import pytest
 from pydantic import ValidationError
 
@@ -12,6 +13,7 @@ register_cpu_ci(est_time=7, suite="base-b-test-cpu")
 class TestApplyEdits:
     """Tests for the apply_edits() source text transformation function."""
 
+    # 测试singlelinematchtomultilinereplacement
     def test_single_line_match_to_multiline_replacement(self) -> None:
         source = "def foo():\n" "    x = compute()\n" "    return x\n"
         edits = [
@@ -25,6 +27,7 @@ class TestApplyEdits:
             "def foo():\n" "    x = compute()\n" "    print(x)\n" "    return x\n"
         )
 
+    # 测试pureinsertion
     def test_pure_insertion(self) -> None:
         source = "def foo():\n" "    a = 1\n" "    b = 2\n"
         edits = [
@@ -36,6 +39,7 @@ class TestApplyEdits:
         result = apply_edits(source=source, edits=edits)
         assert result == ("def foo():\n" "    a = 1\n" "    print(a)\n" "    b = 2\n")
 
+    # 测试puredeletionviaemptyreplacement
     def test_pure_deletion_via_empty_replacement(self) -> None:
         source = "def foo():\n" "    debug_log()\n" "    return 42\n"
         edits = [
@@ -47,6 +51,7 @@ class TestApplyEdits:
         result = apply_edits(source=source, edits=edits)
         assert result == ("def foo():\n" "    return 42\n")
 
+    # 测试deletionfewerlines
     def test_deletion_fewer_lines(self) -> None:
         source = "def foo():\n" "    a = 1\n" "    b = 2\n" "    c = 3\n"
         edits = [
@@ -58,6 +63,7 @@ class TestApplyEdits:
         result = apply_edits(source=source, edits=edits)
         assert result == ("def foo():\n" "    ab = 3\n" "    c = 3\n")
 
+    # 测试multilinematchtomultilinereplacement
     def test_multiline_match_to_multiline_replacement(self) -> None:
         source = (
             "def foo():\n"
@@ -84,6 +90,7 @@ class TestApplyEdits:
             "    return result\n"
         )
 
+    # 测试indentalignmentdeepnesting
     def test_indent_alignment_deep_nesting(self) -> None:
         source = (
             "class Foo:\n"
@@ -108,12 +115,14 @@ class TestApplyEdits:
             "            return x\n"
         )
 
+    # 测试matchnotfoundraises
     def test_match_not_found_raises(self) -> None:
         source = "def foo():\n    return 1\n"
         edits = [EditSpec(match="nonexistent_call()", replacement="replaced()")]
         with pytest.raises(PatchApplicationError, match="not found"):
             apply_edits(source=source, edits=edits)
 
+    # 测试notfounddiagnosticreportssourcelen
     def test_not_found_diagnostic_reports_source_len(self) -> None:
         """diagnostic includes total source line count."""
         source = "line0\nline1\nline2\nline3\nline4\n"
@@ -122,6 +131,7 @@ class TestApplyEdits:
             apply_edits(source=source, edits=edits)
         assert "source_len=5 lines" in str(exc_info.value)
 
+    # 测试notfounddiagnosticwhenfirstmatchlineabsent
     def test_not_found_diagnostic_when_first_match_line_absent(self) -> None:
         """diagnostic says 'does NOT appear anywhere' when first line is never present."""
         source = "def foo():\n    return 1\n"
@@ -132,6 +142,7 @@ class TestApplyEdits:
         assert "does NOT appear anywhere in source" in msg
         assert "'nope_xyz()'" in msg
 
+    # 测试notfounddiagnosticsinglewindowwithmarker
     def test_not_found_diagnostic_single_window_with_marker(self) -> None:
         """first line is present once but full match doesn't fit: one window with '>' on the match-region line."""
         source = (
@@ -156,6 +167,7 @@ class TestApplyEdits:
         assert "     5: line5" in msg
         assert "     6: line6" in msg
 
+    # 测试notfounddiagnosticmultiplewindowsseparated
     def test_not_found_diagnostic_multiple_windows_separated(self) -> None:
         """when first line appears N (<=8) times, N windows are shown separated by '--'."""
         source = (
@@ -178,6 +190,7 @@ class TestApplyEdits:
         assert ">    3: anchor()" in msg
         assert ">    6: anchor()" in msg
 
+    # 测试notfounddiagnosticcapsat8windows
     def test_not_found_diagnostic_caps_at_8_windows(self) -> None:
         """when first line appears >8 times, only the first 8 windows are rendered."""
         source = "\n".join(["anchor()"] * 12) + "\n"
@@ -189,6 +202,7 @@ class TestApplyEdits:
         assert "up to 8 windows" in msg
         assert msg.count("--") == 8
 
+    # 测试notfounddiagnosticwindowclampsatsourceboundaries
     def test_not_found_diagnostic_window_clamps_at_source_boundaries(self) -> None:
         """window does not include negative indices or indices past the end of source."""
         source = "anchor()\nfoo\n"
@@ -201,6 +215,7 @@ class TestApplyEdits:
         assert "-1:" not in msg
         assert "   2:" not in msg
 
+    # 测试notfounddiagnosticmultilinematchmarksfullregion
     def test_not_found_diagnostic_multiline_match_marks_full_region(self) -> None:
         """match spanning N lines: marker '>' covers all N lines of the intended match region."""
         source = (
@@ -232,12 +247,14 @@ class TestApplyEdits:
         assert "filler1" not in msg
         assert "filler9" not in msg
 
+    # 测试matchfoundmultipletimesraises
     def test_match_found_multiple_times_raises(self) -> None:
         source = "def foo():\n" "    print(1)\n" "    print(1)\n"
         edits = [EditSpec(match="print(1)", replacement="print(2)")]
         with pytest.raises(PatchApplicationError, match="multiple"):
             apply_edits(source=source, edits=edits)
 
+    # 测试multipleeditsappliedsequentially
     def test_multiple_edits_applied_sequentially(self) -> None:
         source = "def foo():\n" "    a = 1\n" "    b = 2\n" "    return a + b\n"
         edits = [
@@ -249,6 +266,7 @@ class TestApplyEdits:
             "def foo():\n" "    a = 10\n" "    b = 20\n" "    return a + b\n"
         )
 
+    # 测试stripmatchingignoresleadingtrailingwhitespace
     def test_strip_matching_ignores_leading_trailing_whitespace(self) -> None:
         source = "def foo():\n" "    x = compute()\n" "    return x\n"
         edits = [
@@ -260,6 +278,7 @@ class TestApplyEdits:
         result = apply_edits(source=source, edits=edits)
         assert result == ("def foo():\n" "    x = replaced()\n" "    return x\n")
 
+    # 测试replacementindentedtextrealigned
     def test_replacement_indented_text_realigned(self) -> None:
         """replacement text with its own indentation gets realigned to match source."""
         source = "def foo():\n" "        x = compute()\n" "        return x\n"
@@ -277,6 +296,7 @@ class TestApplyEdits:
             "        return x\n"
         )
 
+    # 测试replacementwithexistingindentrealigned
     def test_replacement_with_existing_indent_realigned(self) -> None:
         """replacement text already has indentation that should be rebased."""
         source = "def foo():\n" "    if True:\n" "        x = 1\n" "        return x\n"
@@ -296,6 +316,7 @@ class TestApplyEdits:
             "        return x\n"
         )
 
+    # 测试appendkeepsmatchandaddsafter
     def test_append_keeps_match_and_adds_after(self) -> None:
         source = "def foo():\n" "    x = compute()\n" "    return x\n"
         edits = [EditSpec(match="x = compute()", append="print(x)")]
@@ -304,6 +325,7 @@ class TestApplyEdits:
             "def foo():\n" "    x = compute()\n" "    print(x)\n" "    return x\n"
         )
 
+    # 测试appendmultilinematch
     def test_append_multiline_match(self) -> None:
         source = (
             "def foo():\n"
@@ -330,6 +352,7 @@ class TestApplyEdits:
             "    return result\n"
         )
 
+    # 测试prependaddsbeforematch
     def test_prepend_adds_before_match(self) -> None:
         source = "def foo():\n" "    x = compute()\n" "    return x\n"
         edits = [EditSpec(match="x = compute()", prepend="print('before')")]
@@ -341,12 +364,14 @@ class TestApplyEdits:
             "    return x\n"
         )
 
+    # 测试prependmultiline
     def test_prepend_multiline(self) -> None:
         source = "def foo():\n" "    return x\n"
         edits = [EditSpec(match="return x", prepend="a = 1\nb = 2")]
         result = apply_edits(source=source, edits=edits)
         assert result == ("def foo():\n" "    a = 1\n" "    b = 2\n" "    return x\n")
 
+    # 测试prependdeepindent
     def test_prepend_deep_indent(self) -> None:
         source = (
             "class Foo:\n"
@@ -364,6 +389,7 @@ class TestApplyEdits:
             "            return x\n"
         )
 
+    # 测试prependmultilinematch
     def test_prepend_multiline_match(self) -> None:
         source = (
             "def foo():\n"
@@ -388,18 +414,22 @@ class TestApplyEdits:
             "    return result\n"
         )
 
+    # 测试replacementandappendmutuallyexclusive
     def test_replacement_and_append_mutually_exclusive(self) -> None:
         with pytest.raises(ValidationError, match="only one of"):
             EditSpec(match="x = 1", replacement="x = 2", append="print(x)")
 
+    # 测试replacementandprependmutuallyexclusive
     def test_replacement_and_prepend_mutually_exclusive(self) -> None:
         with pytest.raises(ValidationError, match="only one of"):
             EditSpec(match="x = 1", replacement="x = 2", prepend="print(x)")
 
+    # 测试prependandappendmutuallyexclusive
     def test_prepend_and_append_mutually_exclusive(self) -> None:
         with pytest.raises(ValidationError, match="only one of"):
             EditSpec(match="x = 1", prepend="a()", append="b()")
 
+    # 测试secondeditseesresultoffirst
     def test_second_edit_sees_result_of_first(self) -> None:
         """Edits are applied sequentially; second edit matches modified source."""
         source = "def foo():\n" "    x = 1\n" "    return x\n"

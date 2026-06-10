@@ -1,3 +1,4 @@
+# 文件名: test_index_buf_accessor.py - 测试DSA索引缓冲区访问器的Triton内核正确性
 """
 Correctness tests for DSA Indexer K/S Buffer Access with Fused Triton Kernels.
 
@@ -32,6 +33,7 @@ class MockDSATokenToKVPool:
         self.device = device
 
 
+# 创建模拟K/S缓冲区结构的测试缓冲区
 def create_test_buffer(
     num_pages: int,
     page_size: int = 64,
@@ -61,7 +63,7 @@ def create_test_buffer(
     return buf
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")  # 检查CUDA可用性
 class TestGetK:
     """Test cases for GetK.triton() correctness."""
 
@@ -107,7 +109,7 @@ class TestGetK:
         assert output_triton.dtype == torch.uint8
 
         # Compare results (should be exact match)
-        torch.testing.assert_close(
+        torch.testing.assert_close(  # 验证张量结果一致
             output_triton, output_torch, rtol=0, atol=0, msg="GetK outputs differ"
         )
 
@@ -130,7 +132,7 @@ class TestGetK:
         output_torch = GetK.torch_fast(pool, buf, seq_len, page_indices)
         output_triton = GetK.triton(pool, buf, seq_len, page_indices)
 
-        torch.testing.assert_close(output_triton, output_torch, rtol=0, atol=0)
+        torch.testing.assert_close(output_triton, output_torch, rtol=0, atol=0)  # 验证张量结果一致
 
     def test_getk_repeated_pages(self):
         """Test GetK with repeated page indices."""
@@ -151,10 +153,10 @@ class TestGetK:
         output_torch = GetK.torch_fast(pool, buf, seq_len, page_indices)
         output_triton = GetK.triton(pool, buf, seq_len, page_indices)
 
-        torch.testing.assert_close(output_triton, output_torch, rtol=0, atol=0)
+        torch.testing.assert_close(output_triton, output_torch, rtol=0, atol=0)  # 验证张量结果一致
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")  # 检查CUDA可用性
 class TestGetS:
     """Test cases for GetS.triton() correctness."""
 
@@ -200,7 +202,7 @@ class TestGetS:
         assert output_triton.dtype == torch.uint8
 
         # Compare results (should be exact match)
-        torch.testing.assert_close(
+        torch.testing.assert_close(  # 验证张量结果一致
             output_triton, output_torch, rtol=0, atol=0, msg="GetS outputs differ"
         )
 
@@ -223,7 +225,7 @@ class TestGetS:
         output_torch = GetS.torch_fast(pool, buf, seq_len, page_indices)
         output_triton = GetS.triton(pool, buf, seq_len, page_indices)
 
-        torch.testing.assert_close(output_triton, output_torch, rtol=0, atol=0)
+        torch.testing.assert_close(output_triton, output_torch, rtol=0, atol=0)  # 验证张量结果一致
 
     def test_gets_repeated_pages(self):
         """Test GetS with repeated page indices."""
@@ -244,10 +246,10 @@ class TestGetS:
         output_torch = GetS.torch_fast(pool, buf, seq_len, page_indices)
         output_triton = GetS.triton(pool, buf, seq_len, page_indices)
 
-        torch.testing.assert_close(output_triton, output_torch, rtol=0, atol=0)
+        torch.testing.assert_close(output_triton, output_torch, rtol=0, atol=0)  # 验证张量结果一致
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")  # 检查CUDA可用性
 class TestGetKAndS:
     """Test cases for GetKAndS.triton() correctness."""
 
@@ -255,6 +257,7 @@ class TestGetKAndS:
     @pytest.mark.parametrize("seq_len", [64, 128, 256, 512, 1024])
     @pytest.mark.parametrize("page_size", [64])
     @pytest.mark.parametrize("index_head_dim", [128])
+    # 测试get k and s correctness功能
     def test_get_k_and_s_correctness(
         self, num_pages, seq_len, page_size, index_head_dim
     ):
@@ -308,12 +311,12 @@ class TestGetKAndS:
         assert s_triton.dtype == torch.uint8
 
         # Compare K results
-        torch.testing.assert_close(
+        torch.testing.assert_close(  # 验证张量结果一致
             k_triton, k_torch, rtol=0, atol=0, msg="GetKAndS K outputs differ"
         )
 
         # Compare S results
-        torch.testing.assert_close(
+        torch.testing.assert_close(  # 验证张量结果一致
             s_triton, s_torch, rtol=0, atol=0, msg="GetKAndS S outputs differ"
         )
 
@@ -344,8 +347,8 @@ class TestGetKAndS:
             pool, buf, page_indices_, seq_len_tensor, seq_len, seq_len
         )
 
-        torch.testing.assert_close(k_triton, k_torch, rtol=0, atol=0)
-        torch.testing.assert_close(s_triton, s_torch, rtol=0, atol=0)
+        torch.testing.assert_close(k_triton, k_torch, rtol=0, atol=0)  # 验证张量结果一致
+        torch.testing.assert_close(s_triton, s_torch, rtol=0, atol=0)  # 验证张量结果一致
 
     def test_get_k_and_s_repeated_pages(self):
         """Test GetKAndS with repeated page indices."""
@@ -374,8 +377,8 @@ class TestGetKAndS:
             pool, buf, page_indices_, seq_len_tensor, seq_len, seq_len
         )
 
-        torch.testing.assert_close(k_triton, k_torch, rtol=0, atol=0)
-        torch.testing.assert_close(s_triton, s_torch, rtol=0, atol=0)
+        torch.testing.assert_close(k_triton, k_torch, rtol=0, atol=0)  # 验证张量结果一致
+        torch.testing.assert_close(s_triton, s_torch, rtol=0, atol=0)  # 验证张量结果一致
 
     def test_get_k_and_s_partial_page(self):
         """Test GetKAndS when seq_len is not a multiple of page_size."""
@@ -405,11 +408,11 @@ class TestGetKAndS:
         )
 
         # Should handle partial pages correctly
-        torch.testing.assert_close(k_triton, k_torch, rtol=0, atol=0)
-        torch.testing.assert_close(s_triton, s_torch, rtol=0, atol=0)
+        torch.testing.assert_close(k_triton, k_torch, rtol=0, atol=0)  # 验证张量结果一致
+        torch.testing.assert_close(s_triton, s_torch, rtol=0, atol=0)  # 验证张量结果一致
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")  # 检查CUDA可用性
 class TestEdgeCases:
     """Test edge cases and boundary conditions."""
 
@@ -432,19 +435,19 @@ class TestEdgeCases:
         # Test GetK
         k_torch = GetK.torch_fast(pool, buf, seq_len, page_indices)
         k_triton = GetK.triton(pool, buf, seq_len, page_indices)
-        torch.testing.assert_close(k_triton, k_torch, rtol=0, atol=0)
+        torch.testing.assert_close(k_triton, k_torch, rtol=0, atol=0)  # 验证张量结果一致
 
         # Test GetS
         s_torch = GetS.torch_fast(pool, buf, seq_len, page_indices)
         s_triton = GetS.triton(pool, buf, seq_len, page_indices)
-        torch.testing.assert_close(s_triton, s_torch, rtol=0, atol=0)
+        torch.testing.assert_close(s_triton, s_torch, rtol=0, atol=0)  # 验证张量结果一致
 
         # Test GetKAndS
         k_triton2, s_triton2 = GetKAndS.triton(
             pool, buf, page_indices_, seq_len_tensor, seq_len, seq_len
         )
-        torch.testing.assert_close(k_triton2, k_torch, rtol=0, atol=0)
-        torch.testing.assert_close(s_triton2, s_torch, rtol=0, atol=0)
+        torch.testing.assert_close(k_triton2, k_torch, rtol=0, atol=0)  # 验证张量结果一致
+        torch.testing.assert_close(s_triton2, s_torch, rtol=0, atol=0)  # 验证张量结果一致
 
     def test_exact_page_boundary(self):
         """Test when seq_len exactly matches page boundaries."""
@@ -465,19 +468,19 @@ class TestEdgeCases:
         # Test GetK
         k_torch = GetK.torch_fast(pool, buf, seq_len, page_indices)
         k_triton = GetK.triton(pool, buf, seq_len, page_indices)
-        torch.testing.assert_close(k_triton, k_torch, rtol=0, atol=0)
+        torch.testing.assert_close(k_triton, k_torch, rtol=0, atol=0)  # 验证张量结果一致
 
         # Test GetS
         s_torch = GetS.torch_fast(pool, buf, seq_len, page_indices)
         s_triton = GetS.triton(pool, buf, seq_len, page_indices)
-        torch.testing.assert_close(s_triton, s_torch, rtol=0, atol=0)
+        torch.testing.assert_close(s_triton, s_torch, rtol=0, atol=0)  # 验证张量结果一致
 
         # Test GetKAndS
         k_triton2, s_triton2 = GetKAndS.triton(
             pool, buf, page_indices_, seq_len_tensor, seq_len, seq_len
         )
-        torch.testing.assert_close(k_triton2, k_torch, rtol=0, atol=0)
-        torch.testing.assert_close(s_triton2, s_torch, rtol=0, atol=0)
+        torch.testing.assert_close(k_triton2, k_torch, rtol=0, atol=0)  # 验证张量结果一致
+        torch.testing.assert_close(s_triton2, s_torch, rtol=0, atol=0)  # 验证张量结果一致
 
     def test_large_seq_len(self):
         """Test with large sequence length."""
@@ -502,19 +505,19 @@ class TestEdgeCases:
         # Test GetK
         k_torch = GetK.torch_fast(pool, buf, seq_len, page_indices)
         k_triton = GetK.triton(pool, buf, seq_len, page_indices)
-        torch.testing.assert_close(k_triton, k_torch, rtol=0, atol=0)
+        torch.testing.assert_close(k_triton, k_torch, rtol=0, atol=0)  # 验证张量结果一致
 
         # Test GetS
         s_torch = GetS.torch_fast(pool, buf, seq_len, page_indices)
         s_triton = GetS.triton(pool, buf, seq_len, page_indices)
-        torch.testing.assert_close(s_triton, s_torch, rtol=0, atol=0)
+        torch.testing.assert_close(s_triton, s_torch, rtol=0, atol=0)  # 验证张量结果一致
 
         # Test GetKAndS
         k_triton2, s_triton2 = GetKAndS.triton(
             pool, buf, page_indices_, seq_len_tensor, seq_len, seq_len
         )
-        torch.testing.assert_close(k_triton2, k_torch, rtol=0, atol=0)
-        torch.testing.assert_close(s_triton2, s_torch, rtol=0, atol=0)
+        torch.testing.assert_close(k_triton2, k_torch, rtol=0, atol=0)  # 验证张量结果一致
+        torch.testing.assert_close(s_triton2, s_torch, rtol=0, atol=0)  # 验证张量结果一致
 
 
 def print_test_summary():
@@ -532,7 +535,7 @@ def print_test_summary():
 
 if __name__ == "__main__":
     # Run tests manually
-    if not torch.cuda.is_available():
+    if not torch.cuda.is_available():  # 检查CUDA可用性
         print("CUDA not available. Skipping tests.")
         exit(0)
 

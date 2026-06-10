@@ -1,3 +1,4 @@
+# 文件名: test_vlms_mmmu_eval.py - 夜间测试：VLM模型MMMU评估（多模型精度与延迟）
 import json
 import unittest
 import warnings
@@ -51,10 +52,12 @@ MODEL_THRESHOLDS = {
 
 class TestNightlyVLMMmmuEval(unittest.TestCase):
     @classmethod
+    # 类级别初始化，启动服务器或设置测试环境
     def setUpClass(cls):
         cls.models = list(MODEL_THRESHOLDS.keys())
         cls.base_url = DEFAULT_URL_FOR_TEST
 
+    # 测试mmmu vlm models功能
     def test_mmmu_vlm_models(self):
         warnings.filterwarnings(
             "ignore", category=ResourceWarning, message="unclosed.*socket"
@@ -65,7 +68,7 @@ class TestNightlyVLMMmmuEval(unittest.TestCase):
         for model in self.models:
             model_path = model.model_path
             with self.subTest(model=model_path):
-                process = popen_launch_server(
+                process = popen_launch_server(  # 启动推理服务器
                     model=model_path,
                     base_url=self.base_url,
                     other_args=model.extra_args,
@@ -83,7 +86,7 @@ class TestNightlyVLMMmmuEval(unittest.TestCase):
 
                     args.return_latency = True
 
-                    metrics, latency = run_eval(args)
+                    metrics, latency = run_eval(args)  # 运行评估
 
                     metrics["score"] = round(metrics["score"], 4)
                     metrics["latency"] = round(latency, 4)
@@ -98,7 +101,7 @@ class TestNightlyVLMMmmuEval(unittest.TestCase):
                         (model_path, metrics["score"], metrics["latency"])
                     )
                 finally:
-                    kill_process_tree(process.pid)
+                    kill_process_tree(process.pid)  # 终止服务器进程
 
         try:
             with open("results.json", "r") as f:

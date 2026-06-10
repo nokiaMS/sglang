@@ -1,3 +1,4 @@
+# 多模态工具模块，提供多模态数据的哈希、填充、嵌入、分块预取和跨进程传输等功能
 """
 Multi-modality utils
 """
@@ -36,17 +37,20 @@ _is_npu = is_npu()
 # propagation that can cause some log messages (like 'server is fired up') to not appear
 # in the console when multimodal support is enabled.
 
+# 张量传输模式：cuda_ipc用于节点内，auto自动选择，default默认序列化
 # TODO(mick): nccl
 # cuda_ipc: for intranode tensor sharing
 TensorTransportMode = Literal["cuda_ipc", "auto", "default"]
 
 
+# GPU特征缓冲区，用于加速多模态特征哈希计算
 _GPU_FEATURE_BUFFER: Optional[torch.Tensor] = None
 _BUFFER_OFFSET = 0
 
 _is_default_tensor_transport = None
 
 
+# 初始化GPU特征缓冲区，预分配指定大小的GPU内存用于加速哈希计算
 def init_feature_buffer(device):
     global _GPU_FEATURE_BUFFER, _BUFFER_OFFSET
     if (
@@ -96,6 +100,7 @@ def try_add_to_buffer(tensor: torch.Tensor) -> Optional[torch.Tensor]:
         return tensor
 
 
+# 传输代理张量，torch.Tensor子类，携带元数据并支持高效的跨进程通信（如CUDA IPC）
 class TransportProxyTensor(torch.Tensor):
     """
     A convenient torch.Tensor subclass that carries extra metadata and supports
@@ -215,6 +220,7 @@ class TransportProxyTensor(torch.Tensor):
         return self._metadata.get("transport_mode", "default")
 
 
+# 多模态数据填充模式基类，定义如何将数据token替换为pad_value
 class MultiModalityDataPaddingPattern:
     """
     Data tokens (like image tokens) often need special handling during padding
@@ -232,6 +238,7 @@ class MultiModalityDataPaddingPattern:
         pass
 
 
+# 基于token对的填充模式，数据token被起始/结束token对包围（如<image>...</image>）
 class MultiModalityDataPaddingPatternTokenPairs(MultiModalityDataPaddingPattern):
     """In this pattern, data tokens should be enclosed by special token pairs (e.g. <image>...</image>, data_token_pairs)
 
@@ -307,6 +314,7 @@ class MultiModalityDataPaddingPatternTokenPairs(MultiModalityDataPaddingPattern)
         return padded_ids
 
 
+# 基于单一多模态token重复的填充模式（如<image><image>...<image>）
 class MultiModalityDataPaddingPatternMultimodalTokens(MultiModalityDataPaddingPattern):
     """In this pattern, data tokens should be represented as repetitions of a single token
     e.g. <image><image>....<image>, or <audio><audio>...<audio>
@@ -349,6 +357,7 @@ class MultiModalityDataPaddingPatternMultimodalTokens(MultiModalityDataPaddingPa
         return ret_input_ids
 
 
+# 多模态嵌入缓存，存储已计算的视觉编码结果
 embedding_cache: Optional[MultiModalStaticCache] = None
 
 
@@ -357,6 +366,7 @@ def init_mm_embedding_cache(max_size: int = 0):
     embedding_cache = MultiModalStaticCache(max_size)
 
 
+# 根据偏移范围提取嵌入的分块，用于分块预填充
 def get_embedding_chunk(
     embedding: torch.Tensor,
     extend_prefix_len: int,
@@ -402,6 +412,7 @@ def get_embedding_chunk(
     return embedding_chunk, start_index, end_index
 
 
+# 获取预计算的嵌入，若所有项都有预计算嵌入则拼接返回，否则返回None
 def _get_precomputed_embedding(
     items: List[MultimodalDataItem],
     items_size: List[int],
@@ -469,6 +480,7 @@ DataEmbeddingFunc = Callable[
 ]
 
 
+# 判断是否可以跳过嵌入前的特征数据搬运（部分模型内部已做H2D）
 def _can_skip_pre_embed_feature_move(data_embedding_func: DataEmbeddingFunc) -> bool:
     """qwen-vl visual forward already moves batched features to the target device.
 
@@ -500,6 +512,7 @@ def _move_items_to_device(
             item.feature = item.feature.to(device, non_blocking=True)
 
 
+# 后备方案：一次性编码所有项，缓存合并结果，提取分块
 def _get_chunked_embedding_full(
     data_embedding_func: DataEmbeddingFunc,
     embedding_items_per_req: List[MultimodalDataItem],
@@ -549,6 +562,7 @@ def _get_chunked_embedding_full(
     return embedding_per_req_chunk, input_ids
 
 
+# 逐图像分块感知编码：仅编码与当前分块重叠的图像，逐图像缓存
 def _get_chunked_embedding_by_item(
     data_embedding_func: DataEmbeddingFunc,
     embedding_items_per_req: List[MultimodalDataItem],
@@ -620,6 +634,7 @@ def _get_chunked_embedding_by_item(
     return torch.cat(chunk_slices, dim=0)
 
 
+# 分块预填充嵌入入口：对每个请求的多模态项编码并提取当前分块
 def _get_chunked_prefill_embedding(
     data_embedding_func: DataEmbeddingFunc,
     embedding_items: List[MultimodalDataItem],
@@ -724,6 +739,7 @@ def _adjust_embedding_length(
     return embedding
 
 
+# 生成多模态嵌入并创建位置掩码
 def get_embedding_and_mask(
     data_embedding_func: DataEmbeddingFunc,
     embedding_items: List[MultimodalDataItem],
@@ -778,6 +794,7 @@ def get_embedding_and_mask(
     return embedding, special_multimodal_mask, input_ids
 
 
+# 嵌入多模态输入并整合到文本token嵌入中
 def embed_mm_inputs(
     mm_inputs_list: List[MultimodalInputs],
     extend_prefix_lens: List[int],
@@ -915,6 +932,7 @@ def embed_mm_inputs(
     return input_embeds, other_info
 
 
+# 将批次拆分为预计算和非预计算组，分别嵌入后合并
 def _embed_mm_inputs_with_split(
     mm_inputs_list: List[MultimodalInputs],
     extend_prefix_lens: List[int],

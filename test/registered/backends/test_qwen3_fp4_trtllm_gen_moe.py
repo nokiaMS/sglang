@@ -1,3 +1,4 @@
+# 文件名: test_qwen3_fp4_trtllm_gen_moe.py - Qwen3 FP4 TRT-LLM生成MoE测试
 import unittest
 from types import SimpleNamespace
 
@@ -20,6 +21,7 @@ register_cuda_ci(est_time=300, suite="nightly-1-gpu", nightly=True)
 )
 class TestFlashinferTrtllmGenMoeBackend(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = "nvidia/Qwen3-30B-A3B-NVFP4"
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -46,9 +48,11 @@ class TestFlashinferTrtllmGenMoeBackend(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,

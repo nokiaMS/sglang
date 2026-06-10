@@ -1,3 +1,4 @@
+# 文件名: test_mm_utils.py - 多模态工具函数测试 - 验证CUDA IPC代理张量的重建和from_dict流程
 import unittest
 from unittest.mock import Mock, patch
 
@@ -11,6 +12,7 @@ from sglang.srt.managers.schedule_batch import (
 )
 
 
+# 创建代理对象 - 构造CudaIpcTensorTransportProxy的模拟实例
 def _make_proxy_with_reconstruct_result(tensor: torch.Tensor):
     proxy = mm_utils.CudaIpcTensorTransportProxy.__new__(
         mm_utils.CudaIpcTensorTransportProxy
@@ -20,6 +22,7 @@ def _make_proxy_with_reconstruct_result(tensor: torch.Tensor):
 
 
 class TestMultimodalInputsFromDict(unittest.TestCase):
+    # 测试materialize proxy
     def test_materialize_proxy(self):
         feature_tensor = torch.tensor([[7.0], [8.0]], dtype=torch.float32)
         proxy_feature = _make_proxy_with_reconstruct_result(feature_tensor)
@@ -45,6 +48,7 @@ class TestMultimodalInputsFromDict(unittest.TestCase):
         self.assertTrue(torch.equal(mm_inputs.mm_items[0].feature, feature_tensor))
         proxy_feature.reconstruct_on_target_device.assert_called_once_with(0)
 
+    # 测试materialize precomputed embedding proxy without feature
     def test_materialize_precomputed_embedding_proxy_without_feature(self):
         embedding_tensor = torch.tensor([[1.0, 2.0]], dtype=torch.float32)
         proxy_embedding = _make_proxy_with_reconstruct_result(embedding_tensor)
@@ -71,6 +75,7 @@ class TestMultimodalInputsFromDict(unittest.TestCase):
         )
         proxy_embedding.reconstruct_on_target_device.assert_called_once_with(0)
 
+    # 测试materialize model specific proxy without feature
     def test_materialize_model_specific_proxy_without_feature(self):
         grid_tensor = torch.tensor([[1, 2, 3]], dtype=torch.int64)
         proxy_grid = _make_proxy_with_reconstruct_result(grid_tensor)

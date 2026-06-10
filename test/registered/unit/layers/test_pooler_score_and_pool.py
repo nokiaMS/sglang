@@ -1,3 +1,4 @@
+# 文件名: test_pooler_score_and_pool.py - 池化评分
 """Unit tests for score_and_pool in sglang.srt.layers.pooler.
 
 All tests run on CPU — no GPU required.  MIS delimiter positions are passed
@@ -22,6 +23,7 @@ from sglang.test.test_utils import CustomTestCase
 register_cpu_ci(est_time=10, suite="base-a-test-cpu")
 
 
+# 内部方法_make_forward_batch
 def _make_forward_batch(
     extend_seq_lens,
     multi_item_delimiter_indices=None,
@@ -39,6 +41,7 @@ def _make_forward_batch(
     )
 
 
+# TestScoreAndPool类
 class TestScoreAndPool(CustomTestCase):
     """Unit tests for the score_and_pool helper function."""
 
@@ -49,6 +52,7 @@ class TestScoreAndPool(CustomTestCase):
         self.score_head = nn.Linear(self.hidden_dim, self.num_labels, bias=False)
         self.pooler = Pooler(pooling_type=PoolingType.LAST, normalize=False)
 
+    # TestScoreAndPool类的测试singleitemreturnsscores
     def test_single_item_returns_scores(self):
         """No delimiter indices -> single-item path returns [batch, num_labels]."""
         hidden = torch.randn(8, self.hidden_dim)
@@ -58,8 +62,9 @@ class TestScoreAndPool(CustomTestCase):
         out = score_and_pool(self.score_head, self.pooler, hidden, fb, input_ids)
 
         self.assertIsInstance(out, EmbeddingPoolerOutput)
-        self.assertEqual(out.embeddings.shape, (2, self.num_labels))
+        self.assertEqual(out.embeddings.shape, (2, self.num_labels))  # 断言相等
 
+    # TestScoreAndPool类的测试misreturnsperrequestlist
     def test_mis_returns_per_request_list(self):
         """Delimiter indices provided -> returns a list with one tensor per request."""
         # Sequence: [0, 1, 2, D, 3, 4, 5, D, 6, 7, 8, D]
@@ -74,9 +79,10 @@ class TestScoreAndPool(CustomTestCase):
         out = score_and_pool(self.score_head, self.pooler, hidden, fb, input_ids)
 
         self.assertIsInstance(out.embeddings, list)
-        self.assertEqual(len(out.embeddings), 1)
-        self.assertEqual(out.embeddings[0].shape, (3, self.num_labels))
+        self.assertEqual(len(out.embeddings), 1)  # 断言相等
+        self.assertEqual(out.embeddings[0].shape, (3, self.num_labels))  # 断言相等
 
+    # TestScoreAndPool类的测试misbatchedsplitsperrequest
     def test_mis_batched_splits_per_request(self):
         """Two batched MIS requests -> returns a list of length 2."""
         # Request 1: [10, 11, D, 12, 13, D]  -> delimiters at 2, 5
@@ -96,10 +102,11 @@ class TestScoreAndPool(CustomTestCase):
         out = score_and_pool(self.score_head, self.pooler, hidden, fb, input_ids)
 
         self.assertIsInstance(out.embeddings, list)
-        self.assertEqual(len(out.embeddings), 2)
-        self.assertEqual(out.embeddings[0].shape, (2, self.num_labels))
-        self.assertEqual(out.embeddings[1].shape, (1, self.num_labels))
+        self.assertEqual(len(out.embeddings), 2)  # 断言相等
+        self.assertEqual(out.embeddings[0].shape, (2, self.num_labels))  # 断言相等
+        self.assertEqual(out.embeddings[1].shape, (1, self.num_labels))  # 断言相等
 
+    # TestScoreAndPool类的测试nodelimiterindicesfallsback
     def test_no_delimiter_indices_falls_back(self):
         """multi_item_delimiter_indices=None -> single-item fallback."""
         input_ids = torch.tensor([0, 1, 2, 3, 4, 5, 6, 7])
@@ -109,8 +116,9 @@ class TestScoreAndPool(CustomTestCase):
         out = score_and_pool(self.score_head, self.pooler, hidden, fb, input_ids)
 
         self.assertIsInstance(out.embeddings, torch.Tensor)
-        self.assertEqual(out.embeddings.shape, (2, self.num_labels))
+        self.assertEqual(out.embeddings.shape, (2, self.num_labels))  # 断言相等
 
+    # TestScoreAndPool类的测试misextractspositionsbeforedelimiter
     def test_mis_extracts_positions_before_delimiter(self):
         """Verify MIS picks hidden states at index (delimiter_position - 1)."""
         # Delimiters at indices 2 and 5 -> extract hidden at indices 1 and 4
@@ -136,6 +144,7 @@ class TestScoreAndPool(CustomTestCase):
         torch.testing.assert_close(scores[0], hidden[1])
         torch.testing.assert_close(scores[1], hidden[4])
 
+    # TestScoreAndPool类的测试misdelimiteratpositionone
     def test_mis_delimiter_at_position_one(self):
         """Delimiters at positions 1 and 3 extract at indices 0 and 2."""
         input_ids = torch.tensor([10, 99, 11, 99])
@@ -156,11 +165,12 @@ class TestScoreAndPool(CustomTestCase):
 
         out = score_and_pool(identity_head, self.pooler, hidden, fb, input_ids)
 
-        self.assertEqual(len(out.embeddings), 1)
-        self.assertEqual(out.embeddings[0].shape[0], 2)
+        self.assertEqual(len(out.embeddings), 1)  # 断言相等
+        self.assertEqual(out.embeddings[0].shape[0], 2)  # 断言相等
         torch.testing.assert_close(out.embeddings[0][0], hidden[0])
         torch.testing.assert_close(out.embeddings[0][1], hidden[2])
 
+    # TestScoreAndPool类的测试singleitemscoresmatchmanualcomputation
     def test_single_item_scores_match_manual_computation(self):
         """Single-item scores equal score_head applied to pooled hidden states."""
         hidden = torch.randn(8, self.hidden_dim)
@@ -173,6 +183,7 @@ class TestScoreAndPool(CustomTestCase):
         expected = self.score_head(pooled)
         torch.testing.assert_close(out.embeddings, expected)
 
+    # TestScoreAndPool类的测试emptydelimiterindices
     def test_empty_delimiter_indices(self):
         """Empty delimiter tensor per request -> returns list with empty tensor."""
         input_ids = torch.arange(6)
@@ -185,8 +196,8 @@ class TestScoreAndPool(CustomTestCase):
         out = score_and_pool(self.score_head, self.pooler, hidden, fb, input_ids)
 
         self.assertIsInstance(out.embeddings, list)
-        self.assertEqual(len(out.embeddings), 1)
-        self.assertEqual(out.embeddings[0].shape, (0, self.num_labels))
+        self.assertEqual(len(out.embeddings), 1)  # 断言相等
+        self.assertEqual(out.embeddings[0].shape, (0, self.num_labels))  # 断言相等
 
 
 if __name__ == "__main__":

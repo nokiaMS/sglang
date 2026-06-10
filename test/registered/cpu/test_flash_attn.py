@@ -1,3 +1,4 @@
+# 文件名: test_flash_attn.py - Flash注意力测试
 import unittest
 
 import sgl_kernel  # noqa: F401
@@ -15,6 +16,7 @@ flash_attn_varlen_func = torch.ops.sgl_kernel.flash_attn_varlen_func
 torch.manual_seed(1234)
 
 
+# 执行flashattnvarlenref
 def flash_attn_varlen_ref(
     q,
     k,
@@ -50,6 +52,7 @@ def flash_attn_varlen_ref(
 
 
 # faster version ref kernel for non varlen case
+# 执行flashattnnonvarlenref
 def flash_attn_non_varlen_ref(
     q,
     k,
@@ -92,6 +95,7 @@ class TestFlashAttn(CustomTestCase):
         head_dim_v=[32],
         is_causal=[True, False],
     )
+    # 测试flashattnvarlen
     def test_flash_attn_varlen(
         self,
         batch,
@@ -113,11 +117,11 @@ class TestFlashAttn(CustomTestCase):
         cu_seqlens_q[1:] = torch.cumsum(seqlens_q, 0)
         cu_seqlens_k[1:] = torch.cumsum(seqlens_k, 0)
 
-        sum_seqlen_q = seqlens_q.sum().item()
-        sum_seqlen_k = seqlens_k.sum().item()
-        q = torch.randn(sum_seqlen_q, num_heads, head_dim).to(dtype)
-        k = torch.randn(sum_seqlen_k, num_heads_kv, head_dim).to(dtype)
-        v = torch.randn(sum_seqlen_k, num_heads_kv, head_dim_v).to(dtype)
+        sum_seqlen_q = seqlens_q.sum().item()  # 获取标量值
+        sum_seqlen_k = seqlens_k.sum().item()  # 获取标量值
+        q = torch.randn(sum_seqlen_q, num_heads, head_dim).to(dtype)  # 转换数据类型
+        k = torch.randn(sum_seqlen_k, num_heads_kv, head_dim).to(dtype)  # 转换数据类型
+        v = torch.randn(sum_seqlen_k, num_heads_kv, head_dim_v).to(dtype)  # 转换数据类型
 
         out_ref = flash_attn_varlen_ref(
             q,
@@ -135,8 +139,8 @@ class TestFlashAttn(CustomTestCase):
             v,
             cu_seqlens_q,
             cu_seqlens_k,
-            seqlens_q.max().item(),
-            seqlens_k.max().item(),
+            seqlens_q.max().item(),  # 获取标量值
+            seqlens_k.max().item(),  # 获取标量值
             is_causal,
         )
 
@@ -154,6 +158,7 @@ class TestFlashAttn(CustomTestCase):
         head_dim_v=[32],
         is_causal=[False],
     )
+    # 测试flashattnlargesize
     def test_flash_attn_large_size(
         self,
         batch,
@@ -176,11 +181,11 @@ class TestFlashAttn(CustomTestCase):
         cu_seqlens_q[1:] = torch.cumsum(seqlens_q, 0)
         cu_seqlens_k[1:] = torch.cumsum(seqlens_k, 0)
 
-        sum_seqlen_q = seqlens_q.sum().item()
-        sum_seqlen_k = seqlens_k.sum().item()
-        q = torch.randn(sum_seqlen_q, num_heads, head_dim).to(dtype)
-        k = torch.randn(sum_seqlen_k, num_heads_kv, head_dim).to(dtype)
-        v = torch.randn(sum_seqlen_k, num_heads_kv, head_dim_v).to(dtype)
+        sum_seqlen_q = seqlens_q.sum().item()  # 获取标量值
+        sum_seqlen_k = seqlens_k.sum().item()  # 获取标量值
+        q = torch.randn(sum_seqlen_q, num_heads, head_dim).to(dtype)  # 转换数据类型
+        k = torch.randn(sum_seqlen_k, num_heads_kv, head_dim).to(dtype)  # 转换数据类型
+        v = torch.randn(sum_seqlen_k, num_heads_kv, head_dim_v).to(dtype)  # 转换数据类型
 
         out_ref = flash_attn_non_varlen_ref(
             q,
@@ -198,14 +203,15 @@ class TestFlashAttn(CustomTestCase):
             v,
             cu_seqlens_q,
             cu_seqlens_k,
-            seqlens_q.max().item(),
-            seqlens_k.max().item(),
+            seqlens_q.max().item(),  # 获取标量值
+            seqlens_k.max().item(),  # 获取标量值
             is_causal,
         )
 
         atol = rtol = precision[dtype]
         torch.testing.assert_close(out_ref, out, atol=atol, rtol=rtol)
 
+    # 执行testflashattnlargeseqcausalmaskonce
     def _test_flash_attn_large_seq_causal_mask_once(self, seqlens):
         dtype = torch.bfloat16
         num_heads = 8
@@ -215,8 +221,8 @@ class TestFlashAttn(CustomTestCase):
         seqlens_t = torch.tensor(seqlens, dtype=torch.int32)
         cu_seqlens = torch.zeros(len(seqlens) + 1, dtype=torch.int32)
         cu_seqlens[1:] = torch.cumsum(seqlens_t, 0)
-        total = cu_seqlens[-1].item()
-        max_seqlen = seqlens_t.max().item()
+        total = cu_seqlens[-1].item()  # 获取标量值
+        max_seqlen = seqlens_t.max().item()  # 获取标量值
 
         q = torch.randn(total, num_heads, head_dim, dtype=dtype)
         k = torch.randn(total, num_heads_kv, head_dim, dtype=dtype)
@@ -232,6 +238,7 @@ class TestFlashAttn(CustomTestCase):
         atol = rtol = precision[dtype]
         torch.testing.assert_close(out_ref, out, atol=atol, rtol=rtol)
 
+    # 测试flashattnlargeseqcausalmask
     def test_flash_attn_large_seq_causal_mask(self):
         # Non-varlen path: single sequence, has_varlen_sequences returns False
         # → dispatches to flash_attn_kernel_impl.

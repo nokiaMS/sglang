@@ -1,3 +1,4 @@
+# 文件名: test_eagle3_basic.py - eagle3 basic测试
 import unittest
 from types import SimpleNamespace
 
@@ -34,6 +35,7 @@ class TestEagle3Basic(EagleServerBase):
         else ["--dtype=float16", "--chunked-prefill-size", 1024]
     )
 
+    # 测试mmlu
     def test_mmlu(self):
         """Override to add EAGLE-specific assertions"""
         args = SimpleNamespace(

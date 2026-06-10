@@ -1,3 +1,4 @@
+# 文件名: test_server_info.py - 服务器信息
 """Endpoint-level tests for `/server_info`.
 
 `/server_info` is the introspection surface that external consumers
@@ -33,6 +34,7 @@ from sglang.test.test_utils import CustomTestCase
 register_cpu_ci(est_time=5, suite="base-a-test-cpu")
 
 
+# 内部方法_call_server_info_with
 def _call_server_info_with(server_args: ServerArgs) -> dict:
     """Invoke `http_server.server_info()` against a stub global state.
 
@@ -62,6 +64,7 @@ def _call_server_info_with(server_args: ServerArgs) -> dict:
         http_server._global_state = prior_state
 
 
+# TestServerInfoKvEventsField类
 class TestServerInfoKvEventsField(CustomTestCase):
     """The new `kv_events` field is wired correctly across the full
     `_build_kv_events_block` input matrix.
@@ -81,8 +84,8 @@ class TestServerInfoKvEventsField(CustomTestCase):
 
         info = _call_server_info_with(args)
 
-        self.assertIn("kv_events", info)
-        self.assertEqual(
+        self.assertIn("kv_events", info)  # 断言包含
+        self.assertEqual(  # 断言相等
             info["kv_events"],
             {
                 "publisher": "zmq",
@@ -94,6 +97,7 @@ class TestServerInfoKvEventsField(CustomTestCase):
             },
         )
 
+    # TestServerInfoKvEventsField类的测试kveventsdescriptorcarriesspecifichostandtopic
     def test_kv_events_descriptor_carries_specific_host_and_topic(self):
         args = ServerArgs(
             model_path="dummy",
@@ -106,12 +110,12 @@ class TestServerInfoKvEventsField(CustomTestCase):
 
         info = _call_server_info_with(args)
 
-        self.assertIsNotNone(info["kv_events"])
-        self.assertEqual(info["kv_events"]["endpoint_host"], "0.0.0.0")
-        self.assertEqual(info["kv_events"]["endpoint_port_base"], 7777)
-        self.assertEqual(info["kv_events"]["topic"], "kv")
-        self.assertEqual(info["kv_events"]["block_size"], 128)
-        self.assertEqual(info["kv_events"]["dp_size"], 1)
+        self.assertIsNotNone(info["kv_events"])  # 断言不为None
+        self.assertEqual(info["kv_events"]["endpoint_host"], "0.0.0.0")  # 断言相等
+        self.assertEqual(info["kv_events"]["endpoint_port_base"], 7777)  # 断言相等
+        self.assertEqual(info["kv_events"]["topic"], "kv")  # 断言相等
+        self.assertEqual(info["kv_events"]["block_size"], 128)  # 断言相等
+        self.assertEqual(info["kv_events"]["dp_size"], 1)  # 断言相等
 
     # ----- disabled / unconfigured -------------------------------------
 
@@ -122,9 +126,10 @@ class TestServerInfoKvEventsField(CustomTestCase):
 
         # The key must still be present so consumers can detect
         # "publishing disabled" via a single shape check.
-        self.assertIn("kv_events", info)
-        self.assertIsNone(info["kv_events"])
+        self.assertIn("kv_events", info)  # 断言包含
+        self.assertIsNone(info["kv_events"])  # 断言为None
 
+    # TestServerInfoKvEventsField类的测试kveventsisnullwhenpublisherexplicitlynull
     def test_kv_events_is_null_when_publisher_explicitly_null(self):
         args = ServerArgs(
             model_path="dummy",
@@ -134,7 +139,7 @@ class TestServerInfoKvEventsField(CustomTestCase):
 
         info = _call_server_info_with(args)
 
-        self.assertIsNone(info["kv_events"])
+        self.assertIsNone(info["kv_events"])  # 断言为None
 
     # ----- malformed config --------------------------------------------
 
@@ -149,7 +154,7 @@ class TestServerInfoKvEventsField(CustomTestCase):
 
         info = _call_server_info_with(args)
 
-        self.assertIsNone(info["kv_events"])
+        self.assertIsNone(info["kv_events"])  # 断言为None
 
     # ----- unreachable endpoints ---------------------------------------
 
@@ -166,8 +171,9 @@ class TestServerInfoKvEventsField(CustomTestCase):
 
         info = _call_server_info_with(args)
 
-        self.assertIsNone(info["kv_events"])
+        self.assertIsNone(info["kv_events"])  # 断言为None
 
+    # TestServerInfoKvEventsField类的测试kveventsisnullwhenendpointmissingport
     def test_kv_events_is_null_when_endpoint_missing_port(self):
         args = ServerArgs(
             model_path="dummy",
@@ -179,8 +185,9 @@ class TestServerInfoKvEventsField(CustomTestCase):
 
         info = _call_server_info_with(args)
 
-        self.assertIsNone(info["kv_events"])
+        self.assertIsNone(info["kv_events"])  # 断言为None
 
+    # TestServerInfoKvEventsField类的测试kveventsisnullwhenportnotinteger
     def test_kv_events_is_null_when_port_not_integer(self):
         args = ServerArgs(
             model_path="dummy",
@@ -192,8 +199,9 @@ class TestServerInfoKvEventsField(CustomTestCase):
 
         info = _call_server_info_with(args)
 
-        self.assertIsNone(info["kv_events"])
+        self.assertIsNone(info["kv_events"])  # 断言为None
 
+    # TestServerInfoKvEventsField类的测试kveventsisnullforportoutofrange
     def test_kv_events_is_null_for_port_out_of_range(self):
         # TCP ports are 1..65535; values outside the range can't bind, so
         # the descriptor refuses to advertise them rather than handing
@@ -208,7 +216,7 @@ class TestServerInfoKvEventsField(CustomTestCase):
                     page_size=64,
                 )
                 info = _call_server_info_with(args)
-                self.assertIsNone(info["kv_events"])
+                self.assertIsNone(info["kv_events"])  # 断言为None
 
     # ----- bad scheduler context ---------------------------------------
 
@@ -226,9 +234,10 @@ class TestServerInfoKvEventsField(CustomTestCase):
                     page_size=bad_page_size,
                 )
                 info = _call_server_info_with(args)
-                self.assertIsNone(info["kv_events"])
+                self.assertIsNone(info["kv_events"])  # 断言为None
 
 
+# TestServerInfoExistingFieldsPreserved类
 class TestServerInfoExistingFieldsPreserved(CustomTestCase):
     """Regression guard: the new `kv_events` field is additive — none of
     the fields existing consumers depend on may be silently dropped.
@@ -251,7 +260,7 @@ class TestServerInfoExistingFieldsPreserved(CustomTestCase):
         info = _call_server_info_with(args)
 
         for field in dataclasses.fields(ServerArgs):
-            self.assertIn(
+            self.assertIn(  # 断言包含
                 field.name,
                 info,
                 f"existing ServerArgs field '{field.name}' missing from "
@@ -259,6 +268,7 @@ class TestServerInfoExistingFieldsPreserved(CustomTestCase):
                 f"shadow or drop ServerArgs fields",
             )
 
+    # TestServerInfoExistingFieldsPreserved类的测试internalstatesandversionkeyspreserved
     def test_internal_states_and_version_keys_preserved(self):
         # These two top-level keys predate the kv_events patch and are
         # named individually (not spread from a dataclass), so a stray
@@ -267,9 +277,10 @@ class TestServerInfoExistingFieldsPreserved(CustomTestCase):
 
         info = _call_server_info_with(args)
 
-        self.assertIn("internal_states", info)
-        self.assertIn("version", info)
+        self.assertIn("internal_states", info)  # 断言包含
+        self.assertIn("version", info)  # 断言包含
 
+    # TestServerInfoExistingFieldsPreserved类的测试kveventsconfigrawfieldstillsurfaced
     def test_kv_events_config_raw_field_still_surfaced(self):
         # The new structured `kv_events` block sits alongside the
         # pre-existing flat `kv_events_config` field (the raw CLI string
@@ -285,11 +296,11 @@ class TestServerInfoExistingFieldsPreserved(CustomTestCase):
 
         info = _call_server_info_with(args)
 
-        self.assertIn("kv_events_config", info)
-        self.assertEqual(info["kv_events_config"], raw_cfg)
+        self.assertIn("kv_events_config", info)  # 断言包含
+        self.assertEqual(info["kv_events_config"], raw_cfg)  # 断言相等
         # And the new structured block is separately present:
-        self.assertIn("kv_events", info)
-        self.assertIsNotNone(info["kv_events"])
+        self.assertIn("kv_events", info)  # 断言包含
+        self.assertIsNotNone(info["kv_events"])  # 断言不为None
 
 
 if __name__ == "__main__":

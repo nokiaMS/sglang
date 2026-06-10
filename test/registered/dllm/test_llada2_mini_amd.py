@@ -1,3 +1,4 @@
+# 文件名: test_llada2_mini_amd.py - LLaDA2 Mini AMD测试
 """
 Test LLaDA2 (Diffusion Language Model) on AMD GPUs.
 
@@ -25,6 +26,7 @@ register_amd_ci(est_time=1000, suite="stage-b-test-1-gpu-small-amd")
 
 class TestLLaDA2MiniAMD(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = "inclusionAI/LLaDA2.0-mini"
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -49,9 +51,11 @@ class TestLLaDA2MiniAMD(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         """Test GSM8K accuracy with DLLM on AMD."""
         args = SimpleNamespace(
@@ -68,6 +72,7 @@ class TestLLaDA2MiniAMD(CustomTestCase):
         self.assertGreater(metrics["score"], 0.80)
         self.assertGreater(metrics["output_throughput"], 50)
 
+    # 测试bs1speed
     def test_bs_1_speed(self):
         """Test single batch inference speed."""
         args = BenchArgs(port=int(self.base_url.split(":")[-1]), max_new_tokens=2048)

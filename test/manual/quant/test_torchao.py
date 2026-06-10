@@ -1,3 +1,4 @@
+# 文件名: test_torchao.py - TorchAO量化测试 - 验证int4wo/fp8wo量化配置下的推理吞吐量和VLM生成
 import unittest
 
 import requests
@@ -24,6 +25,7 @@ class TestTorchAO(CustomTestCase, MMLUMixin):
     mmlu_num_threads = 32
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         cls.model = DEFAULT_MODEL_NAME_FOR_TEST
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -35,9 +37,11 @@ class TestTorchAO(CustomTestCase, MMLUMixin):
         )
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 运行解码生成 - 发送生成请求并返回结果
     def run_decode(self, max_new_tokens):
         response = requests.post(
             self.base_url + "/generate",
@@ -52,6 +56,7 @@ class TestTorchAO(CustomTestCase, MMLUMixin):
         )
         return response.json()
 
+    # 测试throughput
     def test_throughput(self):
         import time
 
@@ -70,6 +75,7 @@ class TestTorchAO(CustomTestCase, MMLUMixin):
 
 
 class TestTorchAOForVLM(CustomTestCase):
+    # 测试vlm generate
     def test_vlm_generate(self):
         model_path = DEFAULT_SMALL_VLM_MODEL_NAME_FOR_TEST
         chat_template = get_chat_template_by_model_path(model_path)

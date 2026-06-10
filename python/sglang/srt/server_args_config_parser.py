@@ -1,3 +1,4 @@
+# 配置参数解析模块：处理YAML配置文件与命令行参数的合并
 """
 Configuration argument parser for command-line applications.
 Handles merging of YAML configuration files with command-line arguments.
@@ -13,11 +14,12 @@ import yaml
 logger = logging.getLogger(__name__)
 
 
+# 配置参数合并器：将YAML配置文件中的参数与命令行参数进行合并
 class ConfigArgumentMerger:
     """Handles merging of configuration file arguments with command-line arguments."""
 
-    def __init__(
-        self,
+    # 初始化：识别store_true类型的布尔参数和不支持的操作类型
+    def __init__( self,
         parser: argparse.ArgumentParser = None,
         boolean_actions: List[str] = None,
     ):
@@ -48,6 +50,7 @@ class ConfigArgumentMerger:
             self.store_true_actions = []
             self.unsupported_actions = {}
 
+    # 将YAML配置文件参数与命令行参数合并，优先级：CLI > 配置文件 > 默认值
     def merge_config_with_args(self, cli_args: List[str]) -> List[str]:
         """
         Merge configuration file arguments with command-line arguments.
@@ -81,6 +84,7 @@ class ConfigArgumentMerger:
         # Simple merge: config args + CLI args
         return config_args + before_config + after_config
 
+    # 从参数列表中提取配置文件路径
     def _extract_config_file_path(self, args: List[str]) -> str:
         """Extract the config file path from arguments."""
         config_indices = [i for i, arg in enumerate(args) if arg == "--config"]
@@ -97,6 +101,7 @@ class ConfigArgumentMerger:
 
         return args[config_index + 1]
 
+    # 解析YAML配置文件并返回字典
     def _parse_yaml_config(self, file_path: str) -> Dict[str, Any]:
         """
         Parse YAML configuration file and convert to argument list.
@@ -128,6 +133,7 @@ class ConfigArgumentMerger:
 
         return config_data
 
+    # 验证文件是否为YAML格式且存在
     def _validate_yaml_file(self, file_path: str) -> None:
         """Validate that the file is a YAML file."""
         path = Path(file_path)
@@ -137,6 +143,7 @@ class ConfigArgumentMerger:
         if not path.exists():
             raise ValueError(f"Config file not found: {file_path}")
 
+    # 将配置字典转换为命令行参数列表
     def _convert_config_to_args(self, config: Dict[str, Any]) -> List[str]:
         """Convert configuration dictionary to argument list."""
         args = []
@@ -156,6 +163,7 @@ class ConfigArgumentMerger:
 
         return args
 
+    # 添加布尔类型参数：store_true类型仅True时添加标志，其他布尔类型添加--key true/false
     def _add_boolean_arg(self, args: List[str], key: str, value: bool) -> None:
         """
         Add boolean argument to the list.
@@ -173,12 +181,14 @@ class ConfigArgumentMerger:
         else:
             args.extend([f"--{key}", str(value).lower()])
 
+    # 添加列表类型参数
     def _add_list_arg(self, args: List[str], key: str, value: List[Any]) -> None:
         """Add list argument to the list."""
         if value:  # Only add if list is not empty
             args.append(f"--{key}")
             args.extend(str(item) for item in value)
 
+    # 添加标量类型参数
     def _add_scalar_arg(self, args: List[str], key: str, value: Any) -> None:
         """Add scalar argument to the list."""
         args.extend([f"--{key}", str(value)])

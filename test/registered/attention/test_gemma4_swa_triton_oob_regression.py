@@ -1,3 +1,4 @@
+# 文件名: test_gemma4_swa_triton_oob_regression.py - Gemma4 SWA Triton越界回归测试
 """Regression test for issue #24394.
 
 `--enable-deterministic-inference` with `--attention-backend triton` on a
@@ -40,6 +41,7 @@ MAX_TOKENS = 256
 
 class TestGemma4SwaTritonOobRegression(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = "google/gemma-4-26B-A4B-it"
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -70,10 +72,12 @@ class TestGemma4SwaTritonOobRegression(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         if hasattr(cls, "process") and cls.process:
             kill_process_tree(cls.process.pid)
 
+    # 执行fireone
     def _fire_one(self):
         try:
             r = requests.post(
@@ -92,6 +96,7 @@ class TestGemma4SwaTritonOobRegression(CustomTestCase):
         except Exception as e:
             return False, repr(e)
 
+    # 测试noimaunderconcurrentload
     def test_no_ima_under_concurrent_load(self):
         try:
             requests.get(self.base_url + "/flush_cache", timeout=30)

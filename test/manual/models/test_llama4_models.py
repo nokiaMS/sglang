@@ -1,3 +1,4 @@
+# 文件名: test_llama4_models.py - 测试Llama-4模型（Scout变体）
 import unittest
 from types import SimpleNamespace
 
@@ -21,14 +22,16 @@ MODELS = [
 
 class TestLlama4(CustomTestCase):
     @classmethod
+    # 类级别初始化，启动服务器或设置测试环境
     def setUpClass(cls):
         cls.base_url = DEFAULT_URL_FOR_TEST
 
+    # 测试gsm8k功能
     def test_gsm8k(self):
 
         for model in MODELS:
             try:
-                process = popen_launch_server(
+                process = popen_launch_server(  # 启动推理服务器
                     model.model,
                     self.base_url,
                     timeout=3 * DEFAULT_TIMEOUT_FOR_SERVER_LAUNCH,
@@ -51,9 +54,9 @@ class TestLlama4(CustomTestCase):
                     num_examples=200,
                     num_threads=128,
                 )
-                metrics = run_eval(args)
+                metrics = run_eval(args)  # 运行评估
                 print(f"{metrics=}")
-                self.assertGreaterEqual(metrics["score"], model.accuracy)
+                self.assertGreaterEqual(metrics["score"], model.accuracy)  # 断言精度大于等于阈值
             except Exception as e:
                 print(f"Error testing {model.model}: {e}")
                 self.fail(f"Test failed for {model.model}: {e}")
@@ -63,7 +66,7 @@ class TestLlama4(CustomTestCase):
                 if process is not None and process.poll() is None:
                     print(f"Cleaning up process {process.pid}")
                     try:
-                        kill_process_tree(process.pid)
+                        kill_process_tree(process.pid)  # 终止服务器进程
                     except Exception as e:
                         print(f"Error killing process: {e}")
 

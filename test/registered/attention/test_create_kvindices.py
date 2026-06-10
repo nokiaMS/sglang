@@ -1,3 +1,4 @@
+# 文件名: test_create_kvindices.py - KV索引创建测试
 import unittest
 
 import numpy as np
@@ -15,9 +16,11 @@ register_amd_ci(est_time=10, suite="stage-b-test-1-gpu-small-amd")
 
 class TestCreateKvIndices(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         torch.set_default_device(get_device())
 
+    # 执行runtest
     def _run_test(self, batch, max_batch, max_context_len):
         req_to_token = torch.arange(
             max_batch * max_context_len, dtype=torch.int32, device=get_device()
@@ -41,8 +44,8 @@ class TestCreateKvIndices(CustomTestCase):
         kv_indptr[1:] = torch.cumsum(paged_kernel_lens, dim=0)
 
         # ref
-        req_pool_indices_cpu = req_pool_indices.cpu().numpy()
-        paged_kernel_lens_cpu = paged_kernel_lens.cpu().numpy()
+        req_pool_indices_cpu = req_pool_indices.cpu().numpy()  # 转移到CPU
+        paged_kernel_lens_cpu = paged_kernel_lens.cpu().numpy()  # 转移到CPU
         kv_indices_ref = torch.cat(
             [
                 req_to_token[req_pool_indices_cpu[i], : paged_kernel_lens_cpu[i]]
@@ -68,6 +71,7 @@ class TestCreateKvIndices(CustomTestCase):
         # Check
         self.assertTrue(torch.equal(kv_indices_ref, kv_indices_triton))
 
+    # 测试createkvindices
     def test_create_kvindices(self):
         BATCH = [1, 37, 1786]
         MAX_BATCH = 4096

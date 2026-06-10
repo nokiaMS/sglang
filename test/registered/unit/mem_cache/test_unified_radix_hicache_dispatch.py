@@ -1,3 +1,4 @@
+# 文件名: test_unified_radix_hicache_dispatch.py - 统一基数HiCache调度
 import unittest
 from unittest.mock import MagicMock
 
@@ -22,6 +23,7 @@ from sglang.test.ci.ci_register import register_cpu_ci
 register_cpu_ci(est_time=2, suite="base-a-test-cpu")
 
 
+# 内部方法_mock_kvcache
 def _mock_kvcache(cls):
     return MagicMock(spec=cls)
 
@@ -31,13 +33,17 @@ SWA = ComponentType.SWA
 MAMBA = ComponentType.MAMBA
 
 
+# TestUnifiedRadixHiCacheDispatch类
 class TestUnifiedRadixHiCacheDispatch(unittest.TestCase):
+
+    # TestUnifiedRadixHiCacheDispatch类的测试strategyregistryordering
     def test_strategy_registry_ordering(self):
         order = [type(s) for s in _STRATEGIES]
         # DeepSeekV4 inherits from SWAKVPool, so it must resolve before _SwaStrategy.
-        self.assertLess(order.index(_DeepSeekV4Strategy), order.index(_SwaStrategy))
-        self.assertEqual(order[-1], _PlainKvStrategy)
+        self.assertLess(order.index(_DeepSeekV4Strategy), order.index(_SwaStrategy))  # 断言小于
+        self.assertEqual(order[-1], _PlainKvStrategy)  # 断言相等
 
+    # TestUnifiedRadixHiCacheDispatch类的测试deepseekv4fullswa
     def test_deepseek_v4_full_swa(self):
         from sglang.srt.mem_cache.deepseek_v4_memory_pool import (
             DeepSeekV4TokenToKVPool,
@@ -47,6 +53,7 @@ class TestUnifiedRadixHiCacheDispatch(unittest.TestCase):
         strategy = _select_strategy(kvcache, {FULL, SWA})
         self.assertIsInstance(strategy, _DeepSeekV4Strategy)
 
+    # TestUnifiedRadixHiCacheDispatch类的测试mamba
     def test_mamba(self):
         from sglang.srt.mem_cache.memory_pool import HybridLinearKVPool
 
@@ -54,6 +61,7 @@ class TestUnifiedRadixHiCacheDispatch(unittest.TestCase):
         strategy = _select_strategy(kvcache, {FULL, MAMBA})
         self.assertIsInstance(strategy, _MambaStrategy)
 
+    # TestUnifiedRadixHiCacheDispatch类的测试swa
     def test_swa(self):
         from sglang.srt.mem_cache.swa_memory_pool import SWAKVPool
 
@@ -61,6 +69,7 @@ class TestUnifiedRadixHiCacheDispatch(unittest.TestCase):
         strategy = _select_strategy(kvcache, {FULL, SWA})
         self.assertIsInstance(strategy, _SwaStrategy)
 
+    # TestUnifiedRadixHiCacheDispatch类的测试dsa
     def test_dsa(self):
         from sglang.srt.mem_cache.memory_pool import DSATokenToKVPool
 
@@ -68,6 +77,7 @@ class TestUnifiedRadixHiCacheDispatch(unittest.TestCase):
         strategy = _select_strategy(kvcache, {FULL})
         self.assertIsInstance(strategy, _DsaStrategy)
 
+    # TestUnifiedRadixHiCacheDispatch类的测试plainkvfallback
     def test_plain_kv_fallback(self):
         from sglang.srt.mem_cache.memory_pool import MHATokenToKVPool
 
@@ -75,6 +85,7 @@ class TestUnifiedRadixHiCacheDispatch(unittest.TestCase):
         strategy = _select_strategy(kvcache, {FULL})
         self.assertIsInstance(strategy, _PlainKvStrategy)
 
+    # TestUnifiedRadixHiCacheDispatch类的测试mlaroutestoplain
     def test_mla_routes_to_plain(self):
         from sglang.srt.mem_cache.memory_pool import MLATokenToKVPool
 
@@ -82,6 +93,7 @@ class TestUnifiedRadixHiCacheDispatch(unittest.TestCase):
         strategy = _select_strategy(kvcache, {FULL})
         self.assertIsInstance(strategy, _PlainKvStrategy)
 
+    # TestUnifiedRadixHiCacheDispatch类的测试unknowncomboraises
     def test_unknown_combo_raises(self):
         from sglang.srt.mem_cache.deepseek_v4_memory_pool import (
             DeepSeekV4TokenToKVPool,
@@ -90,17 +102,23 @@ class TestUnifiedRadixHiCacheDispatch(unittest.TestCase):
 
         for cls in (SWAKVPool, DeepSeekV4TokenToKVPool):
             kvcache = _mock_kvcache(cls)
-            with self.assertRaises(AssertionError) as cm:
+            with self.assertRaises(AssertionError) as cm:  # 断言抛出异常
                 _select_strategy(kvcache, {FULL})
-            self.assertIn("No matching HiCache strategy", str(cm.exception))
+            self.assertIn("No matching HiCache strategy", str(cm.exception))  # 断言包含
 
+    # TestUnifiedRadixHiCacheDispatch类的测试registercustomstrategytakesprecedence
     def test_register_custom_strategy_takes_precedence(self):
+
+        # _CustomStrategy类
         class _CustomStrategy(StackStrategy):
+
+            # _CustomStrategy类的matches
             def matches(self, kvcache, components):
                 return components == {FULL}
 
+            # _CustomStrategy类的build
             def build(self, **_):
-                raise NotImplementedError
+                raise NotImplementedError  # 抛出异常
 
         custom = _CustomStrategy()
         original = list(hybrid_pool_assembler._STRATEGIES)
@@ -109,18 +127,22 @@ class TestUnifiedRadixHiCacheDispatch(unittest.TestCase):
             from sglang.srt.mem_cache.memory_pool import MHATokenToKVPool
 
             kvcache = _mock_kvcache(MHATokenToKVPool)
-            self.assertIs(_select_strategy(kvcache, {FULL}), custom)
+            self.assertIs(_select_strategy(kvcache, {FULL}), custom)  # 断言是同一对象
         finally:
             hybrid_pool_assembler._STRATEGIES[:] = original
 
 
+# TestApplyStackResult类
 class TestApplyStackResult(unittest.TestCase):
     @staticmethod
+
+    # TestApplyStackResult类的内部方法_fake_cache
     def _fake_cache(component_types):
         cache = MagicMock()
         cache.components = {ct: MagicMock() for ct in component_types}
         return cache
 
+    # TestApplyStackResult类的测试wirescomponentssidecarsandcounters
     def test_wires_components_sidecars_and_counters(self):
         full_host, swa_host, mamba_host = MagicMock(), MagicMock(), MagicMock()
         cache = self._fake_cache([FULL, SWA, MAMBA])
@@ -142,14 +164,14 @@ class TestApplyStackResult(unittest.TestCase):
 
         _apply_stack_result(cache, kvcache, params, result)
 
-        self.assertIs(cache.host_pool_group, result.host_pool_group)
-        self.assertIs(cache.cache_controller, controller)
-        self.assertIs(cache.full_kv_pool_host, full_host)
-        self.assertIs(cache.swa_kv_pool_host, swa_host)
-        self.assertIs(cache.mamba_pool_host, mamba_host)
-        self.assertIs(cache.components[FULL]._full_kv_pool_host, full_host)
-        self.assertIs(cache.components[SWA]._swa_kv_pool_host, swa_host)
-        self.assertIs(cache.components[MAMBA]._mamba_pool_host, mamba_host)
+        self.assertIs(cache.host_pool_group, result.host_pool_group)  # 断言是同一对象
+        self.assertIs(cache.cache_controller, controller)  # 断言是同一对象
+        self.assertIs(cache.full_kv_pool_host, full_host)  # 断言是同一对象
+        self.assertIs(cache.swa_kv_pool_host, swa_host)  # 断言是同一对象
+        self.assertIs(cache.mamba_pool_host, mamba_host)  # 断言是同一对象
+        self.assertIs(cache.components[FULL]._full_kv_pool_host, full_host)  # 断言是同一对象
+        self.assertIs(cache.components[SWA]._swa_kv_pool_host, swa_host)  # 断言是同一对象
+        self.assertIs(cache.components[MAMBA]._mamba_pool_host, mamba_host)  # 断言是同一对象
         cache.register_sidecar_pool.assert_called_once_with(sidecar)
         kvcache.register_layer_transfer_counter.assert_called_once_with(
             controller.layer_done_counter
@@ -158,6 +180,7 @@ class TestApplyStackResult(unittest.TestCase):
             controller.layer_done_counter
         )
 
+    # TestApplyStackResult类的测试skipsreqtotokencounterwhenflagfalse
     def test_skips_req_to_token_counter_when_flag_false(self):
         cache = self._fake_cache([FULL])
         kvcache = MagicMock()

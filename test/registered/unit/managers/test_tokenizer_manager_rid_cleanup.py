@@ -1,3 +1,4 @@
+# 文件名: test_tokenizer_manager_rid_cleanup.py - 分词器管理器RID清理
 """
 Unit tests for rid_to_state cleanup in TokenizerManager.
 
@@ -92,6 +93,7 @@ _PER_REQUEST_OPTIONAL_FIELDS = frozenset(
 )
 
 
+# 内部方法_make_tokenizer_manager
 def _make_tokenizer_manager() -> TokenizerManager:
     """Create a TokenizerManager with mocked dependencies, bypassing __init__."""
     tm = TokenizerManager.__new__(TokenizerManager)
@@ -115,6 +117,7 @@ def _make_tokenizer_manager() -> TokenizerManager:
     return tm
 
 
+# 内部方法_make_req_state
 def _make_req_state(rid: str = "test_rid") -> ReqState:
     """Create a minimal ReqState for testing."""
     obj = Mock(spec=GenerateReqInput)
@@ -132,6 +135,7 @@ def _make_req_state(rid: str = "test_rid") -> ReqState:
     )
 
 
+# 内部方法_make_abort_req
 def _make_abort_req(rid: str, abort_message: str = "Aborted") -> AbortReq:
     """Create an AbortReq for testing."""
     return AbortReq(
@@ -142,6 +146,7 @@ def _make_abort_req(rid: str, abort_message: str = "Aborted") -> AbortReq:
     )
 
 
+# 内部方法_make_batch_str_output
 def _make_batch_str_output(rid: str, finished_reason=None) -> BatchStrOutput:
     """Create a minimal BatchStrOutput for a single request.
 
@@ -190,6 +195,7 @@ def _make_batch_str_output(rid: str, finished_reason=None) -> BatchStrOutput:
     return BatchStrOutput(**kwargs)
 
 
+# TestRidToStateCleanupOnAbort类
 class TestRidToStateCleanupOnAbort(CustomTestCase):
     """Test that _handle_abort_req removes rid from rid_to_state."""
 
@@ -203,8 +209,9 @@ class TestRidToStateCleanupOnAbort(CustomTestCase):
         abort_req = _make_abort_req(rid)
         tm._handle_abort_req(abort_req)
 
-        self.assertNotIn(rid, tm.rid_to_state)
+        self.assertNotIn(rid, tm.rid_to_state)  # 断言不包含
 
+    # TestRidToStateCleanupOnAbort类的测试abortallowsresubmitsamerid
     def test_abort_allows_resubmit_same_rid(self):
         """After abort, _init_req_state should accept the same rid again."""
         tm = _make_tokenizer_manager()
@@ -224,8 +231,9 @@ class TestRidToStateCleanupOnAbort(CustomTestCase):
         obj.bootstrap_room = None
         tm._init_req_state(obj)
 
-        self.assertIn(rid, tm.rid_to_state)
+        self.assertIn(rid, tm.rid_to_state)  # 断言包含
 
+    # TestRidToStateCleanupOnAbort类的测试abortsetsfinishedandnotifies
     def test_abort_sets_finished_and_notifies(self):
         """_handle_abort_req should mark state as finished and set the event."""
         tm = _make_tokenizer_manager()
@@ -236,14 +244,15 @@ class TestRidToStateCleanupOnAbort(CustomTestCase):
         abort_req = _make_abort_req(rid)
         tm._handle_abort_req(abort_req)
 
-        self.assertTrue(state.finished)
-        self.assertTrue(state.event.is_set())
-        self.assertEqual(len(state.out_list), 1)
-        self.assertEqual(
+        self.assertTrue(state.finished)  # 断言为真
+        self.assertTrue(state.event.is_set())  # 断言为真
+        self.assertEqual(len(state.out_list), 1)  # 断言相等
+        self.assertEqual(  # 断言相等
             state.out_list[0]["meta_info"]["finish_reason"]["type"], "abort"
         )
 
 
+# TestRidToStateCleanupOnBatchOutput类
 class TestRidToStateCleanupOnBatchOutput(CustomTestCase):
     """Test that _handle_batch_output removes rid from rid_to_state on completion."""
 
@@ -257,8 +266,9 @@ class TestRidToStateCleanupOnBatchOutput(CustomTestCase):
         batch_output = _make_batch_str_output(rid)
         asyncio.run(tm._handle_batch_output(batch_output))
 
-        self.assertNotIn(rid, tm.rid_to_state)
+        self.assertNotIn(rid, tm.rid_to_state)  # 断言不包含
 
+    # TestRidToStateCleanupOnBatchOutput类的测试batchoutputallowsresubmitafterfinish
     def test_batch_output_allows_resubmit_after_finish(self):
         """After a request finishes, the same rid can be resubmitted."""
         tm = _make_tokenizer_manager()
@@ -278,8 +288,9 @@ class TestRidToStateCleanupOnBatchOutput(CustomTestCase):
         obj.bootstrap_room = None
         tm._init_req_state(obj)
 
-        self.assertIn(rid, tm.rid_to_state)
+        self.assertIn(rid, tm.rid_to_state)  # 断言包含
 
+    # TestRidToStateCleanupOnBatchOutput类的测试batchoutputkeepsridwhennotfinished
     def test_batch_output_keeps_rid_when_not_finished(self):
         """When a request is not yet finished, rid should remain in rid_to_state."""
         tm = _make_tokenizer_manager()
@@ -291,9 +302,10 @@ class TestRidToStateCleanupOnBatchOutput(CustomTestCase):
         batch_output = _make_batch_str_output(rid, finished_reason=_NOT_FINISHED)
         asyncio.run(tm._handle_batch_output(batch_output))
 
-        self.assertIn(rid, tm.rid_to_state)
+        self.assertIn(rid, tm.rid_to_state)  # 断言包含
 
 
+# TestInitReqStateDuplicateDetection类
 class TestInitReqStateDuplicateDetection(CustomTestCase):
     """Test that _init_req_state raises ValueError for duplicate rids."""
 
@@ -311,10 +323,11 @@ class TestInitReqStateDuplicateDetection(CustomTestCase):
         obj.external_trace_header = None
         obj.bootstrap_room = None
 
-        with self.assertRaises(ValueError) as ctx:
+        with self.assertRaises(ValueError) as ctx:  # 断言抛出异常
             tm._init_req_state(obj)
-        self.assertIn("Duplicate request ID", str(ctx.exception))
+        self.assertIn("Duplicate request ID", str(ctx.exception))  # 断言包含
 
+    # TestInitReqStateDuplicateDetection类的测试uniqueridsucceeds
     def test_unique_rid_succeeds(self):
         """_init_req_state should succeed with a unique rid."""
         tm = _make_tokenizer_manager()
@@ -328,9 +341,10 @@ class TestInitReqStateDuplicateDetection(CustomTestCase):
         obj.bootstrap_room = None
 
         tm._init_req_state(obj)
-        self.assertIn(rid, tm.rid_to_state)
+        self.assertIn(rid, tm.rid_to_state)  # 断言包含
 
 
+# TestResubmitAfterCompletion类
 class TestResubmitAfterCompletion(CustomTestCase):
     """End-to-end test: complete a request, then resubmit with the same rid."""
 
@@ -347,7 +361,7 @@ class TestResubmitAfterCompletion(CustomTestCase):
         asyncio.run(tm._handle_batch_output(batch_output))
 
         # rid should be cleaned up
-        self.assertNotIn(rid, tm.rid_to_state)
+        self.assertNotIn(rid, tm.rid_to_state)  # 断言不包含
 
         # Phase 2: resubmit with the same rid — should succeed
         obj = Mock(spec=GenerateReqInput)
@@ -358,8 +372,9 @@ class TestResubmitAfterCompletion(CustomTestCase):
         obj.bootstrap_room = None
         tm._init_req_state(obj)
 
-        self.assertIn(rid, tm.rid_to_state)
+        self.assertIn(rid, tm.rid_to_state)  # 断言包含
 
+    # TestResubmitAfterCompletion类的测试abortthenresubmitsamerid
     def test_abort_then_resubmit_same_rid(self):
         """An aborted request should allow resubmission with the same rid."""
         tm = _make_tokenizer_manager()
@@ -372,7 +387,7 @@ class TestResubmitAfterCompletion(CustomTestCase):
         abort_req = _make_abort_req(rid)
         tm._handle_abort_req(abort_req)
 
-        self.assertNotIn(rid, tm.rid_to_state)
+        self.assertNotIn(rid, tm.rid_to_state)  # 断言不包含
 
         # Phase 2: resubmit with the same rid — should succeed
         obj = Mock(spec=GenerateReqInput)
@@ -383,7 +398,7 @@ class TestResubmitAfterCompletion(CustomTestCase):
         obj.bootstrap_room = None
         tm._init_req_state(obj)
 
-        self.assertIn(rid, tm.rid_to_state)
+        self.assertIn(rid, tm.rid_to_state)  # 断言包含
 
 
 if __name__ == "__main__":

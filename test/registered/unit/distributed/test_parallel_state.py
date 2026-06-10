@@ -1,3 +1,4 @@
+# 文件名: test_parallel_state.py - 并行状态
 """
 Test file to verify the correctness of parallel group calculations.
 
@@ -50,6 +51,7 @@ register_amd_ci(est_time=8, suite="stage-b-test-1-gpu-small-amd")
 parallel_state = pytest.importorskip("sglang.srt.distributed.parallel_state")
 
 
+# 测试parallelgroupconstructiontp8attncp2
 def test_parallel_group_construction_tp8_attn_cp2():
     """
     Test parallel group construction for 8 GPU configuration with:
@@ -88,6 +90,7 @@ def test_parallel_group_construction_tp8_attn_cp2():
         # Mock init_model_parallel_group to capture the groups being created
         created_groups = {}
 
+        # mock_init_model_parallel_group
         def mock_init_model_parallel_group(group_ranks, local_rank, backend, **kwargs):
             group_name = kwargs.get("group_name", "unknown")
             created_groups[group_name] = group_ranks
@@ -154,6 +157,7 @@ def test_parallel_group_construction_tp8_attn_cp2():
             parallel_state.destroy_model_parallel()
 
 
+# 测试parallelgroupconstructiontp8moeep4cp2
 def test_parallel_group_construction_tp8_moe_ep4_cp2():
     """
     Test parallel group construction for 8 GPU configuration with:
@@ -188,6 +192,7 @@ def test_parallel_group_construction_tp8_moe_ep4_cp2():
         # Mock init_model_parallel_group to capture the groups being created
         created_groups = {}
 
+        # mock_init_model_parallel_group
         def mock_init_model_parallel_group(group_ranks, local_rank, backend, **kwargs):
             group_name = kwargs.get("group_name", "unknown")
             created_groups[group_name] = group_ranks

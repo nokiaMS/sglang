@@ -1,3 +1,4 @@
+# 文件名: test_kv_events.py - KV事件测试 - 验证KV缓存事件监控功能
 import time
 import unittest
 
@@ -25,6 +26,7 @@ QWEN3_30B_MODEL_PATH = "Qwen/Qwen3-30B-A3B-FP8"
 
 
 class TestKvEvents(CustomTestCase):
+    # 测试kv events enabled
     def test_kv_events_enabled(self):
         """Test that kv events are sent and received by subscriber data when enabled"""
 
@@ -161,6 +163,7 @@ class TestKvEvents(CustomTestCase):
             context.term()
             kill_process_tree(process.pid)
 
+    # 测试kv events attn dp
     def test_kv_events_attn_dp(self):
         """Test that kv events are properly tagged with DP rank in attention DP mode"""
 
@@ -289,6 +292,7 @@ class TestKvEvents(CustomTestCase):
             context.term()
             kill_process_tree(process.pid)
 
+    # 测试kv events attn cp single stream per dp rank
     def test_kv_events_attn_cp_single_stream_per_dp_rank(self):
         """Test that CP replicas do not publish duplicate KV events for one DP rank."""
 

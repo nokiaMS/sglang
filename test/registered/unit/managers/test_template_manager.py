@@ -1,3 +1,4 @@
+# 文件名: test_template_manager.py - 模板管理器
 import unittest
 from types import SimpleNamespace
 
@@ -14,16 +15,22 @@ from sglang.test.ci.ci_register import register_cpu_ci
 register_cpu_ci(2.0, "base-a-test-cpu")
 
 
+# _DummyTokenizer类
 class _DummyTokenizer:
+
+    # _DummyTokenizer类的初始化
     def __init__(self, vocab):
         self._vocab = vocab
 
+    # _DummyTokenizer类的get_vocab
     def get_vocab(self):
         return {token: i for i, token in enumerate(self._vocab)}
 
 
+# TestTemplateManagerReasoningDetection类
 class TestTemplateManagerReasoningDetection(unittest.TestCase):
 
+    # TestTemplateManagerReasoningDetection类的内部方法_detect
     def _detect(self, template, vocab):
         force, config = detect_reasoning_pattern(template)
         parser = detect_reasoning_parser(
@@ -31,6 +38,7 @@ class TestTemplateManagerReasoningDetection(unittest.TestCase):
         )
         return force, config, parser
 
+    # TestTemplateManagerReasoningDetection类的测试qwen3templatenotmisclassifiedasglm45
     def test_qwen3_template_not_misclassified_as_glm45(self):
         template = """
         {% set enable_thinking = enable_thinking if enable_thinking is defined else true %}
@@ -41,12 +49,13 @@ class TestTemplateManagerReasoningDetection(unittest.TestCase):
             template, ["<tool_call>", "<|endoftext|>", "</think>"]
         )
 
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             config,
             ReasoningToggleConfig(toggle_param="enable_thinking", default_enabled=True),
         )
-        self.assertEqual(parser, "qwen3")
+        self.assertEqual(parser, "qwen3")  # 断言相等
 
+    # TestTemplateManagerReasoningDetection类的测试glm45requiresglmspecifictemplatemarkers
     def test_glm45_requires_glm_specific_template_markers(self):
         template = """
         [gMASK]<sop>
@@ -58,12 +67,13 @@ class TestTemplateManagerReasoningDetection(unittest.TestCase):
             template, ["<tool_call>", "<|endoftext|>", "<|user|>"]
         )
 
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             config,
             ReasoningToggleConfig(toggle_param="enable_thinking", default_enabled=True),
         )
-        self.assertEqual(parser, "glm45")
+        self.assertEqual(parser, "glm45")  # 断言相等
 
+    # TestTemplateManagerReasoningDetection类的测试interns1detectsenablethinkingdefaulttrue
     def test_interns1_detects_enable_thinking_default_true(self):
         template = """
         {% set default_thinking_sys %}...<think>...</think>{% endset %}
@@ -71,12 +81,13 @@ class TestTemplateManagerReasoningDetection(unittest.TestCase):
         """
         _, config, parser = self._detect(template, ["<|endoftext|>"])
 
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             config,
             ReasoningToggleConfig(toggle_param="enable_thinking", default_enabled=True),
         )
-        self.assertEqual(parser, "interns1")
+        self.assertEqual(parser, "interns1")  # 断言相等
 
+    # TestTemplateManagerReasoningDetection类的测试nemotrondetectsuppercasetrueassignment
     def test_nemotron_detects_uppercase_true_assignment(self):
         template = """
         {% set enable_thinking = enable_thinking if enable_thinking is defined else True %}
@@ -84,22 +95,24 @@ class TestTemplateManagerReasoningDetection(unittest.TestCase):
         """
         _, config, parser = self._detect(template, ["<|endoftext|>"])
 
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             config,
             ReasoningToggleConfig(toggle_param="enable_thinking", default_enabled=True),
         )
-        self.assertEqual(parser, "nemotron_3")
+        self.assertEqual(parser, "nemotron_3")  # 断言相等
 
+    # TestTemplateManagerReasoningDetection类的测试minimaxusestemplatesignaturewithouttoggleconfig
     def test_minimax_uses_template_signature_without_toggle_config(self):
         template = """
         {%- set toolcall_begin_token = '<minimax:tool_call>' -%}
         """
         _, config, parser = self._detect(template, ["<minimax:tool_call>"])
 
-        self.assertIsNone(config)
-        self.assertEqual(parser, "minimax")
+        self.assertIsNone(config)  # 断言为None
+        self.assertEqual(parser, "minimax")  # 断言相等
 
 
+# TestTemplateDetectionRuleMatrix类
 class TestTemplateDetectionRuleMatrix(unittest.TestCase):
     """Table-driven tests for REASONING_PARSER_RULES and REASONING_MODE_RULES."""
 
@@ -174,6 +187,7 @@ class TestTemplateDetectionRuleMatrix(unittest.TestCase):
         ),
     ]
 
+    # TestTemplateDetectionRuleMatrix类的测试parserrulesmatrix
     def test_parser_rules_matrix(self):
         for (
             name,
@@ -184,45 +198,49 @@ class TestTemplateDetectionRuleMatrix(unittest.TestCase):
         ) in self.PARSER_RULES_MATRIX:
             with self.subTest(name=name):
                 _, config, parser = self._detect(template, vocab)
-                self.assertEqual(
+                self.assertEqual(  # 断言相等
                     parser,
                     expected_parser,
                     f"Rule '{name}': expected parser '{expected_parser}', got '{parser}'",
                 )
                 if expected_toggle is not None:
-                    self.assertIsNotNone(
+                    self.assertIsNotNone(  # 断言不为None
                         config, f"Rule '{name}': expected config, got None"
                     )
-                    self.assertEqual(
+                    self.assertEqual(  # 断言相等
                         config.toggle_param,
                         expected_toggle,
                         f"Rule '{name}': expected toggle '{expected_toggle}', "
                         f"got '{config.toggle_param}'",
                     )
 
+    # TestTemplateDetectionRuleMatrix类的测试unrecognizedtemplatereturnsnone
     def test_unrecognized_template_returns_none(self):
         template = "Hello {{ user_message }}, how can I help you?"
         _, config, parser = self._detect(template)
 
-        self.assertIsNone(config)
-        self.assertIsNone(parser)
+        self.assertIsNone(config)  # 断言为None
+        self.assertIsNone(parser)  # 断言为None
 
+    # TestTemplateDetectionRuleMatrix类的测试emptytemplatereturnsnone
     def test_empty_template_returns_none(self):
         _, config, parser = self._detect("")
 
-        self.assertIsNone(config)
-        self.assertIsNone(parser)
+        self.assertIsNone(config)  # 断言为None
+        self.assertIsNone(parser)  # 断言为None
 
+    # TestTemplateDetectionRuleMatrix类的测试qwen3precedenceoverdeepseekr1
     def test_qwen3_precedence_over_deepseek_r1(self):
         """Template with enable_thinking=true but no <think> tag should be qwen3, not deepseek_r1."""
         template = "{% set enable_thinking = enable_thinking if enable_thinking is defined else true %}"
         _, config, parser = self._detect(template)
 
-        self.assertEqual(parser, "qwen3")
-        self.assertEqual(config.toggle_param, "enable_thinking")
-        self.assertTrue(config.default_enabled)
+        self.assertEqual(parser, "qwen3")  # 断言相等
+        self.assertEqual(config.toggle_param, "enable_thinking")  # 断言相等
+        self.assertTrue(config.default_enabled)  # 断言为真
 
 
+# TestToolCallParserDetection类
 class TestToolCallParserDetection(unittest.TestCase):
     """Tests for detect_tool_call_parser() using real model tokenizers."""
 
@@ -236,11 +254,13 @@ class TestToolCallParserDetection(unittest.TestCase):
         tcp = detect_tool_call_parser(template, tok, config, force)
         return rp, tcp
 
+    # TestToolCallParserDetection类的测试qwen3detectsqwentoolcallparser
     def test_qwen3_detects_qwen_tool_call_parser(self):
         rp, tcp = self._detect_all("Qwen/Qwen3-0.6B")
-        self.assertEqual(rp, "qwen3")
-        self.assertEqual(tcp, "qwen")
+        self.assertEqual(rp, "qwen3")  # 断言相等
+        self.assertEqual(tcp, "qwen")  # 断言相等
 
+    # TestToolCallParserDetection类的测试toolcallparserrulevaluesviasnippets
     def test_tool_call_parser_rule_values_via_snippets(self):
         """Table-driven: verify tool-call rule values differ from reasoning where expected."""
         cases = [
@@ -290,15 +310,17 @@ class TestToolCallParserDetection(unittest.TestCase):
                 result = detect_tool_call_parser(
                     template, _DummyTokenizer(vocab), config, force
                 )
-                self.assertEqual(result, expected)
+                self.assertEqual(result, expected)  # 断言相等
 
+    # TestToolCallParserDetection类的测试glm45ruleprecedesxmlkvfallback
     def test_glm45_rule_precedes_xml_kv_fallback(self):
         # The specific GLM-4.5 family check must run before the generic
         # xml_kv_tool_call fallback. Both currently map to "glm45", so the
         # value-based test above can't catch a swap — assert positions directly.
         rule_index = {rule.name: i for i, rule in enumerate(TOOL_CALL_PARSER_RULES)}
-        self.assertLess(rule_index["glm45"], rule_index["xml_kv_tool_call"])
+        self.assertLess(rule_index["glm45"], rule_index["xml_kv_tool_call"])  # 断言小于
 
+    # TestToolCallParserDetection类的测试xmlkvrequiresbothargtokens
     def test_xml_kv_requires_both_arg_tokens(self):
         template = "Hello {{ user }}"
         force, config = detect_reasoning_pattern(template)
@@ -307,22 +329,26 @@ class TestToolCallParserDetection(unittest.TestCase):
                 result = detect_tool_call_parser(
                     template, _DummyTokenizer(vocab), config, force
                 )
-                self.assertIsNone(result)
+                self.assertIsNone(result)  # 断言为None
 
+    # TestToolCallParserDetection类的测试nonetemplatereturnsnone
     def test_none_template_returns_none(self):
-        self.assertIsNone(detect_tool_call_parser(None, None))
+        self.assertIsNone(detect_tool_call_parser(None, None))  # 断言为None
 
+    # TestToolCallParserDetection类的测试unrecognizedtemplatereturnsnone
     def test_unrecognized_template_returns_none(self):
         force, config = detect_reasoning_pattern("Hello {{ user }}")
         result = detect_tool_call_parser("Hello {{ user }}", None, config, force)
-        self.assertIsNone(result)
+        self.assertIsNone(result)  # 断言为None
 
+    # TestToolCallParserDetection类的测试minicpm5ruleprecedesbroadfallbackrules
     def test_minicpm5_rule_precedes_broad_fallback_rules(self):
         rule_names = [rule.name for rule in TOOL_CALL_PARSER_RULES]
         minicpm5_idx = rule_names.index("minicpm5")
-        self.assertLess(minicpm5_idx, rule_names.index("mimo"))
-        self.assertLess(minicpm5_idx, rule_names.index("qwen"))
+        self.assertLess(minicpm5_idx, rule_names.index("mimo"))  # 断言小于
+        self.assertLess(minicpm5_idx, rule_names.index("qwen"))  # 断言小于
 
+    # TestToolCallParserDetection类的测试minicpm5notmisclassifiedasqwen
     def test_minicpm5_not_misclassified_as_qwen(self):
         template = (
             "{% set enable_thinking = enable_thinking if enable_thinking is defined else true %}"
@@ -334,9 +360,10 @@ class TestToolCallParserDetection(unittest.TestCase):
         result = detect_tool_call_parser(
             template, _DummyTokenizer(["<function", "<param"]), config, force
         )
-        self.assertEqual(result, "minicpm5")
+        self.assertEqual(result, "minicpm5")  # 断言相等
 
 
+# TestResolveAutoParsers类
 class TestResolveAutoParsers(unittest.TestCase):
     """Tests for resolve_auto_parsers() using real model tokenizers."""
 
@@ -348,30 +375,35 @@ class TestResolveAutoParsers(unittest.TestCase):
             trust_remote_code=False,
         )
 
+    # TestResolveAutoParsers类的测试resolvesbothparserswithrealmodel
     def test_resolves_both_parsers_with_real_model(self):
         args = self._make_server_args(reasoning_parser="auto", tool_call_parser="auto")
         resolve_auto_parsers(args)
-        self.assertEqual(args.reasoning_parser, "qwen3")
-        self.assertEqual(args.tool_call_parser, "qwen")
+        self.assertEqual(args.reasoning_parser, "qwen3")  # 断言相等
+        self.assertEqual(args.tool_call_parser, "qwen")  # 断言相等
 
+    # TestResolveAutoParsers类的测试resolvesreasoningparseronly
     def test_resolves_reasoning_parser_only(self):
         args = self._make_server_args(reasoning_parser="auto", tool_call_parser=None)
         resolve_auto_parsers(args)
-        self.assertEqual(args.reasoning_parser, "qwen3")
-        self.assertIsNone(args.tool_call_parser)
+        self.assertEqual(args.reasoning_parser, "qwen3")  # 断言相等
+        self.assertIsNone(args.tool_call_parser)  # 断言为None
 
+    # TestResolveAutoParsers类的测试resolvestoolcallparseronly
     def test_resolves_tool_call_parser_only(self):
         args = self._make_server_args(reasoning_parser="qwen3", tool_call_parser="auto")
         resolve_auto_parsers(args)
-        self.assertEqual(args.reasoning_parser, "qwen3")
-        self.assertEqual(args.tool_call_parser, "qwen")
+        self.assertEqual(args.reasoning_parser, "qwen3")  # 断言相等
+        self.assertEqual(args.tool_call_parser, "qwen")  # 断言相等
 
+    # TestResolveAutoParsers类的测试neitherautoisnoop
     def test_neither_auto_is_noop(self):
         args = self._make_server_args(reasoning_parser="qwen3", tool_call_parser="qwen")
         resolve_auto_parsers(args)
-        self.assertEqual(args.reasoning_parser, "qwen3")
-        self.assertEqual(args.tool_call_parser, "qwen")
+        self.assertEqual(args.reasoning_parser, "qwen3")  # 断言相等
+        self.assertEqual(args.tool_call_parser, "qwen")  # 断言相等
 
+    # TestResolveAutoParsers类的测试nonexistentmodeldisablesbothparsers
     def test_nonexistent_model_disables_both_parsers(self):
         args = SimpleNamespace(
             reasoning_parser="auto",
@@ -380,8 +412,8 @@ class TestResolveAutoParsers(unittest.TestCase):
             trust_remote_code=False,
         )
         resolve_auto_parsers(args)
-        self.assertIsNone(args.reasoning_parser)
-        self.assertIsNone(args.tool_call_parser)
+        self.assertIsNone(args.reasoning_parser)  # 断言为None
+        self.assertIsNone(args.tool_call_parser)  # 断言为None
 
 
 if __name__ == "__main__":

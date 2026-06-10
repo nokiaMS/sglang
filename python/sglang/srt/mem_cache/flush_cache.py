@@ -1,3 +1,7 @@
+# KV缓存刷新工具脚本
+# 通过HTTP请求向运行中的SGLang服务器发送flush_cache命令，
+# 用于清空服务器端的KV缓存。
+
 """
 Copyright 2023-2024 SGLang Team
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,9 +29,11 @@ import argparse
 import requests
 
 if __name__ == "__main__":
+    # 解析命令行参数，指定服务器URL
     parser = argparse.ArgumentParser()
     parser.add_argument("--url", type=str, default="http://localhost:30000")
     args = parser.parse_args()
 
+    # 向服务器发送flush_cache POST请求以清空KV缓存
     response = requests.post(args.url + "/flush_cache")
     assert response.status_code == 200

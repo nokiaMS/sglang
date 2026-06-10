@@ -1,3 +1,4 @@
+# 文件名: test_tokenizer_batch_encode.py - 分词器批处理编码测试 - 验证批处理分词的多模态输入校验和约束
 """
 Unit tests for enable_tokenizer_batch_encode feature.
 
@@ -22,6 +23,7 @@ from sglang.test.test_utils import DEFAULT_SMALL_MODEL_NAME_FOR_TEST
 class TestTokenizerBatchEncode(unittest.TestCase):
     """Test cases for tokenizer batch encoding validation and setup."""
 
+    # setUp
     def setUp(self):
         """Set up test fixtures."""
         self.server_args = ServerArgs(
@@ -41,10 +43,12 @@ class TestTokenizerBatchEncode(unittest.TestCase):
             mock_tokenizer.return_value = Mock(vocab_size=32000)
             self.tokenizer_manager = TokenizerManager(self.server_args, self.port_args)
 
+    # 测试batch encode enabled
     def test_batch_encode_enabled(self):
         """Test that batch encoding is enabled when configured."""
         self.assertTrue(self.server_args.enable_tokenizer_batch_encode)
 
+    # 测试batch encode disabled
     def test_batch_encode_disabled(self):
         """Test that batch encoding can be disabled."""
         server_args_disabled = ServerArgs(
@@ -53,6 +57,7 @@ class TestTokenizerBatchEncode(unittest.TestCase):
         )
         self.assertFalse(server_args_disabled.enable_tokenizer_batch_encode)
 
+    # 测试multimodal input validation
     def test_multimodal_input_validation(self):
         """Test that multimodal inputs are rejected in batch mode."""
         req = GenerateReqInput(text="test", image_data=["dummy"])
@@ -70,6 +75,7 @@ class TestTokenizerBatchEncode(unittest.TestCase):
 
         self.assertIn("multimodal", str(cm.exception))
 
+    # 测试pretokenized input validation
     def test_pretokenized_input_validation(self):
         """Test that pre-tokenized inputs are rejected in batch mode."""
         req = GenerateReqInput(input_ids=[1, 2, 3])
@@ -84,6 +90,7 @@ class TestTokenizerBatchEncode(unittest.TestCase):
 
         self.assertIn("pre-tokenized", str(cm.exception))
 
+    # 测试input embeds validation
     def test_input_embeds_validation(self):
         """Test that input embeds are rejected in batch mode."""
         req = GenerateReqInput(input_embeds=[0.1, 0.2])
@@ -98,6 +105,7 @@ class TestTokenizerBatchEncode(unittest.TestCase):
 
         self.assertIn("input_embeds", str(cm.exception))
 
+    # 测试valid text only requests pass validation
     def test_valid_text_only_requests_pass_validation(self):
         """Test that valid text-only requests pass validation."""
         # Create valid requests (text-only)

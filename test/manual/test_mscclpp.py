@@ -1,3 +1,4 @@
+# 文件名: test_mscclpp.py - MSCCL++ AllReduce测试 - 验证MSCCL++ AllReduce在图模式和即时模式下的正确性
 """For Now, MSCCL is only supported on TP16 and TP8 case
 
 if [[ $RANK -eq 0  ]]; then
@@ -32,6 +33,7 @@ from sglang.srt.distributed.parallel_state import (
 from sglang.test.test_utils import CustomTestCase
 
 
+# 获取可用端口 - 查找系统可用的网络端口
 def get_open_port() -> int:
     # try ipv4
     try:
@@ -45,6 +47,7 @@ def get_open_port() -> int:
             return s.getsockname()[1]
 
 
+# 多进程并行测试 - 使用Ray启动多进程并行测试
 def multi_process_parallel(
     world_size: int,
     master_addr: str,
@@ -74,6 +77,7 @@ def multi_process_parallel(
 
 class TestMSCCLAllReduce(CustomTestCase):
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         random.seed(42)
         # 1KB to 1MB
@@ -84,6 +88,7 @@ class TestMSCCLAllReduce(CustomTestCase):
             cls.world_sizes = [16]
         cls.test_loop = 10
 
+    # 测试graph allreduce
     def test_graph_allreduce(self):
         TEST_MASTER_ADDR = os.getenv("SGL_MSCCLPP_TEST_MASTER_ADDR", "localhost")
         for world_size in self.world_sizes:
@@ -93,6 +98,7 @@ class TestMSCCLAllReduce(CustomTestCase):
                 world_size, TEST_MASTER_ADDR, self, self.graph_allreduce
             )
 
+    # 测试eager allreduce
     def test_eager_allreduce(self):
         TEST_MASTER_ADDR = os.getenv("SGL_MSCCLPP_TEST_MASTER_ADDR", "localhost")
         for world_size in self.world_sizes:
@@ -103,6 +109,7 @@ class TestMSCCLAllReduce(CustomTestCase):
             )
 
     @ray.remote(num_gpus=1, max_calls=1)
+    # graph allreduce
     def graph_allreduce(self, world_size, master_addr, rank, distributed_init_port):
         del os.environ["CUDA_VISIBLE_DEVICES"]
         device = torch.device(f"cuda:{rank % torch.cuda.device_count()}")
@@ -165,6 +172,7 @@ class TestMSCCLAllReduce(CustomTestCase):
                     torch.testing.assert_close(out2, inp2)
 
     @ray.remote(num_gpus=1, max_calls=1)
+    # eager allreduce
     def eager_allreduce(self, world_size, master_addr, rank, distributed_init_port):
         del os.environ["CUDA_VISIBLE_DEVICES"]
         device = torch.device(f"cuda:{rank % torch.cuda.device_count()}")

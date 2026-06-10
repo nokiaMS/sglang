@@ -1,3 +1,4 @@
+# 文件名: test_serving_completions.py - 补全服务
 """
 Unit-tests for the refactored completions-serving handler (no pytest).
 Run with:
@@ -25,6 +26,7 @@ from sglang.test.ci.ci_register import register_cpu_ci
 register_cpu_ci(est_time=11, suite="base-a-test-cpu")
 
 
+# _MockTemplateManager类
 class _MockTemplateManager:
     """Minimal mock for TemplateManager."""
 
@@ -36,6 +38,7 @@ class _MockTemplateManager:
         )
 
 
+# ServingCompletionTestCase类
 class ServingCompletionTestCase(unittest.TestCase):
     """Bundle all prompt/echo tests in one TestCase."""
 
@@ -63,50 +66,55 @@ class ServingCompletionTestCase(unittest.TestCase):
     def test_single_string_prompt(self):
         req = CompletionRequest(model="x", prompt="Hello world", max_tokens=100)
         internal, _ = self.sc._convert_to_internal_request(req)
-        self.assertEqual(internal.text, "Hello world")
+        self.assertEqual(internal.text, "Hello world")  # 断言相等
 
+    # ServingCompletionTestCase类的测试singletokenidsprompt
     def test_single_token_ids_prompt(self):
         req = CompletionRequest(model="x", prompt=[1, 2, 3, 4], max_tokens=100)
         internal, _ = self.sc._convert_to_internal_request(req)
-        self.assertEqual(internal.input_ids, [1, 2, 3, 4])
+        self.assertEqual(internal.input_ids, [1, 2, 3, 4])  # 断言相等
 
     # ---------- echo-handling ----------
     def test_echo_with_string_prompt_streaming(self):
         req = CompletionRequest(model="x", prompt="Hello", max_tokens=1, echo=True)
-        self.assertEqual(self.sc._get_echo_text(req, 0), "Hello")
+        self.assertEqual(self.sc._get_echo_text(req, 0), "Hello")  # 断言相等
 
+    # ServingCompletionTestCase类的测试echowithlistofstringsstreaming
     def test_echo_with_list_of_strings_streaming(self):
         req = CompletionRequest(
             model="x", prompt=["A", "B"], max_tokens=1, echo=True, n=1
         )
-        self.assertEqual(self.sc._get_echo_text(req, 0), "A")
-        self.assertEqual(self.sc._get_echo_text(req, 1), "B")
+        self.assertEqual(self.sc._get_echo_text(req, 0), "A")  # 断言相等
+        self.assertEqual(self.sc._get_echo_text(req, 1), "B")  # 断言相等
 
+    # ServingCompletionTestCase类的测试echowithtokenidsstreaming
     def test_echo_with_token_ids_streaming(self):
         req = CompletionRequest(model="x", prompt=[1, 2, 3], max_tokens=1, echo=True)
         self.sc.tokenizer_manager.tokenizer.decode.return_value = "decoded_prompt"
-        self.assertEqual(self.sc._get_echo_text(req, 0), "decoded_prompt")
+        self.assertEqual(self.sc._get_echo_text(req, 0), "decoded_prompt")  # 断言相等
 
+    # ServingCompletionTestCase类的测试echowithmultipletokenidsstreaming
     def test_echo_with_multiple_token_ids_streaming(self):
         req = CompletionRequest(
             model="x", prompt=[[1, 2], [3, 4]], max_tokens=1, echo=True, n=1
         )
         self.sc.tokenizer_manager.tokenizer.decode.return_value = "decoded"
-        self.assertEqual(self.sc._get_echo_text(req, 0), "decoded")
+        self.assertEqual(self.sc._get_echo_text(req, 0), "decoded")  # 断言相等
 
+    # ServingCompletionTestCase类的测试prepareechopromptsnonstreaming
     def test_prepare_echo_prompts_non_streaming(self):
         # single string
         req = CompletionRequest(model="x", prompt="Hi", echo=True)
-        self.assertEqual(self.sc._prepare_echo_prompts(req), ["Hi"])
+        self.assertEqual(self.sc._prepare_echo_prompts(req), ["Hi"])  # 断言相等
 
         # list of strings
         req = CompletionRequest(model="x", prompt=["Hi", "Yo"], echo=True)
-        self.assertEqual(self.sc._prepare_echo_prompts(req), ["Hi", "Yo"])
+        self.assertEqual(self.sc._prepare_echo_prompts(req), ["Hi", "Yo"])  # 断言相等
 
         # token IDs
         req = CompletionRequest(model="x", prompt=[1, 2, 3], echo=True)
         self.sc.tokenizer_manager.tokenizer.decode.return_value = "decoded"
-        self.assertEqual(self.sc._prepare_echo_prompts(req), ["decoded"])
+        self.assertEqual(self.sc._prepare_echo_prompts(req), ["decoded"])  # 断言相等
 
     # ---------- response_format handling ----------
     def test_response_format_json_object(self):
@@ -118,8 +126,9 @@ class ServingCompletionTestCase(unittest.TestCase):
             response_format={"type": "json_object"},
         )
         sampling_params = self.sc._build_sampling_params(req)
-        self.assertEqual(sampling_params["json_schema"], '{"type": "object"}')
+        self.assertEqual(sampling_params["json_schema"], '{"type": "object"}')  # 断言相等
 
+    # ServingCompletionTestCase类的测试responseformatjsonschema
     def test_response_format_json_schema(self):
         """Test that response_format json_schema is correctly processed in sampling params."""
         schema = {
@@ -137,9 +146,10 @@ class ServingCompletionTestCase(unittest.TestCase):
         )
         sampling_params = self.sc._build_sampling_params(req)
         # The schema should be converted to string by convert_json_schema_to_str
-        self.assertIn("json_schema", sampling_params)
+        self.assertIn("json_schema", sampling_params)  # 断言包含
         self.assertIsInstance(sampling_params["json_schema"], str)
 
+    # ServingCompletionTestCase类的测试responseformatstructuraltag
     def test_response_format_structural_tag(self):
         """Test that response_format structural_tag is correctly processed in sampling params."""
         req = CompletionRequest(
@@ -154,17 +164,19 @@ class ServingCompletionTestCase(unittest.TestCase):
         )
         sampling_params = self.sc._build_sampling_params(req)
         # The structural_tag should be processed
-        self.assertIn("structural_tag", sampling_params)
+        self.assertIn("structural_tag", sampling_params)  # 断言包含
         self.assertIsInstance(sampling_params["structural_tag"], str)
 
+    # ServingCompletionTestCase类的测试responseformatnone
     def test_response_format_none(self):
         """Test that no response_format doesn't add extra constraints."""
         req = CompletionRequest(model="x", prompt="Generate text:", max_tokens=100)
         sampling_params = self.sc._build_sampling_params(req)
         # Should not have json_schema or structural_tag from response_format
         # (but might have json_schema from the legacy json_schema field)
-        self.assertIsNone(sampling_params.get("structural_tag"))
+        self.assertIsNone(sampling_params.get("structural_tag"))  # 断言为None
 
+    # ServingCompletionTestCase类的测试logprobsfalsenonstreaming
     def test_logprobs_false_non_streaming(self):
         """Test that logprobs=False doesn't cause KeyError in non-streaming response."""
         req = CompletionRequest(
@@ -186,10 +198,11 @@ class ServingCompletionTestCase(unittest.TestCase):
 
         response = self.sc._build_completion_response(req, mock_ret, 1234567890)
 
-        self.assertEqual(len(response.choices), 1)
-        self.assertEqual(response.choices[0].text, " world")
-        self.assertEqual(len(response.choices[0].logprobs.top_logprobs), 0)
+        self.assertEqual(len(response.choices), 1)  # 断言相等
+        self.assertEqual(response.choices[0].text, " world")  # 断言相等
+        self.assertEqual(len(response.choices[0].logprobs.top_logprobs), 0)  # 断言相等
 
+    # ServingCompletionTestCase类的测试streamingabortyieldserror
     def test_streaming_abort_yields_error(self):
         """Test that an abort finish reason during streaming correctly yields an error and stops."""
         err_msg = "Aborted by scheduler"
@@ -244,18 +257,19 @@ class ServingCompletionTestCase(unittest.TestCase):
             if "error" in c:
                 error_chunk_data = json.loads(c[len("data: ") :])
                 break
-        self.assertIsNotNone(error_chunk_data, "Error chunk not found in stream")
-        self.assertEqual(error_chunk_data["error"]["message"], err_msg)
-        self.assertEqual(error_chunk_data["error"]["code"], err_code.value)
+        self.assertIsNotNone(error_chunk_data, "Error chunk not found in stream")  # 断言不为None
+        self.assertEqual(error_chunk_data["error"]["message"], err_msg)  # 断言相等
+        self.assertEqual(error_chunk_data["error"]["code"], err_code.value)  # 断言相等
 
         # Ensure the stream stops after the abort error
         # The last chunk should be "data: [DONE]\n\n"
-        self.assertEqual(chunks[-1], "data: [DONE]\n\n")
+        self.assertEqual(chunks[-1], "data: [DONE]\n\n")  # 断言相等
 
         # Check that there is an error chunk and a DONE chunk, and possibly a role chunk
         self.assertGreaterEqual(len(chunks), 2)
-        self.assertIn("error", chunks[0])
+        self.assertIn("error", chunks[0])  # 断言包含
 
+    # ServingCompletionTestCase类的测试nonstreamingcachedtokensdetailsemitssglext
     def test_non_streaming_cached_tokens_details_emits_sglext(self):
         """Test that non-streaming completion responses emit cached token details in sglext."""
 
@@ -287,8 +301,8 @@ class ServingCompletionTestCase(unittest.TestCase):
 
         response = self.sc._build_completion_response(req, ret, 1234567890)
 
-        self.assertIsNotNone(response.sglext)
-        self.assertEqual(
+        self.assertIsNotNone(response.sglext)  # 断言不为None
+        self.assertEqual(  # 断言相等
             response.sglext.cached_tokens_details.model_dump(exclude_none=True),
             {
                 "device": 4,
@@ -298,6 +312,7 @@ class ServingCompletionTestCase(unittest.TestCase):
             },
         )
 
+    # ServingCompletionTestCase类的测试streamingcachedtokensdetailsemitssglext
     def test_streaming_cached_tokens_details_emits_sglext(self):
         """Test that streaming completion responses emit cached token details in sglext."""
 
@@ -355,9 +370,9 @@ class ServingCompletionTestCase(unittest.TestCase):
             if "sglext" in data:
                 sglext_chunks.append(data)
 
-        self.assertEqual(len(sglext_chunks), 1)
-        self.assertEqual(sglext_chunks[0]["choices"], [])
-        self.assertEqual(
+        self.assertEqual(len(sglext_chunks), 1)  # 断言相等
+        self.assertEqual(sglext_chunks[0]["choices"], [])  # 断言相等
+        self.assertEqual(  # 断言相等
             sglext_chunks[0]["sglext"]["cached_tokens_details"],
             {
                 "device": 4,

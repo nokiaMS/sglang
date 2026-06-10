@@ -1,3 +1,4 @@
+# 文件名: test_code_patcher.py - 代码补丁器测试
 from types import ModuleType
 
 import pytest
@@ -17,6 +18,7 @@ SAMPLE_MODULE_NAME = "_source_patcher_test_fixtures.sample_module"
 
 
 class TestPatchFunction:
+    # 测试basicpatchchangesbehavior
     def test_basic_patch_changes_behavior(self, sample_module: ModuleType) -> None:
         cls = sample_module.SampleClass
         obj = cls()
@@ -38,6 +40,7 @@ class TestPatchFunction:
 
         assert obj.greet("world") == "hello world"
 
+    # 测试globalspreservedafterpatch
     def test_globals_preserved_after_patch(self, sample_module: ModuleType) -> None:
         cls = sample_module.SampleClass
         obj = cls()
@@ -57,6 +60,7 @@ class TestPatchFunction:
         finally:
             state.restore()
 
+    # 测试functionidentitypreserved
     def test_function_identity_preserved(self, sample_module: ModuleType) -> None:
         cls = sample_module.SampleClass
         fn_id_before = id(cls.greet)
@@ -75,6 +79,7 @@ class TestPatchFunction:
         finally:
             state.restore()
 
+    # 测试patchstandalonefunction
     def test_patch_standalone_function(self, sample_module: ModuleType) -> None:
         fn = sample_module.standalone_function
         assert fn(2, 3) == 5
@@ -95,6 +100,7 @@ class TestPatchFunction:
 
         assert fn(2, 3) == 5
 
+    # 测试patchedcodecanreferenceglobalvariable
     def test_patched_code_can_reference_global_variable(
         self, sample_module: ModuleType
     ) -> None:
@@ -116,6 +122,7 @@ class TestPatchFunction:
         finally:
             state.restore()
 
+    # 测试patchedcodecancallanotherclassmethod
     def test_patched_code_can_call_another_class_method(
         self, sample_module: ModuleType
     ) -> None:
@@ -137,6 +144,7 @@ class TestPatchFunction:
         finally:
             state.restore()
 
+    # 测试patchedcodeuseshelperviaexistingmethod
     def test_patched_code_uses_helper_via_existing_method(
         self, sample_module: ModuleType
     ) -> None:
@@ -163,20 +171,24 @@ class TestPatchFunction:
 
 
 class TestResolveTarget:
+    # 测试resolveclassmethod
     def test_resolve_class_method(self, sample_module: ModuleType) -> None:
         target = _resolve_target(f"{SAMPLE_MODULE_NAME}.SampleClass.greet")
         assert target is sample_module.SampleClass.greet
 
+    # 测试resolvestandalonefunction
     def test_resolve_standalone_function(self, sample_module: ModuleType) -> None:
         target = _resolve_target(f"{SAMPLE_MODULE_NAME}.standalone_function")
         assert target is sample_module.standalone_function
 
+    # 测试resolvenonexistentraises
     def test_resolve_nonexistent_raises(self, sample_module: ModuleType) -> None:
         with pytest.raises((ImportError, AttributeError)):
             _resolve_target(f"{SAMPLE_MODULE_NAME}.NonexistentClass.method")
 
 
 class TestCodePatcher:
+    # 测试contextmanagerpatchesandrestores
     def test_context_manager_patches_and_restores(
         self, sample_module: ModuleType
     ) -> None:
@@ -201,6 +213,7 @@ class TestCodePatcher:
 
         assert obj.greet("world") == "hello world"
 
+    # 测试contextmanagermultiplepatches
     def test_context_manager_multiple_patches(self, sample_module: ModuleType) -> None:
         cls = sample_module.SampleClass
         obj = cls()
@@ -233,6 +246,7 @@ class TestCodePatcher:
         assert obj.greet("world") == "hello world"
         assert obj.compute(5) == 11
 
+    # 测试restoresonexception
     def test_restores_on_exception(self, sample_module: ModuleType) -> None:
         cls = sample_module.SampleClass
         obj = cls()

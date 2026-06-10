@@ -1,3 +1,4 @@
+# 文件名: test_harmony_parser.py - Harmony解析器
 """Unit tests for srt/parser/harmony_parser.py"""
 
 import unittest
@@ -18,116 +19,137 @@ register_cpu_ci(est_time=7, suite="base-a-test-cpu")
 register_cpu_ci(est_time=7, suite="base-b-test-cpu")
 
 
+# TestEvent类
 class TestEvent(CustomTestCase):
+
+    # TestEvent类的测试init
     def test_init(self):
         """Test Event dataclass initialization."""
         event = Event("reasoning", "content")
-        self.assertEqual(event.event_type, "reasoning")
-        self.assertEqual(event.content, "content")
+        self.assertEqual(event.event_type, "reasoning")  # 断言相等
+        self.assertEqual(event.content, "content")  # 断言相等
 
 
+# TestToken类
 class TestToken(CustomTestCase):
+
+    # TestToken类的测试init
     def test_init(self):
         """Test Token dataclass initialization."""
         token = Token("START", 0, 7)
-        self.assertEqual(token.type, "START")
-        self.assertEqual(token.start, 0)
-        self.assertEqual(token.end, 7)
+        self.assertEqual(token.type, "START")  # 断言相等
+        self.assertEqual(token.start, 0)  # 断言相等
+        self.assertEqual(token.end, 7)  # 断言相等
 
 
+# TestPrefixHold类
 class TestPrefixHold(CustomTestCase):
+
+    # TestPrefixHold类的测试emptytext
     def test_empty_text(self):
         """Test prefix_hold with empty text."""
         emit, hold = prefix_hold("", ["<|start|>"])
-        self.assertEqual(emit, "")
-        self.assertEqual(hold, "")
+        self.assertEqual(emit, "")  # 断言相等
+        self.assertEqual(hold, "")  # 断言相等
 
+    # TestPrefixHold类的测试nomatchingprefixes
     def test_no_matching_prefixes(self):
         """Test prefix_hold with no matching prefixes."""
         emit, hold = prefix_hold("hello world", ["<|start|>", "<|end|>"])
-        self.assertEqual(emit, "hello world")
-        self.assertEqual(hold, "")
+        self.assertEqual(emit, "hello world")  # 断言相等
+        self.assertEqual(hold, "")  # 断言相等
 
+    # TestPrefixHold类的测试partialtokensuffix
     def test_partial_token_suffix(self):
         """Test prefix_hold with partial token at end."""
         emit, hold = prefix_hold("hello <|ret", ["<|return|>"])
-        self.assertEqual(emit, "hello ")
-        self.assertEqual(hold, "<|ret")
+        self.assertEqual(emit, "hello ")  # 断言相等
+        self.assertEqual(hold, "<|ret")  # 断言相等
 
+    # TestPrefixHold类的测试multiplepotentialmatches
     def test_multiple_potential_matches(self):
         """Test prefix_hold with multiple potential matches."""
         emit, hold = prefix_hold("text <|", ["<|start|>", "<|end|>"])
-        self.assertEqual(emit, "text ")
-        self.assertEqual(hold, "<|")
+        self.assertEqual(emit, "text ")  # 断言相等
+        self.assertEqual(hold, "<|")  # 断言相等
 
+    # TestPrefixHold类的测试exacttokenmatch
     def test_exact_token_match(self):
         """Test prefix_hold with exact token match."""
         emit, hold = prefix_hold("text <|start|>", ["<|start|>"])
-        self.assertEqual(emit, "text <|start|>")
-        self.assertEqual(hold, "")
+        self.assertEqual(emit, "text <|start|>")  # 断言相等
+        self.assertEqual(hold, "")  # 断言相等
 
 
+# TestIterTokens类
 class TestIterTokens(CustomTestCase):
+
+    # TestIterTokens类的测试emptytext
     def test_empty_text(self):
         """Test iter_tokens with empty text."""
         tokens = list(iter_tokens(""))
-        self.assertEqual(tokens, [])
+        self.assertEqual(tokens, [])  # 断言相等
 
+    # TestIterTokens类的测试plaintext
     def test_plain_text(self):
         """Test iter_tokens with plain text."""
         tokens = list(iter_tokens("hello world"))
-        self.assertEqual(len(tokens), 1)
-        self.assertEqual(tokens[0].type, "TEXT")
-        self.assertEqual(tokens[0].start, 0)
-        self.assertEqual(tokens[0].end, 11)
+        self.assertEqual(len(tokens), 1)  # 断言相等
+        self.assertEqual(tokens[0].type, "TEXT")  # 断言相等
+        self.assertEqual(tokens[0].start, 0)  # 断言相等
+        self.assertEqual(tokens[0].end, 11)  # 断言相等
 
+    # TestIterTokens类的测试singletoken
     def test_single_token(self):
         """Test iter_tokens with single structural token."""
         tokens = list(iter_tokens("<|start|>"))
-        self.assertEqual(len(tokens), 1)
-        self.assertEqual(tokens[0].type, "START")
-        self.assertEqual(tokens[0].start, 0)
-        self.assertEqual(tokens[0].end, 9)
+        self.assertEqual(len(tokens), 1)  # 断言相等
+        self.assertEqual(tokens[0].type, "START")  # 断言相等
+        self.assertEqual(tokens[0].start, 0)  # 断言相等
+        self.assertEqual(tokens[0].end, 9)  # 断言相等
 
+    # TestIterTokens类的测试mixedcontent
     def test_mixed_content(self):
         """Test iter_tokens with mixed text and tokens."""
         tokens = list(iter_tokens("text<|start|>more text"))
-        self.assertEqual(len(tokens), 3)
+        self.assertEqual(len(tokens), 3)  # 断言相等
 
-        self.assertEqual(tokens[0].type, "TEXT")
-        self.assertEqual(tokens[0].start, 0)
-        self.assertEqual(tokens[0].end, 4)
+        self.assertEqual(tokens[0].type, "TEXT")  # 断言相等
+        self.assertEqual(tokens[0].start, 0)  # 断言相等
+        self.assertEqual(tokens[0].end, 4)  # 断言相等
 
-        self.assertEqual(tokens[1].type, "START")
-        self.assertEqual(tokens[1].start, 4)
-        self.assertEqual(tokens[1].end, 13)
+        self.assertEqual(tokens[1].type, "START")  # 断言相等
+        self.assertEqual(tokens[1].start, 4)  # 断言相等
+        self.assertEqual(tokens[1].end, 13)  # 断言相等
 
-        self.assertEqual(tokens[2].type, "TEXT")
-        self.assertEqual(tokens[2].start, 13)
-        self.assertEqual(tokens[2].end, 22)
+        self.assertEqual(tokens[2].type, "TEXT")  # 断言相等
+        self.assertEqual(tokens[2].start, 13)  # 断言相等
+        self.assertEqual(tokens[2].end, 22)  # 断言相等
 
+    # TestIterTokens类的测试unknowntokenpartialsuffix
     def test_unknown_token_partial_suffix(self):
         """Test iter_tokens with unknown token that could be partial."""
         tokens = list(iter_tokens("text <|ret"))
-        self.assertEqual(len(tokens), 2)
+        self.assertEqual(len(tokens), 2)  # 断言相等
 
-        self.assertEqual(tokens[0].type, "TEXT")
-        self.assertEqual(tokens[0].start, 0)
-        self.assertEqual(tokens[0].end, 5)
+        self.assertEqual(tokens[0].type, "TEXT")  # 断言相等
+        self.assertEqual(tokens[0].start, 0)  # 断言相等
+        self.assertEqual(tokens[0].end, 5)  # 断言相等
 
-        self.assertEqual(tokens[1].type, "TEXT")
-        self.assertEqual(tokens[1].start, 5)
-        self.assertEqual(tokens[1].end, 10)
+        self.assertEqual(tokens[1].type, "TEXT")  # 断言相等
+        self.assertEqual(tokens[1].start, 5)  # 断言相等
+        self.assertEqual(tokens[1].end, 10)  # 断言相等
 
+    # TestIterTokens类的测试unknowntokenmiddle
     def test_unknown_token_middle(self):
         """Test iter_tokens with unknown token in middle."""
         tokens = list(iter_tokens("text <|weird|> more <|start|>"))
-        self.assertEqual(len(tokens), 5)
+        self.assertEqual(len(tokens), 5)  # 断言相等
 
-        self.assertEqual(tokens[0].type, "TEXT")
-        self.assertEqual(tokens[1].type, "TEXT")  # "<|"
-        self.assertEqual(tokens[2].type, "TEXT")  # "weird|> more "
-        self.assertEqual(tokens[3].type, "START")
+        self.assertEqual(tokens[0].type, "TEXT")  # 断言相等
+        self.assertEqual(tokens[1].type, "TEXT")  # "<|"  # 断言相等
+        self.assertEqual(tokens[2].type, "TEXT")  # "weird|> more "  # 断言相等
+        self.assertEqual(tokens[3].type, "START")  # 断言相等
         # No trailing text token since it ends with a known token
 
     def test_all_structural_tokens(self):
@@ -144,82 +166,93 @@ class TestIterTokens(CustomTestCase):
             "CALL",
             "RETURN",
         ]
-        self.assertEqual(len(tokens), len(expected_types))
+        self.assertEqual(len(tokens), len(expected_types))  # 断言相等
 
         for token, expected_type in zip(tokens, expected_types):
-            self.assertEqual(token.type, expected_type)
+            self.assertEqual(token.type, expected_type)  # 断言相等
 
 
+# TestCanonicalStrategy类
 class TestCanonicalStrategy(CustomTestCase):
+
+    # TestCanonicalStrategy类的测试初始化设置
     def setUp(self):
         self.strategy = CanonicalStrategy()
 
+    # TestCanonicalStrategy类的测试init
     def test_init(self):
         """Test CanonicalStrategy initialization."""
-        self.assertIn("<|start|>", self.strategy.guard_tokens)
-        self.assertIn("<|constrain|>", self.strategy.guard_tokens)
+        self.assertIn("<|start|>", self.strategy.guard_tokens)  # 断言包含
+        self.assertIn("<|constrain|>", self.strategy.guard_tokens)  # 断言包含
 
+    # TestCanonicalStrategy类的测试extractchanneltype
     def test_extract_channel_type(self):
         """Test _extract_channel_type method."""
-        self.assertEqual(self.strategy._extract_channel_type("analysis"), "analysis")
-        self.assertEqual(
+        self.assertEqual(self.strategy._extract_channel_type("analysis"), "analysis")  # 断言相等
+        self.assertEqual(  # 断言相等
             self.strategy._extract_channel_type("commentary to=functions.tool"),
             "commentary",
         )
-        self.assertEqual(self.strategy._extract_channel_type("final to=user"), "final")
-        self.assertEqual(self.strategy._extract_channel_type("ANALYSIS"), "analysis")
-        self.assertIsNone(self.strategy._extract_channel_type("unknown"))
+        self.assertEqual(self.strategy._extract_channel_type("final to=user"), "final")  # 断言相等
+        self.assertEqual(self.strategy._extract_channel_type("ANALYSIS"), "analysis")  # 断言相等
+        self.assertIsNone(self.strategy._extract_channel_type("unknown"))  # 断言为None
 
+    # TestCanonicalStrategy类的测试parsesingleanalysisblock
     def test_parse_single_analysis_block(self):
         """Test parsing single analysis block."""
         text = "<|channel|>analysis<|message|>Let me think about this<|end|>"
         events, remaining = self.strategy.parse(text)
 
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].event_type, "reasoning")
-        self.assertEqual(events[0].content, "Let me think about this")
-        self.assertEqual(remaining, "")
+        self.assertEqual(len(events), 1)  # 断言相等
+        self.assertEqual(events[0].event_type, "reasoning")  # 断言相等
+        self.assertEqual(events[0].content, "Let me think about this")  # 断言相等
+        self.assertEqual(remaining, "")  # 断言相等
 
+    # TestCanonicalStrategy类的测试parsesinglecommentaryblock
     def test_parse_single_commentary_block(self):
         """Test parsing single commentary block."""
         text = "<|channel|>commentary<|message|>User-visible message<|end|>"
         events, remaining = self.strategy.parse(text)
 
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].event_type, "normal")
-        self.assertEqual(events[0].content, "User-visible message")
-        self.assertEqual(remaining, "")
+        self.assertEqual(len(events), 1)  # 断言相等
+        self.assertEqual(events[0].event_type, "normal")  # 断言相等
+        self.assertEqual(events[0].content, "User-visible message")  # 断言相等
+        self.assertEqual(remaining, "")  # 断言相等
 
+    # TestCanonicalStrategy类的测试parsesinglefinalblock
     def test_parse_single_final_block(self):
         """Test parsing single final block."""
         text = "<|start|>assistant<|channel|>final<|message|>The answer is 42<|return|>"
         events, remaining = self.strategy.parse(text)
 
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].event_type, "normal")
-        self.assertEqual(events[0].content, "The answer is 42")
-        self.assertEqual(remaining, "")
+        self.assertEqual(len(events), 1)  # 断言相等
+        self.assertEqual(events[0].event_type, "normal")  # 断言相等
+        self.assertEqual(events[0].content, "The answer is 42")  # 断言相等
+        self.assertEqual(remaining, "")  # 断言相等
 
+    # TestCanonicalStrategy类的测试parsetoolcallcommentary
     def test_parse_tool_call_commentary(self):
         """Test parsing tool call on commentary channel."""
         text = '<|channel|>commentary to=functions.get_weather<|message|>{"location": "SF"}<|call|>'
         events, remaining = self.strategy.parse(text)
 
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].event_type, "tool_call")
-        self.assertEqual(events[0].content, '{"location": "SF"}')
-        self.assertEqual(remaining, "")
+        self.assertEqual(len(events), 1)  # 断言相等
+        self.assertEqual(events[0].event_type, "tool_call")  # 断言相等
+        self.assertEqual(events[0].content, '{"location": "SF"}')  # 断言相等
+        self.assertEqual(remaining, "")  # 断言相等
 
+    # TestCanonicalStrategy类的测试parsetoolcallanalysis
     def test_parse_tool_call_analysis(self):
         """Test parsing built-in tool call on analysis channel."""
         text = '<|channel|>analysis to=browser.search<|message|>{"query": "SGLang"}<|call|>'
         events, remaining = self.strategy.parse(text)
 
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].event_type, "tool_call")
-        self.assertEqual(events[0].content, '{"query": "SGLang"}')
-        self.assertEqual(remaining, "")
+        self.assertEqual(len(events), 1)  # 断言相等
+        self.assertEqual(events[0].event_type, "tool_call")  # 断言相等
+        self.assertEqual(events[0].content, '{"query": "SGLang"}')  # 断言相等
+        self.assertEqual(remaining, "")  # 断言相等
 
+    # TestCanonicalStrategy类的测试parsecomplexsequence
     def test_parse_complex_sequence(self):
         """Test parsing complex sequence with multiple blocks."""
         text = (
@@ -229,13 +262,14 @@ class TestCanonicalStrategy(CustomTestCase):
         )
         events, remaining = self.strategy.parse(text)
 
-        self.assertEqual(len(events), 2)
-        self.assertEqual(events[0].event_type, "reasoning")
-        self.assertEqual(events[0].content, "Need to use function get_weather.")
-        self.assertEqual(events[1].event_type, "tool_call")
-        self.assertEqual(events[1].content, '{"location":"San Francisco"}')
-        self.assertEqual(remaining, "")
+        self.assertEqual(len(events), 2)  # 断言相等
+        self.assertEqual(events[0].event_type, "reasoning")  # 断言相等
+        self.assertEqual(events[0].content, "Need to use function get_weather.")  # 断言相等
+        self.assertEqual(events[1].event_type, "tool_call")  # 断言相等
+        self.assertEqual(events[1].content, '{"location":"San Francisco"}')  # 断言相等
+        self.assertEqual(remaining, "")  # 断言相等
 
+    # TestCanonicalStrategy类的测试parsewithinterspersedtext
     def test_parse_with_interspersed_text(self):
         """Test parsing with plain text between blocks."""
         text = (
@@ -247,57 +281,62 @@ class TestCanonicalStrategy(CustomTestCase):
         )
         events, remaining = self.strategy.parse(text)
 
-        self.assertEqual(len(events), 4)
-        self.assertEqual(events[0].event_type, "normal")
-        self.assertEqual(events[0].content, "Some text ")
-        self.assertEqual(events[1].event_type, "reasoning")
-        self.assertEqual(events[1].content, "reasoning")
-        self.assertEqual(events[2].event_type, "normal")
-        self.assertEqual(events[2].content, " more text ")
-        self.assertEqual(events[3].event_type, "normal")
-        self.assertEqual(events[3].content, "answer trailing text")
-        self.assertEqual(remaining, "")
+        self.assertEqual(len(events), 4)  # 断言相等
+        self.assertEqual(events[0].event_type, "normal")  # 断言相等
+        self.assertEqual(events[0].content, "Some text ")  # 断言相等
+        self.assertEqual(events[1].event_type, "reasoning")  # 断言相等
+        self.assertEqual(events[1].content, "reasoning")  # 断言相等
+        self.assertEqual(events[2].event_type, "normal")  # 断言相等
+        self.assertEqual(events[2].content, " more text ")  # 断言相等
+        self.assertEqual(events[3].event_type, "normal")  # 断言相等
+        self.assertEqual(events[3].content, "answer trailing text")  # 断言相等
+        self.assertEqual(remaining, "")  # 断言相等
 
+    # TestCanonicalStrategy类的测试parseincompleteblock
     def test_parse_incomplete_block(self):
         """Test parsing incomplete block (streaming scenario)."""
         text = "<|channel|>analysis<|message|>partial content"
         events, remaining = self.strategy.parse(text)
 
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].event_type, "reasoning")
-        self.assertEqual(events[0].content, "partial content")
-        self.assertEqual(remaining, "<|channel|>analysis<|message|>")
+        self.assertEqual(len(events), 1)  # 断言相等
+        self.assertEqual(events[0].event_type, "reasoning")  # 断言相等
+        self.assertEqual(events[0].content, "partial content")  # 断言相等
+        self.assertEqual(remaining, "<|channel|>analysis<|message|>")  # 断言相等
 
+    # TestCanonicalStrategy类的测试parsepartialtokensuffix
     def test_parse_partial_token_suffix(self):
         """Test parsing with partial token at end."""
         text = "complete text <|ret"
         events, remaining = self.strategy.parse(text)
 
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].event_type, "normal")
-        self.assertEqual(events[0].content, "complete text ")
-        self.assertEqual(remaining, "<|ret")
+        self.assertEqual(len(events), 1)  # 断言相等
+        self.assertEqual(events[0].event_type, "normal")  # 断言相等
+        self.assertEqual(events[0].content, "complete text ")  # 断言相等
+        self.assertEqual(remaining, "<|ret")  # 断言相等
 
+    # TestCanonicalStrategy类的测试parsetoolresponsemessage
     def test_parse_tool_response_message(self):
         """Test parsing tool response message (no channel)."""
         text = '<|start|>functions.get_weather to=assistant<|message|>{"sunny": true}<|end|>'
         events, remaining = self.strategy.parse(text)
 
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].event_type, "normal")
-        self.assertEqual(events[0].content, '{"sunny": true}')
-        self.assertEqual(remaining, "")
+        self.assertEqual(len(events), 1)  # 断言相等
+        self.assertEqual(events[0].event_type, "normal")  # 断言相等
+        self.assertEqual(events[0].content, '{"sunny": true}')  # 断言相等
+        self.assertEqual(remaining, "")  # 断言相等
 
+    # TestCanonicalStrategy类的测试parseemptycontentblocks
     def test_parse_empty_content_blocks(self):
         """Test parsing blocks with empty content."""
         text = "<|channel|>analysis<|message|><|end|>"
         events, remaining = self.strategy.parse(text)
 
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].event_type, "reasoning")
-        self.assertEqual(events[0].content, "")
-        self.assertEqual(remaining, "")
+        self.assertEqual(len(events), 1)  # 断言相等
+        self.assertEqual(events[0].event_type, "reasoning")  # 断言相等
+        self.assertEqual(events[0].content, "")  # 断言相等
+        self.assertEqual(remaining, "")  # 断言相等
 
+    # TestCanonicalStrategy类的测试parsecommentaryfillerbetweenblocks
     def test_parse_commentary_filler_between_blocks(self):
         """Test that 'commentary' filler between <|call|> and <|channel|> is filtered out."""
         # This pattern occurs when the model generates malformed output
@@ -309,167 +348,188 @@ class TestCanonicalStrategy(CustomTestCase):
         events, remaining = self.strategy.parse(text)
 
         # Should have 2 tool calls, no "commentary" normal text
-        self.assertEqual(len(events), 2)
-        self.assertEqual(events[0].event_type, "tool_call")
-        self.assertEqual(events[0].content, '{"location":"SF"}')
-        self.assertEqual(events[1].event_type, "tool_call")
-        self.assertEqual(events[1].content, '{"location":"NYC"}')
-        self.assertEqual(remaining, "")
+        self.assertEqual(len(events), 2)  # 断言相等
+        self.assertEqual(events[0].event_type, "tool_call")  # 断言相等
+        self.assertEqual(events[0].content, '{"location":"SF"}')  # 断言相等
+        self.assertEqual(events[1].event_type, "tool_call")  # 断言相等
+        self.assertEqual(events[1].content, '{"location":"NYC"}')  # 断言相等
+        self.assertEqual(remaining, "")  # 断言相等
 
         # Verify no "commentary" text was emitted as normal content
         normal_events = [e for e in events if e.event_type == "normal"]
         commentary_events = [
             e for e in normal_events if "commentary" in e.content.lower()
         ]
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             len(commentary_events), 0, "Commentary filler should be filtered out"
         )
 
 
+# TestTextStrategy类
 class TestTextStrategy(CustomTestCase):
+
+    # TestTextStrategy类的测试初始化设置
     def setUp(self):
         self.strategy = TextStrategy()
 
+    # TestTextStrategy类的测试init
     def test_init(self):
         """Test TextStrategy initialization."""
-        self.assertIn("analysis_then_final", self.strategy.patterns)
+        self.assertIn("analysis_then_final", self.strategy.patterns)  # 断言包含
 
+    # TestTextStrategy类的测试parseanalysisthenfinal
     def test_parse_analysis_then_final(self):
         """Test parsing analysis then final format."""
         text = "analysis I need to think about this. assistantfinal The answer is 42."
         events, remaining = self.strategy.parse(text)
 
-        self.assertEqual(len(events), 2)
-        self.assertEqual(events[0].event_type, "reasoning")
-        self.assertEqual(events[0].content, "I need to think about this.")
-        self.assertEqual(events[1].event_type, "normal")
-        self.assertEqual(events[1].content, "The answer is 42.")
-        self.assertEqual(remaining, "")
+        self.assertEqual(len(events), 2)  # 断言相等
+        self.assertEqual(events[0].event_type, "reasoning")  # 断言相等
+        self.assertEqual(events[0].content, "I need to think about this.")  # 断言相等
+        self.assertEqual(events[1].event_type, "normal")  # 断言相等
+        self.assertEqual(events[1].content, "The answer is 42.")  # 断言相等
+        self.assertEqual(remaining, "")  # 断言相等
 
+    # TestTextStrategy类的测试parsecommentarythenfinal
     def test_parse_commentary_then_final(self):
         """Test parsing commentary then final format."""
         text = "commentary User-visible preamble. assistantfinal The answer is 42."
         events, remaining = self.strategy.parse(text)
 
-        self.assertEqual(len(events), 2)
-        self.assertEqual(events[0].event_type, "normal")
-        self.assertEqual(events[0].content, "User-visible preamble.")
-        self.assertEqual(events[1].event_type, "normal")
-        self.assertEqual(events[1].content, "The answer is 42.")
-        self.assertEqual(remaining, "")
+        self.assertEqual(len(events), 2)  # 断言相等
+        self.assertEqual(events[0].event_type, "normal")  # 断言相等
+        self.assertEqual(events[0].content, "User-visible preamble.")  # 断言相等
+        self.assertEqual(events[1].event_type, "normal")  # 断言相等
+        self.assertEqual(events[1].content, "The answer is 42.")  # 断言相等
+        self.assertEqual(remaining, "")  # 断言相等
 
+    # TestTextStrategy类的测试parsefinalonly
     def test_parse_final_only(self):
         """Test parsing final-only format."""
         text = "assistantfinal The direct answer."
         events, remaining = self.strategy.parse(text)
 
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].event_type, "normal")
-        self.assertEqual(events[0].content, "The direct answer.")
-        self.assertEqual(remaining, "")
+        self.assertEqual(len(events), 1)  # 断言相等
+        self.assertEqual(events[0].event_type, "normal")  # 断言相等
+        self.assertEqual(events[0].content, "The direct answer.")  # 断言相等
+        self.assertEqual(remaining, "")  # 断言相等
 
+    # TestTextStrategy类的测试parseanalysisonly
     def test_parse_analysis_only(self):
         """Test parsing analysis-only format."""
         text = "analysis This is reasoning content."
         events, remaining = self.strategy.parse(text)
 
         # For analysis-only, streaming parse should keep header and emit with leading space
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].event_type, "reasoning")
-        self.assertEqual(events[0].content, " This is reasoning content.")
-        self.assertEqual(remaining, "analysis")
+        self.assertEqual(len(events), 1)  # 断言相等
+        self.assertEqual(events[0].event_type, "reasoning")  # 断言相等
+        self.assertEqual(events[0].content, " This is reasoning content.")  # 断言相等
+        self.assertEqual(remaining, "analysis")  # 断言相等
 
+    # TestTextStrategy类的测试parseincompleteassistantfinal
     def test_parse_incomplete_assistantfinal(self):
         """Test parsing with incomplete assistantfinal."""
         text = "analysis reasoning content assistantfin"
         events, remaining = self.strategy.parse(text)
 
-        self.assertEqual(len(events), 0)
-        self.assertEqual(remaining, text)  # Hold entire buffer
+        self.assertEqual(len(events), 0)  # 断言相等
+        self.assertEqual(remaining, text)  # Hold entire buffer  # 断言相等
 
+    # TestTextStrategy类的测试parsepartialanalysisstreaming
     def test_parse_partial_analysis_streaming(self):
         """Test streaming partial analysis content."""
         text = "analysis partial content"
         events, remaining = self.strategy.parse(text)
 
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].event_type, "reasoning")
-        self.assertEqual(events[0].content, " partial content")  # Space preserved
-        self.assertEqual(remaining, "analysis")  # Hold header
+        self.assertEqual(len(events), 1)  # 断言相等
+        self.assertEqual(events[0].event_type, "reasoning")  # 断言相等
+        self.assertEqual(events[0].content, " partial content")  # Space preserved  # 断言相等
+        self.assertEqual(remaining, "analysis")  # Hold header  # 断言相等
 
+    # TestTextStrategy类的测试parsecaseinsensitive
     def test_parse_case_insensitive(self):
         """Test case insensitive parsing."""
         text = "ANALYSIS reasoning ASSISTANTFINAL answer"
         events, remaining = self.strategy.parse(text)
 
-        self.assertEqual(len(events), 2)
-        self.assertEqual(events[0].event_type, "reasoning")
-        self.assertEqual(events[1].event_type, "normal")
+        self.assertEqual(len(events), 2)  # 断言相等
+        self.assertEqual(events[0].event_type, "reasoning")  # 断言相等
+        self.assertEqual(events[1].event_type, "normal")  # 断言相等
 
+    # TestTextStrategy类的测试parseplaintextfallback
     def test_parse_plain_text_fallback(self):
         """Test parsing plain text without harmony markers."""
         text = "Just plain text without any markers."
         events, remaining = self.strategy.parse(text)
 
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].event_type, "normal")
-        self.assertEqual(events[0].content, "Just plain text without any markers.")
-        self.assertEqual(remaining, "")
+        self.assertEqual(len(events), 1)  # 断言相等
+        self.assertEqual(events[0].event_type, "normal")  # 断言相等
+        self.assertEqual(events[0].content, "Just plain text without any markers.")  # 断言相等
+        self.assertEqual(remaining, "")  # 断言相等
 
+    # TestTextStrategy类的测试parseanalysisnospaceafterheader
     def test_parse_analysis_no_space_after_header(self):
         """Test parsing analysis format without space after header (real gpt-oss output)."""
         text = "analysisThe user typed random strings. We should respond politely.assistantfinalIt looks like you're testing. How can I help?"
         events, remaining = self.strategy.parse(text)
 
-        self.assertEqual(len(events), 2)
-        self.assertEqual(events[0].event_type, "reasoning")
-        self.assertEqual(
+        self.assertEqual(len(events), 2)  # 断言相等
+        self.assertEqual(events[0].event_type, "reasoning")  # 断言相等
+        self.assertEqual(  # 断言相等
             events[0].content,
             "The user typed random strings. We should respond politely.",
         )
-        self.assertEqual(events[1].event_type, "normal")
-        self.assertEqual(
+        self.assertEqual(events[1].event_type, "normal")  # 断言相等
+        self.assertEqual(  # 断言相等
             events[1].content, "It looks like you're testing. How can I help?"
         )
 
 
+# TestHarmonyParser类
 class TestHarmonyParser(CustomTestCase):
+
+    # TestHarmonyParser类的测试初始化设置
     def setUp(self):
         self.parser = HarmonyParser()
 
+    # TestHarmonyParser类的测试init
     def test_init(self):
         """Test HarmonyParser initialization."""
-        self.assertIsNone(self.parser.strategy)
-        self.assertEqual(self.parser._buffer, "")
+        self.assertIsNone(self.parser.strategy)  # 断言为None
+        self.assertEqual(self.parser._buffer, "")  # 断言相等
 
+    # TestHarmonyParser类的测试strategyselectioncanonical
     def test_strategy_selection_canonical(self):
         """Test automatic strategy selection for canonical format."""
         events = self.parser.parse("<|channel|>analysis<|message|>test<|end|>")
 
         self.assertIsInstance(self.parser.strategy, CanonicalStrategy)
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].event_type, "reasoning")
+        self.assertEqual(len(events), 1)  # 断言相等
+        self.assertEqual(events[0].event_type, "reasoning")  # 断言相等
 
+    # TestHarmonyParser类的测试strategyselectiontext
     def test_strategy_selection_text(self):
         """Test automatic strategy selection for text format."""
         events = self.parser.parse("analysis test content")
 
         self.assertIsInstance(self.parser.strategy, TextStrategy)
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].event_type, "reasoning")
+        self.assertEqual(len(events), 1)  # 断言相等
+        self.assertEqual(events[0].event_type, "reasoning")  # 断言相等
 
+    # TestHarmonyParser类的测试strategyselectiondelayed
     def test_strategy_selection_delayed(self):
         """Test strategy selection with insufficient initial content."""
         # First chunk doesn't have enough info
         events1 = self.parser.parse("some")
-        self.assertEqual(len(events1), 0)
-        self.assertIsNone(self.parser.strategy)
+        self.assertEqual(len(events1), 0)  # 断言相等
+        self.assertIsNone(self.parser.strategy)  # 断言为None
 
         # Second chunk triggers strategy selection
         events2 = self.parser.parse(" analysis content")
         self.assertIsInstance(self.parser.strategy, TextStrategy)
-        self.assertEqual(len(events2), 1)
+        self.assertEqual(len(events2), 1)  # 断言相等
 
+    # TestHarmonyParser类的测试streamingcanonicalformat
     def test_streaming_canonical_format(self):
         """Test streaming with canonical format."""
         chunks = [
@@ -488,10 +548,10 @@ class TestHarmonyParser(CustomTestCase):
 
         # Verify we get both reasoning and normal events
         reasoning_events = [e for e in all_events if e.event_type == "reasoning"]
-        self.assertGreater(len(reasoning_events), 0)
+        self.assertGreater(len(reasoning_events), 0)  # 断言大于
 
         normal_events = [e for e in all_events if e.event_type == "normal"]
-        self.assertGreater(len(normal_events), 0)
+        self.assertGreater(len(normal_events), 0)  # 断言大于
 
         # Verify content is eventually parsed correctly
         combined_reasoning = "".join(e.content for e in reasoning_events)
@@ -501,9 +561,10 @@ class TestHarmonyParser(CustomTestCase):
             if e.content and "<|return|>" not in e.content
         )
 
-        self.assertIn("reasoning content", combined_reasoning)
-        self.assertIn("final answer", combined_normal)
+        self.assertIn("reasoning content", combined_reasoning)  # 断言包含
+        self.assertIn("final answer", combined_normal)  # 断言包含
 
+    # TestHarmonyParser类的测试streamingtextformat
     def test_streaming_text_format(self):
         """Test streaming with text format."""
         chunks = ["analysis reasoning", " content assistantfinal", " the answer"]
@@ -517,9 +578,10 @@ class TestHarmonyParser(CustomTestCase):
         reasoning_events = [e for e in all_events if e.event_type == "reasoning"]
         normal_events = [e for e in all_events if e.event_type == "normal"]
 
-        self.assertGreater(len(reasoning_events), 0)
-        self.assertGreater(len(normal_events), 0)
+        self.assertGreater(len(reasoning_events), 0)  # 断言大于
+        self.assertGreater(len(normal_events), 0)  # 断言大于
 
+    # TestHarmonyParser类的测试streamingcommentaryfiller
     def test_streaming_commentary_filler(self):
         """Test that 'commentary' filler is filtered in streaming case."""
         # Test when commentary arrives as a separate chunk after <|call|>
@@ -550,24 +612,25 @@ class TestHarmonyParser(CustomTestCase):
         normal_events = [e for e in all_events if e.event_type == "normal"]
 
         # Should have 2 tool calls and 1 final message
-        self.assertEqual(len(tool_events), 2, "Should have 2 tool calls")
-        self.assertEqual(
+        self.assertEqual(len(tool_events), 2, "Should have 2 tool calls")  # 断言相等
+        self.assertEqual(  # 断言相等
             len(normal_events), 1, "Should have 1 normal event (final message)"
         )
 
         # Verify no "commentary" in normal events
         for event in normal_events:
-            self.assertNotEqual(
+            self.assertNotEqual(  # 断言不相等
                 event.content.strip().lower(),
                 "commentary",
                 "Commentary filler should not appear as normal content in streaming",
             )
 
         # Verify content
-        self.assertEqual(tool_events[0].content, '{"location":"SF"}')
-        self.assertEqual(tool_events[1].content, '{"location":"NYC"}')
-        self.assertEqual(normal_events[0].content, "Done")
+        self.assertEqual(tool_events[0].content, '{"location":"SF"}')  # 断言相等
+        self.assertEqual(tool_events[1].content, '{"location":"NYC"}')  # 断言相等
+        self.assertEqual(normal_events[0].content, "Done")  # 断言相等
 
+    # TestHarmonyParser类的测试repetitivetoolcallswithcommentaryfiller
     def test_repetitive_tool_calls_with_commentary_filler(self):
         """Test handling of repetitive tool calls with 'commentary' filler text."""
         # This simulates malformed output with repeated tool calls and commentary filler
@@ -590,26 +653,27 @@ class TestHarmonyParser(CustomTestCase):
         normal_events = [e for e in events if e.event_type == "normal"]
 
         # Verify correct number of each type
-        self.assertEqual(len(reasoning_events), 2, "Should have 2 reasoning events")
-        self.assertEqual(len(tool_events), 3, "Should have 3 tool calls")
-        self.assertEqual(
+        self.assertEqual(len(reasoning_events), 2, "Should have 2 reasoning events")  # 断言相等
+        self.assertEqual(len(tool_events), 3, "Should have 3 tool calls")  # 断言相等
+        self.assertEqual(  # 断言相等
             len(normal_events), 1, "Should have 1 normal event (final message)"
         )
 
         # Verify no "commentary" filler in normal events
         for event in normal_events:
-            self.assertNotEqual(
+            self.assertNotEqual(  # 断言不相等
                 event.content.strip().lower(),
                 "commentary",
                 "Commentary filler should not appear as normal content",
             )
 
         # Verify content is correct
-        self.assertEqual(reasoning_events[0].content, "Need to get weather")
-        self.assertEqual(reasoning_events[1].content, "Tool not responding")
-        self.assertEqual(normal_events[0].content, "Unable to fetch weather data")
+        self.assertEqual(reasoning_events[0].content, "Need to get weather")  # 断言相等
+        self.assertEqual(reasoning_events[1].content, "Tool not responding")  # 断言相等
+        self.assertEqual(normal_events[0].content, "Unable to fetch weather data")  # 断言相等
 
 
+# TestIntegrationScenarios类
 class TestIntegrationScenarios(CustomTestCase):
     """Integration tests for realistic Harmony parsing scenarios."""
 
@@ -624,12 +688,13 @@ class TestIntegrationScenarios(CustomTestCase):
 
         events = parser.parse(text)
 
-        self.assertEqual(len(events), 2)
-        self.assertEqual(events[0].event_type, "reasoning")
-        self.assertIn("Simple arithmetic", events[0].content)
-        self.assertEqual(events[1].event_type, "normal")
-        self.assertEqual(events[1].content, "2 + 2 = 4.")
+        self.assertEqual(len(events), 2)  # 断言相等
+        self.assertEqual(events[0].event_type, "reasoning")  # 断言相等
+        self.assertIn("Simple arithmetic", events[0].content)  # 断言包含
+        self.assertEqual(events[1].event_type, "normal")  # 断言相等
+        self.assertEqual(events[1].content, "2 + 2 = 4.")  # 断言相等
 
+    # TestIntegrationScenarios类的测试toolcallsequence
     def test_tool_call_sequence(self):
         """Test tool call sequence from HARMONY_DOCS.md examples."""
         parser = HarmonyParser()
@@ -642,12 +707,13 @@ class TestIntegrationScenarios(CustomTestCase):
 
         events = parser.parse(text)
 
-        self.assertEqual(len(events), 2)
-        self.assertEqual(events[0].event_type, "reasoning")
-        self.assertEqual(events[0].content, "Need to use function get_weather.")
-        self.assertEqual(events[1].event_type, "tool_call")
-        self.assertEqual(events[1].content, '{"location":"San Francisco"}')
+        self.assertEqual(len(events), 2)  # 断言相等
+        self.assertEqual(events[0].event_type, "reasoning")  # 断言相等
+        self.assertEqual(events[0].content, "Need to use function get_weather.")  # 断言相等
+        self.assertEqual(events[1].event_type, "tool_call")  # 断言相等
+        self.assertEqual(events[1].content, '{"location":"San Francisco"}')  # 断言相等
 
+    # TestIntegrationScenarios类的测试preamblesequence
     def test_preamble_sequence(self):
         """Test preamble sequence with multiple commentary blocks."""
         parser = HarmonyParser()
@@ -661,12 +727,13 @@ class TestIntegrationScenarios(CustomTestCase):
 
         events = parser.parse(text)
 
-        self.assertEqual(len(events), 3)
-        self.assertEqual(events[0].event_type, "reasoning")
-        self.assertEqual(events[1].event_type, "normal")
-        self.assertIn("Action plan", events[1].content)
-        self.assertEqual(events[2].event_type, "tool_call")
+        self.assertEqual(len(events), 3)  # 断言相等
+        self.assertEqual(events[0].event_type, "reasoning")  # 断言相等
+        self.assertEqual(events[1].event_type, "normal")  # 断言相等
+        self.assertIn("Action plan", events[1].content)  # 断言包含
+        self.assertEqual(events[2].event_type, "tool_call")  # 断言相等
 
+    # TestIntegrationScenarios类的测试builtintoolcall
     def test_built_in_tool_call(self):
         """Test built-in tool call on analysis channel."""
         parser = HarmonyParser()
@@ -675,10 +742,11 @@ class TestIntegrationScenarios(CustomTestCase):
 
         events = parser.parse(text)
 
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].event_type, "tool_call")
-        self.assertEqual(events[0].content, '{"query": "SGLang"}')
+        self.assertEqual(len(events), 1)  # 断言相等
+        self.assertEqual(events[0].event_type, "tool_call")  # 断言相等
+        self.assertEqual(events[0].content, '{"query": "SGLang"}')  # 断言相等
 
+    # TestIntegrationScenarios类的测试toolresponsehandling
     def test_tool_response_handling(self):
         """Test tool response message handling."""
         parser = HarmonyParser()
@@ -687,27 +755,29 @@ class TestIntegrationScenarios(CustomTestCase):
 
         events = parser.parse(text)
 
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].event_type, "normal")
-        self.assertEqual(events[0].content, '{"sunny": true, "temperature": 20}')
+        self.assertEqual(len(events), 1)  # 断言相等
+        self.assertEqual(events[0].event_type, "normal")  # 断言相等
+        self.assertEqual(events[0].content, '{"sunny": true, "temperature": 20}')  # 断言相等
 
+    # TestIntegrationScenarios类的测试textfallbackformats
     def test_text_fallback_formats(self):
         """Test various text fallback formats."""
         parser = HarmonyParser()
 
         # Test analysis then final
         events1 = parser.parse("analysis thinking assistantfinal answer")
-        self.assertEqual(len([e for e in events1 if e.event_type == "reasoning"]), 1)
-        self.assertEqual(len([e for e in events1 if e.event_type == "normal"]), 1)
+        self.assertEqual(len([e for e in events1 if e.event_type == "reasoning"]), 1)  # 断言相等
+        self.assertEqual(len([e for e in events1 if e.event_type == "normal"]), 1)  # 断言相等
 
         # Reset parser for next test
         parser = HarmonyParser()
 
         # Test final only
         events2 = parser.parse("assistantfinal direct answer")
-        self.assertEqual(len(events2), 1)
-        self.assertEqual(events2[0].event_type, "normal")
+        self.assertEqual(len(events2), 1)  # 断言相等
+        self.assertEqual(events2[0].event_type, "normal")  # 断言相等
 
+    # TestIntegrationScenarios类的测试streamingpropertycanonical
     def test_streaming_property_canonical(self):
         """Test streaming property: chunked parsing produces same semantic content as one-shot parsing."""
         full_text = (
@@ -753,9 +823,10 @@ class TestIntegrationScenarios(CustomTestCase):
             e.content for e in events_chunked if e.event_type == "normal"
         )
 
-        self.assertEqual(reasoning_chunked, reasoning_oneshot)
-        self.assertEqual(normal_chunked, normal_oneshot)
+        self.assertEqual(reasoning_chunked, reasoning_oneshot)  # 断言相等
+        self.assertEqual(normal_chunked, normal_oneshot)  # 断言相等
 
+    # TestIntegrationScenarios类的测试streamingpropertytext
     def test_streaming_property_text(self):
         """Test streaming property for text format."""
         full_text = "analysis reasoning content assistantfinal final answer"
@@ -787,10 +858,11 @@ class TestIntegrationScenarios(CustomTestCase):
         )
 
         # Account for whitespace differences due to streaming - compare trimmed content
-        self.assertEqual(reasoning_oneshot.strip(), reasoning_chunked.strip())
-        self.assertEqual(normal_oneshot.strip(), normal_chunked.strip())
+        self.assertEqual(reasoning_oneshot.strip(), reasoning_chunked.strip())  # 断言相等
+        self.assertEqual(normal_oneshot.strip(), normal_chunked.strip())  # 断言相等
 
 
+# TestEdgeCases类
 class TestEdgeCases(CustomTestCase):
     """Test edge cases and error conditions."""
 
@@ -803,8 +875,9 @@ class TestEdgeCases(CustomTestCase):
         events = parser.parse(text)
 
         # Should be held as incomplete since channel is unknown
-        self.assertEqual(len(events), 0)
+        self.assertEqual(len(events), 0)  # 断言相等
 
+    # TestEdgeCases类的测试mixedunknowntokens
     def test_mixed_unknown_tokens(self):
         """Test handling of mixed unknown tokens."""
         parser = HarmonyParser()
@@ -816,15 +889,17 @@ class TestEdgeCases(CustomTestCase):
         reasoning_events = [e for e in events if e.event_type == "reasoning"]
         normal_events = [e for e in events if e.event_type == "normal"]
 
-        self.assertEqual(len(reasoning_events), 1)
-        self.assertGreater(len(normal_events), 0)
+        self.assertEqual(len(reasoning_events), 1)  # 断言相等
+        self.assertGreater(len(normal_events), 0)  # 断言大于
 
+    # TestEdgeCases类的测试emptyinput
     def test_empty_input(self):
         """Test handling of empty input."""
         parser = HarmonyParser()
         events = parser.parse("")
-        self.assertEqual(len(events), 0)
+        self.assertEqual(len(events), 0)  # 断言相等
 
+    # TestEdgeCases类的测试whitespacepreservation
     def test_whitespace_preservation(self):
         """Test that whitespace is preserved correctly."""
         parser = HarmonyParser()
@@ -832,9 +907,10 @@ class TestEdgeCases(CustomTestCase):
         text = "<|channel|>analysis<|message|>  content with spaces  <|end|>"
         events = parser.parse(text)
 
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].content, "  content with spaces  ")
+        self.assertEqual(len(events), 1)  # 断言相等
+        self.assertEqual(events[0].content, "  content with spaces  ")  # 断言相等
 
+    # TestEdgeCases类的测试streamingwhitespacepreservation
     def test_streaming_whitespace_preservation(self):
         """Test that streaming preserves whitespace between chunks."""
         parser = HarmonyParser()
@@ -853,11 +929,12 @@ class TestEdgeCases(CustomTestCase):
         )
 
         # Should preserve the space before the quote
-        self.assertIn('typed "wapppa"', reasoning_content)
-        self.assertNotIn(
+        self.assertIn('typed "wapppa"', reasoning_content)  # 断言包含
+        self.assertNotIn(  # 断言不包含
             'typed"wapppa"', reasoning_content
         )  # Should not be mashed together
 
+    # TestEdgeCases类的测试consecutiveblockssametype
     def test_consecutive_blocks_same_type(self):
         """Test consecutive blocks of the same type."""
         parser = HarmonyParser()
@@ -868,13 +945,14 @@ class TestEdgeCases(CustomTestCase):
         )
         events = parser.parse(text)
 
-        self.assertEqual(len(events), 2)
-        self.assertEqual(events[0].event_type, "reasoning")
-        self.assertEqual(events[1].event_type, "reasoning")
-        self.assertEqual(events[0].content, "first reasoning")
-        self.assertEqual(events[1].content, "second reasoning")
+        self.assertEqual(len(events), 2)  # 断言相等
+        self.assertEqual(events[0].event_type, "reasoning")  # 断言相等
+        self.assertEqual(events[1].event_type, "reasoning")  # 断言相等
+        self.assertEqual(events[0].content, "first reasoning")  # 断言相等
+        self.assertEqual(events[1].content, "second reasoning")  # 断言相等
 
 
+# TestAdditionalEdgeCases类
 class TestAdditionalEdgeCases(CustomTestCase):
     """Additional tests to cover remaining edge cases."""
 
@@ -883,17 +961,19 @@ class TestAdditionalEdgeCases(CustomTestCase):
         from sglang.srt.parser.harmony_parser import prefix_hold
 
         emit, hold = prefix_hold("hello", ["", "world"])
-        self.assertEqual(emit, "hello")
-        self.assertEqual(hold, "")
+        self.assertEqual(emit, "hello")  # 断言相等
+        self.assertEqual(hold, "")  # 断言相等
 
+    # TestAdditionalEdgeCases类的测试itertokensunknowntokennoclosing
     def test_iter_tokens_unknown_token_no_closing(self):
         """Test iter_tokens with <| that has no closing |>."""
         from sglang.srt.parser.harmony_parser import iter_tokens
 
         tokens = list(iter_tokens("<|broken text without close", 0))
         # Should emit TEXT tokens for the content after <|
-        self.assertTrue(any(t.type == "TEXT" for t in tokens))
+        self.assertTrue(any(t.type == "TEXT" for t in tokens))  # 断言为真
 
+    # TestAdditionalEdgeCases类的测试canonicalcommentaryfilleraftercall
     def test_canonical_commentary_filler_after_call(self):
         """Test that MESSAGE token after CALL is filtered as commentary filler."""
         from sglang.srt.parser.harmony_parser import CanonicalStrategy
@@ -903,8 +983,9 @@ class TestAdditionalEdgeCases(CustomTestCase):
         events, remainder = strategy.parse(text)
         # The MESSAGE after CALL should be filtered, final answer should appear
         answers = [e.content for e in events if e.event_type == "normal"]
-        self.assertTrue(any("answer" in a for a in answers))
+        self.assertTrue(any("answer" in a for a in answers))  # 断言为真
 
+    # TestAdditionalEdgeCases类的测试canonicalstandalonestructuraltokenfiltered
     def test_canonical_standalone_structural_token_filtered(self):
         """Test that standalone structural tokens like <|end|> in TEXT position are filtered."""
         from sglang.srt.parser.harmony_parser import CanonicalStrategy
@@ -914,8 +995,9 @@ class TestAdditionalEdgeCases(CustomTestCase):
         text = "<|start|><|channel|>analysis<|message|>content<|end|>"
         events, remainder = strategy.parse(text)
         # Should parse without error
-        self.assertTrue(len(events) >= 0)
+        self.assertTrue(len(events) >= 0)  # 断言为真
 
+    # TestAdditionalEdgeCases类的测试canonicalincompleteblockreturnspartial
     def test_canonical_incomplete_block_returns_partial(self):
         """Test parsing an incomplete channel block (no END token)."""
         from sglang.srt.parser.harmony_parser import CanonicalStrategy
@@ -927,8 +1009,9 @@ class TestAdditionalEdgeCases(CustomTestCase):
         reasoning_events = [e for e in events if e.event_type == "reasoning"]
         # The partial content may be in events or remainder
         total = "".join(e.content for e in reasoning_events) + remainder
-        self.assertIn("partial", total)
+        self.assertIn("partial", total)  # 断言包含
 
+    # TestAdditionalEdgeCases类的测试textstrategycommentarychannel
     def test_text_strategy_commentary_channel(self):
         """Test TextStrategy parsing commentary channel."""
         from sglang.srt.parser.harmony_parser import TextStrategy
@@ -937,8 +1020,9 @@ class TestAdditionalEdgeCases(CustomTestCase):
         text = "commentary: some discussion\nassistantfinal: the answer"
         events, remainder = strategy.parse(text)
         normal = [e for e in events if e.event_type == "normal"]
-        self.assertTrue(any("the answer" in e.content for e in normal))
+        self.assertTrue(any("the answer" in e.content for e in normal))  # 断言为真
 
+    # TestAdditionalEdgeCases类的测试canonicalcallwithtextcommentaryafter
     def test_canonical_call_with_text_commentary_after(self):
         """Test filtering of 'commentary' text after CALL token."""
         from sglang.srt.parser.harmony_parser import CanonicalStrategy
@@ -947,8 +1031,9 @@ class TestAdditionalEdgeCases(CustomTestCase):
         text = "<|start|><|channel|>analysis<|message|>think<|end|><|call|>commentary<|return|><|channel|>final<|message|>result<|end|>"
         events, remainder = strategy.parse(text)
         normal = [e for e in events if e.event_type == "normal"]
-        self.assertTrue(any("result" in e.content for e in normal))
+        self.assertTrue(any("result" in e.content for e in normal))  # 断言为真
 
+    # TestAdditionalEdgeCases类的测试canonicalreturnwithoutfinal
     def test_canonical_return_without_final(self):
         """Test that _parse_block returns None for block without proper end."""
         from sglang.srt.parser.harmony_parser import CanonicalStrategy
@@ -960,6 +1045,7 @@ class TestAdditionalEdgeCases(CustomTestCase):
         # Should handle gracefully
         self.assertIsInstance(events, list)
 
+    # TestAdditionalEdgeCases类的测试itertokensunknownatendnonextmarker
     def test_iter_tokens_unknown_at_end_no_next_marker(self):
         """Test unknown token with |> close but no next <| marker after it."""
         from sglang.srt.parser.harmony_parser import iter_tokens
@@ -970,8 +1056,9 @@ class TestAdditionalEdgeCases(CustomTestCase):
         all_text = "".join(
             "<|weird|>trailing"[t.start : t.end] for t in tokens if t.type == "TEXT"
         )
-        self.assertIn("weird|>trailing", all_text)
+        self.assertIn("weird|>trailing", all_text)  # 断言包含
 
+    # TestAdditionalEdgeCases类的测试canonicalstandaloneendtokenfiltered
     def test_canonical_standalone_end_token_filtered(self):
         """Test that standalone <|end|> in TEXT position is filtered out."""
         from sglang.srt.parser.harmony_parser import CanonicalStrategy
@@ -982,8 +1069,9 @@ class TestAdditionalEdgeCases(CustomTestCase):
         events, remainder = strategy.parse(text)
         # The standalone <|end|> should be filtered, answer should appear
         normal = [e.content for e in events if e.event_type == "normal"]
-        self.assertTrue(any("answer" in c for c in normal))
+        self.assertTrue(any("answer" in c for c in normal))  # 断言为真
 
+    # TestAdditionalEdgeCases类的测试canonicalincompleteparseblocknoend
     def test_canonical_incomplete_parse_block_no_end(self):
         """Test that a channel block without END/CALL/RETURN returns None (incomplete)."""
         from sglang.srt.parser.harmony_parser import CanonicalStrategy
@@ -994,8 +1082,9 @@ class TestAdditionalEdgeCases(CustomTestCase):
         events, remainder = strategy.parse(text)
         # Should be treated as incomplete
         total = "".join(e.content for e in events) + remainder
-        self.assertIn("partial", total)
+        self.assertIn("partial", total)  # 断言包含
 
+    # TestAdditionalEdgeCases类的测试textstrategycommentaryonly
     def test_text_strategy_commentary_only(self):
         """Test TextStrategy with commentary-only pattern (no 'assistantfinal')."""
         from sglang.srt.parser.harmony_parser import TextStrategy
@@ -1006,8 +1095,9 @@ class TestAdditionalEdgeCases(CustomTestCase):
         normal = [e for e in events if e.event_type == "normal"]
         # Commentary content should appear as normal text
         combined = "".join(e.content for e in normal) + remainder
-        self.assertIn("comment", combined)
+        self.assertIn("comment", combined)  # 断言包含
 
+    # TestAdditionalEdgeCases类的测试textstrategycommentarywithhold
     def test_text_strategy_commentary_with_hold(self):
         """Test TextStrategy commentary channel with prefix that could be 'assistantfinal'."""
         from sglang.srt.parser.harmony_parser import TextStrategy
@@ -1017,7 +1107,7 @@ class TestAdditionalEdgeCases(CustomTestCase):
         text = "commentary: discussion assistant"
         events, remainder = strategy.parse(text)
         # "assistant" at end should be held back
-        self.assertIn("assistant", remainder)
+        self.assertIn("assistant", remainder)  # 断言包含
 
 
 if __name__ == "__main__":

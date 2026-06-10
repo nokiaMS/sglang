@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+# 文件名: test_kvfp4_quant_dequant.py - KV FP4量化反量化基准测试 - 比较FP8和KVFP4的量化和反量化性能与精度
 import time
 
 import numpy as np
@@ -9,6 +10,7 @@ import torch
 from sglang.srt.layers.quantization.kvfp4_tensor import KVFP4QuantizeUtil
 
 
+# 计算精度指标 - 计算MSE、MAE、PSNR和相对误差
 def calculate_accuracy_metrics(
     original: torch.Tensor, reconstructed: torch.Tensor
 ) -> dict[str, float]:
@@ -28,6 +30,7 @@ def calculate_accuracy_metrics(
     return {"MSE": mse, "MAE": mae, "PSNR": psnr, "Relative Error": rel_error}
 
 
+# 运行基准测试 - 比较FP8和KVFP4的量化反量化性能
 def run_benchmark(m, n, k, num_runs=100) -> dict[str, dict[str, float]]:
     """Run FP8 vs KVFP4 quantization benchmark and return metrics."""
     tensor_bf16 = torch.randn(m, n, k, dtype=torch.bfloat16, device="cuda")
@@ -103,6 +106,7 @@ MNK_FACTORS = [
 
 
 @pytest.mark.parametrize("m,n,k", MNK_FACTORS)
+# 测试kvfp4 quant dequant
 def test_kvfp4_quant_dequant(m, n, k):
     """Benchmark FP8 vs KVFP4 for predefined tensor shapes."""
     print(f"\n=== Running benchmark for tensor shape: [{m}, {n}, {k}] ===")

@@ -1,68 +1,70 @@
-import logging
-from typing import Callable, List, Optional, Tuple
+# Mamba2混合器模块 - 实现Mamba2选择性状态空间模型的核心计算逻辑，
+# 包括状态空间参数计算、因果一维卷积、状态更新和张量并行分片等功能
+import logging  # 导入日志模块
+from typing import Callable, List, Optional, Tuple  # 导入类型提示工具
 
-import torch
-import torch.nn as nn
+import torch  # 导入PyTorch深度学习框架
+import torch.nn as nn  # 导入PyTorch神经网络模块
 
-from sglang.srt.configs.mamba_utils import (
-    Mamba2CacheParams,
-    extra_groups_for_head_shards,
+from sglang.srt.configs.mamba_utils import (  # 从mamba_utils导入Mamba2配置工具
+    Mamba2CacheParams,  # Mamba2缓存参数类
+    extra_groups_for_head_shards,  # 计算头分片额外组数的函数
 )
-from sglang.srt.distributed import (
-    divide,
-    get_tensor_model_parallel_rank,
-    get_tensor_model_parallel_world_size,
+from sglang.srt.distributed import (  # 从分布式模块导入张量并行工具
+    divide,  # 整除函数
+    get_tensor_model_parallel_rank,  # 获取张量模型并行排名
+    get_tensor_model_parallel_world_size,  # 获取张量模型并行世界大小
 )
-from sglang.srt.layers.attention.mamba.mamba2_metadata import Mamba2Metadata
-from sglang.srt.layers.attention.mamba.mixer2_rms_norm_gated import Mixer2RMSNormGated
-from sglang.srt.layers.attention.mamba.ops import (
-    mamba_chunk_scan_combined,
-    selective_state_update,
+from sglang.srt.layers.attention.mamba.mamba2_metadata import Mamba2Metadata  # 导入Mamba2元数据类
+from sglang.srt.layers.attention.mamba.mixer2_rms_norm_gated import Mixer2RMSNormGated  # 导入门控RMS归一化层
+from sglang.srt.layers.attention.mamba.ops import (  # 从mamba操作模块导入核心计算函数
+    mamba_chunk_scan_combined,  # 分块扫描组合函数
+    selective_state_update,  # 选择性状态更新函数
 )
-from sglang.srt.layers.linear import (
-    ColumnParallelLinear,
-    MergedColumnParallelLinear,
-    RowParallelLinear,
+from sglang.srt.layers.linear import (  # 从线性层模块导入并行线性层
+    ColumnParallelLinear,  # 列并行线性层
+    MergedColumnParallelLinear,  # 合并列并行线性层
+    RowParallelLinear,  # 行并行线性层
 )
-from sglang.srt.layers.quantization.base_config import QuantizationConfig
-from sglang.srt.mem_cache.memory_pool import MambaPool
-from sglang.srt.model_executor.forward_batch_info import ForwardBatch
-from sglang.srt.model_loader.weight_utils import (
-    composed_weight_loader,
-    sharded_weight_loader,
+from sglang.srt.layers.quantization.base_config import QuantizationConfig  # 导入量化配置基类
+from sglang.srt.mem_cache.memory_pool import MambaPool  # 导入Mamba内存池
+from sglang.srt.model_executor.forward_batch_info import ForwardBatch  # 导入前向批次信息类
+from sglang.srt.model_loader.weight_utils import (  # 从权重加载工具导入
+    composed_weight_loader,  # 组合权重加载器
+    sharded_weight_loader,  # 分片权重加载器
 )
-from sglang.srt.utils import (
-    is_cpu,
-    is_cuda,
-    is_npu,
-    set_weight_attrs,
+from sglang.srt.utils import (  # 从工具模块导入
+    is_cpu,  # CPU平台检测
+    is_cuda,  # CUDA平台检测
+    is_npu,  # NPU平台检测
+    set_weight_attrs,  # 设置权重属性
 )
 
-if is_cuda():
-    from sglang.srt.layers.attention.mamba.causal_conv1d import (
-        causal_conv1d_fn,
-        causal_conv1d_update,
+if is_cuda():  # 如果是CUDA平台
+    from sglang.srt.layers.attention.mamba.causal_conv1d import (  # 导入CUDA优化的因果一维卷积
+        causal_conv1d_fn,  # 因果一维卷积前向函数
+        causal_conv1d_update,  # 因果一维卷积更新函数
+    )
+    from sglang.srt.layers.attention.mamba.causal_conv1d_triton import (  # 导入Triton实现的因果一维卷积
+        causal_conv1d_fn as causal_conv1d_fn_triton,  # Triton版因果一维卷积前向函数
     )
     from sglang.srt.layers.attention.mamba.causal_conv1d_triton import (
-        causal_conv1d_fn as causal_conv1d_fn_triton,
+        causal_conv1d_update as causal_conv1d_update_triton,  # Triton版因果一维卷积更新函数
     )
-    from sglang.srt.layers.attention.mamba.causal_conv1d_triton import (
-        causal_conv1d_update as causal_conv1d_update_triton,
-    )
-elif is_npu():
+elif is_npu():  # 如果是NPU平台
     from sgl_kernel_npu.mamba.causal_conv1d import (
-        causal_conv1d_fn_npu as causal_conv1d_fn,
+        causal_conv1d_fn_npu as causal_conv1d_fn,  # NPU版因果一维卷积前向函数
     )
     from sgl_kernel_npu.mamba.causal_conv1d import (
-        causal_conv1d_update_npu as causal_conv1d_update,
+        causal_conv1d_update_npu as causal_conv1d_update,  # NPU版因果一维卷积更新函数
     )
 
-LoaderFunction = Callable[[torch.Tensor, torch.Tensor], None]
+LoaderFunction = Callable[[torch.Tensor, torch.Tensor], None]  # 定义权重加载函数类型
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)  # 获取当前模块的日志记录器
 
 
-def mamba_v2_sharded_weight_loader(
+def mamba_v2_sharded_weight_loader(  # 创建Mamba v2分片权重加载器 - 确保投影正确分片以拆分为x、B、C
     shard_spec: List[Tuple[int, int, float]],
     tp_size: int,
     tp_rank: int,
@@ -73,10 +75,10 @@ def mamba_v2_sharded_weight_loader(
     together with it.
     """
 
-    def loader(param: torch.Tensor, loaded_weight: torch.Tensor) -> None:
+    def loader(param: torch.Tensor, loaded_weight: torch.Tensor) -> None:  # 权重加载器内部函数
 
         # - track boundary of (sharded) param, and loaded_weight, respectively
-        boundary, loaded_boundary = 0, 0
+        boundary, loaded_boundary = 0, 0  # 初始化边界索引
 
         # Calculate padding size for CPU when TP odd size
         if is_cpu():
@@ -109,14 +111,14 @@ def mamba_v2_sharded_weight_loader(
             #   groups to accompany head shards.
 
             # - size of the loaded shard
-            shard_size = full_dim // tp_size
+            shard_size = full_dim // tp_size  # 计算每个TP分片的大小
 
             # - compute the rank into the loaded shard.
             # - if there is replication, different TP shards will
             #   take from the same rank.
             # NOTE: currently we only support duplication
             # in the case where num_groups == 1
-            rank = 0 if duplicate_groups else tp_rank
+            rank = 0 if duplicate_groups else tp_rank  # 如果有复制则排名为0，否则为tp_rank
 
             # - leftmost boundary index into loaded weight.
             loaded_skip = rank * shard_size
@@ -166,10 +168,10 @@ def mamba_v2_sharded_weight_loader(
             boundary += shard_size
             loaded_boundary += full_dim - extra
 
-    return loader
+    return loader  # 返回权重加载器
 
 
-class MambaMixer2(torch.nn.Module):
+class MambaMixer2(torch.nn.Module):  # Mamba2混合器模块 - 计算状态空间参数并执行选择性状态空间模型计算
     """
     Compute ∆, A, B, C, and D the state space parameters and compute
     the `contextualized_states`. A, D are input independent
@@ -193,7 +195,7 @@ class MambaMixer2(torch.nn.Module):
         quant_config: Optional[QuantizationConfig] = None,
         prefix: str = "",
     ):
-        super().__init__()
+        super().__init__()  # 调用父类初始化
 
         # For TP, the sharding plan is as follows:
         # - for the conv modules, since
@@ -209,11 +211,11 @@ class MambaMixer2(torch.nn.Module):
         #   may be replicated to follow the head shard.
         # - NOTE: currently for the world size DOES NOT divide groups
         #   case, we only support the case when n_groups == 1
-        self.tp_size = get_tensor_model_parallel_world_size()
-        self.tp_rank = get_tensor_model_parallel_rank()
+        self.tp_size = get_tensor_model_parallel_world_size()  # 获取TP世界大小
+        self.tp_rank = get_tensor_model_parallel_rank()  # 获取TP排名
 
-        self.num_heads = num_heads = cache_params.shape.num_heads
-        self.head_dim = cache_params.shape.head_dim
+        self.num_heads = num_heads = cache_params.shape.num_heads  # 获取头数
+        self.head_dim = cache_params.shape.head_dim  # 获取头维度
 
         assert (
             num_heads % self.tp_size == 0
@@ -231,25 +233,25 @@ class MambaMixer2(torch.nn.Module):
             "if tensor parallel world size divides num groups."
         )
 
-        self.ssm_state_size = cache_params.shape.ssm_state_size
-        self.activation = activation
+        self.ssm_state_size = cache_params.shape.ssm_state_size  # 获取SSM状态大小
+        self.activation = activation  # 保存激活函数名称
 
         conv_kernel_size = cache_params.shape.conv_kernel
         self.intermediate_size = intermediate_size = (
             cache_params.shape.intermediate_size
         )
-        self.n_groups = n_groups
+        self.n_groups = n_groups  # 保存组数
         if n_groups % self.tp_size != 0:
             # - for TP we shard conv_dim by sharding on n_groups,
             # - but if n_groups cannot divide tp_size, we need to
             #   extend some extra groups
-            groups = extra_groups_for_head_shards(n_groups, self.tp_size)
-            self.n_groups = n_groups + groups
-        self.groups_ssm_state_size = self.n_groups * self.ssm_state_size
-        self.conv_dim = cache_params.shape.conv_dim
+            groups = extra_groups_for_head_shards(n_groups, self.tp_size)  # 计算额外组数
+            self.n_groups = n_groups + groups  # 更新组数
+        self.groups_ssm_state_size = self.n_groups * self.ssm_state_size  # 计算组SSM状态总大小
+        self.conv_dim = cache_params.shape.conv_dim  # 获取卷积维度
 
         if n_groups % self.tp_size == 0:
-            self.conv1d = MergedColumnParallelLinear(
+            self.conv1d = MergedColumnParallelLinear(  # 创建合并列并行1D卷积层
                 input_size=conv_kernel_size,
                 output_sizes=[
                     intermediate_size,
@@ -261,7 +263,7 @@ class MambaMixer2(torch.nn.Module):
                 prefix=f"{prefix}.conv1d",
             )
 
-            self.in_proj = MergedColumnParallelLinear(
+            self.in_proj = MergedColumnParallelLinear(  # 创建合并列并行输入投影层
                 input_size=hidden_size,
                 output_sizes=[
                     intermediate_size,
@@ -278,7 +280,7 @@ class MambaMixer2(torch.nn.Module):
             # This is the n_groups == 1 case,
             # where we need to duplicate groups if TP>1.
 
-            self.conv1d = ColumnParallelLinear(
+            self.conv1d = ColumnParallelLinear(  # 创建列并行1D卷积层
                 input_size=conv_kernel_size,
                 output_size=self.conv_dim,
                 bias=use_conv_bias,
@@ -286,7 +288,7 @@ class MambaMixer2(torch.nn.Module):
                 prefix=f"{prefix}.conv1d",
             )
 
-            self.in_proj = ColumnParallelLinear(
+            self.in_proj = ColumnParallelLinear(  # 创建列并行输入投影层
                 input_size=hidden_size,
                 output_size=intermediate_size + self.conv_dim + self.num_heads,
                 bias=use_bias,
@@ -312,7 +314,7 @@ class MambaMixer2(torch.nn.Module):
             #   which set_weight_attrs will raise if we do not
             #   delete before trying to override it
             # - ditto for the other two weights below
-            delattr(self.conv1d.bias, "weight_loader")
+            delattr(self.conv1d.bias, "weight_loader")  # 删除conv1d偏置的默认权重加载器
             set_weight_attrs(
                 self.conv1d.bias,
                 {
@@ -328,7 +330,7 @@ class MambaMixer2(torch.nn.Module):
                 },
             )
 
-            delattr(self.conv1d.weight, "weight_loader")
+            delattr(self.conv1d.weight, "weight_loader")  # 删除conv1d权重的默认权重加载器
             set_weight_attrs(
                 self.conv1d.weight,
                 {
@@ -344,9 +346,9 @@ class MambaMixer2(torch.nn.Module):
                 },
             )
 
-            if quant_config is None:
+            if quant_config is None:  # 如果没有量化配置
                 # - quant layers do not have a weight loader
-                delattr(self.in_proj.weight, "weight_loader")
+                delattr(self.in_proj.weight, "weight_loader")  # 删除in_proj权重的默认权重加载器
                 set_weight_attrs(
                     self.in_proj.weight,
                     {
@@ -368,28 +370,28 @@ class MambaMixer2(torch.nn.Module):
         # Can't do this in `weight_loader` since it already exists in
         # `ColumnParallelLinear` and `MergedColumnParallelLinear`,
         # and `set_weight_attrs` doesn't allow to override it
-        self.conv1d.weight.data = self.conv1d.weight.data.unsqueeze(1)
+        self.conv1d.weight.data = self.conv1d.weight.data.unsqueeze(1)  # 在第1维增加维度以适配conv1d格式
 
         # - these are TPed by heads to reduce the size of the
         #   temporal shape
-        self.A = nn.Parameter(
+        self.A = nn.Parameter(  # A参数（对角化状态转移矩阵的负指数）
             torch.empty(
                 divide(num_heads, self.tp_size),
                 dtype=torch.float32,
             )
         )
-        self.D = nn.Parameter(torch.ones(num_heads // self.tp_size))
-        self.dt_bias = nn.Parameter(torch.ones(num_heads // self.tp_size))
-        self.use_rms_norm = use_rms_norm
+        self.D = nn.Parameter(torch.ones(num_heads // self.tp_size))  # D参数（跳连接）
+        self.dt_bias = nn.Parameter(torch.ones(num_heads // self.tp_size))  # dt偏置参数
+        self.use_rms_norm = use_rms_norm  # 是否使用RMS归一化
 
-        set_weight_attrs(self.D, {"weight_loader": sharded_weight_loader(0)})
+        set_weight_attrs(self.D, {"weight_loader": sharded_weight_loader(0)})  # 设置D的权重加载器
         a_weight_loader = composed_weight_loader(
             sharded_weight_loader(0), lambda x: -torch.exp(x.float())
         )
-        set_weight_attrs(self.A, {"weight_loader": a_weight_loader})
-        set_weight_attrs(self.dt_bias, {"weight_loader": sharded_weight_loader(0)})
+        set_weight_attrs(self.A, {"weight_loader": a_weight_loader})  # 设置A的权重加载器
+        set_weight_attrs(self.dt_bias, {"weight_loader": sharded_weight_loader(0)})  # 设置dt偏置的权重加载器
 
-        self.out_proj = RowParallelLinear(
+        self.out_proj = RowParallelLinear(  # 创建行并行输出投影层
             intermediate_size,
             hidden_size,
             bias=use_bias,
@@ -398,13 +400,13 @@ class MambaMixer2(torch.nn.Module):
             prefix=f"{prefix}.out_proj",
         )
 
-        self.norm = Mixer2RMSNormGated(
+        self.norm = Mixer2RMSNormGated(  # 创建门控RMS归一化层
             intermediate_size, n_groups, self.use_rms_norm, eps=rms_norm_eps
         )
 
-        self.prefix = prefix
+        self.prefix = prefix  # 保存前缀
 
-    def forward(
+    def forward(  # MambaMixer2前向传播函数 - 执行完整的状态空间模型计算流程
         self,
         *,
         hidden_states: torch.Tensor,
@@ -419,20 +421,20 @@ class MambaMixer2(torch.nn.Module):
         # kernels to operate in continuous batching and in chunked prefill
         # modes; they are computed at top-level model forward since they
         # stay the same and reused for all mamba layers in the same iteration
-        state_indices_tensor = metadata.mamba_cache_indices
-        conv_state = layer_cache.conv[0]
-        ssm_state = layer_cache.temporal
-        intermediate_states = None
+        state_indices_tensor = metadata.mamba_cache_indices  # 获取状态索引张量
+        conv_state = layer_cache.conv[0]  # 获取卷积状态
+        ssm_state = layer_cache.temporal  # 获取SSM时序状态
+        intermediate_states = None  # 初始化中间状态为None
 
-        query_start_loc = metadata.query_start_loc
+        query_start_loc = metadata.query_start_loc  # 获取查询起始位置
 
         # 1. Gated MLP's linear projection
-        projected_states, _ = self.in_proj(hidden_states)
+        projected_states, _ = self.in_proj(hidden_states)  # 输入投影
 
         if mup_vector is not None:
             projected_states = projected_states * mup_vector
 
-        gate, hidden_states_B_C, dt = torch.split(
+        gate, hidden_states_B_C, dt = torch.split(  # 将投影状态拆分为gate、hidden_states_B_C和dt
             projected_states,
             [
                 self.intermediate_size // self.tp_size,
@@ -464,8 +466,8 @@ class MambaMixer2(torch.nn.Module):
             else num_decodes
         )
         num_prefill_tokens = metadata.num_prefill_tokens  # token count
-        has_prefill = num_prefills > 0
-        has_decode = num_decodes > 0
+        has_prefill = num_prefills > 0  # 是否有预填充请求
+        has_decode = num_decodes > 0  # 是否有解码请求
         num_actual_tokens = num_prefill_tokens + num_decode_tokens
         assert num_actual_tokens == projected_states.shape[0]
 
@@ -591,7 +593,7 @@ class MambaMixer2(torch.nn.Module):
 
         # Process decode requests
         if has_decode:
-            is_target_verify = metadata.is_target_verify
+            is_target_verify = metadata.is_target_verify  # 获取是否为目标验证模式
 
             # 2. Convolution sequence transformation
             if is_target_verify:
@@ -645,7 +647,7 @@ class MambaMixer2(torch.nn.Module):
             hidden_states_d, B_d, C_d = split_hidden_states_B_C_fn(hidden_states_B_C_d)
 
             # 3. State Space Model sequence transformation
-            n_groups = self.n_groups // self.tp_size
+            n_groups = self.n_groups // self.tp_size  # 计算每个TP分片的组数
             A_d = (
                 self.A[:, None, ...][:, :, None]
                 .expand(-1, self.head_dim, self.ssm_state_size)
@@ -715,13 +717,13 @@ class MambaMixer2(torch.nn.Module):
         # GatedRMSNorm internally applying SiLU to the gate
         # SiLU is applied internally before normalization, unlike standard
         # norm usage
-        hidden_states = self.norm(preallocated_ssm_out, gate[:num_actual_tokens])
+        hidden_states = self.norm(preallocated_ssm_out, gate[:num_actual_tokens])  # 应用门控RMS归一化
 
         # 5. Final linear projection
-        output[:num_actual_tokens], _ = self.out_proj(hidden_states)
+        output[:num_actual_tokens], _ = self.out_proj(hidden_states)  # 通过输出投影层
 
-        return intermediate_states
+        return intermediate_states  # 返回中间状态（用于推测解码）
 
-    @property
-    def mamba_type(self) -> str:
-        return "mamba2"
+    @property  # 属性装饰器
+    def mamba_type(self) -> str:  # 获取Mamba类型
+        return "mamba2"  # 返回"mamba2"

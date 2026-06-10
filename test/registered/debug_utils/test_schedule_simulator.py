@@ -1,3 +1,4 @@
+# 文件名: test_schedule_simulator.py - 调度模拟器测试
 import json
 import subprocess
 import sys
@@ -32,18 +33,21 @@ register_cpu_ci(est_time=338, suite="base-b-test-cpu")
 
 
 class TestSimRequest(CustomTestCase):
+    # 测试基本功能
     def test_basic(self):
         req = SimRequest(request_id="r1", input_len=100, output_len=50)
         self.assertEqual(req.decoded_tokens, 0)
         self.assertEqual(req.seq_len(), 100)
         self.assertFalse(req.is_finished())
 
+    # 测试seqlenwithdecoded
     def test_seq_len_with_decoded(self):
         req = SimRequest(
             request_id="r1", input_len=100, output_len=50, decoded_tokens=10
         )
         self.assertEqual(req.seq_len(), 110)
 
+    # 测试isfinished
     def test_is_finished(self):
         req = SimRequest(
             request_id="r1", input_len=100, output_len=50, decoded_tokens=50
@@ -52,6 +56,7 @@ class TestSimRequest(CustomTestCase):
 
 
 class TestGPUState(CustomTestCase):
+    # 测试batchsize
     def test_batch_size(self):
         gpu = GPUState(gpu_id=0, max_total_tokens=10000)
         self.assertEqual(gpu.batch_size(), 0)
@@ -61,6 +66,7 @@ class TestGPUState(CustomTestCase):
         ]
         self.assertEqual(gpu.batch_size(), 2)
 
+    # 测试totalseqlen
     def test_total_seq_len(self):
         gpu = GPUState(gpu_id=0, max_total_tokens=10000)
         gpu.running_requests = [
@@ -71,6 +77,7 @@ class TestGPUState(CustomTestCase):
         ]
         self.assertEqual(gpu.total_seq_len(), 100 + 210)
 
+    # 测试totalseqlensharedprefix
     def test_total_seq_len_shared_prefix(self):
         gpu = GPUState(gpu_id=0, max_total_tokens=10000)
         gpu.running_requests = [
@@ -91,6 +98,7 @@ class TestGPUState(CustomTestCase):
         ]
         self.assertEqual(gpu.total_seq_len(), 150 + 50)
 
+    # 测试totalseqlensharedprefixwithdecoded
     def test_total_seq_len_shared_prefix_with_decoded(self):
         gpu = GPUState(gpu_id=0, max_total_tokens=10000)
         gpu.running_requests = [
@@ -113,6 +121,7 @@ class TestGPUState(CustomTestCase):
         ]
         self.assertEqual(gpu.total_seq_len(), 160 + 55)
 
+    # 测试totalseqlenmultiplegroups
     def test_total_seq_len_multiple_groups(self):
         gpu = GPUState(gpu_id=0, max_total_tokens=10000)
         gpu.running_requests = [
@@ -143,18 +152,21 @@ class TestGPUState(CustomTestCase):
 
 
 class TestRouters(CustomTestCase):
+    # 测试roundrobin
     def test_round_robin(self):
         router = RoundRobinRouter(num_gpus=4)
         req = SimRequest(request_id="r1", input_len=100, output_len=50)
         results = [router.route(req) for _ in range(8)]
         self.assertEqual(results, [0, 1, 2, 3, 0, 1, 2, 3])
 
+    # 测试randomrouter
     def test_random_router(self):
         router = RandomRouter(num_gpus=4)
         req = SimRequest(request_id="r1", input_len=100, output_len=50)
         results = [router.route(req) for _ in range(100)]
         self.assertTrue(all(0 <= r < 4 for r in results))
 
+    # 测试stickyroutersamegroupsamegpu
     def test_sticky_router_same_group_same_gpu(self):
         router = StickyRouter(num_gpus=4)
         reqs = [
@@ -164,6 +176,7 @@ class TestRouters(CustomTestCase):
         results = [router.route(req) for req in reqs]
         self.assertEqual(len(set(results)), 1)
 
+    # 测试stickyrouternogroupfallback
     def test_sticky_router_no_group_fallback(self):
         router = StickyRouter(num_gpus=4)
         reqs = [
@@ -173,6 +186,7 @@ class TestRouters(CustomTestCase):
         results = [router.route(req) for req in reqs]
         self.assertTrue(all(0 <= r < 4 for r in results))
 
+    # 测试stickyroutermultiplegroups
     def test_sticky_router_multiple_groups(self):
         router = StickyRouter(num_gpus=4)
         for group_id in ["g0", "g1", "g2"]:
@@ -190,6 +204,7 @@ class TestRouters(CustomTestCase):
 
 
 class TestFIFOScheduler(CustomTestCase):
+    # 测试runspendingrequests
     def test_runs_pending_requests(self):
         scheduler = FIFOScheduler()
         gpu = GPUState(gpu_id=0, max_total_tokens=10000)
@@ -201,6 +216,7 @@ class TestFIFOScheduler(CustomTestCase):
         self.assertEqual(len(gpu.running_requests), 3)
         self.assertEqual(len(gpu.pending_requests), 0)
 
+    # 测试respectstokenlimit
     def test_respects_token_limit(self):
         scheduler = FIFOScheduler()
         gpu = GPUState(gpu_id=0, max_total_tokens=250)
@@ -212,6 +228,7 @@ class TestFIFOScheduler(CustomTestCase):
         self.assertEqual(len(gpu.running_requests), 2)
         self.assertEqual(len(gpu.pending_requests), 3)
 
+    # 测试evictslifowhenoverbudget
     def test_evicts_lifo_when_over_budget(self):
         scheduler = FIFOScheduler()
         gpu = GPUState(gpu_id=0, max_total_tokens=250)
@@ -226,6 +243,7 @@ class TestFIFOScheduler(CustomTestCase):
 
 
 class TestMetrics(CustomTestCase):
+    # 测试batchsizebalancedness
     def test_batch_size_balancedness(self):
         recorder = BatchSizeBalancednessRecorder()
         gpu_states = [GPUState(gpu_id=i, max_total_tokens=10000) for i in range(2)]
@@ -241,6 +259,7 @@ class TestMetrics(CustomTestCase):
             recorder.get_summary()["batch_size_balancedness_mean"], 0.75
         )
 
+    # 测试attentioncomputebalancedness
     def test_attention_compute_balancedness(self):
         recorder = AttentionComputeBalancednessRecorder()
         gpu_states = [GPUState(gpu_id=i, max_total_tokens=10000) for i in range(2)]
@@ -255,10 +274,12 @@ class TestMetrics(CustomTestCase):
             recorder.get_summary()["attention_compute_balancedness_mean"], 0.75
         )
 
+    # 测试emptyhistory
     def test_empty_history(self):
         recorder = BatchSizeBalancednessRecorder()
         self.assertEqual(recorder.get_summary()["batch_size_balancedness_mean"], 0.0)
 
+    # 测试allzerobatchsize
     def test_all_zero_batch_size(self):
         recorder = BatchSizeBalancednessRecorder()
         gpu_states = [GPUState(gpu_id=i, max_total_tokens=10000) for i in range(2)]
@@ -269,6 +290,7 @@ class TestMetrics(CustomTestCase):
 
 
 class TestDataLoader(CustomTestCase):
+    # 测试loadfromrequestlogger
     def test_load_from_request_logger(self):
         log_data = [
             {"event": "request.received", "rid": "r1", "obj": {"text": "hello"}},
@@ -294,6 +316,7 @@ class TestDataLoader(CustomTestCase):
         self.assertEqual(requests[0].input_len, 100)
         self.assertEqual(requests[1].input_len, 200)
 
+    # 测试emptyfile
     def test_empty_file(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
             f.write("")
@@ -302,6 +325,7 @@ class TestDataLoader(CustomTestCase):
 
 
 class TestDataSynthesis(CustomTestCase):
+    # 测试generatebasic
     def test_generate_basic(self):
         requests = generate_random_requests(
             num_requests=10, input_len=100, output_len=50
@@ -311,6 +335,7 @@ class TestDataSynthesis(CustomTestCase):
             self.assertEqual(req.input_len, 100)
             self.assertEqual(req.output_len, 50)
 
+    # 测试generatewithrangeratio
     def test_generate_with_range_ratio(self):
         requests = generate_random_requests(
             num_requests=100, input_len=100, output_len=50, range_ratio=0.5, seed=42
@@ -319,6 +344,7 @@ class TestDataSynthesis(CustomTestCase):
             self.assertGreaterEqual(req.input_len, 50)
             self.assertLessEqual(req.input_len, 100)
 
+    # 测试generatewithseed
     def test_generate_with_seed(self):
         r1 = generate_random_requests(
             num_requests=10, input_len=100, output_len=50, range_ratio=0.5, seed=42
@@ -329,6 +355,7 @@ class TestDataSynthesis(CustomTestCase):
         for a, b in zip(r1, r2):
             self.assertEqual(a.input_len, b.input_len)
 
+    # 测试generategspbasic
     def test_generate_gsp_basic(self):
         requests = generate_gsp_requests(
             num_groups=4,
@@ -345,6 +372,7 @@ class TestDataSynthesis(CustomTestCase):
             self.assertEqual(req.input_len, 150)
             self.assertEqual(req.output_len, 25)
 
+    # 测试generategspgroupassignment
     def test_generate_gsp_group_assignment(self):
         requests = generate_gsp_requests(
             num_groups=3,
@@ -361,6 +389,7 @@ class TestDataSynthesis(CustomTestCase):
         for count in group_counts.values():
             self.assertEqual(count, 2)
 
+    # 测试generategspwithrangeratio
     def test_generate_gsp_with_range_ratio(self):
         requests = generate_gsp_requests(
             num_groups=4,
@@ -377,6 +406,7 @@ class TestDataSynthesis(CustomTestCase):
             self.assertGreaterEqual(req.input_len - req.prefix_len, 25)
             self.assertLessEqual(req.input_len - req.prefix_len, 50)
 
+    # 测试generategspshuffled
     def test_generate_gsp_shuffled(self):
         requests = generate_gsp_requests(
             num_groups=4,
@@ -394,6 +424,7 @@ class TestDataSynthesis(CustomTestCase):
 
 
 class TestSimulator(CustomTestCase):
+    # 测试basicrun
     def test_basic_run(self):
         requests = [
             SimRequest(request_id=f"r{i}", input_len=10, output_len=5)
@@ -414,6 +445,7 @@ class TestSimulator(CustomTestCase):
         self.assertIn("batch_size_balancedness_mean", result.summary)
         self.assertGreater(len(result.step_records), 0)
 
+    # 测试allrequestscomplete
     def test_all_requests_complete(self):
         requests = [
             SimRequest(request_id=f"r{i}", input_len=10, output_len=3) for i in range(4)
@@ -429,6 +461,7 @@ class TestSimulator(CustomTestCase):
             self.assertEqual(len(gpu.pending_requests), 0)
             self.assertEqual(len(gpu.running_requests), 0)
 
+    # 测试emptyrequests
     def test_empty_requests(self):
         sim = Simulator(
             num_gpus_per_engine=2,
@@ -439,6 +472,7 @@ class TestSimulator(CustomTestCase):
         self.assertEqual(result.summary, {})
         self.assertEqual(len(result.step_records), 0)
 
+    # 测试steprecords
     def test_step_records(self):
         requests = [
             SimRequest(request_id=f"r{i}", input_len=10, output_len=3) for i in range(4)
@@ -456,6 +490,7 @@ class TestSimulator(CustomTestCase):
             self.assertIn(record.gpu_id, [0, 1])
         self.assertEqual(len([r for r in result.step_records if r.step == 0]), 2)
 
+    # 测试preemptionduetotokengrowth
     def test_preemption_due_to_token_growth(self):
         requests = [
             SimRequest(request_id="r0", input_len=50, output_len=10),
@@ -483,17 +518,20 @@ class TestSimulator(CustomTestCase):
 
 
 class TestCLI(CustomTestCase):
+    # 执行runcli
     def _run_cli(self, *args):
-        return subprocess.run(
+        return subprocess.run(  # 运行子进程
             [sys.executable, "-m", "sglang.srt.debug_utils.schedule_simulator", *args],
             capture_output=True,
             text=True,
         )
 
+    # 执行assertoutputcontains
     def _assert_output_contains(self, output: str, expected_lines: str):
         for line in expected_lines.strip().split("\n"):
             self.assertIn(line, output)
 
+    # 测试clibasic
     def test_cli_basic(self):
         log_data = [
             {
@@ -522,6 +560,7 @@ class TestCLI(CustomTestCase):
         with open(output_file) as f:
             self.assertIn("batch_size_balancedness_mean", json.load(f))
 
+    # 测试clirandomrouter
     def test_cli_random_router(self):
         log_data = [
             {
@@ -539,6 +578,7 @@ class TestCLI(CustomTestCase):
         self.assertEqual(result.returncode, 0, f"CLI failed: {result.stderr}")
         self.assertIn("router=random", result.stdout)
 
+    # 测试e2estickyroutergrouplocality
     def test_e2e_sticky_router_group_locality(self):
         result = self._run_cli(
             "--synth-gsp",
@@ -567,6 +607,7 @@ class TestCLI(CustomTestCase):
         self.assertIn("R=4:", result.stdout)
         self.assertIn("R=0:-", result.stdout)
 
+    # 测试clisynthetic
     def test_cli_synthetic(self):
         result = self._run_cli(
             "--synthetic",
@@ -584,6 +625,7 @@ class TestCLI(CustomTestCase):
         self.assertEqual(result.returncode, 0, f"CLI failed: {result.stderr}")
         self.assertIn("Generated 100 random requests", result.stdout)
 
+    # 测试cliloglevel
     def test_cli_log_level(self):
         result = self._run_cli(
             "--synthetic",
@@ -599,6 +641,7 @@ class TestCLI(CustomTestCase):
         self.assertEqual(result.returncode, 0, f"CLI failed: {result.stderr}")
         self.assertIn("step=", result.stdout)
 
+    # 测试e2esimplenoqueuing
     def test_e2e_simple_no_queuing(self):
         result = self._run_cli(
             "--synthetic",
@@ -629,6 +672,7 @@ class TestCLI(CustomTestCase):
         )
         self.assertIn("batch_size_balancedness_mean: 1.0000", result.stdout)
 
+    # 测试e2equeuingduetotokenlimit
     def test_e2e_queuing_due_to_token_limit(self):
         result = self._run_cli(
             "--synthetic",
@@ -661,6 +705,7 @@ step=4    | GPU0[R=2:syn2,syn3 Q=0:-]
 step=5    | GPU0[R=0:- Q=0:-]""",
         )
 
+    # 测试e2eretractionduetotokengrowth
     def test_e2e_retraction_due_to_token_growth(self):
         result = self._run_cli(
             "--synthetic",
@@ -693,6 +738,7 @@ step=10   | GPU0[R=1:syn1 Q=0:-]
 step=13   | GPU0[R=0:- Q=0:-]""",
         )
 
+    # 测试cligspbasic
     def test_cli_gsp_basic(self):
         result = self._run_cli(
             "--synth-gsp",
@@ -715,6 +761,7 @@ step=13   | GPU0[R=0:- Q=0:-]""",
         self.assertIn("Generated 32 GSP requests", result.stdout)
         self.assertIn("4 groups x 8 prompts", result.stdout)
 
+    # 测试e2egspsharedprefixenablesbatching
     def test_e2e_gsp_shared_prefix_enables_batching(self):
         for has_long_prefix in [True, False]:
             prefix_len, question_len = (50, 10) if has_long_prefix else (10, 50)
@@ -747,15 +794,18 @@ step=13   | GPU0[R=0:- Q=0:-]""",
 
 
 class TestLargerScale(CustomTestCase):
+    # 执行runmain
     def _run_main(self, *cli_args) -> SimulationResult:
         parser = create_arg_parser()
         args = parser.parse_args(cli_args)
         return main(args)
 
+    # 执行assertinrange
     def _assert_in_range(self, value, lo, hi, name):
         self.assertGreaterEqual(value, lo, f"{name}={value} < {lo}")
         self.assertLessEqual(value, hi, f"{name}={value} > {hi}")
 
+    # 测试vanillaworkloadrandompolicy
     def test_vanilla_workload_random_policy(self):
         result = self._run_main(
             "--synthetic",
@@ -788,6 +838,7 @@ class TestLargerScale(CustomTestCase):
         )
         self._assert_in_range(result.summary["avg_batch_size"], 127, 141, "avg_bs")
 
+    # 执行rungspworkload
     def _run_gsp_workload(self, router: str) -> SimulationResult:
         return self._run_main(
             "--synth-gsp",
@@ -817,6 +868,7 @@ class TestLargerScale(CustomTestCase):
             "1500",
         )
 
+    # 测试gspworkloadrandompolicy
     def test_gsp_workload_random_policy(self):
         result = self._run_gsp_workload("random")
         self._assert_in_range(
@@ -827,6 +879,7 @@ class TestLargerScale(CustomTestCase):
         )
         self._assert_in_range(result.summary["avg_batch_size"], 14, 17, "avg_bs")
 
+    # 测试gspworkloadstickypolicy
     def test_gsp_workload_sticky_policy(self):
         result = self._run_gsp_workload("sticky")
         self._assert_in_range(

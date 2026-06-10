@@ -1,3 +1,4 @@
+# 文件名: test_prefill_adder.py - 预填充添加器
 import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -21,12 +22,16 @@ register_amd_ci(est_time=2, suite="stage-b-test-1-gpu-small-amd")
 register_cpu_ci(est_time=8, suite="base-b-test-cpu")
 
 
+# TestPrefillAdder类
 class TestPrefillAdder(CustomTestCase):
+
+    # TestPrefillAdder类的测试初始化设置
     def setUp(self):
         set_global_server_args_for_scheduler(ServerArgs(model_path="dummy"))
         self.mock_tree_cache = self.create_tree_cache()
         self.mock_token_allocator = self.create_token_allocator()
 
+    # TestPrefillAdder类的create_tree_cache
     def create_tree_cache(
         self,
         *,
@@ -43,6 +48,7 @@ class TestPrefillAdder(CustomTestCase):
         tree_cache.dec_lock_ref.return_value = DecLockRefResult()
         return tree_cache
 
+    # TestPrefillAdder类的create_token_allocator
     def create_token_allocator(
         self,
         *,
@@ -56,6 +62,7 @@ class TestPrefillAdder(CustomTestCase):
         allocator.available_size.return_value = available_size
         return allocator
 
+    # TestPrefillAdder类的create_running_batch
     def create_running_batch(self, reqs=None) -> MagicMock:
         batch = MagicMock()
         batch.reqs = list(reqs or [])
@@ -63,6 +70,7 @@ class TestPrefillAdder(CustomTestCase):
         batch.filter_batch.return_value = None
         return batch
 
+    # TestPrefillAdder类的create_server_args
     def create_server_args(
         self, *, schedule_low_priority_values_first: bool
     ) -> MagicMock:
@@ -72,6 +80,7 @@ class TestPrefillAdder(CustomTestCase):
         )
         return server_args
 
+    # TestPrefillAdder类的create_mock_req
     def create_mock_req(self, rid, priority, max_new_tokens, output_len=0, wait_time=0):
         req = MagicMock(spec=Req)
         req.rid = str(rid)
@@ -84,6 +93,7 @@ class TestPrefillAdder(CustomTestCase):
         req.finished.return_value = False
         return req
 
+    # TestPrefillAdder类的create_adder
     def create_adder(self, running_batch, **kwargs):
         defaults = dict(
             page_size=1,
@@ -99,6 +109,7 @@ class TestPrefillAdder(CustomTestCase):
         defaults.update(kwargs)
         return PrefillAdder(**defaults)
 
+    # TestPrefillAdder类的测试preemptsuccesshighpriorityvaluesfirst
     def test_preempt_success_high_priority_values_first(self):
         params = [
             ("run1", 0, 50),
@@ -115,7 +126,7 @@ class TestPrefillAdder(CustomTestCase):
         running_batch = self.create_running_batch(running_reqs)
         adder = self.create_adder(running_batch)
 
-        self.assertEqual(adder.rem_total_token_offset, 225)
+        self.assertEqual(adder.rem_total_token_offset, 225)  # 断言相等
 
         self.mock_token_allocator.full_available_size.return_value = (
             225  # full occupation of GRam
@@ -126,11 +137,12 @@ class TestPrefillAdder(CustomTestCase):
 
         success = adder.preempt_to_schedule(new_req, mock_server_args)
 
-        self.assertTrue(success)
-        self.assertIn(running_reqs[0], adder.preempt_list)
-        self.assertEqual(adder.rem_total_token_offset, 175)  # 50 + 75 + 100 - 50 = 175
+        self.assertTrue(success)  # 断言为真
+        self.assertIn(running_reqs[0], adder.preempt_list)  # 断言包含
+        self.assertEqual(adder.rem_total_token_offset, 175)  # 50 + 75 + 100 - 50 = 175  # 断言相等
         running_batch.release_req.assert_called_once()
 
+    # TestPrefillAdder类的测试preemptsuccesslowpriorityvaluesfirst
     def test_preempt_success_low_priority_values_first(self):
         params = [
             ("run1", 0, 50),
@@ -147,7 +159,7 @@ class TestPrefillAdder(CustomTestCase):
         running_batch = self.create_running_batch(running_reqs)
         adder = self.create_adder(running_batch)
 
-        self.assertEqual(adder.rem_total_token_offset, 225)
+        self.assertEqual(adder.rem_total_token_offset, 225)  # 断言相等
 
         self.mock_token_allocator.full_available_size.return_value = (
             225  # full occupation of GRam
@@ -158,11 +170,12 @@ class TestPrefillAdder(CustomTestCase):
 
         success = adder.preempt_to_schedule(new_req, mock_server_args)
 
-        self.assertTrue(success)
-        self.assertIn(running_reqs[2], adder.preempt_list)
-        self.assertEqual(adder.rem_total_token_offset, 125)  # 50 + 75 + 100 - 100 = 125
+        self.assertTrue(success)  # 断言为真
+        self.assertIn(running_reqs[2], adder.preempt_list)  # 断言包含
+        self.assertEqual(adder.rem_total_token_offset, 125)  # 50 + 75 + 100 - 100 = 125  # 断言相等
         running_batch.release_req.assert_called_once()
 
+    # TestPrefillAdder类的测试preemptfaillowpriorityvaluesfirst
     def test_preempt_fail_low_priority_values_first(self):
         params = [
             ("run1", 0, 50),
@@ -179,7 +192,7 @@ class TestPrefillAdder(CustomTestCase):
         running_batch = self.create_running_batch(running_reqs)
         adder = self.create_adder(running_batch)
 
-        self.assertEqual(adder.rem_total_token_offset, 225)
+        self.assertEqual(adder.rem_total_token_offset, 225)  # 断言相等
 
         self.mock_token_allocator.full_available_size.return_value = (
             225  # full occupation of GRam
@@ -193,7 +206,7 @@ class TestPrefillAdder(CustomTestCase):
         success_by_priority_check = adder.preempt_to_schedule(
             new_req_fail_by_priority_check, mock_server_args
         )
-        self.assertFalse(success_by_priority_check)
+        self.assertFalse(success_by_priority_check)  # 断言为假
 
         new_req_fail_by_priority_check = self.create_mock_req(
             "new2", priority=1, max_new_tokens=110
@@ -201,8 +214,9 @@ class TestPrefillAdder(CustomTestCase):
         success_by_capacity_check = adder.preempt_to_schedule(
             new_req_fail_by_priority_check, mock_server_args
         )
-        self.assertFalse(success_by_capacity_check)
+        self.assertFalse(success_by_capacity_check)  # 断言为假
 
+    # TestPrefillAdder类的测试preemptfailhighpriorityvaluesfirst
     def test_preempt_fail_high_priority_values_first(self):
         params = [
             ("run1", 0, 50),
@@ -219,7 +233,7 @@ class TestPrefillAdder(CustomTestCase):
         running_batch = self.create_running_batch(running_reqs)
         adder = self.create_adder(running_batch)
 
-        self.assertEqual(adder.rem_total_token_offset, 225)
+        self.assertEqual(adder.rem_total_token_offset, 225)  # 断言相等
 
         self.mock_token_allocator.full_available_size.return_value = (
             225  # full occupation of GRam
@@ -233,7 +247,7 @@ class TestPrefillAdder(CustomTestCase):
         success_by_priority_check = adder.preempt_to_schedule(
             new_req_fail_by_priority_check, mock_server_args
         )
-        self.assertFalse(success_by_priority_check)
+        self.assertFalse(success_by_priority_check)  # 断言为假
 
         new_req_fail_by_priority_check = self.create_mock_req(
             "new2", priority=-1, max_new_tokens=110
@@ -241,8 +255,9 @@ class TestPrefillAdder(CustomTestCase):
         success_by_capacity_check = adder.preempt_to_schedule(
             new_req_fail_by_priority_check, mock_server_args
         )
-        self.assertFalse(success_by_capacity_check)
+        self.assertFalse(success_by_capacity_check)  # 断言为假
 
+    # TestPrefillAdder类的测试preemptskipalreadypreemptedrequest
     def test_preempt_skip_already_preempted_request(self):
         params = [
             ("req_prio_0", 0, 50),
@@ -259,7 +274,7 @@ class TestPrefillAdder(CustomTestCase):
         running_batch = self.create_running_batch(running_reqs)
         adder = self.create_adder(running_batch)
 
-        self.assertEqual(adder.rem_total_token_offset, 225)
+        self.assertEqual(adder.rem_total_token_offset, 225)  # 断言相等
 
         self.mock_token_allocator.full_available_size.return_value = 225
         self.mock_token_allocator.available_size.return_value = 225
@@ -269,9 +284,9 @@ class TestPrefillAdder(CustomTestCase):
             "new_req_prio_1", priority=1, max_new_tokens=49
         )
         first_success = adder.preempt_to_schedule(first_req, mock_server_args)
-        self.assertTrue(first_success)
-        self.assertIn(running_reqs[0], adder.preempt_list)
-        self.assertEqual(adder.rem_total_token_offset, 175)
+        self.assertTrue(first_success)  # 断言为真
+        self.assertIn(running_reqs[0], adder.preempt_list)  # 断言包含
+        self.assertEqual(adder.rem_total_token_offset, 175)  # 断言相等
         running_batch.release_req.assert_called_once()
 
         # Second call needs more tokens than currently free, so it would need to
@@ -281,11 +296,12 @@ class TestPrefillAdder(CustomTestCase):
         )
         second_success = adder.preempt_to_schedule(second_req, mock_server_args)
 
-        self.assertFalse(second_success)
-        self.assertEqual(adder.rem_total_token_offset, 175)
-        self.assertEqual(adder.preempt_list.count(running_reqs[0]), 1)
+        self.assertFalse(second_success)  # 断言为假
+        self.assertEqual(adder.rem_total_token_offset, 175)  # 断言相等
+        self.assertEqual(adder.preempt_list.count(running_reqs[0]), 1)  # 断言相等
         running_batch.release_req.assert_called_once()
 
+    # TestPrefillAdder类的测试preemptsuccesslowpriorityvaluesfirstexactonce
     def test_preempt_success_low_priority_values_first_exact_once(self):
         params = [
             ("run1", 0, 50),
@@ -304,7 +320,7 @@ class TestPrefillAdder(CustomTestCase):
         running_batch = self.create_running_batch(running_reqs)
         adder = self.create_adder(running_batch)
 
-        self.assertEqual(adder.rem_total_token_offset, 475)
+        self.assertEqual(adder.rem_total_token_offset, 475)  # 断言相等
 
         self.mock_token_allocator.full_available_size.return_value = (
             475  # full occupation of GRam
@@ -314,13 +330,14 @@ class TestPrefillAdder(CustomTestCase):
         new_req = self.create_mock_req("new1", priority=1, max_new_tokens=75)
 
         success = adder.preempt_to_schedule(new_req, mock_server_args)
-        self.assertTrue(success)
-        self.assertIn(running_reqs[2], adder.preempt_list)
-        self.assertEqual(
+        self.assertTrue(success)  # 断言为真
+        self.assertIn(running_reqs[2], adder.preempt_list)  # 断言包含
+        self.assertEqual(  # 断言相等
             adder.rem_total_token_offset, 375
         )  # 50 + 75 + 100 + 125 + 125 - 100 = 375
         running_batch.release_req.assert_called_once()
 
+    # TestPrefillAdder类的测试preemptsuccesslowpriorityvaluesfirstexacttwice
     def test_preempt_success_low_priority_values_first_exact_twice(self):
         params = [
             ("run1", 0, 50),
@@ -339,7 +356,7 @@ class TestPrefillAdder(CustomTestCase):
         running_batch = self.create_running_batch(running_reqs)
         adder = self.create_adder(running_batch)
 
-        self.assertEqual(adder.rem_total_token_offset, 475)
+        self.assertEqual(adder.rem_total_token_offset, 475)  # 断言相等
 
         self.mock_token_allocator.full_available_size.return_value = (
             475  # full occupation of GRam
@@ -349,14 +366,15 @@ class TestPrefillAdder(CustomTestCase):
         new_req = self.create_mock_req("new1", priority=1, max_new_tokens=200)
 
         success = adder.preempt_to_schedule(new_req, mock_server_args)
-        self.assertTrue(success)
-        self.assertIn(running_reqs[2], adder.preempt_list)
-        self.assertIn(running_reqs[3], adder.preempt_list)
-        self.assertEqual(
+        self.assertTrue(success)  # 断言为真
+        self.assertIn(running_reqs[2], adder.preempt_list)  # 断言包含
+        self.assertIn(running_reqs[3], adder.preempt_list)  # 断言包含
+        self.assertEqual(  # 断言相等
             adder.rem_total_token_offset, 250
         )  # 50 + 75 + 100 + 125 + 125 - 100 - 125 = 250
-        self.assertEqual(running_batch.release_req.call_count, 2)
+        self.assertEqual(running_batch.release_req.call_count, 2)  # 断言相等
 
+    # TestPrefillAdder类的测试mixedchunkprefillbudgets
     def test_mixed_chunk_prefill_budgets(self):
         self.mock_token_allocator.available_size.return_value = 1000
 
@@ -373,11 +391,11 @@ class TestPrefillAdder(CustomTestCase):
             num_mixed_decode_tokens=len(decode_reqs),
         )
 
-        self.assertEqual(adder.rem_input_tokens, 192)  # 200 - 8
-        self.assertEqual(adder.rem_chunk_tokens, 56)  # 64 - 8
-        self.assertEqual(adder.rem_total_token_offset, 408)  # 8 + 8 * 50
-        self.assertEqual(adder.cur_rem_token_offset, 8)
-        self.assertEqual(adder.budget_state(), AddReqResult.CONTINUE)
+        self.assertEqual(adder.rem_input_tokens, 192)  # 200 - 8  # 断言相等
+        self.assertEqual(adder.rem_chunk_tokens, 56)  # 64 - 8  # 断言相等
+        self.assertEqual(adder.rem_total_token_offset, 408)  # 8 + 8 * 50  # 断言相等
+        self.assertEqual(adder.cur_rem_token_offset, 8)  # 断言相等
+        self.assertEqual(adder.budget_state(), AddReqResult.CONTINUE)  # 断言相等
 
         # Add a prefill that exactly consumes the chunk budget
         req1 = self.create_mock_req("req1", priority=0, max_new_tokens=64)
@@ -392,10 +410,10 @@ class TestPrefillAdder(CustomTestCase):
             req1, has_chunked_req=False, truncation_align_size=None
         )
 
-        self.assertEqual(len(adder.can_run_list), 1)
-        self.assertEqual(adder.rem_chunk_tokens, 0)  # 56 - 56
-        self.assertEqual(adder.rem_input_tokens, 136)  # 192 - 56
-        self.assertEqual(result1, AddReqResult.OTHER)
+        self.assertEqual(len(adder.can_run_list), 1)  # 断言相等
+        self.assertEqual(adder.rem_chunk_tokens, 0)  # 56 - 56  # 断言相等
+        self.assertEqual(adder.rem_input_tokens, 136)  # 192 - 56  # 断言相等
+        self.assertEqual(result1, AddReqResult.OTHER)  # 断言相等
 
         # 3 decode requests finished
         remaining_decode_reqs = decode_reqs[3:]
@@ -408,10 +426,10 @@ class TestPrefillAdder(CustomTestCase):
             num_mixed_decode_tokens=len(remaining_decode_reqs),
         )
 
-        self.assertEqual(adder2.rem_input_tokens, 195)  # 200 - 5
-        self.assertEqual(adder2.rem_chunk_tokens, 59)  # 64 - 5
-        self.assertEqual(adder2.rem_total_token_offset, 255)  # 5 + 5 * 50
-        self.assertEqual(adder2.budget_state(), AddReqResult.CONTINUE)
+        self.assertEqual(adder2.rem_input_tokens, 195)  # 200 - 5  # 断言相等
+        self.assertEqual(adder2.rem_chunk_tokens, 59)  # 64 - 5  # 断言相等
+        self.assertEqual(adder2.rem_total_token_offset, 255)  # 5 + 5 * 50  # 断言相等
+        self.assertEqual(adder2.budget_state(), AddReqResult.CONTINUE)  # 断言相等
 
         # Same prefill no longer exhausts the chunk budget
         req2 = self.create_mock_req("req2", priority=0, max_new_tokens=64)
@@ -426,9 +444,9 @@ class TestPrefillAdder(CustomTestCase):
             req2, has_chunked_req=False, truncation_align_size=None
         )
 
-        self.assertEqual(len(adder2.can_run_list), 1)
-        self.assertEqual(adder2.rem_chunk_tokens, 3)  # 59 - 56 = 3 remaining
-        self.assertEqual(result2, AddReqResult.CONTINUE)
+        self.assertEqual(len(adder2.can_run_list), 1)  # 断言相等
+        self.assertEqual(adder2.rem_chunk_tokens, 3)  # 59 - 56 = 3 remaining  # 断言相等
+        self.assertEqual(result2, AddReqResult.CONTINUE)  # 断言相等
 
         # Fit last small prefill request
         req3 = self.create_mock_req("req3", priority=0, max_new_tokens=16)
@@ -443,10 +461,11 @@ class TestPrefillAdder(CustomTestCase):
             req3, has_chunked_req=False, truncation_align_size=None
         )
 
-        self.assertEqual(len(adder2.can_run_list), 2)
-        self.assertEqual(adder2.rem_chunk_tokens, 0)  # 3 - 3 = 0
-        self.assertEqual(result3, AddReqResult.OTHER)
+        self.assertEqual(len(adder2.can_run_list), 2)  # 断言相等
+        self.assertEqual(adder2.rem_chunk_tokens, 0)  # 3 - 3 = 0  # 断言相等
+        self.assertEqual(result3, AddReqResult.OTHER)  # 断言相等
 
+    # TestPrefillAdder类的内部方法_build_hybrid_swa_chunked_req
     def _build_hybrid_swa_chunked_req(
         self,
         *,
@@ -475,6 +494,7 @@ class TestPrefillAdder(CustomTestCase):
         req.set_extend_input_len = MagicMock()
         return adder, req
 
+    # TestPrefillAdder类的测试addchunkedreqhybridswareservespageforallocextend
     def test_add_chunked_req_hybrid_swa_reserves_page_for_alloc_extend(self):
         # alloc_extend needs extend_num_tokens + page_size per request. If the
         # scheduler hands out all of rem_swa_tokens, alloc_extend cannot get its
@@ -488,12 +508,13 @@ class TestPrefillAdder(CustomTestCase):
 
         result = adder.add_chunked_req(req)
 
-        self.assertIs(result, req)  # truncated → chunked prefill continues
+        self.assertIs(result, req)  # truncated → chunked prefill continues  # 断言是同一对象
         req.set_extend_input_len.assert_called_once()
         new_len = req.set_extend_input_len.call_args.args[0]
         self.assertLessEqual(new_len + PAGE_SIZE, REM_SWA)
-        self.assertEqual(new_len, REM_SWA - PAGE_SIZE)
+        self.assertEqual(new_len, REM_SWA - PAGE_SIZE)  # 断言相等
 
+    # TestPrefillAdder类的测试addchunkedreqhybridswadeferswhenswabelowpage
     def test_add_chunked_req_hybrid_swa_defers_when_swa_below_page(self):
         # When rem_swa_tokens <= page_size there is no room to serve even the
         # reservation, so the chunked req must be deferred (returned unchanged)
@@ -506,11 +527,12 @@ class TestPrefillAdder(CustomTestCase):
 
         result = adder.add_chunked_req(req)
 
-        self.assertIs(result, req)
+        self.assertIs(result, req)  # 断言是同一对象
         req.set_extend_input_len.assert_not_called()
-        self.assertEqual(req.extend_input_len, original_len)
-        self.assertEqual(len(adder.can_run_list), 0)
+        self.assertEqual(req.extend_input_len, original_len)  # 断言相等
+        self.assertEqual(len(adder.can_run_list), 0)  # 断言相等
 
+    # TestPrefillAdder类的测试swabudgetforreq
     def test_swa_budget_for_req(self):
         cases = [
             # (extend, rem_chunk, window, page, expected, label)
@@ -529,8 +551,9 @@ class TestPrefillAdder(CustomTestCase):
                     page_size=page,
                     rem_chunk_tokens=rem_chunk,
                 )
-                self.assertEqual(adder._swa_budget_for_req(extend), expected)
+                self.assertEqual(adder._swa_budget_for_req(extend), expected)  # 断言相等
 
+    # TestPrefillAdder类的测试addchunkedreqnonhybridnoswareservation
     def test_add_chunked_req_non_hybrid_no_swa_reservation(self):
         # Non-hybrid path: the SWA-pool reservation must NOT apply, otherwise
         # the fix would regress non-SWA models.
@@ -545,9 +568,9 @@ class TestPrefillAdder(CustomTestCase):
         )
 
         result = adder.add_chunked_req(req)
-        self.assertIsNone(result)
+        self.assertIsNone(result)  # 断言为None
         req.set_extend_input_len.assert_called_once_with(200)
-        self.assertIn(req, adder.can_run_list)
+        self.assertIn(req, adder.can_run_list)  # 断言包含
 
 
 if __name__ == "__main__":

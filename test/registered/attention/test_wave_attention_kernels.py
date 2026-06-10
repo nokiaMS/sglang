@@ -1,3 +1,4 @@
+# 文件名: test_wave_attention_kernels.py - Wave注意力内核测试
 import random
 import unittest
 
@@ -30,6 +31,7 @@ register_amd_ci(est_time=60, suite="stage-a-test-1-gpu-small-amd")
 
 class TestWaveAttention(unittest.TestCase):
 
+    # 执行setallseeds
     def _set_all_seeds(self, seed):
         """Set all random seeds for reproducibility."""
         random.seed(seed)
@@ -39,10 +41,12 @@ class TestWaveAttention(unittest.TestCase):
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
+    # 初始化设置
     def setUp(self):
         # Set seeds before each test method
         self._set_all_seeds(42)
 
+    # 执行testextendattentiononce
     def _test_extend_attention_once(self, B, N_CTX, H_Q, H_KV, D):
         dtype = torch.float16
         extend_seq_len = 1024
@@ -54,7 +58,7 @@ class TestWaveAttention(unittest.TestCase):
             (B,), extend_seq_len, dtype=torch.int32, device=get_device()
         )
         b_seq_len = b_seq_len_prefix + b_seq_len_extend
-        max_len_in_batch = torch.max(b_seq_len, 0)[0].item()
+        max_len_in_batch = torch.max(b_seq_len, 0)[0].item()  # 获取标量值
 
         b_req_idx = torch.arange(B, dtype=torch.int32, device=get_device())
         b_start_loc = torch.zeros((B,), dtype=torch.int32, device=get_device())
@@ -65,7 +69,7 @@ class TestWaveAttention(unittest.TestCase):
         kv_indptr = torch.zeros((B + 1,), dtype=torch.int32, device=get_device())
         kv_indptr[1 : B + 1] = torch.cumsum(b_seq_len_prefix[:B], dim=0)
         kv_indices = torch.zeros(
-            (b_seq_len_prefix.sum().item(),), dtype=torch.int32, device=get_device()
+            (b_seq_len_prefix.sum().item(),), dtype=torch.int32, device=get_device()  # 获取标量值
         )
 
         for i in range(B):
@@ -73,8 +77,8 @@ class TestWaveAttention(unittest.TestCase):
                 b_start_loc[i], b_start_loc[i] + b_seq_len_prefix[i]
             )
 
-        total_token_num = torch.sum(b_seq_len).item()
-        extend_token_num = torch.sum(b_seq_len_extend).item()
+        total_token_num = torch.sum(b_seq_len).item()  # 获取标量值
+        extend_token_num = torch.sum(b_seq_len_extend).item()  # 获取标量值
         k_buffer = torch.empty(
             (total_token_num, H_KV, D), dtype=dtype, device=get_device()
         ).normal_(mean=0.1, std=0.2)
@@ -117,7 +121,7 @@ class TestWaveAttention(unittest.TestCase):
         )
 
         b_seq_len_extend = b_seq_len - b_seq_len_prefix
-        max_len_extend = torch.max(b_seq_len_extend, 0)[0].item()
+        max_len_extend = torch.max(b_seq_len_extend, 0)[0].item()  # 获取标量值
         qo_indptr = torch.zeros((B + 1,), dtype=torch.int32, device=get_device())
         qo_indptr[1 : B + 1] = torch.cumsum(b_seq_len_extend[:B], dim=0)
 
@@ -181,6 +185,7 @@ class TestWaveAttention(unittest.TestCase):
         self.assertTrue(torch.allclose(o_extend, o_redundant, rtol=1e-2))
         self.assertTrue(torch.allclose(o_wave, o_redundant, rtol=1e-2))
 
+    # 测试extendattention
     def test_extend_attention(self):
 
         # Define the varying parameter values
@@ -190,6 +195,7 @@ class TestWaveAttention(unittest.TestCase):
         for value in attention_values:
             self._test_extend_attention_once(32, 16384, 6, 1, value)
 
+    # 执行testgroupeddecodeattentiononce
     def _test_grouped_decode_attention_once(self, B, S, H_Q, H_KV, D, D_V):
         dtype = torch.float16
         seq_len = S  # This represents the number of tokens already in the sequence
@@ -280,10 +286,11 @@ class TestWaveAttention(unittest.TestCase):
         cos_sim = torch.nn.functional.cosine_similarity(
             o.flatten(), o_triton.flatten(), dim=0
         )
-        print(cos_sim.item())
-        self.assertTrue(cos_sim.item() > 0.99)
+        print(cos_sim.item())  # 获取标量值
+        self.assertTrue(cos_sim.item() > 0.99)  # 获取标量值
         self.assertTrue(torch.allclose(o, o_triton, atol=3e-2))
 
+    # 测试groupeddecodeattention
     def test_grouped_decode_attention(self):
         seq_lens = [5, 100, 128, 500]
         configs = [
@@ -299,6 +306,7 @@ class TestWaveAttention(unittest.TestCase):
             for B, H_Q, H_KV, D, D_V in configs:
                 self._test_grouped_decode_attention_once(B, S, H_Q, H_KV, D, D_V)
 
+    # 执行testcontextattentiononce
     def _test_context_attention_once(self, head_dim, is_causal):
         # Set up a simple test case
         dtype = torch.float16
@@ -338,10 +346,11 @@ class TestWaveAttention(unittest.TestCase):
             o.flatten(), o_triton.flatten(), dim=0
         )
 
-        print(cos_sim.item())
+        print(cos_sim.item())  # 获取标量值
         self.assertTrue(torch.allclose(o, o_triton, atol=3e-2))
-        self.assertTrue(cos_sim.item() > 1 - (1e-5))
+        self.assertTrue(cos_sim.item() > 1 - (1e-5))  # 获取标量值
 
+    # 测试contextattention
     def test_context_attention(self):
         head_dim = [128, 96]
 

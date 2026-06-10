@@ -1,3 +1,4 @@
+# 文件名: test_tokenizer_manager.py - 分词器管理器测试 - 验证输入格式检测、分词器输入准备、结果提取和ReqState文本缓冲
 """
 Unit tests for TokenizerManager helper methods.
 
@@ -31,6 +32,7 @@ from sglang.test.test_utils import DEFAULT_SMALL_MODEL_NAME_FOR_TEST
 class TestInputFormatDetection(unittest.TestCase):
     """Test cases for _detect_input_format method."""
 
+    # setUp
     def setUp(self):
         """Set up test fixtures."""
         with patch("sglang.srt.utils.get_device", return_value="cpu"):
@@ -47,6 +49,7 @@ class TestInputFormatDetection(unittest.TestCase):
             mock_tokenizer.return_value = Mock(vocab_size=32000)
             self.tokenizer_manager = TokenizerManager(self.server_args, self.port_args)
 
+    # 测试detect single string
     def test_detect_single_string(self):
         """Test detection of single string input."""
         text = "Hello world"
@@ -55,6 +58,7 @@ class TestInputFormatDetection(unittest.TestCase):
         )
         self.assertEqual(result, InputFormat.SINGLE_STRING)
 
+    # 测试detect single string cross encoder disabled
     def test_detect_single_string_cross_encoder_disabled(self):
         """Test single string with cross_encoder disabled still returns single_string."""
         text = "Hello world"
@@ -63,6 +67,7 @@ class TestInputFormatDetection(unittest.TestCase):
         )
         self.assertEqual(result, InputFormat.SINGLE_STRING)
 
+    # 测试detect batch strings
     def test_detect_batch_strings(self):
         """Test detection of batch string inputs."""
         texts = ["Hello", "World", "How are you?"]
@@ -71,6 +76,7 @@ class TestInputFormatDetection(unittest.TestCase):
         )
         self.assertEqual(result, InputFormat.BATCH_STRINGS)
 
+    # 测试detect batch strings cross encoder disabled
     def test_detect_batch_strings_cross_encoder_disabled(self):
         """Test batch strings with cross_encoder disabled."""
         texts = ["Hello", "World"]
@@ -79,6 +85,7 @@ class TestInputFormatDetection(unittest.TestCase):
         )
         self.assertEqual(result, InputFormat.BATCH_STRINGS)
 
+    # 测试detect cross encoder single pair
     def test_detect_cross_encoder_single_pair(self):
         """Test detection of cross-encoder single pair."""
         texts = [["query text", "document text"]]
@@ -87,6 +94,7 @@ class TestInputFormatDetection(unittest.TestCase):
         )
         self.assertEqual(result, InputFormat.CROSS_ENCODER_PAIRS)
 
+    # 测试detect cross encoder multiple pairs
     def test_detect_cross_encoder_multiple_pairs(self):
         """Test detection of cross-encoder multiple pairs."""
         texts = [["q1", "d1"], ["q2", "d2"], ["q3", "d3"]]
@@ -95,6 +103,7 @@ class TestInputFormatDetection(unittest.TestCase):
         )
         self.assertEqual(result, InputFormat.CROSS_ENCODER_PAIRS)
 
+    # 测试detect cross encoder disabled with pairs
     def test_detect_cross_encoder_disabled_with_pairs(self):
         """Test pairs with cross_encoder disabled should return batch_strings."""
         texts = [["query", "document"]]
@@ -103,6 +112,7 @@ class TestInputFormatDetection(unittest.TestCase):
         )
         self.assertEqual(result, InputFormat.BATCH_STRINGS)
 
+    # 测试detect empty list
     def test_detect_empty_list(self):
         """Test detection with empty list."""
         texts = []
@@ -111,6 +121,7 @@ class TestInputFormatDetection(unittest.TestCase):
         )
         self.assertEqual(result, InputFormat.BATCH_STRINGS)
 
+    # 测试detect malformed cross encoder pairs
     def test_detect_malformed_cross_encoder_pairs(self):
         """Test malformed cross-encoder pairs (not length 2)."""
         texts = [["query only"]]  # Single element, not a pair
@@ -129,6 +140,7 @@ class TestInputFormatDetection(unittest.TestCase):
 class TestTokenizerInputPreparation(unittest.TestCase):
     """Test cases for _prepare_tokenizer_input method."""
 
+    # setUp
     def setUp(self):
         """Set up test fixtures."""
         with patch("sglang.srt.utils.get_device", return_value="cpu"):
@@ -145,6 +157,7 @@ class TestTokenizerInputPreparation(unittest.TestCase):
             mock_tokenizer.return_value = Mock(vocab_size=32000)
             self.tokenizer_manager = TokenizerManager(self.server_args, self.port_args)
 
+    # 测试prepare single string input
     def test_prepare_single_string_input(self):
         """Test preparation of single string input."""
         text = "Hello world"
@@ -153,6 +166,7 @@ class TestTokenizerInputPreparation(unittest.TestCase):
         )
         self.assertEqual(result, ["Hello world"])
 
+    # 测试prepare batch strings input
     def test_prepare_batch_strings_input(self):
         """Test preparation of batch strings input."""
         texts = ["Hello", "World", "Test"]
@@ -161,6 +175,7 @@ class TestTokenizerInputPreparation(unittest.TestCase):
         )
         self.assertEqual(result, ["Hello", "World", "Test"])
 
+    # 测试prepare cross encoder pairs input
     def test_prepare_cross_encoder_pairs_input(self):
         """Test preparation of cross-encoder pairs input."""
         texts = [["query1", "doc1"], ["query2", "doc2"]]
@@ -169,6 +184,7 @@ class TestTokenizerInputPreparation(unittest.TestCase):
         )
         self.assertEqual(result, [["query1", "doc1"], ["query2", "doc2"]])
 
+    # 测试prepare cross encoder single pair input
     def test_prepare_cross_encoder_single_pair_input(self):
         """Test preparation of single cross-encoder pair."""
         texts = [["query text", "document text"]]
@@ -177,6 +193,7 @@ class TestTokenizerInputPreparation(unittest.TestCase):
         )
         self.assertEqual(result, [["query text", "document text"]])
 
+    # 测试prepare batch strings input format passthrough
     def test_prepare_batch_strings_input_format_passthrough(self):
         """Batch strings should pass through unchanged."""
         texts = ["test"]
@@ -189,6 +206,7 @@ class TestTokenizerInputPreparation(unittest.TestCase):
 class TestTokenizerResultExtraction(unittest.TestCase):
     """Test cases for _extract_tokenizer_results method."""
 
+    # setUp
     def setUp(self):
         """Set up test fixtures."""
         with patch("sglang.srt.utils.get_device", return_value="cpu"):
@@ -205,6 +223,7 @@ class TestTokenizerResultExtraction(unittest.TestCase):
             mock_tokenizer.return_value = Mock(vocab_size=32000)
             self.tokenizer_manager = TokenizerManager(self.server_args, self.port_args)
 
+    # 测试extract single string results
     def test_extract_single_string_results(self):
         """Test extraction for single string input."""
         input_ids = [[101, 2129, 102]]
@@ -222,6 +241,7 @@ class TestTokenizerResultExtraction(unittest.TestCase):
         self.assertEqual(result_input_ids, [101, 2129, 102])
         self.assertEqual(result_token_type_ids, [0, 0, 0])
 
+    # 测试extract single cross encoder results
     def test_extract_single_cross_encoder_results(self):
         """Test extraction for single cross-encoder pair."""
         input_ids = [[101, 2129, 102, 4068, 102]]
@@ -239,6 +259,7 @@ class TestTokenizerResultExtraction(unittest.TestCase):
         self.assertEqual(result_input_ids, [101, 2129, 102, 4068, 102])
         self.assertEqual(result_token_type_ids, [0, 0, 0, 1, 1])
 
+    # 测试extract batch results
     def test_extract_batch_results(self):
         """Test extraction for batch inputs."""
         input_ids = [[101, 2129, 102], [101, 4068, 102]]
@@ -256,6 +277,7 @@ class TestTokenizerResultExtraction(unittest.TestCase):
         self.assertEqual(result_input_ids, [[101, 2129, 102], [101, 4068, 102]])
         self.assertEqual(result_token_type_ids, [[0, 0, 0], [0, 0, 0]])
 
+    # 测试extract multiple cross encoder results
     def test_extract_multiple_cross_encoder_results(self):
         """Test extraction for multiple cross-encoder pairs."""
         input_ids = [[101, 2129, 102, 4068, 102], [101, 7592, 102, 2088, 102]]
@@ -275,6 +297,7 @@ class TestTokenizerResultExtraction(unittest.TestCase):
         )
         self.assertEqual(result_token_type_ids, [[0, 0, 0, 1, 1], [0, 0, 0, 1, 1]])
 
+    # 测试extract empty results
     def test_extract_empty_results(self):
         """Test extraction with empty results."""
         input_ids = []
@@ -292,6 +315,7 @@ class TestTokenizerResultExtraction(unittest.TestCase):
         self.assertEqual(result_input_ids, [])
         self.assertIsNone(result_token_type_ids)
 
+    # 测试extract with none token type ids
     def test_extract_with_none_token_type_ids(self):
         """Test extraction when token_type_ids is None."""
         input_ids = [[101, 2129, 102]]
@@ -313,6 +337,7 @@ class TestTokenizerResultExtraction(unittest.TestCase):
 class TestTokenizerManagerIntegration(unittest.TestCase):
     """Integration tests combining multiple helper methods."""
 
+    # setUp
     def setUp(self):
         """Set up test fixtures."""
         with patch("sglang.srt.utils.get_device", return_value="cpu"):
@@ -329,6 +354,7 @@ class TestTokenizerManagerIntegration(unittest.TestCase):
             mock_tokenizer.return_value = Mock(vocab_size=32000)
             self.tokenizer_manager = TokenizerManager(self.server_args, self.port_args)
 
+    # 测试full workflow single string
     def test_full_workflow_single_string(self):
         """Test complete workflow for single string input."""
         text = "Hello world"
@@ -358,6 +384,7 @@ class TestTokenizerManagerIntegration(unittest.TestCase):
         self.assertEqual(result_input_ids, [101, 2129, 4248, 102])
         self.assertIsNone(result_token_type_ids)
 
+    # 测试full workflow cross encoder pairs
     def test_full_workflow_cross_encoder_pairs(self):
         """Test complete workflow for cross-encoder pairs."""
         texts = [
@@ -389,6 +416,7 @@ class TestTokenizerManagerIntegration(unittest.TestCase):
         self.assertEqual(result_input_ids, [101, 2129, 2116, 102, 4068, 2003, 102])
         self.assertEqual(result_token_type_ids, [0, 0, 0, 0, 1, 1, 1])
 
+    # 测试full workflow batch strings
     def test_full_workflow_batch_strings(self):
         """Test complete workflow for batch strings."""
         texts = ["Hello", "World", "Test"]
@@ -421,6 +449,7 @@ class TestTokenizerManagerIntegration(unittest.TestCase):
         self.assertIsNone(result_token_type_ids)
 
 
+# 创建ReqState - 构造最小化的ReqState测试实例
 def _make_state() -> ReqState:
     """Create a minimal ReqState for testing."""
     obj = Mock(spec=GenerateReqInput)
@@ -436,6 +465,7 @@ def _make_state() -> ReqState:
 class TestReqStateTextBuffering(unittest.TestCase):
     """Test ReqState.append_text / get_text in both buffering modes."""
 
+    # 测试collects chunks lazily
     def test_collects_chunks_lazily(self):
         state = _make_state()
         state.append_text("hello ")
@@ -445,6 +475,7 @@ class TestReqStateTextBuffering(unittest.TestCase):
         self.assertEqual(state.get_text(), "hello world")
         self.assertEqual(state.text_chunks, [])
 
+    # 测试get text preserves materialized prefix
     def test_get_text_preserves_materialized_prefix(self):
         state = _make_state()
         state.append_text("hello ")
@@ -456,20 +487,24 @@ class TestReqStateTextBuffering(unittest.TestCase):
 class TestReqStateCrashDump(unittest.TestCase):
     """Test ReqState.get_crash_dump_output."""
 
+    # 测试empty state
     def test_empty_state(self):
         state = _make_state()
         self.assertEqual(state.get_crash_dump_output(), {})
 
+    # 测试with text only
     def test_with_text_only(self):
         state = _make_state()
         state.append_text("partial output")
         self.assertEqual(state.get_crash_dump_output(), {"text": "partial output"})
 
+    # 测试with output ids only
     def test_with_output_ids_only(self):
         state = _make_state()
         state.output_ids = [1, 2, 3]
         self.assertEqual(state.get_crash_dump_output(), {"output_ids": [1, 2, 3]})
 
+    # 测试with text and output ids
     def test_with_text_and_output_ids(self):
         state = _make_state()
         state.append_text("hello")

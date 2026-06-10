@@ -1,3 +1,4 @@
+# 文件名: test_disaggregation_dp_attention.py - 数据并行注意力分离式部署测试
 import unittest
 from types import SimpleNamespace
 
@@ -31,6 +32,7 @@ class TestDisaggregationDPAttention(PDDisaggregationServerBase):
     LOAD_BALANCE_METHOD = "total_tokens"
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
         # Temporarily disable JIT DeepGEMM
@@ -49,6 +51,7 @@ class TestDisaggregationDPAttention(PDDisaggregationServerBase):
         cls.launch_lb()
 
     @classmethod
+    # 执行startprefill
     def start_prefill(cls):
         prefill_args = [
             "--trust-remote-code",
@@ -73,6 +76,7 @@ class TestDisaggregationDPAttention(PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 执行startdecode
     def start_decode(cls):
         decode_args = [
             "--trust-remote-code",
@@ -98,6 +102,7 @@ class TestDisaggregationDPAttention(PDDisaggregationServerBase):
             other_args=decode_args,
         )
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -113,6 +118,7 @@ class TestDisaggregationDPAttention(PDDisaggregationServerBase):
 
         self.assertGreater(metrics["score"], 0.60)
 
+    # 测试benchserving
     def test_bench_serving(self):
         args = get_benchmark_args(
             base_url=f"http://{self.base_host}:{self.lb_port}",

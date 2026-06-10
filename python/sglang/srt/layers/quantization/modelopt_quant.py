@@ -1,83 +1,85 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 # Adapted from https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/quantization/modelopt.py
-from __future__ import annotations
+# NVIDIA ModelOpt量化框架的配置和实现模块，支持FP8、NVFP4和混合精度量化方案。包含线性层、MoE层和KV缓存的量化方法实现，以及权重打包、填充和重排等辅助功能。
 
-import logging
-from enum import IntEnum
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from __future__ import annotations  # 启用延迟注解评估
 
-import regex as re
-import torch
-from torch.nn.parameter import Parameter
+import logging  # 日志模块
+from enum import IntEnum  # 枚举类型
+from typing import TYPE_CHECKING, Any, Dict, List, Optional  # 类型注解
 
-from sglang.srt.distributed import get_tp_group
-from sglang.srt.distributed.device_communicators.pynccl_allocator import (
+import regex as re  # 正则表达式库
+import torch  # 深度学习框架
+from torch.nn.parameter import Parameter  # 深度学习框架
+
+from sglang.srt.distributed import get_tp_group  # 分布式通信
+from sglang.srt.distributed.device_communicators.pynccl_allocator import (  # 分布式通信
     use_symmetric_memory,
 )
-from sglang.srt.environ import envs
-from sglang.srt.layers.dp_attention import is_allocation_symmetric
-from sglang.srt.layers.moe import (
+from sglang.srt.environ import envs  # 环境变量模块
+from sglang.srt.layers.dp_attention import is_allocation_symmetric  # DP注意力工具
+from sglang.srt.layers.moe import (  # MoE混合专家模块
     MoeRunner,
     MoeRunnerBackend,
     MoeRunnerConfig,
     get_moe_a2a_backend,
     get_moe_runner_backend,
 )
-from sglang.srt.layers.moe.cutlass_moe_params import CutlassMoEParams, CutlassMoEType
-from sglang.srt.layers.moe.moe_runner.triton import TritonMoeQuantInfo
-from sglang.srt.layers.moe.utils import (
+from sglang.srt.layers.moe.cutlass_moe_params import CutlassMoEParams, CutlassMoEType  # MoE混合专家模块
+from sglang.srt.layers.moe.moe_runner.triton import TritonMoeQuantInfo  # MoE混合专家模块
+from sglang.srt.layers.moe.utils import (  # MoE混合专家模块
     is_flashinfer_cutedsl_v1_path,
     should_use_flashinfer_cutlass_moe_fp4_allgather,
 )
-from sglang.srt.layers.parameter import ModelWeightParameter, PerTensorScaleParameter
-from sglang.srt.layers.quantization.base_config import (
+from sglang.srt.layers.parameter import ModelWeightParameter, PerTensorScaleParameter  # 参数类
+from sglang.srt.layers.quantization.base_config import (  # 量化基础配置
     FusedMoEMethodBase,
     LinearMethodBase,
     QuantizationConfig,
     QuantizeMethodBase,
 )
-from sglang.srt.layers.quantization.fp4_utils import (
+from sglang.srt.layers.quantization.fp4_utils import (  # FP4量化工具
     fp4_quantize,
     get_fp4_gemm_runner_backend,
 )
-from sglang.srt.layers.quantization.fp8_kernel import scaled_fp8_quant
-from sglang.srt.layers.quantization.fp8_utils import (
+from sglang.srt.layers.quantization.fp8_kernel import scaled_fp8_quant  # FP8量化内核
+from sglang.srt.layers.quantization.fp8_utils import (  # FP8量化工具
     apply_fp8_linear,
     cutlass_fp8_supported,
     is_blackwell_supported,
 )
-from sglang.srt.layers.quantization.kv_cache import BaseKVCacheMethod
-from sglang.srt.layers.quantization.unquant import UnquantizedLinearMethod
-from sglang.srt.layers.quantization.utils import (
+from sglang.srt.layers.quantization.kv_cache import BaseKVCacheMethod  # KV缓存量化
+from sglang.srt.layers.quantization.unquant import UnquantizedLinearMethod  # 未量化方法
+from sglang.srt.layers.quantization.utils import (  # 量化工具函数
     convert_to_channelwise,
     is_layer_skipped,
     per_tensor_dequantize,
     requantize_with_max_scale,
     swizzle_blockscale,
 )
-from sglang.srt.layers.radix_attention import RadixAttention
-from sglang.srt.layers.utils import alias_or_bind_derived_param, copy_or_rebind_param
-from sglang.srt.utils.common import (
+from sglang.srt.layers.radix_attention import RadixAttention  # Radix注意力层
+from sglang.srt.layers.utils import alias_or_bind_derived_param, copy_or_rebind_param  # 层工具函数
+from sglang.srt.utils.common import (  # SGLang工具函数
     is_cuda,
     is_sm120_supported,
     next_power_of_2,
     round_up,
 )
-from sglang.srt.utils.custom_op import register_custom_op
-from sglang.srt.utils.patch_torch import register_fake_if_exists
+from sglang.srt.utils.custom_op import register_custom_op  # 自定义算子注册
+from sglang.srt.utils.patch_torch import register_fake_if_exists  # 深度学习框架
 
 if TYPE_CHECKING:
-    from sglang.srt.layers.moe.fused_moe_triton.layer import FusedMoE
-    from sglang.srt.layers.moe.token_dispatcher import (
+    from sglang.srt.layers.moe.fused_moe_triton.layer import FusedMoE  # MoE混合专家模块
+    from sglang.srt.layers.moe.token_dispatcher import (  # MoE混合专家模块
         CombineInput,
         StandardDispatchOutput,
     )
-    from sglang.srt.models.utils import WeightsMapper
+    from sglang.srt.models.utils import WeightsMapper  # 模型工具函数
 
 try:
-    from flashinfer import mm_fp4 as flashinfer_fp4_gemm
-    from flashinfer import reorder_rows_for_gated_act_gemm, shuffle_matrix_sf_a
+    from flashinfer import mm_fp4 as flashinfer_fp4_gemm  # FlashInfer库
+    from flashinfer import reorder_rows_for_gated_act_gemm, shuffle_matrix_sf_a  # FlashInfer库
 
     enable_flashinfer_fp4_gemm = True
 except ImportError:
@@ -88,19 +90,20 @@ except ImportError:
 
 if is_cuda():
     try:
-        from sglang.jit_kernel.nvfp4 import cutlass_scaled_fp4_mm as cutlass_fp4_gemm
+        from sglang.jit_kernel.nvfp4 import cutlass_scaled_fp4_mm as cutlass_fp4_gemm  # NVFP4 JIT内核
     except ImportError:
         cutlass_fp4_gemm = None
 else:
     cutlass_fp4_gemm = None
 
 try:
-    from flashinfer.fused_moe import cutlass_fused_moe as flashinfer_cutlass_fused_moe
-    from flashinfer.fused_moe.core import ActivationType
+    from flashinfer.fused_moe import cutlass_fused_moe as flashinfer_cutlass_fused_moe  # FlashInfer库
+    from flashinfer.fused_moe.core import ActivationType  # FlashInfer融合MoE核心
 except ImportError:
     flashinfer_cutlass_fused_moe = None
 
     # Define a minimal ActivationType enum if flashinfer is not available
+# 激活类型枚举
     class ActivationType(IntEnum):
         Swiglu = 3
         Geglu = 4
@@ -109,7 +112,8 @@ except ImportError:
 
 
 # Initialize logger for the module
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)  # 创建日志记录器
+# FP4 GEMM的伪实现（用于编译跟踪）
 
 
 def _sglang_fp4_gemm_fake(
@@ -123,7 +127,8 @@ def _sglang_fp4_gemm_fake(
 ) -> torch.Tensor:
     M = input.shape[-2]
     N = int(out_features)
-    return input.new_empty((M, N), dtype=out_dtype)
+    return input.new_empty((M, N), dtype=out_dtype)  # 返回结果
+# FP4矩阵乘法
 
 
 @register_custom_op(fake_impl=_sglang_fp4_gemm_fake)
@@ -144,18 +149,19 @@ def fp4_gemm(
             input_sf = input_sf.view(torch.float8_e4m3fn)
         if weight_sf.dtype != torch.float8_e4m3fn:
             weight_sf = weight_sf.view(torch.float8_e4m3fn)
-        return cutlass_fp4_gemm(input, weight, input_sf, weight_sf, alpha, out_dtype)
+        return cutlass_fp4_gemm(input, weight, input_sf, weight_sf, alpha, out_dtype)  # 返回结果
     elif enable_flashinfer_fp4_gemm:
         # Use the remapping logic to convert SGLang backend names to FlashInfer API names
         backend = fp4_backend.get_flashinfer_backend()
-        return flashinfer_fp4_gemm(
+        return flashinfer_fp4_gemm(  # 返回结果
             input, weight, input_sf, weight_sf, alpha, out_dtype, backend=backend
         )
     else:
-        return cutlass_fp4_gemm(input, weight, input_sf, weight_sf, alpha, out_dtype)
+        return cutlass_fp4_gemm(input, weight, input_sf, weight_sf, alpha, out_dtype)  # 返回结果
 
 
 if is_cuda() and (not is_sm120_supported()) and (fp4_quantize is not None):
+    # FP4量化的伪实现
 
     @register_fake_if_exists("sgl_kernel::scaled_fp4_quant")
     def _sgl_kernel_scaled_fp4_quant_fake(
@@ -166,11 +172,12 @@ if is_cuda() and (not is_sm120_supported()) and (fp4_quantize is not None):
 
 # FP4 GEMM alignment constant - CUTLASS/FlashInfer kernels require dimensions divisible by 32
 FP4_GEMM_ALIGNMENT = 32
+# 将x向上取整到m的最近倍数
 
 
 def round_up_to_multiple(x: int, m: int) -> int:
     """Round up x to the nearest multiple of m."""
-    return (x + m - 1) // m * m
+# 对NVFP4权重进行填充以满足FP4 GEMM内核对齐约束
 
 
 def pad_nvfp4_weight(
@@ -216,11 +223,12 @@ def pad_nvfp4_weight(
     # Apply padding in a single operation if needed
     # For 2D tensor, pad argument is (pad_left, pad_right, pad_top, pad_bottom)
     if pad_rows > 0 or pad_cols_bytes > 0:
-        weight = torch.nn.functional.pad(
+        weight = torch.nn.functional.pad(  # 填充张量
             weight, (0, pad_cols_bytes, 0, pad_rows)
-        ).contiguous()
+        ).contiguous()  # 确保内存连续
 
-    return weight, pad_cols_bytes
+    return weight, pad_cols_bytes  # 返回结果
+# 为CUTLASS内核填充FP4激活以匹配权重的K维度填充
 
 
 def pad_nvfp4_activation_for_cutlass(
@@ -238,8 +246,9 @@ def pad_nvfp4_activation_for_cutlass(
         Padded activation tensor
     """
     if weights_padding_cols > 0:
-        return torch.nn.functional.pad(x_fp4, (0, weights_padding_cols)).contiguous()
-    return x_fp4
+        return torch.nn.functional.pad(x_fp4, (0, weights_padding_cols)).contiguous()  # 填充张量
+    return x_fp4  # 返回结果
+# 切片FP4输出以移除N维度填充
 
 
 def slice_nvfp4_output(
@@ -257,8 +266,8 @@ def slice_nvfp4_output(
         Sliced output tensor with padding removed
     """
     if out.shape[-1] != output_size:
-        return out[..., :output_size].contiguous()
-    return out
+        return out[..., :output_size].contiguous()  # 确保内存连续
+    return out  # 返回结果
 
 
 # TODO make it true by default when the DeepEP PR is merged
@@ -270,17 +279,20 @@ ACTIVATION_SCHEMES = ["static"]
 _SUPPORTED_ACT_STRS = ("silu", "relu2", "gelu")
 
 
+# ModelOpt量化配置基类
 class ModelOptQuantConfig(QuantizationConfig):
+    # 初始化方法
     def __init__(
         self,
         kv_cache_quant_algo: Optional[str],
         exclude_modules: Optional[List[str]],
         packed_modules_mapping: Optional[Dict[str, List[str]]],
     ):
-        super().__init__()
+        super().__init__()  # 调用父类初始化
         self.packed_modules_mapping = packed_modules_mapping
         self.exclude_modules = exclude_modules or []
         self.kv_cache_quant_algo = kv_cache_quant_algo
+    # 获取量化方法的内部实现
 
     def _get_quant_method(
         self,
@@ -290,32 +302,35 @@ class ModelOptQuantConfig(QuantizationConfig):
         Linear: type[LinearMethodBase],
         Moe: type[FusedMoEMethodBase],
     ) -> Optional[QuantizeMethodBase]:
-        from sglang.srt.layers.linear import LinearBase
-        from sglang.srt.layers.moe.fused_moe_triton import FusedMoE
+        from sglang.srt.layers.linear import LinearBase  # 线性层
+        from sglang.srt.layers.moe.fused_moe_triton import FusedMoE  # MoE混合专家模块
 
         if isinstance(layer, LinearBase):
             if is_layer_skipped(
                 prefix, self.exclude_modules, self.packed_modules_mapping
             ) or self.is_layer_excluded(prefix):
-                return UnquantizedLinearMethod()
-            return Linear(self)
+                return UnquantizedLinearMethod()  # 返回结果
+            return Linear(self)  # 返回结果
         elif self.kv_cache_quant_algo and isinstance(layer, RadixAttention):
-            return ModelOptFp8KVCacheMethod(self)
+            return ModelOptFp8KVCacheMethod(self)  # 返回结果
         elif isinstance(layer, FusedMoE):
             # Check if MoE layer should be excluded from quantization
             # (e.g., MTP layers that have no quantization scales in checkpoint)
             if self.is_layer_excluded(prefix):
                 # Falls back to default unquantized MoE
-                return None
-            return Moe(self)
-        return None
+                return None  # 返回None
+            return Moe(self)  # 返回结果
+        return None  # 返回None
+    # 获取配置文件名列表
 
     @classmethod
     def get_config_filenames(cls) -> List[str]:
-        return ["hf_quant_config.json"]
+        return ["hf_quant_config.json"]  # 返回结果
+    # 获取缩放激活名称列表
 
     def get_scaled_act_names(self) -> List[str]:
-        return []
+        return []  # 返回结果
+    # 应用权重名称映射器
 
     def apply_weight_name_mapper(
         self, hf_to_sglang_mapper: "WeightsMapper"
@@ -332,6 +347,7 @@ class ModelOptQuantConfig(QuantizationConfig):
                     expanded.append(name.removeprefix("language_model."))
             # Preserve order, drop duplicates.
             self.exclude_modules = list(dict.fromkeys(expanded))
+    # 判断层是否被排除量化
 
     def is_layer_excluded(self, prefix: str) -> bool:
         """Check if a layer should be excluded from quantization.
@@ -344,7 +360,7 @@ class ModelOptQuantConfig(QuantizationConfig):
         - Fused module patterns (e.g., "q_a_proj" in "fused_qkv_a_proj_with_mqa")
         """
         if not self.exclude_modules:
-            return False
+            return False  # 返回结果
 
         # Build prefix variants: some models wrap layers under "language_model."
         prefixes_to_check = [prefix]
@@ -363,12 +379,12 @@ class ModelOptQuantConfig(QuantizationConfig):
 
             for pfx in prefixes_to_check:
                 if re.fullmatch(regex_str, pfx):
-                    return True
+                    return True  # 返回结果
                 # Part-by-part check: handles wildcards like "mtp*" matching
                 pfx_parts = pfx.split(".")
                 for part in pfx_parts:
                     if re.fullmatch(regex_str, part):
-                        return True
+                        return True  # 返回结果
 
             # Check fused patterns: if the last segment of the exclude pattern
             # is a known fused component, check if it appears in the prefix's
@@ -377,14 +393,15 @@ class ModelOptQuantConfig(QuantizationConfig):
             if pattern_tail in fused_patterns:
                 for pfx in prefixes_to_check:
                     if pattern_tail in pfx.rsplit(".", maxsplit=1)[-1]:
-                        return True
+                        return True  # 返回结果
 
-        return False
+        return False  # 返回结果
 
 
+# ModelOpt FP8量化配置类
 class ModelOptFp8Config(ModelOptQuantConfig):
     """Configuration for ModelOpt FP8 quantization, including serialization and compatibility checks."""
-
+    # 初始化方法
     def __init__(
         self,
         is_checkpoint_fp8_serialized: bool = False,
@@ -396,29 +413,33 @@ class ModelOptFp8Config(ModelOptQuantConfig):
         Args:
             is_checkpoint_fp8_serialized (bool): Indicates if the checkpoint uses serialized FP8 format.
         """
-        super().__init__(kv_cache_quant_method, exclude_modules, packed_modules_mapping)
+        super().__init__(kv_cache_quant_method, exclude_modules, packed_modules_mapping)  # 调用父类初始化
         self.is_checkpoint_fp8_serialized = is_checkpoint_fp8_serialized
         if is_checkpoint_fp8_serialized:
-            logger.warning(
+            logger.warning(  # 输出警告
                 "Detected ModelOpt FP8 checkpoint. The format is experimental and subject to change."
             )
+    # 覆盖量化方法（自动检测）
 
     @classmethod
     def override_quantization_method(cls, hf_quant_config, user_quant):
         """Override quantization method based on the model's config."""
-        return cls._modelopt_override_quantization_method(hf_quant_config, user_quant)
+    # 获取量化方法名称
 
     @classmethod
     def get_name(cls) -> str:
-        return "modelopt_fp8"
+        return "modelopt_fp8"  # 返回结果
+    # 获取支持的激活数据类型
 
     @classmethod
     def get_supported_act_dtypes(cls) -> List[torch.dtype]:
-        return [torch.bfloat16, torch.half]
+        return [torch.bfloat16, torch.half]  # 返回结果
+    # 获取最低硬件能力要求
 
     @classmethod
     def get_min_capability(cls) -> int:
-        return 89  # Minimum hardware capability (e.g., Hopper GPUs).
+        return 89  # Minimum hardware capability (e.g., Hopper GPUs).  # 最低硬件能力要求（如Hopper GPU）
+    # 从配置字典创建实例
 
     @classmethod
     def from_config(cls, config: Dict[str, Any]) -> ModelOptFp8Config:
@@ -455,36 +476,38 @@ class ModelOptFp8Config(ModelOptQuantConfig):
                 kv_cache_quant_method = quantization_section.get("kv_cache_quant_algo")
                 exclude_modules = quantization_section.get("exclude_modules")
             except ValueError:
-                raise ValueError(
+                raise ValueError(  # 抛出值错误
                     "Cannot find 'quant_algo' in the model's quantization config. "
                     "Expected either flat format (config.json) or nested format (hf_quant_config.json)."
                 )
         if quant_method is None:
-            raise ValueError(
+            raise ValueError(  # 抛出值错误
                 "Cannot find 'quant_algo' in the model's quantization config. "
             )
         if "FP8" not in quant_method:
-            raise ValueError(
+            raise ValueError(  # 抛出值错误
                 "ModelOptFp8Config only supports static FP8 quantization in SGLang. "
                 "For FP4 quantization, use ModelOptFp4Config. "
                 "Check the quantization config for your model's configuration."
             )
 
-        return cls(
+        return cls(  # 返回结果
             is_checkpoint_fp8_serialized=True,
             kv_cache_quant_method=kv_cache_quant_method,
             exclude_modules=exclude_modules,
             packed_modules_mapping=config.get("packed_modules_mapping"),
         )
+    # 获取量化方法
 
     def get_quant_method(
         self, layer: torch.nn.Module, prefix: str
     ) -> Optional[QuantizeMethodBase]:
-        return self._get_quant_method(
+        return self._get_quant_method(  # 返回结果
             layer, prefix, Linear=ModelOptFp8LinearMethod, Moe=ModelOptFp8MoEMethod
         )
 
 
+# ModelOpt FP8线性层量化方法
 class ModelOptFp8LinearMethod(LinearMethodBase):
     """Linear method for ModelOpt static FP8 quantization.
 
@@ -498,11 +521,13 @@ class ModelOptFp8LinearMethod(LinearMethodBase):
     Args:
         quant_config (ModelOptFp8Config): The ModelOpt quantization configuration.
     """
+    # 初始化方法
 
     def __init__(self, quant_config: ModelOptFp8Config):
-        super().__init__()
+        super().__init__()  # 调用父类初始化
         self.quant_config = quant_config
         self.cutlass_fp8_supported = cutlass_fp8_supported()
+    # 创建并注册量化权重参数
 
     def create_weights(
         self,
@@ -515,7 +540,6 @@ class ModelOptFp8LinearMethod(LinearMethodBase):
         **extra_weight_attrs,
     ) -> None:
         """Creates and registers weights, weight scales, and input scales for FP8 quantization."""
-        output_size_per_partition = sum(output_partition_sizes)
         weight_loader = extra_weight_attrs.get("weight_loader")
         weight_dtype = (
             torch.float8_e4m3fn
@@ -529,10 +553,10 @@ class ModelOptFp8LinearMethod(LinearMethodBase):
         layer.output_size_per_partition = output_size_per_partition
 
         # Register weight
-        layer.register_parameter(
+        layer.register_parameter(  # 注册层参数
             "weight",
             ModelWeightParameter(
-                data=torch.empty(
+                data=torch.empty(  # 创建空张量
                     output_size_per_partition,
                     input_size_per_partition,
                     dtype=weight_dtype,
@@ -546,7 +570,7 @@ class ModelOptFp8LinearMethod(LinearMethodBase):
         if self.quant_config.is_checkpoint_fp8_serialized:
             # Register weight and input scales
             for scale_name in ["weight_scale", "input_scale"]:
-                layer.register_parameter(
+                layer.register_parameter(  # 注册层参数
                     scale_name,
                     PerTensorScaleParameter(
                         data=torch.full(
@@ -557,18 +581,19 @@ class ModelOptFp8LinearMethod(LinearMethodBase):
                         weight_loader=weight_loader,
                     ),
                 )
+    # 权重加载后的后处理
 
     def process_weights_after_loading(self, layer: torch.nn.Module) -> None:
         """Requantizes weights after loading using the maximum scale."""
-        max_w_scale, quantized_weight = requantize_with_max_scale(
             layer.weight, layer.weight_scale, layer.logical_widths
         )
-        layer.weight = Parameter(quantized_weight.t(), requires_grad=False)
+        layer.weight = Parameter(quantized_weight.t(), requires_grad=False)  # 不可训练
         # cutlass sgl-kernel only supports per-channel scale
         if self.cutlass_fp8_supported:
             max_w_scale = convert_to_channelwise(max_w_scale, layer.logical_widths)
-        layer.weight_scale = Parameter(max_w_scale, requires_grad=False)
-        layer.input_scale = Parameter(layer.input_scale.max(), requires_grad=False)
+        layer.weight_scale = Parameter(max_w_scale, requires_grad=False)  # 不可训练
+        layer.input_scale = Parameter(layer.input_scale.max(), requires_grad=False)  # 不可训练
+    # 应用量化变换
 
     def apply(
         self,
@@ -577,7 +602,6 @@ class ModelOptFp8LinearMethod(LinearMethodBase):
         bias: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Applies FP8 linear transformation."""
-        return apply_fp8_linear(
             input=x,
             weight=layer.weight,
             weight_scale=layer.weight_scale,
@@ -587,18 +611,21 @@ class ModelOptFp8LinearMethod(LinearMethodBase):
         )
 
 
+# ModelOpt FP8 KV缓存量化方法
 class ModelOptFp8KVCacheMethod(BaseKVCacheMethod):
     """
     Handles loading FP8 kv-cache scaling factors from modelopt quantized checkpoints.
     """
+    # 初始化方法
 
     def __init__(self, quant_config: ModelOptFp8Config):
-        super().__init__(quant_config)
+        super().__init__(quant_config)  # 调用父类初始化
 
 
+# ModelOpt混合精度量化配置类
 class ModelOptMixedPrecisionConfig(ModelOptQuantConfig):
     """Configuration for ModelOpt MIXED_PRECISION checkpoints."""
-
+    # 初始化方法
     def __init__(
         self,
         kv_cache_quant_algo: Optional[str],
@@ -608,30 +635,35 @@ class ModelOptMixedPrecisionConfig(ModelOptQuantConfig):
         fp8_config: ModelOptFp8Config,
         nvfp4_config: "ModelOptFp4Config",
     ) -> None:
-        super().__init__(kv_cache_quant_algo, exclude_modules, packed_modules_mapping)
+        super().__init__(kv_cache_quant_algo, exclude_modules, packed_modules_mapping)  # 调用父类初始化
         self.quantized_layers = quantized_layers
         self.fp8_config = fp8_config
         self.nvfp4_config = nvfp4_config
+    # 覆盖量化方法（自动检测）
 
     @classmethod
     def override_quantization_method(cls, hf_quant_config, user_quant):
         if hf_quant_config is None:
-            return None
+            return None  # 返回None
         if hf_quant_config.get("quant_method", "") == "modelopt_mixed":
-            return "modelopt_mixed"
-        return None
+            return "modelopt_mixed"  # 返回结果
+        return None  # 返回None
+    # 获取量化方法名称
 
     @classmethod
     def get_name(cls) -> str:
-        return "modelopt_mixed"
+        return "modelopt_mixed"  # 返回结果
+    # 获取支持的激活数据类型
 
     @classmethod
     def get_supported_act_dtypes(cls) -> List[torch.dtype]:
-        return [torch.bfloat16, torch.half]
+        return [torch.bfloat16, torch.half]  # 返回结果
+    # 获取最低硬件能力要求
 
     @classmethod
     def get_min_capability(cls) -> int:
-        return ModelOptFp4Config.get_min_capability()
+        return ModelOptFp4Config.get_min_capability()  # 返回结果
+    # 从配置字典创建实例
 
     @classmethod
     def from_config(cls, config: Dict[str, Any]) -> "ModelOptMixedPrecisionConfig":
@@ -665,11 +697,11 @@ class ModelOptMixedPrecisionConfig(ModelOptQuantConfig):
             quantized_layers = quantization_section.get("quantized_layers", {})
 
         if quant_algo != "MIXED_PRECISION":
-            raise ValueError(
+            raise ValueError(  # 抛出值错误
                 "ModelOptMixedPrecisionConfig only supports MIXED_PRECISION checkpoints."
             )
         if not quantized_layers:
-            raise ValueError(
+            raise ValueError(  # 抛出值错误
                 "MIXED_PRECISION quantization requires a non-empty quantized_layers map."
             )
 
@@ -677,7 +709,7 @@ class ModelOptMixedPrecisionConfig(ModelOptQuantConfig):
         for layer_info in quantized_layers.values():
             if layer_info.get("quant_algo", "").upper() == "NVFP4":
                 group_size = layer_info.get("group_size", 16)
-                break
+                break  # 跳出循环
         if group_size is None:
             group_size = 16
 
@@ -696,7 +728,7 @@ class ModelOptMixedPrecisionConfig(ModelOptQuantConfig):
             group_size=group_size,
         )
 
-        return cls(
+        return cls(  # 返回结果
             kv_cache_quant_algo=kv_cache_quant_algo,
             exclude_modules=exclude_modules,
             packed_modules_mapping=packed_modules_mapping,
@@ -704,6 +736,7 @@ class ModelOptMixedPrecisionConfig(ModelOptQuantConfig):
             fp8_config=fp8_config,
             nvfp4_config=nvfp4_config,
         )
+    # 应用权重名称映射器
 
     def apply_weight_name_mapper(self, hf_to_sglang_mapper: "WeightsMapper"):
         super().apply_weight_name_mapper(hf_to_sglang_mapper)
@@ -711,10 +744,11 @@ class ModelOptMixedPrecisionConfig(ModelOptQuantConfig):
             self.quantized_layers = hf_to_sglang_mapper.apply_dict(
                 self.quantized_layers
             )
+    # 解析层的量化算法
 
     def _resolve_quant_algo(self, prefix: str) -> Optional[str]:
         if prefix in self.quantized_layers:
-            return self.quantized_layers[prefix]["quant_algo"].upper()
+            return self.quantized_layers[prefix]["quant_algo"].upper()  # 返回结果
 
         proj_name = prefix.rsplit(".", 1)[-1]
         if self.packed_modules_mapping and proj_name in self.packed_modules_mapping:
@@ -725,9 +759,9 @@ class ModelOptMixedPrecisionConfig(ModelOptQuantConfig):
                 if shard_prefix in self.quantized_layers:
                     algos.add(self.quantized_layers[shard_prefix]["quant_algo"].upper())
             if len(algos) == 1:
-                return algos.pop()
+                return algos.pop()  # 返回结果
             if len(algos) > 1:
-                raise ValueError(
+                raise ValueError(  # 抛出值错误
                     f"Mixed quant_algo within fused layer {prefix}: {algos}. "
                     "All shards must use the same quantization."
                 )
@@ -735,15 +769,16 @@ class ModelOptMixedPrecisionConfig(ModelOptQuantConfig):
         prefix_dot = prefix + "."
         for key, info in self.quantized_layers.items():
             if key.startswith(prefix_dot):
-                return info["quant_algo"].upper()
+                return info["quant_algo"].upper()  # 返回结果
 
-        return None
+        return None  # 返回None
+    # 获取量化方法
 
     def get_quant_method(
         self, layer: torch.nn.Module, prefix: str
     ) -> Optional[QuantizeMethodBase]:
-        from sglang.srt.layers.linear import LinearBase
-        from sglang.srt.layers.moe.fused_moe_triton import FusedMoE
+        from sglang.srt.layers.linear import LinearBase  # 线性层
+        from sglang.srt.layers.moe.fused_moe_triton import FusedMoE  # MoE混合专家模块
 
         quant_algo = self._resolve_quant_algo(prefix)
 
@@ -751,28 +786,29 @@ class ModelOptMixedPrecisionConfig(ModelOptQuantConfig):
             if is_layer_skipped(
                 prefix, self.exclude_modules, self.packed_modules_mapping
             ) or self.is_layer_excluded(prefix):
-                return UnquantizedLinearMethod()
+                return UnquantizedLinearMethod()  # 返回结果
             if quant_algo == "FP8":
-                return ModelOptFp8LinearMethod(self.fp8_config)
+                return ModelOptFp8LinearMethod(self.fp8_config)  # 返回结果
             if quant_algo == "NVFP4":
-                return ModelOptFp4LinearMethod(self.nvfp4_config)
-            return UnquantizedLinearMethod()
+                return ModelOptFp4LinearMethod(self.nvfp4_config)  # 返回结果
+            return UnquantizedLinearMethod()  # 返回结果
 
         if self.kv_cache_quant_algo and isinstance(layer, RadixAttention):
-            return ModelOptFp8KVCacheMethod(self.fp8_config)
+            return ModelOptFp8KVCacheMethod(self.fp8_config)  # 返回结果
 
         if isinstance(layer, FusedMoE):
             if self.is_layer_excluded(prefix):
-                return None
+                return None  # 返回None
             if quant_algo == "FP8":
-                return ModelOptFp8MoEMethod(self.fp8_config)
+                return ModelOptFp8MoEMethod(self.fp8_config)  # 返回结果
             if quant_algo == "NVFP4":
-                return ModelOptNvFp4FusedMoEMethod(self.nvfp4_config)
-            return None
+                return ModelOptNvFp4FusedMoEMethod(self.nvfp4_config)  # 返回结果
+            return None  # 返回None
 
-        return None
+        return None  # 返回None
 
 
+# ModelOpt FP8 MoE量化方法
 class ModelOptFp8MoEMethod(FusedMoEMethodBase):
     """MoE method for ModelOpt FP8.
     Supports loading FP8 checkpoints with static weight scale and activation scale.
@@ -780,10 +816,12 @@ class ModelOptFp8MoEMethod(FusedMoEMethodBase):
     Args:
         quant_config: The ModelOpt quantization config.
     """
+    # 初始化方法
 
     def __init__(self, quant_config: ModelOptFp8Config):
         self.quant_config = quant_config
         self.cutlass_fp8_supported = cutlass_fp8_supported()
+    # 创建并注册量化权重参数
 
     def create_weights(
         self,
@@ -794,7 +832,7 @@ class ModelOptFp8MoEMethod(FusedMoEMethodBase):
         params_dtype: torch.dtype,
         **extra_weight_attrs,
     ):
-        from sglang.srt.layers.moe.fused_moe_triton import FusedMoeWeightScaleSupported
+        from sglang.srt.layers.moe.fused_moe_triton import FusedMoeWeightScaleSupported  # MoE混合专家模块
 
         # Use FP8 dtype if checkpoint is serialized, otherwise use the default dtype
         weight_dtype = (
@@ -806,7 +844,7 @@ class ModelOptFp8MoEMethod(FusedMoEMethodBase):
         num_shards = 2 if layer.moe_runner_config.is_gated else 1
         intermediate_size = num_shards * intermediate_size_per_partition
         w13_weight = ModelWeightParameter(
-            data=torch.empty(
+            data=torch.empty(  # 创建空张量
                 num_experts,
                 intermediate_size,
                 hidden_size,
@@ -816,10 +854,10 @@ class ModelOptFp8MoEMethod(FusedMoEMethodBase):
             output_dim=1,
             weight_loader=weight_loader,
         )
-        layer.register_parameter("w13_weight", w13_weight)
+        layer.register_parameter("w13_weight", w13_weight)  # 注册层参数
 
         w2_weight = ModelWeightParameter(
-            data=torch.empty(
+            data=torch.empty(  # 创建空张量
                 num_experts,
                 hidden_size,
                 intermediate_size_per_partition,
@@ -829,7 +867,7 @@ class ModelOptFp8MoEMethod(FusedMoEMethodBase):
             output_dim=1,
             weight_loader=weight_loader,
         )
-        layer.register_parameter("w2_weight", w2_weight)
+        layer.register_parameter("w2_weight", w2_weight)  # 注册层参数
 
         if self.quant_config.is_checkpoint_fp8_serialized:
             # WEIGHT SCALES - Per-tensor scaling for ModelOpts
@@ -850,8 +888,8 @@ class ModelOptFp8MoEMethod(FusedMoEMethodBase):
                 ),
                 weight_loader=weight_loader,
             )
-            layer.register_parameter("w13_weight_scale", w13_weight_scale)
-            layer.register_parameter("w2_weight_scale", w2_weight_scale)
+            layer.register_parameter("w13_weight_scale", w13_weight_scale)  # 注册层参数
+            layer.register_parameter("w2_weight_scale", w2_weight_scale)  # 注册层参数
 
             # Set weight loader attributes for scales
             extra_weight_attrs.update(
@@ -867,8 +905,9 @@ class ModelOptFp8MoEMethod(FusedMoEMethodBase):
                 data=torch.full((num_experts,), 1.0, dtype=torch.float32),
                 weight_loader=weight_loader,
             )
-            layer.register_parameter("w13_input_scale", w13_input_scale)
-            layer.register_parameter("w2_input_scale", w2_input_scale)
+            layer.register_parameter("w13_input_scale", w13_input_scale)  # 注册层参数
+            layer.register_parameter("w2_input_scale", w2_input_scale)  # 注册层参数
+    # 权重加载后的后处理
 
     def process_weights_after_loading(self, layer: torch.nn.Module) -> None:
         """Process FP8 MoE weights after loading from serialized checkpoint.
@@ -876,8 +915,8 @@ class ModelOptFp8MoEMethod(FusedMoEMethodBase):
         Only supports pre-quantized checkpoints with FP8 weights and scales.
         """
 
-        layer.w13_weight = Parameter(layer.w13_weight.data, requires_grad=False)
-        layer.w2_weight = Parameter(layer.w2_weight.data, requires_grad=False)
+        layer.w13_weight = Parameter(layer.w13_weight.data, requires_grad=False)  # 不可训练
+        layer.w2_weight = Parameter(layer.w2_weight.data, requires_grad=False)  # 不可训练
 
         # Handle scale parameters
         if hasattr(layer, "w13_weight_scale") and layer.w13_weight_scale is not None:
@@ -915,28 +954,28 @@ class ModelOptFp8MoEMethod(FusedMoEMethodBase):
                         start += intermediate_size_per_partition
 
                 # Update the scale parameter to be per-expert instead of per-shard
-                layer.w13_weight_scale = Parameter(max_w13_scales, requires_grad=False)
+                layer.w13_weight_scale = Parameter(max_w13_scales, requires_grad=False)  # 不可训练
             else:
                 layer.w13_weight_scale = Parameter(
-                    layer.w13_weight_scale.data, requires_grad=False
+                    layer.w13_weight_scale.data, requires_grad=False  # 不可训练
                 )
 
         if hasattr(layer, "w2_weight_scale") and layer.w2_weight_scale is not None:
             layer.w2_weight_scale = Parameter(
-                layer.w2_weight_scale.data, requires_grad=False
+                layer.w2_weight_scale.data, requires_grad=False  # 不可训练
             )
         if hasattr(layer, "w13_input_scale") and layer.w13_input_scale is not None:
             layer.w13_input_scale = Parameter(
-                layer.w13_input_scale.max(), requires_grad=False
+                layer.w13_input_scale.max(), requires_grad=False  # 不可训练
             )
         if hasattr(layer, "w2_input_scale") and layer.w2_input_scale is not None:
             layer.w2_input_scale = Parameter(
-                layer.w2_input_scale.max(), requires_grad=False
+                layer.w2_input_scale.max(), requires_grad=False  # 不可训练
             )
 
         # Align FP8 weights to FlashInfer per-tensor kernel layout if enabled
         if get_moe_runner_backend().is_flashinfer_trtllm():
-            from sglang.srt.layers.moe.moe_runner.flashinfer_trtllm import (
+            from sglang.srt.layers.moe.moe_runner.flashinfer_trtllm import (  # MoE混合专家模块
                 align_fp8_moe_weights_for_flashinfer_trtllm,
             )
 
@@ -961,15 +1000,15 @@ class ModelOptFp8MoEMethod(FusedMoEMethodBase):
             w2_weight_scale = layer.w2_weight_scale.to(torch.float32)
 
             layer.fc1_dequant = Parameter(
-                w13_weight_scale * input_scale, requires_grad=False
+                w13_weight_scale * input_scale, requires_grad=False  # 不可训练
             )
             layer.fc2_quant = Parameter(
-                activation_scale.reciprocal(), requires_grad=False
+                activation_scale.reciprocal(), requires_grad=False  # 不可训练
             )
             layer.fc2_dequant = Parameter(
-                activation_scale * w2_weight_scale, requires_grad=False
+                activation_scale * w2_weight_scale, requires_grad=False  # 不可训练
             )
-            layer.fc1_input_dequant = Parameter(input_scale, requires_grad=False)
+            layer.fc1_input_dequant = Parameter(input_scale, requires_grad=False)  # 不可训练
 
             # flashinfer_cutlass kernel requires intermediate_size to be a
             # multiple of 16.  Pad weight tensors with zeros after loading.
@@ -987,32 +1026,34 @@ class ModelOptFp8MoEMethod(FusedMoEMethodBase):
                     layer.w13_weight = Parameter(
                         torch.cat(
                             [
-                                torch.nn.functional.pad(
+                                torch.nn.functional.pad(  # 填充张量
                                     up_weight, (0, 0, 0, pad_amount)
                                 ),
-                                torch.nn.functional.pad(
+                                torch.nn.functional.pad(  # 填充张量
                                     gate_weight, (0, 0, 0, pad_amount)
                                 ),
                             ],
                             dim=1,
                         ),
-                        requires_grad=False,
+                        requires_grad=False,  # 不可训练
                     )
                 else:
                     layer.w13_weight = Parameter(
-                        torch.nn.functional.pad(w13_data, (0, 0, 0, pad_amount)),
-                        requires_grad=False,
+                        torch.nn.functional.pad(w13_data, (0, 0, 0, pad_amount)),  # 填充张量
+                        requires_grad=False,  # 不可训练
                     )
                 layer.w2_weight = Parameter(
-                    torch.nn.functional.pad(layer.w2_weight.data, (0, pad_amount)),
-                    requires_grad=False,
+                    torch.nn.functional.pad(layer.w2_weight.data, (0, pad_amount)),  # 填充张量
+                    requires_grad=False,  # 不可训练
                 )
+    # 创建MoE运行器
 
     def create_moe_runner(
         self, layer: torch.nn.Module, moe_runner_config: MoeRunnerConfig
     ):
         self.moe_runner_config = moe_runner_config
         self.runner = MoeRunner(MoeRunnerBackend.TRITON, moe_runner_config)
+    # 应用量化变换
 
     def apply(
         self,
@@ -1021,8 +1062,8 @@ class ModelOptFp8MoEMethod(FusedMoEMethodBase):
     ) -> CombineInput:
         x = dispatch_output.hidden_states
         topk_output = dispatch_output.topk_output
-        from sglang.srt.layers.moe.token_dispatcher import StandardCombineInput
-        from sglang.srt.layers.moe.topk import TopKOutputChecker
+        from sglang.srt.layers.moe.token_dispatcher import StandardCombineInput  # MoE混合专家模块
+        from sglang.srt.layers.moe.topk import TopKOutputChecker  # MoE混合专家模块
 
         # Fast path: TRT-LLM FP8 per-tensor MoE using BYPASSED TopK routing
 
@@ -1030,15 +1071,15 @@ class ModelOptFp8MoEMethod(FusedMoEMethodBase):
             get_moe_runner_backend().is_flashinfer_trtllm()
             and TopKOutputChecker.format_is_bypassed(topk_output)
         ):
-            from sglang.srt.layers.moe.moe_runner.flashinfer_trtllm import (
+            from sglang.srt.layers.moe.moe_runner.flashinfer_trtllm import (  # MoE混合专家模块
                 FlashInferTrtllmFp8MoeQuantInfo,
                 fused_experts_none_to_flashinfer_trtllm_fp8,
             )
-            from sglang.srt.layers.moe.utils import RoutingMethodType
+            from sglang.srt.layers.moe.utils import RoutingMethodType  # MoE混合专家模块
 
             topk_config = topk_output.topk_config
 
-            from sglang.srt.layers.moe.moe_runner.flashinfer_trtllm import (
+            from sglang.srt.layers.moe.moe_runner.flashinfer_trtllm import (  # MoE混合专家模块
                 get_activation_type,
             )
 
@@ -1072,12 +1113,12 @@ class ModelOptFp8MoEMethod(FusedMoEMethodBase):
                 ),
             )
 
-            return fused_experts_none_to_flashinfer_trtllm_fp8(
+            return fused_experts_none_to_flashinfer_trtllm_fp8(  # 返回结果
                 dispatch_output, quant_info, self.moe_runner_config
             )
 
         if get_moe_runner_backend().is_flashinfer_cutlass():
-            from sglang.srt.layers.moe.moe_runner.flashinfer_trtllm import (
+            from sglang.srt.layers.moe.moe_runner.flashinfer_trtllm import (  # MoE混合专家模块
                 get_activation_type,
             )
 
@@ -1113,7 +1154,7 @@ class ModelOptFp8MoEMethod(FusedMoEMethodBase):
             with use_symmetric_memory(
                 get_tp_group(), disabled=not is_allocation_symmetric()
             ):
-                symm_output = torch.empty(
+                symm_output = torch.empty(  # 创建空张量
                     x.shape[0], original_col, dtype=output_dtype, device=x.device
                 )
             output = flashinfer_cutlass_fused_moe(
@@ -1139,7 +1180,7 @@ class ModelOptFp8MoEMethod(FusedMoEMethodBase):
                 activation_type=activation,
             )[0]
 
-            return StandardCombineInput(hidden_states=output)
+            return StandardCombineInput(hidden_states=output)  # 返回结果
 
         quant_info = TritonMoeQuantInfo(
             w13_weight=layer.w13_weight,
@@ -1152,12 +1193,13 @@ class ModelOptFp8MoEMethod(FusedMoEMethodBase):
             a2_scale=layer.w2_input_scale,
         )
 
-        return self.runner.run(dispatch_output, quant_info)
+        return self.runner.run(dispatch_output, quant_info)  # 返回结果
 
 
+# ModelOpt FP4（NVFP4）量化配置类
 class ModelOptFp4Config(ModelOptQuantConfig):
     """Config class for FP4."""
-
+    # 初始化方法
     def __init__(
         self,
         is_checkpoint_nvfp4_serialized: bool = False,
@@ -1166,36 +1208,39 @@ class ModelOptFp4Config(ModelOptQuantConfig):
         exclude_modules: List[str] = None,
         packed_modules_mapping: Optional[Dict[str, List[str]]] = None,
     ) -> None:
-        super().__init__(kv_cache_quant_algo, exclude_modules, packed_modules_mapping)
+        super().__init__(kv_cache_quant_algo, exclude_modules, packed_modules_mapping)  # 调用父类初始化
         self.is_checkpoint_nvfp4_serialized = is_checkpoint_nvfp4_serialized
         if is_checkpoint_nvfp4_serialized:
-            logger.warning(
+            logger.warning(  # 输出警告
                 "Detected nvfp4 checkpoint. Please note that the "
                 "format is experimental and subject to change."
             )
         self.group_size = group_size
+    # 覆盖量化方法（自动检测）
 
     @classmethod
     def override_quantization_method(cls, hf_quant_config, user_quant):
         """Override quantization method based on the model's config."""
-        return cls._modelopt_override_quantization_method(hf_quant_config, user_quant)
+    # 获取量化方法名称
 
     @classmethod
     def get_name(cls) -> str:
-        return "modelopt_fp4"
+        return "modelopt_fp4"  # 返回结果
+    # 获取支持的激活数据类型
 
     @classmethod
     def get_supported_act_dtypes(cls) -> List[torch.dtype]:
-        return [torch.bfloat16, torch.half, torch.float8_e4m3fn]
+        return [torch.bfloat16, torch.half, torch.float8_e4m3fn]  # 返回结果
+    # 获取最低硬件能力要求
 
     @classmethod
     def get_min_capability(cls) -> int:
-        return 100
+        return 100  # 返回结果
+    # 从配置中提取统一的分组大小
 
     @staticmethod
     def common_group_size(cfg: dict) -> int:
         """Return the unique group_size across the config; raise if missing/mismatched."""
-        sizes = set()
 
         # Top-level and 'quantization' block
         v = cfg.get("group_size")
@@ -1220,10 +1265,11 @@ class ModelOptFp4Config(ModelOptQuantConfig):
                             sizes.add(v)
 
         if not sizes:
-            raise ValueError("No group_size found in config.")
+            raise ValueError("No group_size found in config.")  # 抛出值错误
         if len(sizes) > 1:
-            raise ValueError(f"Inconsistent group_size values: {sorted(sizes)}")
-        return next(iter(sizes))
+            raise ValueError(f"Inconsistent group_size values: {sorted(sizes)}")  # 抛出值错误
+        return next(iter(sizes))  # 返回结果
+    # 从配置字典创建实例
 
     @classmethod
     def from_config(cls, config: Dict[str, Any]) -> ModelOptFp4Config:
@@ -1285,13 +1331,13 @@ class ModelOptFp4Config(ModelOptQuantConfig):
                 group_size = ModelOptFp4Config.common_group_size(config)
                 exclude_modules = quant_config.get("exclude_modules", [])
             except (ValueError, KeyError):
-                raise ValueError(
+                raise ValueError(  # 抛出值错误
                     "Cannot find 'quant_algo' in the model's quantization config. "
                     "Expected either flat format (config.json) or nested format (hf_quant_config.json)."
                 )
 
         if not quant_method in ["FP8", "NVFP4"]:
-            raise ValueError(
+            raise ValueError(  # 抛出值错误
                 f"ModelOpt currently only supports: FP8, NVFP4"
                 " quantizations in sglang. Please check the "
                 "quantization config for your model's configuration."
@@ -1299,25 +1345,26 @@ class ModelOptFp4Config(ModelOptQuantConfig):
         is_checkpoint_nvfp4_serialized = "NVFP4" in quant_method
 
         if group_size is None or exclude_modules is None:
-            logger.warning(
+            logger.warning(  # 输出警告
                 f"group_size: {group_size},"
                 f"kv_cache_quant_algo: {kv_cache_quant_algo},"
                 f"exclude_modules: {exclude_modules}"
             )
-            raise ValueError(
+            raise ValueError(  # 抛出值错误
                 "NVFP4 quantization requires group_size and exclude_modules "
                 "specified in the quantization config"
             )
-        return cls(
+        return cls(  # 返回结果
             is_checkpoint_nvfp4_serialized,
             kv_cache_quant_algo,
             group_size,
             exclude_modules,
             config.get("packed_modules_mapping"),
         )
+    # 获取量化方法
 
     def get_quant_method(self, layer: torch.nn.Module, prefix: str):
-        return self._get_quant_method(
+        return self._get_quant_method(  # 返回结果
             layer,
             prefix,
             Linear=ModelOptFp4LinearMethod,
@@ -1325,6 +1372,7 @@ class ModelOptFp4Config(ModelOptQuantConfig):
         )
 
 
+# ModelOpt FP4（NVFP4）线性层量化方法
 class ModelOptFp4LinearMethod(LinearMethodBase):
     """Linear method for NVFP4.
     Supports loading NVFP4 checkpoints with the following structure:
@@ -1339,9 +1387,11 @@ class ModelOptFp4LinearMethod(LinearMethodBase):
     The weights are quantized per block of 16 elements.
     Args: quant_config: The ModelOpt quantization config.
     """
+    # 初始化方法
 
     def __init__(self, quant_config: ModelOptFp4Config):
         self.quant_config = quant_config
+    # 创建并注册量化权重参数
 
     def create_weights(
         self,
@@ -1355,7 +1405,7 @@ class ModelOptFp4LinearMethod(LinearMethodBase):
     ):
         del input_size, output_size
         if not self.quant_config.is_checkpoint_nvfp4_serialized:
-            raise ValueError(
+            raise ValueError(  # 抛出值错误
                 "NVFP4 quantization was selected, "
                 " dynamic quantization is not supported."
             )
@@ -1368,7 +1418,7 @@ class ModelOptFp4LinearMethod(LinearMethodBase):
         layer.input_size_per_partition = input_size_per_partition
         layer.output_size_per_partition = output_size_per_partition
         if input_size_per_partition % 16 != 0:
-            raise ValueError(
+            raise ValueError(  # 抛出值错误
                 "Unsupported model when in features size is not multiple of 16"
             )
 
@@ -1379,7 +1429,7 @@ class ModelOptFp4LinearMethod(LinearMethodBase):
         )
 
         weight = ModelWeightParameter(
-            data=torch.empty(
+            data=torch.empty(  # 创建空张量
                 # 2 fp4 data is packed in one uint8 in the input dimension
                 output_size_per_partition,
                 input_size_per_partition // 2,
@@ -1389,23 +1439,23 @@ class ModelOptFp4LinearMethod(LinearMethodBase):
             output_dim=0,
             weight_loader=weight_loader,
         )
-        layer.register_parameter("weight", weight)
+        layer.register_parameter("weight", weight)  # 注册层参数
 
         input_scale = PerTensorScaleParameter(
-            data=torch.empty(len(output_partition_sizes), dtype=torch.float32),
+            data=torch.empty(len(output_partition_sizes), dtype=torch.float32),  # 创建空张量
             weight_loader=weight_loader,
         )
 
-        layer.register_parameter("input_scale", input_scale)
+        layer.register_parameter("input_scale", input_scale)  # 注册层参数
 
         weight_scale_2 = PerTensorScaleParameter(
-            data=torch.empty(len(output_partition_sizes), dtype=torch.float32),
+            data=torch.empty(len(output_partition_sizes), dtype=torch.float32),  # 创建空张量
             weight_loader=weight_loader,
         )
-        layer.register_parameter("weight_scale_2", weight_scale_2)
+        layer.register_parameter("weight_scale_2", weight_scale_2)  # 注册层参数
 
         weight_scale = ModelWeightParameter(
-            data=torch.empty(
+            data=torch.empty(  # 创建空张量
                 output_size_per_partition,
                 input_size_per_partition // self.quant_config.group_size,
                 dtype=weight_dtype,
@@ -1415,7 +1465,8 @@ class ModelOptFp4LinearMethod(LinearMethodBase):
             weight_loader=weight_loader,
         )
 
-        layer.register_parameter("weight_scale", weight_scale)
+        layer.register_parameter("weight_scale", weight_scale)  # 注册层参数
+    # 权重加载后的后处理
 
     def process_weights_after_loading(self, layer: torch.nn.Module) -> None:
         input_scale_2 = layer.input_scale.max().to(torch.float32)
@@ -1444,7 +1495,7 @@ class ModelOptFp4LinearMethod(LinearMethodBase):
             #   - shuffle_matrix_a: weight.shape[0] (N) % 32 == 0
             #   - shuffle_matrix_sf_a: scale.shape[0] (N) % 128 == 0, scale.shape[1] (K/16) % 4 == 0
             # We pad N to multiple of 128 and K/16 to multiple of 4.
-            from flashinfer import shuffle_matrix_a, shuffle_matrix_sf_a
+            from flashinfer import shuffle_matrix_a, shuffle_matrix_sf_a  # FlashInfer库
 
             # Pad weight N dimension to 128
             weight, _ = pad_nvfp4_weight(
@@ -1454,7 +1505,7 @@ class ModelOptFp4LinearMethod(LinearMethodBase):
             scale = layer.weight_scale
             if scale.shape[0] != weight.shape[0]:
                 pad_n = weight.shape[0] - scale.shape[0]
-                scale = torch.nn.functional.pad(scale, (0, 0, 0, pad_n))
+                scale = torch.nn.functional.pad(scale, (0, 0, 0, pad_n))  # 填充张量
 
             # Pad K dimension: scale K/16 must be multiple of 4
             scale_k = scale.shape[1]  # K/16
@@ -1463,10 +1514,10 @@ class ModelOptFp4LinearMethod(LinearMethodBase):
                 padded_scale_k = round_up_to_multiple(scale_k, 4)
                 pad_scale_k = padded_scale_k - scale_k
                 # Pad scale K/16 dimension
-                scale = torch.nn.functional.pad(scale, (0, pad_scale_k, 0, 0))
+                scale = torch.nn.functional.pad(scale, (0, pad_scale_k, 0, 0))  # 填充张量
                 # Pad weight K/2 dimension correspondingly (K/2 = K/16 * 8)
                 pad_weight_k = pad_scale_k * 8
-                weight = torch.nn.functional.pad(weight, (0, pad_weight_k, 0, 0))
+                weight = torch.nn.functional.pad(weight, (0, pad_weight_k, 0, 0))  # 填充张量
                 # Store K padding for activation padding in apply()
                 weights_padding_cols = pad_weight_k
 
@@ -1501,7 +1552,7 @@ class ModelOptFp4LinearMethod(LinearMethodBase):
         B, M, K = scales.shape
         M_padded = round_up_to_multiple(M, 128)
         K_padded = round_up_to_multiple(K, 4)
-        padded_scales = torch.zeros((B, M_padded, K_padded), dtype=scales.dtype)
+        padded_scales = torch.zeros((B, M_padded, K_padded), dtype=scales.dtype)  # 创建零张量
         padded_scales[:B, :M, :K] = scales
 
         # Snapshot the raw (pre-swizzle) scale BEFORE alias_or_bind_derived_param
@@ -1517,7 +1568,7 @@ class ModelOptFp4LinearMethod(LinearMethodBase):
         assert cols % 4 == 0
         padded_scales = padded_scales.reshape(batches, rows // 128, 4, 32, cols // 4, 4)
         padded_scales = padded_scales.permute((0, 1, 4, 3, 2, 5))
-        padded_scales = padded_scales.contiguous().cuda()
+        padded_scales = padded_scales.contiguous().cuda()  # 确保内存连续
         padded_scales = (
             padded_scales.reshape(M_padded, K_padded)
             if scale_ndim == 2
@@ -1528,7 +1579,7 @@ class ModelOptFp4LinearMethod(LinearMethodBase):
         )
 
         if getattr(layer, "_interleave_for_swiglu_fusion", False):
-            from sglang.srt.layers.quantization.nvfp4_gemm_swiglu_nvfp4_quant import (
+            from sglang.srt.layers.quantization.nvfp4_gemm_swiglu_nvfp4_quant import (  # NVFP4 GEMM SwiGLU量化
                 interleave_linear_and_gate,
                 swizzle_blockscale_2d,
             )
@@ -1564,14 +1615,15 @@ class ModelOptFp4LinearMethod(LinearMethodBase):
 
             # Keep the Parameter objects alive so weight reload can refill
             # them and re-run this hook; free their storage in the meantime.
-            layer.weight.data = torch.empty(
+            layer.weight.data = torch.empty(  # 创建空张量
                 0, dtype=layer.weight.dtype, device=layer.weight.device
             )
-            layer.weight_scale_interleaved.data = torch.empty(
+            layer.weight_scale_interleaved.data = torch.empty(  # 创建空张量
                 0,
                 dtype=layer.weight_scale_interleaved.dtype,
                 device=layer.weight_scale_interleaved.device,
             )
+    # 应用量化变换
 
     def apply(
         self,
@@ -1627,20 +1679,22 @@ class ModelOptFp4LinearMethod(LinearMethodBase):
 
         if bias is not None:
             out = out + bias
-        return out.view(*output_shape)
+        return out.view(*output_shape)  # 返回结果
 
 
+# ModelOpt NVFP4融合MoE量化方法
 class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
     """
        MoE Method for FP4 Quantization with Blockscales and PerTensorScales
     Args:
         quant_config: NVFP4 Quant Config
     """
+    # 初始化方法
 
     def __init__(self, quant_config: ModelOptFp4Config):
         self.quant_config = quant_config
         if not is_blackwell_supported():
-            raise ValueError(
+            raise ValueError(  # 抛出值错误
                 "Current platform does not support NVFP4"
                 " quantization. Please use Blackwell and"
                 " above."
@@ -1653,17 +1707,15 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
 
     @property
     def enable_flashinfer_cutlass_moe(self) -> bool:
-        from sglang.srt.layers.moe import get_moe_runner_backend
+        from sglang.srt.layers.moe import get_moe_runner_backend  # MoE混合专家模块
 
         """Access the global enable_flashinfer_cutlass_moe setting."""
-        return get_moe_runner_backend().is_flashinfer_cutlass()
 
     @property
     def enable_flashinfer_cutedsl_moe(self) -> bool:
         """Access the global enable_flashinfer_cutedsl_moe setting."""
-        from sglang.srt.layers.moe import get_moe_runner_backend
 
-        return get_moe_runner_backend().is_flashinfer_cutedsl()
+        return get_moe_runner_backend().is_flashinfer_cutedsl()  # 返回结果
 
     # ----- CuteDSL v1 vs v2 path helpers -----
     #
@@ -1681,12 +1733,11 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
     @property
     def _is_cutedsl_v1_deepep(self) -> bool:
         """CuteDSL v1 + DeepEP low-latency path (masked grouped GEMM)."""
-        return is_flashinfer_cutedsl_v1_path()
 
     @property
     def _is_cutedsl_v2_standard(self) -> bool:
         """CuteDSL v2 standard path (a2a=none or flashinfer, uses CuteDslMoEWrapper)."""
-        return self.enable_flashinfer_cutedsl_moe and not self._is_cutedsl_v1_deepep
+    # 创建并注册量化权重参数
 
     def create_weights(
         self,
@@ -1698,7 +1749,7 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
         **extra_weight_attrs,
     ):
         if not self.quant_config.is_checkpoint_nvfp4_serialized:
-            raise ValueError(
+            raise ValueError(  # 抛出值错误
                 "NVFP4 quantization was selected, "
                 " dynamic quantization is not supported."
             )
@@ -1715,7 +1766,7 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
         num_shards = 2 if layer.moe_runner_config.is_gated else 1
 
         w13_weight = ModelWeightParameter(
-            data=torch.empty(
+            data=torch.empty(  # 创建空张量
                 layer.num_local_experts,
                 num_shards * intermediate_size_per_partition,
                 # 2 fp4 items are packed in the input dimension
@@ -1726,11 +1777,11 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
             output_dim=2,
             weight_loader=weight_loader,
         )
-        layer.register_parameter("w13_weight", w13_weight)
+        layer.register_parameter("w13_weight", w13_weight)  # 注册层参数
 
         # GEMM 2
         w2_weight = ModelWeightParameter(
-            data=torch.empty(
+            data=torch.empty(  # 创建空张量
                 layer.num_local_experts,
                 hidden_size,
                 # 2 fp4 items are packed in the input dimension
@@ -1741,10 +1792,10 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
             output_dim=2,
             weight_loader=weight_loader,
         )
-        layer.register_parameter("w2_weight", w2_weight)
+        layer.register_parameter("w2_weight", w2_weight)  # 注册层参数
 
         w13_weight_scale = ModelWeightParameter(
-            data=torch.empty(
+            data=torch.empty(  # 创建空张量
                 layer.num_local_experts,
                 num_shards * intermediate_size_per_partition,
                 hidden_size // self.quant_config.group_size,
@@ -1754,15 +1805,15 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
             output_dim=2,
             weight_loader=weight_loader,
         )
-        layer.register_parameter("w13_weight_scale", w13_weight_scale)
+        layer.register_parameter("w13_weight_scale", w13_weight_scale)  # 注册层参数
 
         # Only use `swizzle_blockscale` for shapes, not for real content
         layer.w13_blockscale_swizzled = Parameter(
-            swizzle_blockscale(layer.w13_weight_scale), requires_grad=False
+            swizzle_blockscale(layer.w13_weight_scale), requires_grad=False  # 不可训练
         )
 
         w2_weight_scale = ModelWeightParameter(
-            data=torch.empty(
+            data=torch.empty(  # 创建空张量
                 layer.num_local_experts,
                 hidden_size,
                 intermediate_size_per_partition // self.quant_config.group_size,
@@ -1772,13 +1823,13 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
             output_dim=2,
             weight_loader=weight_loader,
         )
-        layer.register_parameter("w2_weight_scale", w2_weight_scale)
+        layer.register_parameter("w2_weight_scale", w2_weight_scale)  # 注册层参数
 
         layer.w2_blockscale_swizzled = Parameter(
-            swizzle_blockscale(layer.w2_weight_scale), requires_grad=False
+            swizzle_blockscale(layer.w2_weight_scale), requires_grad=False  # 不可训练
         )
 
-        from sglang.srt.layers.moe.fused_moe_triton import FusedMoeWeightScaleSupported
+        from sglang.srt.layers.moe.fused_moe_triton import FusedMoeWeightScaleSupported  # MoE混合专家模块
 
         extra_weight_attrs.update(
             {"quant_method": FusedMoeWeightScaleSupported.BLOCK.value}
@@ -1790,16 +1841,16 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
             else (layer.num_local_experts,)
         )
         w13_weight_scale_2 = PerTensorScaleParameter(
-            data=torch.empty(w13_weight_scale_shape, dtype=torch.float32),
+            data=torch.empty(w13_weight_scale_shape, dtype=torch.float32),  # 创建空张量
             weight_loader=weight_loader,
         )
-        layer.register_parameter("w13_weight_scale_2", w13_weight_scale_2)
+        layer.register_parameter("w13_weight_scale_2", w13_weight_scale_2)  # 注册层参数
 
         w2_weight_scale_2 = PerTensorScaleParameter(
-            data=torch.empty(layer.num_local_experts, dtype=torch.float32),
+            data=torch.empty(layer.num_local_experts, dtype=torch.float32),  # 创建空张量
             weight_loader=weight_loader,
         )
-        layer.register_parameter("w2_weight_scale_2", w2_weight_scale_2)
+        layer.register_parameter("w2_weight_scale_2", w2_weight_scale_2)  # 注册层参数
 
         extra_weight_attrs.update(
             {"quant_method": FusedMoeWeightScaleSupported.TENSOR.value}
@@ -1807,18 +1858,19 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
 
         w13_input_scale_shape = (layer.num_experts, num_shards)
         w13_input_scale = PerTensorScaleParameter(
-            data=torch.empty(w13_input_scale_shape, dtype=torch.float32),
+            data=torch.empty(w13_input_scale_shape, dtype=torch.float32),  # 创建空张量
             weight_loader=weight_loader,
         )
         w13_input_scale._sglang_require_global_experts = True
-        layer.register_parameter("w13_input_scale", w13_input_scale)
+        layer.register_parameter("w13_input_scale", w13_input_scale)  # 注册层参数
 
         w2_input_scale = PerTensorScaleParameter(
-            data=torch.empty(layer.num_experts, dtype=torch.float32),
+            data=torch.empty(layer.num_experts, dtype=torch.float32),  # 创建空张量
             weight_loader=weight_loader,
         )
         w2_input_scale._sglang_require_global_experts = True
-        layer.register_parameter("w2_input_scale", w2_input_scale)
+        layer.register_parameter("w2_input_scale", w2_input_scale)  # 注册层参数
+    # 权重加载后的后处理
 
     def process_weights_after_loading(self, layer: torch.nn.Module) -> None:
         """Process FP4 MoE weights after loading from serialized checkpoint.
@@ -1835,7 +1887,7 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
                     layer.w13_weight_scale_2[:, 0],
                     layer.w13_weight_scale_2[:, 1],
                 ):
-                    logger.warning_once(
+                    logger.warning_once(  # 输出一次性警告
                         "w1_weight_scale_2 must match w3_weight_scale_2. "
                         "Accuracy may be affected."
                     )
@@ -1860,7 +1912,7 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
             def _slice_scale(w):
                 assert w.shape == (layer.num_experts,)
                 assert layer.moe_ep_size * layer.num_local_experts == layer.num_experts
-                return w[
+                return w[  # 返回结果
                     layer.moe_ep_rank
                     * layer.num_local_experts : (layer.moe_ep_rank + 1)
                     * layer.num_local_experts
@@ -1934,7 +1986,7 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
                 ), f"Expected {name}_weight_scale.dim(2) == {expected_blocks[name]}, got {weight_scale.shape[-1]}"
             else:
                 if weight_scale.shape[assert_dim] % 4 != 0:
-                    logger.warning(
+                    logger.warning(  # 输出警告
                         "NVFP4 %s_weight_scale K' not multiple of 4: shape=%s, group_size=%s",
                         name,
                         tuple(weight_scale.shape),
@@ -1950,7 +2002,7 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
             and reorder_rows_for_gated_act_gemm is not None
             and shuffle_matrix_sf_a is not None
         ):
-            from sglang.srt.layers.moe.moe_runner.flashinfer_trtllm import (
+            from sglang.srt.layers.moe.moe_runner.flashinfer_trtllm import (  # MoE混合专家模块
                 align_fp4_moe_weights_for_flashinfer_trtllm,
             )
 
@@ -1969,21 +2021,21 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
                 # 64-row chunks for the fused SwiGLU GEMM1 layout expected by
                 # CuteDslMoEWrapper.  The v1 (deepep) path uses
                 # grouped_gemm_nt_masked which expects plain contiguous halves.
-                from sglang.srt.layers.moe.moe_runner.flashinfer_cutedsl import (
+                from sglang.srt.layers.moe.moe_runner.flashinfer_cutedsl import (  # MoE混合专家模块
                     interleave_w13_halves,
                 )
 
                 layer.w13_weight = Parameter(
                     interleave_w13_halves(
                         layer.w13_weight.view(torch.uint8), group_size=64, dim=1
-                    ).contiguous(),
-                    requires_grad=False,
+                    ).contiguous(),  # 确保内存连续
+                    requires_grad=False,  # 不可训练
                 )
                 layer.w13_weight_scale = Parameter(
                     interleave_w13_halves(
                         layer.w13_weight_scale, group_size=64, dim=1
-                    ).contiguous(),
-                    requires_grad=False,
+                    ).contiguous(),  # 确保内存连续
+                    requires_grad=False,  # 不可训练
                 )
 
             # Process w13 weights
@@ -2008,21 +2060,21 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
                 copy_or_rebind_param(
                     layer,
                     "w13_weight",
-                    torch.nn.functional.pad(
+                    torch.nn.functional.pad(  # 填充张量
                         w13_weight, (0, 0, 0, intermediate_size_pad)
                     ),
                 )
                 copy_or_rebind_param(
                     layer,
                     "w2_weight",
-                    torch.nn.functional.pad(
+                    torch.nn.functional.pad(  # 填充张量
                         layer.w2_weight, (0, intermediate_size_pad // 2, 0, 0)
                     ),
                 )
                 copy_or_rebind_param(
                     layer,
                     "w2_weight_scale",
-                    torch.nn.functional.pad(
+                    torch.nn.functional.pad(  # 填充张量
                         layer.w2_weight_scale, (0, intermediate_size_pad // 16)
                     ),
                 )
@@ -2040,9 +2092,9 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
                 # CuteDSL v2 only: convert blockscales to MMA layout for
                 # CuteDslMoEWrapper.  The v1 (deepep) path uses the
                 # swizzled blockscales directly via flashinfer_cutedsl_moe_masked.
-                from flashinfer.cute_dsl.utils import convert_sf_to_mma_layout
+                from flashinfer.cute_dsl.utils import convert_sf_to_mma_layout  # FlashInfer库
 
-                from sglang.srt.layers.moe.moe_runner.flashinfer_cutedsl import (
+                from sglang.srt.layers.moe.moe_runner.flashinfer_cutedsl import (  # MoE混合专家模块
                     _FP4_SF_VEC_SIZE,
                 )
 
@@ -2054,7 +2106,7 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
                 w2_k = layer.w2_weight.shape[2] * 2
                 layer.w13_blockscale_mma = Parameter(
                     convert_sf_to_mma_layout(
-                        layer.w13_blockscale_swizzled.contiguous()
+                        layer.w13_blockscale_swizzled.contiguous()  # 确保内存连续
                         .view(torch.uint8)
                         .reshape(-1),
                         m=w13_m,
@@ -2062,11 +2114,11 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
                         num_groups=num_local_experts,
                         sf_vec_size=sf_vec_size,
                     ),
-                    requires_grad=False,
+                    requires_grad=False,  # 不可训练
                 )
                 layer.w2_blockscale_mma = Parameter(
                     convert_sf_to_mma_layout(
-                        layer.w2_blockscale_swizzled.contiguous()
+                        layer.w2_blockscale_swizzled.contiguous()  # 确保内存连续
                         .view(torch.uint8)
                         .reshape(-1),
                         m=w2_m,
@@ -2074,7 +2126,7 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
                         num_groups=num_local_experts,
                         sf_vec_size=sf_vec_size,
                     ),
-                    requires_grad=False,
+                    requires_grad=False,  # 不可训练
                 )
 
             # Both flashinfer cutlass and regular cutlass use same processing for w2
@@ -2104,9 +2156,10 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
     def load_up_proj_weight_first(self) -> bool:
         # Load W13 as [Up, Gate] for FlashInfer CUTLASS and CuteDSL v2 kernels.
         # The CuteDSL v1 (deepep) path uses [Gate, Up] -- do NOT flip.
-        return self.moe_runner_config.is_gated and (
+        return self.moe_runner_config.is_gated and (  # 返回结果
             self.enable_flashinfer_cutlass_moe or self._is_cutedsl_v2_standard
         )
+    # 创建MoE运行器
 
     def create_moe_runner(
         self, layer: torch.nn.Module, moe_runner_config: MoeRunnerConfig
@@ -2120,17 +2173,18 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
             moe_runner_backend = MoeRunnerBackend.FLASHINFER_TRTLLM
 
         if moe_runner_backend.is_flashinfer_cutedsl():
-            import sglang.srt.layers.moe.moe_runner.flashinfer_cutedsl  # noqa: F401 – triggers @register_fused_func
+            import sglang.srt.layers.moe.moe_runner.flashinfer_cutedsl  # noqa: F401 – triggers @register_fused_func  # 触发@register_fused_func
 
         if not moe_runner_backend.is_flashinfer_cutlass():
             self.runner = MoeRunner(moe_runner_backend, moe_runner_config)
+    # 应用量化变换
 
     def apply(
         self,
         layer: FusedMoE,
         dispatch_output: StandardDispatchOutput,
     ) -> CombineInput:
-        from sglang.srt.layers.moe.token_dispatcher import StandardCombineInput
+        from sglang.srt.layers.moe.token_dispatcher import StandardCombineInput  # MoE混合专家模块
 
         # Note: dispatch_output may be a DeepEPLLDispatchOutput (no topk_output
         # attribute -- topk_ids/topk_weights live directly on the dispatch
@@ -2145,10 +2199,10 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
 
         # FlashInfer TRTLLM FP4 path
         if self.enable_flashinfer_trtllm_moe and hasattr(layer, "g1_scale_c"):
-            from sglang.srt.layers.moe.moe_runner.flashinfer_trtllm import (
+            from sglang.srt.layers.moe.moe_runner.flashinfer_trtllm import (  # MoE混合专家模块
                 FlashInferTrtllmFp4MoeQuantInfo,
             )
-            from sglang.srt.layers.moe.utils import RoutingMethodType
+            from sglang.srt.layers.moe.utils import RoutingMethodType  # MoE混合专家模块
 
             # Determine routing method type based on layer configuration
             routing_method_type = getattr(
@@ -2171,10 +2225,10 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
                 routing_method_type=routing_method_type,
             )
 
-            return self.runner.run(dispatch_output, quant_info)
+            return self.runner.run(dispatch_output, quant_info)  # 返回结果
 
         if self.enable_flashinfer_cutedsl_moe:
-            from sglang.srt.layers.moe.moe_runner.flashinfer_cutedsl import (
+            from sglang.srt.layers.moe.moe_runner.flashinfer_cutedsl import (  # MoE混合专家模块
                 CuteDslFp4MoeQuantInfo,
                 ensure_cutedsl_wrapper,
             )
@@ -2196,7 +2250,7 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
                         self.runner, "down_gemm_overlap_args", None
                     ),
                 )
-                return self.runner.run(dispatch_output, quant_info)
+                return self.runner.run(dispatch_output, quant_info)  # 返回结果
 
             # v2 standard path (a2a=none/flashinfer): uses CuteDslMoEWrapper
             # with [Up, Gate] interleaved weights and MMA blockscales.
@@ -2217,13 +2271,13 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
                 a2_scale=fc2_input_scale,
                 wrapper=layer._cutedsl_wrapper,
             )
-            return self.runner.run(dispatch_output, quant_info)
+            return self.runner.run(dispatch_output, quant_info)  # 返回结果
 
         if self.enable_flashinfer_cutlass_moe:
-            from sglang.srt.layers.moe.moe_runner.flashinfer_trtllm import (
+            from sglang.srt.layers.moe.moe_runner.flashinfer_trtllm import (  # MoE混合专家模块
                 get_activation_type,
             )
-            from sglang.srt.layers.moe.token_dispatcher import DispatchOutputChecker
+            from sglang.srt.layers.moe.token_dispatcher import DispatchOutputChecker  # MoE混合专家模块
 
             assert (
                 not moe_runner_config.apply_router_weight_on_input
@@ -2264,7 +2318,7 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
                 with use_symmetric_memory(
                     get_tp_group(), disabled=not is_allocation_symmetric()
                 ):
-                    symm_output = torch.empty(
+                    symm_output = torch.empty(  # 创建空张量
                         x.shape[0],
                         output_col,
                         dtype=output_dtype,
@@ -2298,9 +2352,9 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
                 enable_alltoall=get_moe_a2a_backend().is_flashinfer(),
             )[0]
 
-            return StandardCombineInput(hidden_states=output)
+            return StandardCombineInput(hidden_states=output)  # 返回结果
 
-        from sglang.srt.layers.moe.cutlass_moe import cutlass_moe_fp4
+        from sglang.srt.layers.moe.cutlass_moe import cutlass_moe_fp4  # MoE混合专家模块
 
         x = dispatch_output.hidden_states
         topk_output = dispatch_output.topk_output
@@ -2322,4 +2376,4 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
             no_combine=moe_runner_config.no_combine,
         ).to(x.dtype)
         # Scale by routed_scaling_factor is fused into select_experts.
-        return StandardCombineInput(hidden_states=output)
+        return StandardCombineInput(hidden_states=output)  # 返回结果

@@ -1,3 +1,5 @@
+# 词汇并行嵌入层实现：在词汇维度上进行张量并行分割的嵌入层，
+# 支持LoRA添加嵌入、预分片权重、量化方法，以及并行LM头
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 # Adapted from https://github.com/vllm-project/vllm/blob/v0.6.3.post1/vllm/model_executor/layers/vocab_parallel_embedding.py
@@ -42,6 +44,7 @@ from sglang.srt.utils import (
     set_weight_attrs,
 )
 
+# 默认词汇填充大小
 DEFAULT_VOCAB_PADDING_SIZE = 64
 
 _is_cpu_amx_available = cpu_has_amx_support()
@@ -51,11 +54,13 @@ _is_npu = is_npu()
 logger = logging.getLogger(__name__)
 
 
+# 将词汇大小填充到指定值的倍数
 def pad_vocab_size(vocab_size: int, pad_to: int = DEFAULT_VOCAB_PADDING_SIZE) -> int:
     """Pad the vocab size to the given value."""
     return ((vocab_size + pad_to - 1) // pad_to) * pad_to
 
 
+# 根据每个分区的词汇大小计算词汇范围
 def vocab_range_from_per_partition_vocab_size(
     per_partition_vocab_size: int, rank: int, offset: int = 0
 ) -> Sequence[int]:
@@ -64,6 +69,7 @@ def vocab_range_from_per_partition_vocab_size(
     return index_f + offset, index_l + offset
 
 
+# 根据全局词汇大小计算词汇范围
 def vocab_range_from_global_vocab_size(
     global_vocab_size: int, rank: int, world_size: int, offset: int = 0
 ) -> Sequence[int]:
@@ -73,6 +79,7 @@ def vocab_range_from_global_vocab_size(
     )
 
 
+# 词汇并行嵌入的分片索引数据类
 @dataclass
 class VocabParallelEmbeddingShardIndices:
     """Indices for a shard of a vocab parallel embedding."""
@@ -87,35 +94,43 @@ class VocabParallelEmbeddingShardIndices:
     added_vocab_start_index: int
     added_vocab_end_index: int
 
+    # 原始词汇元素数量
     @property
     def num_org_elements(self) -> int:
         return self.org_vocab_end_index - self.org_vocab_start_index
 
+    # 添加的词汇元素数量
     @property
     def num_added_elements(self) -> int:
         return self.added_vocab_end_index - self.added_vocab_start_index
 
+    # 填充后的原始词汇元素数量
     @property
     def num_org_elements_padded(self) -> int:
         return self.padded_org_vocab_end_index - self.padded_org_vocab_start_index
 
+    # 填充后的添加词汇元素数量
     @property
     def num_added_elements_padded(self) -> int:
         return self.padded_added_vocab_end_index - self.padded_added_vocab_start_index
 
+    # 原始词汇填充数量
     @property
     def num_org_vocab_padding(self) -> int:
         return self.num_org_elements_padded - self.num_org_elements
 
+    # 添加词汇填充数量
     @property
     def num_added_vocab_padding(self) -> int:
         return self.num_added_elements_padded - self.num_added_elements
 
+    # 填充后的总元素数量
     @property
     def num_elements_padded(self) -> int:
         return self.num_org_elements_padded + self.num_added_elements_padded
 
     def __post_init__(self):
+        # 完整性检查
         # sanity checks
         assert self.padded_org_vocab_start_index <= self.padded_org_vocab_end_index
         assert self.padded_added_vocab_start_index <= self.padded_added_vocab_end_index
@@ -132,6 +147,7 @@ class VocabParallelEmbeddingShardIndices:
         assert self.num_added_elements <= self.num_added_elements_padded
 
 
+# 获取掩码输入和掩码张量，用于词汇并行嵌入的索引映射
 @torch.compile(dynamic=True, backend=get_compiler_backend(), disable=_is_npu)
 def get_masked_input_and_mask(
     input_: torch.Tensor,
@@ -141,6 +157,7 @@ def get_masked_input_and_mask(
     added_vocab_start_index: int,
     added_vocab_end_index: int,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
+    # torch.compile会将下面所有逐点操作融合为单个内核，使其非常快
     # torch.compile will fuse all of the pointwise ops below
     # into a single kernel, making it very fast
     org_vocab_mask = (input_ >= org_vocab_start_index) & (input_ < org_vocab_end_index)
@@ -160,6 +177,7 @@ def get_masked_input_and_mask(
     return input_, ~vocab_mask
 
 
+# 词汇并行嵌入层：在词汇维度上进行张量并行分割
 class VocabParallelEmbedding(torch.nn.Module):
     """Embedding parallelized in the vocabulary dimension.
 
@@ -216,6 +234,7 @@ class VocabParallelEmbedding(torch.nn.Module):
         super().__init__()
         self.quant_config = quant_config
 
+        # 张量并行配置
         self.enable_tp = enable_tp
         self.use_attn_tp_group = use_attn_tp_group
         if self.enable_tp:
@@ -233,6 +252,7 @@ class VocabParallelEmbedding(torch.nn.Module):
         self.num_embeddings = num_embeddings
         self.org_vocab_size = org_num_embeddings or num_embeddings
 
+        # 支持词汇大小不能被TP大小整除的情况
         # Support the case where the vocab size is not divisible by the TP size.
         if (
             _is_cpu
@@ -241,6 +261,7 @@ class VocabParallelEmbedding(torch.nn.Module):
             padding_size *= self.tp_size
         self.padding_size = padding_size
 
+        # 计算添加的嵌入数量（LoRA等）
         num_added_embeddings = num_embeddings - self.org_vocab_size
         self.use_presharded_weights = use_presharded_weights
         if use_presharded_weights:
@@ -248,6 +269,7 @@ class VocabParallelEmbedding(torch.nn.Module):
                 num_added_embeddings == 0
             ), "Lora is not supported with presharded weights."
 
+        # 计算填充后的词汇大小
         self.org_vocab_size_padded = pad_vocab_size(
             self.org_vocab_size, self.padding_size
         )
@@ -256,6 +278,7 @@ class VocabParallelEmbedding(torch.nn.Module):
         )
         assert self.org_vocab_size_padded <= self.num_embeddings_padded
 
+        # 计算分片索引
         self.shard_indices = self._get_indices(
             self.num_embeddings_padded,
             self.org_vocab_size_padded,
@@ -266,12 +289,15 @@ class VocabParallelEmbedding(torch.nn.Module):
         )
         self.embedding_dim = embedding_dim
 
+        # 获取量化方法
         quant_method = None
         if quant_config is not None:
             quant_method = quant_config.get_quant_method(self, prefix=prefix)
         if quant_method is None:
             quant_method = UnquantizedEmbeddingMethod()
 
+        # 如果正在创建嵌入层，量化线性方法必须实现嵌入操作。
+        # 如果是其他层类型如ParallelLMHead，则不重要。
         # If we are making an embedding layer, then our quantization linear
         # method must implement the embedding operation. If we are another
         # layer type like ParallelLMHead, this is not important.
@@ -289,6 +315,7 @@ class VocabParallelEmbedding(torch.nn.Module):
 
         if params_dtype is None:
             params_dtype = torch.get_default_dtype()
+        # 沿词汇维度分割权重矩阵
         # Divide the weight matrix along the vocaburaly dimension.
         self.num_added_embeddings = self.num_embeddings - self.org_vocab_size
         self.num_embeddings_per_partition = divide(
@@ -306,6 +333,7 @@ class VocabParallelEmbedding(torch.nn.Module):
             - self.shard_indices.added_vocab_start_index
         )
 
+        # 创建量化权重
         self.quant_method.create_weights(
             self,
             self.embedding_dim,
@@ -316,6 +344,7 @@ class VocabParallelEmbedding(torch.nn.Module):
             weight_loader=self.weight_loader,
         )
 
+    # 获取词汇并行嵌入的分片索引
     @classmethod
     def _get_indices(
         cls,
@@ -338,6 +367,7 @@ class VocabParallelEmbedding(torch.nn.Module):
                 num_added_embeddings_padded, tp_rank, tp_size, offset=org_vocab_size
             )
         )
+        # 去除填充
         # remove padding
         org_vocab_start_index = min(padded_org_vocab_start_index, org_vocab_size)
         org_vocab_end_index = min(padded_org_vocab_end_index, org_vocab_size)
@@ -354,6 +384,7 @@ class VocabParallelEmbedding(torch.nn.Module):
             added_vocab_end_index,
         )
 
+    # 获取分片到完整映射，用于重新索引收集后的logits以进行采样
     def get_sharded_to_full_mapping(self) -> Optional[List[int]]:
         """Get a mapping that can be used to reindex the gathered
         logits for sampling.
@@ -371,6 +402,7 @@ class VocabParallelEmbedding(torch.nn.Module):
         base_embeddings: List[int] = []
         added_embeddings: List[int] = []
         padding: List[int] = []
+        # 遍历所有TP秩，构建索引映射
         for tp_rank in range(self.tp_size):
             shard_indices = self._get_indices(
                 self.num_embeddings_padded,
@@ -382,15 +414,18 @@ class VocabParallelEmbedding(torch.nn.Module):
             )
             range_start = self.num_embeddings_per_partition * tp_rank
             range_end = self.num_embeddings_per_partition * (tp_rank + 1)
+            # 基础嵌入索引
             base_embeddings.extend(
                 range(range_start, range_start + shard_indices.num_org_elements)
             )
+            # 填充索引
             padding.extend(
                 range(
                     range_start + shard_indices.num_org_elements,
                     range_start + shard_indices.num_org_elements_padded,
                 )
             )
+            # 添加嵌入索引
             added_embeddings.extend(
                 range(
                     range_start + shard_indices.num_org_elements_padded,
@@ -399,6 +434,7 @@ class VocabParallelEmbedding(torch.nn.Module):
                     + shard_indices.num_added_elements,
                 )
             )
+            # 添加嵌入的填充索引
             padding.extend(
                 range(
                     range_start
@@ -415,14 +451,17 @@ class VocabParallelEmbedding(torch.nn.Module):
                 + shard_indices.num_added_elements_padded
                 == range_end
             )
+        # 合并映射：基础嵌入 + 添加嵌入 + 填充
         ret = base_embeddings + added_embeddings + padding
         assert len(ret) == self.num_embeddings_padded
         return ret
 
+    # 权重加载器：从加载的权重中分片加载到参数
     def weight_loader(self, param: Parameter, loaded_weight: torch.Tensor):
         output_dim = getattr(param, "output_dim", None)
         packed_dim = getattr(param, "packed_dim", None)
 
+        # 如果参数是gguf权重类型，直接加载
         # If the parameter is a gguf weight, then load it directly.
         if getattr(param, "is_gguf_weight_type", None):
             param.data.copy_(loaded_weight)
@@ -434,6 +473,8 @@ class VocabParallelEmbedding(torch.nn.Module):
                 shape[output_dim] = shape[output_dim] // self.tp_size
             param.materialize(tuple(shape), dtype=loaded_weight.dtype)
 
+        # 如果参数没有输出维度，则应复制到所有GPU上
+        # （例如act_order gptq的g_idx）
         # If parameter does not have output dim, then it should
         # be copied onto all gpus (e.g. g_idx for act_order gptq).
         if output_dim is None:
@@ -441,10 +482,12 @@ class VocabParallelEmbedding(torch.nn.Module):
             param.data.copy_(loaded_weight)
             return
 
+        # 分片索引用于加载权重
         # Shard indexes for loading the weight
         start_idx = self.shard_indices.org_vocab_start_index
         shard_size = self.shard_indices.org_vocab_end_index - start_idx
 
+        # 如果参数在分片维度上被打包，需要根据pack_factor调整偏移量
         # If param packed on the same dim we are sharding on, then
         # need to adjust offsets of loaded weight by pack_factor.
         if packed_dim is not None and packed_dim == output_dim:
@@ -464,14 +507,18 @@ class VocabParallelEmbedding(torch.nn.Module):
                 // (self.tp_size if self.use_presharded_weights else 1)
             ), f"{self.org_vocab_size=} {self.use_presharded_weights=} {loaded_weight.shape[output_dim]=}"
 
+        # 复制数据
         # Copy the data.
         if not self.use_presharded_weights:
             loaded_weight = loaded_weight.narrow(output_dim, start_idx, shard_size)
         param[: loaded_weight.shape[0]].data.copy_(loaded_weight)
+        # 将剩余部分填充为0
         param[loaded_weight.shape[0] :].data.fill_(0)
 
+    # 前向传播：根据输入ID查找嵌入
     def forward(self, input_):
         if self.tp_size > 1:
+            # 构建掩码
             # Build the mask.
             masked_input, input_mask = get_masked_input_and_mask(
                 input_,
@@ -484,6 +531,7 @@ class VocabParallelEmbedding(torch.nn.Module):
         else:
             masked_input = input_
 
+        # 获取嵌入
         # Get the embeddings.
         with use_symmetric_memory(
             get_tp_group(), disabled=not is_allocation_symmetric()
@@ -491,16 +539,19 @@ class VocabParallelEmbedding(torch.nn.Module):
             output_parallel = self.quant_method.embedding(self, masked_input.long())
 
         if self.tp_size > 1:
+            # 掩码输出嵌入
             # Mask the output embedding.
             output_parallel.masked_fill_(input_mask.unsqueeze(-1), 0)
             if not get_attn_tp_context().input_scattered:
                 if self.use_attn_tp_group:
                     output_parallel = attn_tp_all_reduce(output_parallel)
                 else:
+                    # 在所有模型并行GPU上进行归约
                     # Reduce across all the model parallel GPUs.
                     output_parallel = tensor_model_parallel_all_reduce(output_parallel)
         return output_parallel
 
+    # 模块额外表示信息
     def extra_repr(self) -> str:
         s = f"num_embeddings={self.num_embeddings_per_partition}"
         s += f", embedding_dim={self.embedding_dim}"
@@ -511,6 +562,7 @@ class VocabParallelEmbedding(torch.nn.Module):
         return s
 
 
+# 并行LM头：用于采样器的输出logits权重矩阵
 class ParallelLMHead(VocabParallelEmbedding):
     """Parallelized LM head.
 
@@ -554,6 +606,7 @@ class ParallelLMHead(VocabParallelEmbedding):
         )
         self.quant_config = quant_config
 
+        # 仅在未量化时支持打包LM头
         # We only support pack LMHead if it's not quantized.
         if _is_cpu and _is_cpu_amx_available:
             if hasattr(self, "weight") and self.weight.dtype in [
@@ -562,6 +615,7 @@ class ParallelLMHead(VocabParallelEmbedding):
             ]:
                 self.quant_method = PackWeightMethod(weight_names=["weight"])
 
+        # 偏置参数
         if bias:
             self.bias = Parameter(
                 torch.empty(self.num_embeddings_per_partition, dtype=params_dtype)
@@ -576,8 +630,10 @@ class ParallelLMHead(VocabParallelEmbedding):
         else:
             self.register_parameter("bias", None)
 
+    # 绑定词嵌入权重
     def tie_weights(self, embed_tokens: VocabParallelEmbedding):
         """Tie the weights with word embeddings."""
+        # GGUF量化的嵌入token
         # GGUF quantized embed_tokens.
         if self.quant_config and self.quant_config.get_name() == "gguf":
             return embed_tokens
@@ -585,6 +641,7 @@ class ParallelLMHead(VocabParallelEmbedding):
             self.weight = embed_tokens.weight
             return self
 
+    # LM头的前向传播：不应直接调用，权重应在采样器中使用
     def forward(self, input_):
         del input_
         raise RuntimeError("LMHead's weights should be used in the sampler.")

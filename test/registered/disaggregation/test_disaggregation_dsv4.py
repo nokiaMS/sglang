@@ -1,3 +1,4 @@
+# 文件名: test_disaggregation_dsv4.py - DeepSeek V4分离式部署测试
 import unittest
 
 from sglang.test.ci.ci_register import register_cuda_ci
@@ -39,6 +40,7 @@ class TestDisaggregationDSV4(PDDisaggregationServerBase, GSM8KMixin):
     gsm8k_accuracy_thres = 0.93
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
 
@@ -53,6 +55,7 @@ class TestDisaggregationDSV4(PDDisaggregationServerBase, GSM8KMixin):
         cls.launch_lb()
 
     @classmethod
+    # 执行startprefill
     def start_prefill(cls):
         prefill_args = [
             "--trust-remote-code",
@@ -87,6 +90,7 @@ class TestDisaggregationDSV4(PDDisaggregationServerBase, GSM8KMixin):
         )
 
     @classmethod
+    # 执行startdecode
     def start_decode(cls):
         decode_args = [
             "--trust-remote-code",

@@ -1,3 +1,7 @@
+# 新Token比率追踪器
+# 追踪和管理新token比率（new_token_ratio），用于调度时预估prefill请求产生的token数量。
+# 支持衰减步进、重置以及在请求回退后的比率重新估算。
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -12,6 +16,8 @@ if TYPE_CHECKING:
 
 @dataclass(slots=True, kw_only=True)
 class NewTokenRatioTracker:
+    """新Token比率追踪器，管理调度时预估新token产生的比率"""
+
     init: float
     min: float
     decay: float
@@ -19,6 +25,7 @@ class NewTokenRatioTracker:
 
     @classmethod
     def from_server_args(cls, server_args: ServerArgs) -> "NewTokenRatioTracker":
+        """从服务器参数创建追踪器实例，计算初始值、最小值和衰减步长"""
         init = min(
             envs.SGLANG_INIT_NEW_TOKEN_RATIO.get()
             * server_args.schedule_conservativeness,
@@ -32,13 +39,16 @@ class NewTokenRatioTracker:
         return cls(init=init, min=min_ratio, decay=decay, current=init)
 
     def decay_step(self) -> None:
+        """执行一步衰减，将当前比率向最小值靠近"""
         self.current = max(self.current - self.decay, self.min)
 
     def reset(self) -> None:
+        """重置当前比率为初始值"""
         self.current = self.init
 
     @staticmethod
     def estimate_new_token_ratio_after_retract(reqs: Sequence[Req]) -> float:
+        """在请求回退后估算新的token比率，基于已解码token和最大新token数的比例"""
         total_decoded_tokens = sum(len(r.output_ids) for r in reqs)
         total_max_new_tokens = sum(r.sampling_params.max_new_tokens for r in reqs)
 

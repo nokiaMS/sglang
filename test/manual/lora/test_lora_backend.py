@@ -1,3 +1,4 @@
+# 文件名: test_lora_backend.py - 测试LoRA多后端（Triton/CUDA等）的正确性
 # Copyright 2023-2024 SGLang Team
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -31,6 +32,7 @@ from sglang.test.test_utils import CustomTestCase, is_in_ci
 
 class TestLoRABackend(CustomTestCase):
 
+    # 在指定后端上运行LoRA测试
     def _run_backend_on_model_cases(self, model_cases: List[LoRAModelCase]):
         for model_case in model_cases:
             # If skip_long_prompt is True, filter out prompts longer than 1000 characters
@@ -49,9 +51,11 @@ class TestLoRABackend(CustomTestCase):
                         backend=backend,
                     )
 
+    # 测试ci lora models功能
     def test_ci_lora_models(self):
         self._run_backend_on_model_cases(CI_LORA_MODELS)
 
+    # 测试all lora models功能
     def test_all_lora_models(self):
         if is_in_ci():
             return
@@ -59,7 +63,7 @@ class TestLoRABackend(CustomTestCase):
         # Retain ONLY_RUN check here
         filtered_models = []
         for model_case in ALL_OTHER_LORA_MODELS:
-            if "ONLY_RUN" in os.environ and os.environ["ONLY_RUN"] != model_case.base:
+            if "ONLY_RUN" in os.environ and os.environ["ONLY_RUN"] != model_case.base:  # 设置环境变量
                 continue
             filtered_models.append(model_case)
 

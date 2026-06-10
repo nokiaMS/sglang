@@ -1,3 +1,4 @@
+# 文件名: test_reasoner_grammar_backend.py - 推理器语法后端
 import os
 import unittest
 from types import SimpleNamespace
@@ -19,37 +20,54 @@ register_cpu_ci(2.0, "base-a-test-cpu")
 register_cpu_ci(est_time=7, suite="base-b-test-cpu")
 
 
+# _DummyTokenizer类
 class _DummyTokenizer:
+
+    # _DummyTokenizer类的初始化
     def __init__(self, token_map):
         self._token_map = token_map
 
+    # _DummyTokenizer类的encode
     def encode(self, text, add_special_tokens=False):
         return list(self._token_map.get(text, []))
 
 
+# _DummyGrammarBackend类
 class _DummyGrammarBackend(BaseGrammarBackend):
+
+    # _DummyGrammarBackend类的初始化
     def __init__(self, support_token_filter=True):
         super().__init__()
         self._support_token_filter = support_token_filter
         self._dispatch_result = None
 
     @property
+
+    # _DummyGrammarBackend类的is_support_token_filter
     def is_support_token_filter(self):
         return self._support_token_filter
 
     @staticmethod
+
+    # _DummyGrammarBackend类的allocate_vocab_mask
     def allocate_vocab_mask(vocab_size, batch_size, device):
         return torch.zeros((batch_size, (vocab_size + 31) // 32), dtype=torch.int32)
 
     @staticmethod
+
+    # _DummyGrammarBackend类的move_vocab_mask
     def move_vocab_mask(vocab_mask, device):
         return vocab_mask
 
     @staticmethod
+
+    # _DummyGrammarBackend类的apply_vocab_mask
     def apply_vocab_mask(logits, vocab_mask):
         return None
 
     @staticmethod
+
+    # _DummyGrammarBackend类的set_token_filter
     def set_token_filter(
         vocab_mask, token_ids, batch_idx, is_allowed=True, reset_vocab_mask=True
     ):
@@ -57,10 +75,12 @@ class _DummyGrammarBackend(BaseGrammarBackend):
             vocab_mask, token_ids, batch_idx, is_allowed, reset_vocab_mask
         )
 
+    # _DummyGrammarBackend类的内部方法_init_value_dispatch
     def _init_value_dispatch(self, key, reasoning):
         return self._dispatch_result
 
 
+# 内部方法_allowed_token_ids
 def _allowed_token_ids(vocab_mask, token_ids):
     allowed = []
     for token_id in token_ids:
@@ -71,7 +91,10 @@ def _allowed_token_ids(vocab_mask, token_ids):
     return allowed
 
 
+# TestReasonerGrammarObject类
 class TestReasonerGrammarObject(unittest.TestCase):
+
+    # TestReasonerGrammarObject类的内部方法_make_strict_object
     def _make_strict_object(self):
         return ReasonerGrammarObject(
             grammar=None,
@@ -87,6 +110,7 @@ class TestReasonerGrammarObject(unittest.TestCase):
             apply_vocab_mask_fn=lambda logits, vocab_mask: None,
         )
 
+    # TestReasonerGrammarObject类的测试strictthinkingphaseexcludesconfiguredtokens
     def test_strict_thinking_phase_excludes_configured_tokens(self):
         obj = self._make_strict_object()
         obj.maybe_init_reasoning(True)
@@ -95,8 +119,9 @@ class TestReasonerGrammarObject(unittest.TestCase):
         obj.fill_vocab_mask(mask, 0)
 
         allowed = _allowed_token_ids(mask, [0, 1, 3, 5, 7, 8])
-        self.assertEqual(allowed, [0, 1, 7, 8])
+        self.assertEqual(allowed, [0, 1, 7, 8])  # 断言相等
 
+    # TestReasonerGrammarObject类的测试budgetexhaustionallowsonlythinkend
     def test_budget_exhaustion_allows_only_think_end(self):
         obj = self._make_strict_object()
         obj.maybe_init_reasoning(True)
@@ -107,27 +132,33 @@ class TestReasonerGrammarObject(unittest.TestCase):
         obj.fill_vocab_mask(mask, 0)
 
         allowed = _allowed_token_ids(mask, [0, 1, 3, 5, 7, 8, 10, 11])
-        self.assertEqual(allowed, [7])
+        self.assertEqual(allowed, [7])  # 断言相等
 
+    # TestReasonerGrammarObject类的测试strictonlywrapperexposesbackendmaskhooks
     def test_strict_only_wrapper_exposes_backend_mask_hooks(self):
         obj = self._make_strict_object()
         mask = obj.allocate_vocab_mask(64, 2, "cpu")
 
-        self.assertEqual(mask.shape, (2, 2))
-        self.assertIs(obj.move_vocab_mask(mask, "cpu"), mask)
-        self.assertIsNotNone(obj.apply_vocab_mask)
+        self.assertEqual(mask.shape, (2, 2))  # 断言相等
+        self.assertIs(obj.move_vocab_mask(mask, "cpu"), mask)  # 断言是同一对象
+        self.assertIsNotNone(obj.apply_vocab_mask)  # 断言不为None
 
 
+# TestReasonerGrammarBackend类
 class TestReasonerGrammarBackend(unittest.TestCase):
+
+    # TestReasonerGrammarBackend类的测试初始化设置
     def setUp(self):
         self._prev_budget = os.environ.get("SGLANG_MAX_THINK_TOKENS")
 
+    # TestReasonerGrammarBackend类的测试清理
     def tearDown(self):
         if self._prev_budget is None:
             os.environ.pop("SGLANG_MAX_THINK_TOKENS", None)
         else:
             os.environ["SGLANG_MAX_THINK_TOKENS"] = self._prev_budget
 
+    # TestReasonerGrammarBackend类的内部方法_make_parser
     def _make_parser(self):
         detector = SimpleNamespace(
             think_start_token="<think>",
@@ -136,6 +167,7 @@ class TestReasonerGrammarBackend(unittest.TestCase):
         )
         return SimpleNamespace(detector=detector)
 
+    # TestReasonerGrammarBackend类的内部方法_make_tokenizer
     def _make_tokenizer(self, start_ids=None, end_ids=None):
         return _DummyTokenizer(
             {
@@ -146,6 +178,7 @@ class TestReasonerGrammarBackend(unittest.TestCase):
             }
         )
 
+    # TestReasonerGrammarBackend类的测试initstrictreasoninggrammarusestokenfilterandbudget
     def test_init_strict_reasoning_grammar_uses_token_filter_and_budget(self):
         os.environ["SGLANG_MAX_THINK_TOKENS"] = "2"
         backend = _DummyGrammarBackend(support_token_filter=True)
@@ -159,10 +192,11 @@ class TestReasonerGrammarBackend(unittest.TestCase):
         obj = reasoner.init_strict_reasoning_grammar(reasoning=True)
 
         self.assertIsInstance(obj, ReasonerGrammarObject)
-        self.assertTrue(obj.enable_token_filter)
-        self.assertEqual(obj.max_think_tokens, 2)
-        self.assertEqual(obj.think_excluded_token_ids, [3, 4])
+        self.assertTrue(obj.enable_token_filter)  # 断言为真
+        self.assertEqual(obj.max_think_tokens, 2)  # 断言相等
+        self.assertEqual(obj.think_excluded_token_ids, [3, 4])  # 断言相等
 
+    # TestReasonerGrammarBackend类的测试initstrictreasoninggrammarnonewhenstrictdisabled
     def test_init_strict_reasoning_grammar_none_when_strict_disabled(self):
         backend = _DummyGrammarBackend(support_token_filter=True)
         reasoner = ReasonerGrammarBackend(
@@ -172,8 +206,9 @@ class TestReasonerGrammarBackend(unittest.TestCase):
             enable_strict_thinking=False,
         )
 
-        self.assertIsNone(reasoner.init_strict_reasoning_grammar(reasoning=True))
+        self.assertIsNone(reasoner.init_strict_reasoning_grammar(reasoning=True))  # 断言为None
 
+    # TestReasonerGrammarBackend类的测试wrapsinnergrammarwithreasoningstatemachine
     def test_wraps_inner_grammar_with_reasoning_state_machine(self):
         os.environ["SGLANG_MAX_THINK_TOKENS"] = "1"
         backend = _DummyGrammarBackend(support_token_filter=True)
@@ -194,6 +229,7 @@ class TestReasonerGrammarBackend(unittest.TestCase):
         wrapped.accept_token(42)
         inner_grammar.accept_token.assert_called_once_with(42)
 
+    # TestReasonerGrammarBackend类的测试acceptsmultitokenthinkstartmarker
     def test_accepts_multi_token_think_start_marker(self):
         """think_start_token can be multi-token (e.g., GPT-OSS) since it's not used."""
         backend = _DummyGrammarBackend(support_token_filter=True)
@@ -203,8 +239,9 @@ class TestReasonerGrammarBackend(unittest.TestCase):
             self._make_tokenizer(start_ids=[1, 2]),
             enable_strict_thinking=True,
         )
-        self.assertIsNotNone(reasoner)
+        self.assertIsNotNone(reasoner)  # 断言不为None
 
+    # TestReasonerGrammarBackend类的测试rejectsmultitokenthinkendmarker
     def test_rejects_multi_token_think_end_marker(self):
         backend = _DummyGrammarBackend(support_token_filter=True)
 
@@ -216,6 +253,7 @@ class TestReasonerGrammarBackend(unittest.TestCase):
                 enable_strict_thinking=True,
             )
 
+    # TestReasonerGrammarBackend类的测试rejectsunencodableexcludedtoken
     def test_rejects_unencodable_excluded_token(self):
         backend = _DummyGrammarBackend(support_token_filter=True)
         parser = self._make_parser()
@@ -235,6 +273,7 @@ class TestReasonerGrammarBackend(unittest.TestCase):
                 enable_strict_thinking=True,
             )
 
+    # TestReasonerGrammarBackend类的测试strictmodefailswhenbackendlackstokenfilter
     def test_strict_mode_fails_when_backend_lacks_token_filter(self):
         backend = _DummyGrammarBackend(support_token_filter=False)
 
@@ -247,6 +286,7 @@ class TestReasonerGrammarBackend(unittest.TestCase):
             )
 
 
+# TestReasonerGrammarObjectRollback类
 class TestReasonerGrammarObjectRollback(unittest.TestCase):
     """Tests for rollback correctness at the THINKING→GENERATION boundary."""
 
@@ -268,6 +308,7 @@ class TestReasonerGrammarObjectRollback(unittest.TestCase):
         )
         return obj, inner_grammar
 
+    # TestReasonerGrammarObjectRollback类的测试rollbackatgenerationboundaryreturnstothinking
     def test_rollback_at_generation_boundary_returns_to_thinking(self):
         obj, inner_grammar = self._make_object_with_mock_grammar()
         obj.maybe_init_reasoning(True)
@@ -278,17 +319,18 @@ class TestReasonerGrammarObjectRollback(unittest.TestCase):
         obj.accept_token(12)
         obj.accept_token(7)  # think_end_id → tokens_after_end = 0
 
-        self.assertTrue(obj._is_generation())
-        self.assertEqual(obj.tokens_after_end, 0)
+        self.assertTrue(obj._is_generation())  # 断言为真
+        self.assertEqual(obj.tokens_after_end, 0)  # 断言相等
 
         # Rollback 1 step: should return to THINKING
         obj.rollback(1)
-        self.assertTrue(obj._is_thinking())
-        self.assertEqual(obj.tokens_in_think, 3)
-        self.assertEqual(obj.tokens_after_end, -1)
+        self.assertTrue(obj._is_thinking())  # 断言为真
+        self.assertEqual(obj.tokens_in_think, 3)  # 断言相等
+        self.assertEqual(obj.tokens_after_end, -1)  # 断言相等
         # Grammar should not have been rolled back (no generation tokens were accepted)
         inner_grammar.rollback.assert_not_called()
 
+    # TestReasonerGrammarObjectRollback类的测试rollbackspanningbothphases
     def test_rollback_spanning_both_phases(self):
         obj, inner_grammar = self._make_object_with_mock_grammar()
         obj.maybe_init_reasoning(True)
@@ -301,15 +343,16 @@ class TestReasonerGrammarObjectRollback(unittest.TestCase):
         obj.accept_token(21)  # gen 2
         obj.accept_token(22)  # gen 3
 
-        self.assertEqual(obj.tokens_after_end, 3)
+        self.assertEqual(obj.tokens_after_end, 3)  # 断言相等
 
         # Rollback 5: should roll back 3 generation tokens + think_end + 1 thinking token
         obj.rollback(5)
-        self.assertTrue(obj._is_thinking())
-        self.assertEqual(obj.tokens_in_think, 1)
+        self.assertTrue(obj._is_thinking())  # 断言为真
+        self.assertEqual(obj.tokens_in_think, 1)  # 断言相等
         # Grammar should be rolled back by 3 (only generation tokens)
         inner_grammar.rollback.assert_called_once_with(3)
 
+    # TestReasonerGrammarObjectRollback类的测试rollbackgenerationtokensonly
     def test_rollback_generation_tokens_only(self):
         obj, inner_grammar = self._make_object_with_mock_grammar()
         obj.maybe_init_reasoning(True)
@@ -321,10 +364,11 @@ class TestReasonerGrammarObjectRollback(unittest.TestCase):
 
         # Rollback 1: should only roll back 1 generation token
         obj.rollback(1)
-        self.assertTrue(obj._is_generation())
-        self.assertEqual(obj.tokens_after_end, 1)
+        self.assertTrue(obj._is_generation())  # 断言为真
+        self.assertEqual(obj.tokens_after_end, 1)  # 断言相等
         inner_grammar.rollback.assert_called_once_with(1)
 
+    # TestReasonerGrammarObjectRollback类的测试rollbackthinkingtokensdoesnottouchgrammar
     def test_rollback_thinking_tokens_does_not_touch_grammar(self):
         obj, inner_grammar = self._make_object_with_mock_grammar()
         obj.maybe_init_reasoning(True)
@@ -334,11 +378,12 @@ class TestReasonerGrammarObjectRollback(unittest.TestCase):
         obj.accept_token(12)
 
         obj.rollback(2)
-        self.assertTrue(obj._is_thinking())
-        self.assertEqual(obj.tokens_in_think, 1)
+        self.assertTrue(obj._is_thinking())  # 断言为真
+        self.assertEqual(obj.tokens_in_think, 1)  # 断言相等
         inner_grammar.rollback.assert_not_called()
         inner_grammar.accept_token.assert_not_called()
 
+    # TestReasonerGrammarObjectRollback类的测试copypreservesstate
     def test_copy_preserves_state(self):
         obj, inner_grammar = self._make_object_with_mock_grammar()
         obj.maybe_init_reasoning(True)
@@ -347,17 +392,18 @@ class TestReasonerGrammarObjectRollback(unittest.TestCase):
         obj.accept_token(7)  # think_end_id → GENERATION
         obj.accept_token(20)
 
-        self.assertEqual(obj.tokens_in_think, 1)
-        self.assertEqual(obj.tokens_after_end, 1)
+        self.assertEqual(obj.tokens_in_think, 1)  # 断言相等
+        self.assertEqual(obj.tokens_after_end, 1)  # 断言相等
 
         copy = obj.copy()
         # State counters must be preserved for speculative decoding
-        self.assertEqual(copy.tokens_in_think, 1)
-        self.assertEqual(copy.tokens_after_end, 1)
-        self.assertTrue(copy._is_generation())
-        self.assertIsNotNone(copy.grammar)
+        self.assertEqual(copy.tokens_in_think, 1)  # 断言相等
+        self.assertEqual(copy.tokens_after_end, 1)  # 断言相等
+        self.assertTrue(copy._is_generation())  # 断言为真
+        self.assertIsNotNone(copy.grammar)  # 断言不为None
         inner_grammar.copy.assert_called_once()
 
+    # TestReasonerGrammarObjectRollback类的测试copypreservesthinkingstate
     def test_copy_preserves_thinking_state(self):
         obj, inner_grammar = self._make_object_with_mock_grammar()
         obj.maybe_init_reasoning(True)
@@ -366,11 +412,12 @@ class TestReasonerGrammarObjectRollback(unittest.TestCase):
         obj.accept_token(11)
 
         copy = obj.copy()
-        self.assertEqual(copy.tokens_in_think, 2)
-        self.assertEqual(copy.tokens_after_end, -1)
-        self.assertTrue(copy._is_thinking())
+        self.assertEqual(copy.tokens_in_think, 2)  # 断言相等
+        self.assertEqual(copy.tokens_after_end, -1)  # 断言相等
+        self.assertTrue(copy._is_thinking())  # 断言为真
 
 
+# TestReasonerGrammarObjectFillVocabMask类
 class TestReasonerGrammarObjectFillVocabMask(unittest.TestCase):
     """Tests for fill_vocab_mask behavior in different states."""
 
@@ -402,8 +449,9 @@ class TestReasonerGrammarObjectFillVocabMask(unittest.TestCase):
         inner_grammar.fill_vocab_mask.assert_not_called()
         # Excluded tokens (3, 5) should be blocked
         allowed = _allowed_token_ids(mask, [0, 1, 3, 5, 7, 8])
-        self.assertEqual(allowed, [0, 1, 7, 8])
+        self.assertEqual(allowed, [0, 1, 7, 8])  # 断言相等
 
+    # TestReasonerGrammarObjectFillVocabMask类的测试generationphaseconsultsinnergrammar
     def test_generation_phase_consults_inner_grammar(self):
         inner_grammar = MagicMock()
         inner_grammar.allocate_vocab_mask.side_effect = lambda vs, bs, d: torch.zeros(
@@ -431,6 +479,7 @@ class TestReasonerGrammarObjectFillVocabMask(unittest.TestCase):
 
         inner_grammar.fill_vocab_mask.assert_called_once_with(mask, 0)
 
+    # TestReasonerGrammarObjectFillVocabMask类的测试nonstrictthinkingisnoop
     def test_non_strict_thinking_is_noop(self):
         inner_grammar = MagicMock()
         obj = ReasonerGrammarObject(
@@ -448,7 +497,7 @@ class TestReasonerGrammarObjectFillVocabMask(unittest.TestCase):
 
         inner_grammar.fill_vocab_mask.assert_not_called()
         # Mask should remain all zeros (no filtering)
-        self.assertTrue(torch.all(mask == 0))
+        self.assertTrue(torch.all(mask == 0))  # 断言为真
 
 
 if __name__ == "__main__":

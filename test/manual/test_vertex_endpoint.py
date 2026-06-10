@@ -1,3 +1,4 @@
+# 文件名: test_vertex_endpoint.py - Vertex端点测试 - 验证Vertex AI兼容的generate端点
 """
 python3 -m unittest test_vertex_endpoint.TestVertexEndpoint.test_vertex_generate
 """
@@ -19,6 +20,7 @@ from sglang.test.test_utils import (
 
 class TestVertexEndpoint(CustomTestCase):
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         cls.model = DEFAULT_SMALL_MODEL_NAME_FOR_TEST
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -30,9 +32,11 @@ class TestVertexEndpoint(CustomTestCase):
         )
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 运行生成 - 发送生成请求并返回结果
     def run_generate(self, parameters):
         data = {
             "instances": [
@@ -46,10 +50,12 @@ class TestVertexEndpoint(CustomTestCase):
         assert len(response_json["predictions"]) == len(data["instances"])
         return response_json
 
+    # 测试vertex generate
     def test_vertex_generate(self):
         for parameters in [None, {"sampling_params": {"max_new_tokens": 4}}]:
             self.run_generate(parameters)
 
+    # 测试vertex generate fail
     def test_vertex_generate_fail(self):
         data = {
             "instances": [

@@ -1,3 +1,4 @@
+# 本文件管理分布式并行状态，包括张量并行、流水线并行、专家并行等进程组的初始化与通信操作
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 # Adapted from https://github.com/vllm-project/vllm/blob/v0.6.4.post1/vllm/distributed/parallel_state.py
@@ -20,8 +21,8 @@ The typical workflow is:
 - call `destroy_distributed_environment` to destroy the distributed environment.
 
 If you only need to use the distributed environment without model/pipeline
- parallelism, you can skip the model parallel initialization and destruction
- steps.
+parallelism, you can skip the model parallel initialization and destruction
+steps.
 """
 
 import contextlib
@@ -60,26 +61,29 @@ from sglang.srt.utils import (
 from sglang.srt.utils.custom_op import register_custom_op
 from sglang.srt.utils.network import get_local_ip_auto
 
+# 判断当前硬件平台类型
 _is_npu = is_npu()
 _is_cpu = is_cpu()
 _is_xpu = is_xpu()
 _is_musa = is_musa()
 
+# 张量元数据命名元组，包含设备、数据类型和大小
 TensorMetadata = namedtuple("TensorMetadata", ["device", "dtype", "size"])
 
-# use int value instead of ReduceOp.SUM to support torch compile
+# 使用整数值而非ReduceOp.SUM以支持torch compile
 REDUCE_OP_SUM = int(torch.distributed.ReduceOp.SUM)
 
-# Reuse the user-provided distributed timeout for model-parallel subgroup
-# creation so runtime collectives do not silently fall back to backend defaults.
+# 复用用户提供的分布式超时时间用于模型并行子组创建，
+# 避免运行时集合操作静默回退到后端默认值
 _MODEL_PARALLEL_GROUP_TIMEOUT: Optional[timedelta] = None
 
 
+# 获取PyTorch分布式进程组的选项配置（主要用于NPU/HCCL后端）
 def get_torch_distributed_pg_options(group_name=None):
     if not _is_npu:
         return None
 
-    # Only create HCCL options for default group or MoE-related groups
+    # 仅为默认组或MoE相关组创建HCCL选项
     if group_name is not None and "moe" not in group_name:
         return None
 
@@ -93,17 +97,20 @@ def get_torch_distributed_pg_options(group_name=None):
     return options
 
 
+# CUDA图捕获上下文，包含捕获所用的流
 @dataclass
 class GraphCaptureContext:
     stream: torch.get_device_module().Stream
 
 
+# 点对点通信的工作对象，包含异步操作和负载数据
 @dataclass
 class P2PWork:
     work: Optional[torch.distributed.Work]
     payload: Optional[torch.Tensor]
 
 
+# 将张量字典拆分为元数据列表和张量列表
 def _split_tensor_dict(
     tensor_dict: Dict[str, Union[torch.Tensor, Any]],
 ) -> Tuple[List[Tuple[str, Any]], List[torch.Tensor]]:
@@ -116,10 +123,9 @@ def _split_tensor_dict(
     tensor_list: List[torch.Tensor] = []
     for key, value in tensor_dict.items():
         if isinstance(value, torch.Tensor):
-            # Note: we cannot use `value.device` here,
-            # because it contains not only the device type but also the device
-            # index (e.g. "cuda:0"). We only need the device type.
-            # receiving side will set the device index.
+            # 注意：此处不能使用 `value.device`，
+            # 因为它不仅包含设备类型还包含设备索引（如"cuda:0"）。
+            # 我们只需要设备类型，接收端会设置设备索引。
             device = value.device.type
             metadata_list.append(
                 (key, TensorMetadata(device, value.dtype, value.size()))
@@ -130,9 +136,11 @@ def _split_tensor_dict(
     return metadata_list, tensor_list
 
 
+# 组名计数器，用于生成唯一组名
 _group_name_counter: Dict[str, int] = {}
 
 
+# 获取组的唯一名称，确保不同组不会重名
 def _get_unique_name(name: str) -> str:
     """Get a unique name for the group.
     Example:
@@ -146,13 +154,16 @@ def _get_unique_name(name: str) -> str:
     return newname
 
 
+# 全局组注册表，存储组名到组协调器的弱引用映射
 _groups: Dict[str, Callable[[], Optional["GroupCoordinator"]]] = {}
 
 
+# 注册组协调器到全局注册表
 def _register_group(group: "GroupCoordinator") -> None:
     _groups[group.unique_name] = weakref.ref(group)
 
 
+# 原地全归约操作的自定义算子，注册为可拆分操作
 @register_custom_op(mutates_args=["tensor"])
 @register_split_op()
 def inplace_all_reduce(tensor: torch.Tensor, group_name: str) -> None:
@@ -163,6 +174,7 @@ def inplace_all_reduce(tensor: torch.Tensor, group_name: str) -> None:
     group._all_reduce_in_place(tensor)
 
 
+# 非原地全归约操作的自定义算子，返回新的张量
 @register_custom_op(out_shape="tensor")
 def outplace_all_reduce(
     tensor: torch.Tensor, group_name: str, outplace_all_reduce_method: str
@@ -174,6 +186,7 @@ def outplace_all_reduce(
     return group._all_reduce_out_place(tensor, outplace_all_reduce_method)
 
 
+# 全归并（all-gather）到张量的自定义算子
 @register_custom_op(mutates_args=["output"])
 def reg_all_gather_into_tensor(
     output: torch.Tensor, input: torch.Tensor, group_name: str
@@ -185,6 +198,7 @@ def reg_all_gather_into_tensor(
     group._all_gather_into_tensor(output, input)
 
 
+# 规约散射（reduce-scatter）到张量的自定义算子
 @register_custom_op(mutates_args=["output"])
 def reg_reduce_scatter_tensor(
     output: torch.Tensor, input: torch.Tensor, group_name: str
@@ -196,6 +210,7 @@ def reg_reduce_scatter_tensor(
     group._reduce_scatter_tensor(output, input)
 
 
+# 组协调器类，封装PyTorch进程组，管理组内所有通信操作
 class GroupCoordinator:
     """
     PyTorch ProcessGroup wrapper for a group of processes.
@@ -207,36 +222,37 @@ class GroupCoordinator:
         based on the tensor size and cuda graph mode).
     """
 
-    # available attributes:
-    rank: int  # global rank
-    ranks: List[int]  # global ranks in the group
-    world_size: int  # size of the group
-    # difference between `local_rank` and `rank_in_group`:
-    # if we have a group of size 4 across two nodes:
-    # Process | Node | Rank | Local Rank | Rank in Group
+    # 可用属性：
+    rank: int  # 全局秩
+    ranks: List[int]  # 组内全局秩列表
+    world_size: int  # 组大小
+    # `local_rank` 和 `rank_in_group` 的区别：
+    # 如果有跨两个节点的4进程组：
+    # 进程 | 节点 | 全局秩 | 本地秩 | 组内秩
     #   0     |   0  |  0   |     0      |       0
     #   1     |   0  |  1   |     1      |       1
     #   2     |   1  |  2   |     0      |       2
     #   3     |   1  |  3   |     1      |       3
-    local_rank: int  # local rank used to assign devices
-    rank_in_group: int  # rank inside the group
-    cpu_group: ProcessGroup  # group for CPU communication
-    device_group: ProcessGroup  # group for device communication
-    use_pynccl: bool  # a hint of whether to use PyNccl
-    use_pymscclpp: bool  # a hint of whether to use PyMsccl
-    use_custom_allreduce: bool  # a hint of whether to use CustomAllreduce
+    local_rank: int  # 本地秩，用于分配设备
+    rank_in_group: int  # 组内秩
+    cpu_group: ProcessGroup  # CPU通信组
+    device_group: ProcessGroup  # 设备通信组
+    use_pynccl: bool  # 是否使用PyNccl的提示
+    use_pymscclpp: bool  # 是否使用PyMsccl的提示
+    use_custom_allreduce: bool  # 是否使用自定义全归约的提示
     use_torch_symm_mem_all_reduce: (
-        bool  # a hint of whether to use TorchSymmMemAllReduce
+        bool  # 是否使用TorchSymmMemAllReduce的提示
     )
     use_message_queue_broadcaster: (
-        bool  # a hint of whether to use message queue broadcaster
+        bool  # 是否使用消息队列广播器的提示
     )
-    # communicators are only created for world size > 1
-    pynccl_comm: Optional[Any]  # PyNccl communicator
-    ca_comm: Optional[Any]  # Custom allreduce communicator
-    torch_symm_mem_comm: Optional[Any]  # Torch symm mem communicator
-    mq_broadcaster: Optional[Any]  # shared memory broadcaster
+    # 通信器仅在世界大小>1时创建
+    pynccl_comm: Optional[Any]  # PyNccl通信器
+    ca_comm: Optional[Any]  # 自定义全归约通信器
+    torch_symm_mem_comm: Optional[Any]  # Torch对称内存通信器
+    mq_broadcaster: Optional[Any]  # 共享内存广播器
 
+    # 初始化组协调器，设置组信息、秩信息、通信器等
     def __init__(
         self,
         group_ranks: List[List[int]],
@@ -254,18 +270,19 @@ class GroupCoordinator:
         gloo_timeout: timedelta = timedelta(seconds=120 * 60),
         recovered_rank: bool = False,
     ):
-        # Set group info
+        # 设置组信息
         group_name = group_name or "anonymous"
         self.unique_name = _get_unique_name(group_name)
         _register_group(self)
 
-        # Set rank info
+        # 设置秩信息
         self.rank = torch.distributed.get_rank()
         self.local_rank = local_rank
         self.device_group = None
         self.cpu_group = None
         self.local_size = get_int_env_var("LOCAL_SIZE", 0)
 
+        # 根据硬件平台设置设备
         if is_cuda_alike():
             device_id = (
                 0 if envs.SGLANG_ONE_VISIBLE_DEVICE_PER_PROCESS.get() else local_rank
@@ -281,10 +298,12 @@ class GroupCoordinator:
             self.device = torch.device("cpu")
         self.device_module = torch.get_device_module(self.device)
 
+        # 为每个秩列表创建设备组和CPU组
         for ranks in group_ranks:
             active_ranks = torch.ones(len(ranks), dtype=torch.int32, device=self.device)
             active_ranks_cpu = torch.ones(len(ranks), dtype=torch.int32)
             subgroup_timeout = _MODEL_PARALLEL_GROUP_TIMEOUT
+            # Mooncake后端使用特殊的进程组选项
             if "mooncake" in torch_distributed_backend:
                 from mooncake.ep import MooncakeBackendOptions
 
@@ -308,11 +327,11 @@ class GroupCoordinator:
                     pg_options=pg_options,
                     timeout=subgroup_timeout,
                 )
-                # a group with `gloo` backend, to allow direct coordination
-                # between processes through the CPU.
+                # 使用 `gloo` 后端的组，允许进程间直接通过CPU协调
                 cpu_group = torch.distributed.new_group(
                     ranks, backend="gloo", timeout=gloo_timeout
                 )
+            # 找到当前进程所属的组
             if self.rank in ranks:
                 self.ranks = ranks
                 self.world_size = len(ranks)
@@ -325,7 +344,7 @@ class GroupCoordinator:
         assert self.cpu_group is not None
         assert self.device_group is not None
 
-        # Import communicators
+        # 导入通信器
         self.use_pynccl = use_pynccl
         self.use_pymscclpp = use_pymscclpp
         self.use_custom_allreduce = use_custom_allreduce
@@ -335,7 +354,7 @@ class GroupCoordinator:
         self.use_npu_communicator = use_npu_communicator
         self.use_message_queue_broadcaster = use_message_queue_broadcaster
 
-        # Lazy import to avoid documentation build error
+        # 延迟导入以避免文档构建错误
         from sglang.srt.distributed.device_communicators.custom_all_reduce import (
             dispatch_custom_allreduce,
         )
@@ -359,12 +378,14 @@ class GroupCoordinator:
         self.use_symmetric_memory = use_symmetric_memory
         self.is_allocation_symmetric = is_allocation_symmetric
         self.debug_check_symmetric_mempool = debug_check_symmetric_mempool
+        # HIP（AMD ROCm）平台特有的快速全归约
         if is_hip():
             from sglang.srt.distributed.device_communicators.quick_all_reduce import (
                 QuickAllReduce,
                 qr_rocm_arch_available,
             )
 
+        # 初始化PyNccl通信器
         self.pynccl_comm: Optional[PyNcclCommunicator] = None
         if use_pynccl and self.world_size > 1:
             self.pynccl_comm = PyNcclCommunicator(
@@ -372,6 +393,7 @@ class GroupCoordinator:
                 device=self.device,
             )
 
+        # 初始化PyMscclpp通信器
         self.pymscclpp_comm: Optional[PyMscclppCommunicator] = None
         if use_pymscclpp and self.world_size > 1:
             self.pymscclpp_comm = PyMscclppCommunicator(
@@ -379,10 +401,11 @@ class GroupCoordinator:
                 device=self.device,
             )
 
+        # 初始化自定义全归约通信器和快速全归约通信器
         self.ca_comm: Optional[Any] = None
         self.qr_comm: Optional[QuickAllReduce] = None
         if use_custom_allreduce and self.world_size > 1:
-            # Initialize a custom fast all-reduce implementation.
+            # 初始化自定义快速全归约实现
             try:
                 CAClass = dispatch_custom_allreduce(
                     group=self.cpu_group,
@@ -398,12 +421,12 @@ class GroupCoordinator:
                     "warning, specify --disable-custom-all-reduce explicitly."
                 )
 
+            # AMD ROCm平台：当rocm >= gfx942时初始化快速全归约
             if is_hip():
                 try:
-                    # Initialize a custom quick all-reduce implementation for AMD
-                    # when rocm >= gfx942. Quick reduce is designed as a
-                    # complement to custom allreduce.
-                    # Based on quickreduce (https://github.com/mk1-project/quickreduce).
+                    # 当rocm >= gfx942时，初始化AMD特有的自定义快速全归约实现。
+                    # 快速归约设计为自定义全归约的补充。
+                    # 基于quickreduce (https://github.com/mk1-project/quickreduce)。
                     if qr_rocm_arch_available():
                         self.qr_comm = QuickAllReduce(
                             group=self.cpu_group, device=self.device
@@ -413,6 +436,7 @@ class GroupCoordinator:
         elif self.world_size > 1 and is_hip():
             logger.info("[AR] All-reduce call path: NCCL (custom AR disabled)")
 
+        # 初始化Torch对称内存通信器
         self.torch_symm_mem_comm: Optional[TorchSymmMemCommunicator] = None
         if self.use_torch_symm_mem_all_reduce and self.world_size > 1:
             self.torch_symm_mem_comm = TorchSymmMemCommunicator(
@@ -420,7 +444,7 @@ class GroupCoordinator:
                 device=self.device,
             )
 
-        # Create communicator for other hardware backends
+        # 为其他硬件后端创建通信器
         from sglang.srt.distributed.device_communicators.hpu_communicator import (
             HpuCommunicator,
         )
@@ -431,30 +455,35 @@ class GroupCoordinator:
             XpuCommunicator,
         )
 
+        # HPU通信器
         self.hpu_communicator: Optional[HpuCommunicator] = None
         if use_hpu_communicator and self.world_size > 1:
             self.hpu_communicator = HpuCommunicator(group=self.device_group)
 
+        # XPU通信器
         self.xpu_communicator: Optional[XpuCommunicator] = None
         if use_xpu_communicator and self.world_size > 1:
             self.xpu_communicator = XpuCommunicator(group=self.device_group)
 
+        # NPU通信器
         self.npu_communicator: Optional[NpuCommunicator] = None
         if use_npu_communicator and self.world_size > 1:
             self.npu_communicator = NpuCommunicator(group=self.device_group)
 
-        # Create message queue
+        # 创建消息队列广播器
         from sglang.srt.distributed.device_communicators.shm_broadcast import (
             MessageQueue,
         )
 
+        # 恢复的秩在elastic_ep.py中创建自己的mq_broadcaster
         self.mq_broadcaster: Optional[MessageQueue] = None
         if use_message_queue_broadcaster and self.world_size > 1 and not recovered_rank:
-            # Recovered ranks create their mq_broadcaster in elastic_ep.py
+            # 恢复的秩在elastic_ep.py中创建其mq_broadcaster
             self.mq_broadcaster = MessageQueue.create_from_process_group(
                 self.cpu_group, 1 << 22, 6
             )
 
+    # 返回组协调器的字符串表示
     def __repr__(self):
         return (
             f"ranks={self.ranks} rank={self.rank} local_rank={self.local_rank} use_pynccl={self.use_pynccl} "
@@ -462,26 +491,31 @@ class GroupCoordinator:
             f"world_size={self.world_size} rank_in_group={self.rank_in_group}"
         )
 
+    # 返回组内第一个进程的全局秩
     @property
     def first_rank(self):
         """Return the global rank of the first process in the group"""
         return self.ranks[0]
 
+    # 返回组内最后一个进程的全局秩
     @property
     def last_rank(self):
         """Return the global rank of the last process in the group"""
         return self.ranks[-1]
 
+    # 判断当前进程是否为组内第一个进程
     @property
     def is_first_rank(self):
         """Return whether the caller is the first process in the group"""
         return self.rank == self.first_rank
 
+    # 判断当前进程是否为组内最后一个进程
     @property
     def is_last_rank(self):
         """Return whether the caller is the last process in the group"""
         return self.rank == self.last_rank
 
+    # 返回当前进程在组内的下一个进程的全局秩
     @property
     def next_rank(self):
         """Return the global rank of the process that follows the caller"""
@@ -489,6 +523,7 @@ class GroupCoordinator:
         world_size = self.world_size
         return self.ranks[(rank_in_group + 1) % world_size]
 
+    # 返回当前进程在组内的上一个进程的全局秩
     @property
     def prev_rank(self):
         """Return the global rank of the process that precedes the caller"""
@@ -496,6 +531,7 @@ class GroupCoordinator:
         world_size = self.world_size
         return self.ranks[(rank_in_group - 1) % world_size]
 
+    # CUDA图捕获的上下文管理器，确保图捕获期间通信操作正确
     @contextmanager
     def graph_capture(
         self,
@@ -508,41 +544,35 @@ class GroupCoordinator:
             graph_capture_context = GraphCaptureContext(stream)
         else:
             stream = graph_capture_context.stream
-        # We don't need the context of custom quick allreduce because the ipc access
-        # is already collected in init() and we can capture the quick allreduce directly.
+        # 我们不需要自定义快速全归约的上下文，因为ipc访问已在init()中收集，
+        # 我们可以直接捕获快速全归约。
         ca_comm = self.ca_comm
         maybe_ca_context = nullcontext() if ca_comm is None else ca_comm.capture()
 
-        # ensure all initialization operations complete before attempting to
-        # capture the graph on another stream
+        # 确保所有初始化操作在尝试于另一个流上捕获图之前完成
         curr_stream = get_current_device_stream_fast()
         if curr_stream != stream:
             stream.wait_stream(curr_stream)
 
         with self.device_module.stream(stream), maybe_ca_context:
-            # In graph mode, we have to be very careful about the collective
-            # operations. The current status is:
-            #     allreduce \ Mode   |  Eager  |  Graph  |
+            # 在图模式下，我们必须非常注意集合操作。当前状态为：
+            #     allreduce \ 模式   |  即时  |  图  |
             # --------------------------------------------
-            # quick allreduce        | enabled | enabled |
-            # custom allreduce       | enabled | enabled |
-            # PyNccl                 | disabled| enabled |
-            # PyMscclpp              | disabled| enabled |
-            # TorchSymmMem           | disabled| enabled |
-            # torch.distributed      | enabled | disabled|
+            # quick allreduce        | 启用 | 启用 |
+            # custom allreduce       | 启用 | 启用 |
+            # PyNccl                 | 禁用| 启用 |
+            # PyMscclpp              | 禁用| 启用 |
+            # TorchSymmMem           | 禁用| 启用 |
+            # torch.distributed      | 启用 | 禁用|
             #
-            # Note: When custom quick allreduce is enabled, a runtime check
-            #  will be performed. If the tensor size is too small, it will
-            #  automatically fall back to the next available option.
-            # Note that custom allreduce will have a runtime check, if the
-            #  tensor size is too large, it will fallback to the next
-            #  available option.
-            # Note that the PyMsccl needs to register the tensor in ahead,
-            #  which will introduce large overhead in the eager case,
-            #  therefore it is only supported in the graph case.
-            # In summary: We select the appropriate allreduce method for
-            #  each mode based on the algorithm order in the table and
-            #  their usage conditions.
+            # 注意：当自定义快速全归约启用时，会进行运行时检查。
+            # 如果张量大小太小，会自动回退到下一个可用选项。
+            # 注意自定义全归约会有运行时检查，如果张量大小太大，
+            # 会回退到下一个可用选项。
+            # 注意PyMsccl需要提前注册张量，这在即时模式下会引入较大开销，
+            # 因此仅在图模式下支持。
+            # 总结：我们根据表中的算法顺序及其使用条件，
+            # 为每种模式选择合适的全归约方法。
             pynccl_comm = self.pynccl_comm
             maybe_pynccl_context: Any
             if not pynccl_comm:
@@ -559,6 +589,7 @@ class GroupCoordinator:
             with maybe_pynccl_context, maybe_pymscclpp_context:
                 yield graph_capture_context
 
+    # 用户面向的全归约函数，在实际调用全归约操作之前进行方法选择
     def all_reduce(self, input_: torch.Tensor) -> torch.Tensor:
         """
         User-facing all-reduce function before we actually call the
@@ -574,10 +605,11 @@ class GroupCoordinator:
         a new tensor in the same op. So we need to figure out if the op is
         in-place or out-of-place ahead of time.
         """
-        # Bypass the function if we are using only 1 GPU.
+        # 如果只使用1个GPU，则跳过此函数
         if self.world_size == 1:
             return input_
 
+        # CPU张量的全归约处理
         if input_.is_cpu:
             if is_shm_available(input_.dtype, self.world_size, self.local_size):
                 torch.ops.sgl_kernel.shm_allreduce(input_, REDUCE_OP_SUM)
@@ -585,21 +617,26 @@ class GroupCoordinator:
                 torch.distributed.all_reduce(input_, group=self.device_group)
             return input_
 
+        # HPU通信器处理
         if self.hpu_communicator is not None and not self.hpu_communicator.disabled:
             return self.hpu_communicator.all_reduce(input_)
 
+        # XPU通信器处理
         if self.xpu_communicator is not None and not self.xpu_communicator.disabled:
             return self.xpu_communicator.all_reduce(input_)
 
+        # NPU通信器处理
         if self.npu_communicator is not None and not self.npu_communicator.disabled:
             return self.npu_communicator.all_reduce(input_)
 
+        # 对称内存模式下使用PyNccl
         if self.pynccl_comm is not None and self.is_symmetric_memory_enabled():
             self.debug_check_symmetric_mempool(self, {"input": input_}, "all_reduce")
             with self.pynccl_comm.change_state(enable=True):
                 self.pynccl_comm.all_reduce(input_)
                 return input_
 
+        # 根据可用通信器选择非原地全归约方法
         outplace_all_reduce_method = None
         if (
             self.ca_comm is not None
@@ -626,7 +663,7 @@ class GroupCoordinator:
         ):
             outplace_all_reduce_method = "torch_symm_mem"
         elif is_in_piecewise_cuda_graph() and self.pynccl_comm is not None:
-            # For piecewise cuda graph, we use pynccl outplace allreduce
+            # 对于分段CUDA图，使用pynccl非原地全归约
             outplace_all_reduce_method = "pynccl"
         if outplace_all_reduce_method is not None:
             return outplace_all_reduce(
@@ -638,11 +675,12 @@ class GroupCoordinator:
             inplace_all_reduce(input_, group_name=self.unique_name)
             return input_
 
+    # 量化全归约操作（仅NPU支持）
     def quant_all_reduce(self, input_: torch.Tensor) -> torch.Tensor:
         """
         User-facing quant-all-reduce function similar to all-reduce. (NPU support only)
         """
-        # Bypass the function if we are using only 1 GPU.
+        # 如果只使用1个GPU，则跳过此函数
         if self.world_size == 1:
             return input_
 
@@ -652,6 +690,7 @@ class GroupCoordinator:
             inplace_all_reduce(input_, group_name=self.unique_name)
             return input_
 
+    # 融合全归约+RMSNorm操作（仅ROCm/HIP）
     def fused_allreduce_rmsnorm(
         self,
         input_: torch.Tensor,
@@ -664,25 +703,24 @@ class GroupCoordinator:
         if ca_comm is None or getattr(ca_comm, "disabled", True):
             return None
 
-        # Prefer communicator-native fused API when provided.
+        # 优先使用通信器原生融合API
         if hasattr(ca_comm, "fused_allreduce_rmsnorm"):
             try:
                 return ca_comm.fused_allreduce_rmsnorm(
                     input_, residual_inp_, weight_, eps
                 )
             except Exception:
-                # Fall back to custom_fused_ar_rms path below.
+                # 回退到custom_fused_ar_rms路径
                 pass
 
         if not hasattr(ca_comm, "custom_fused_ar_rms"):
             return None
 
-        # 1-stage vs 2-stage selection for fused AR+RMSNorm:
-        # The 1-stage kernel launches one block per token and is capped at
-        # 80 tokens (kMaxBlocks).  Guard with a byte threshold so large
-        # prefill batches fall through to the 2-stage kernel instead of
-        # hitting a runtime error.  AITER's C++ dispatch already gates
-        # which hidden_dims have valid 1-stage support.
+        # 融合AR+RMSNorm的1阶段与2阶段选择：
+        # 1阶段内核每个token启动一个块，上限为80个token（kMaxBlocks）。
+        # 使用字节阈值进行保护，使大型预填充批次回退到2阶段内核，
+        # 而不是遇到运行时错误。AITER的C++调度已经限制了
+        # 哪些hidden_dims有有效的1阶段支持。
         if envs.SGLANG_USE_1STAGE_ALLREDUCE.is_set():
             use_1stage_ar = envs.SGLANG_USE_1STAGE_ALLREDUCE.get()
         else:
@@ -698,6 +736,7 @@ class GroupCoordinator:
         )
         return fused_outputs
 
+    # 非原地全归约的内部实现，根据方法名分派到不同通信器
     def _all_reduce_out_place(
         self, input_: torch.Tensor, outplace_all_reduce_method: str
     ) -> torch.Tensor:
@@ -725,6 +764,7 @@ class GroupCoordinator:
         assert out is not None
         return out
 
+    # 原地全归约的内部实现
     def _all_reduce_in_place(self, input_: torch.Tensor) -> None:
         pynccl_comm = self.pynccl_comm
         torch_symm_mem_comm = self.torch_symm_mem_comm
@@ -735,6 +775,7 @@ class GroupCoordinator:
         else:
             torch.distributed.all_reduce(input_, group=self.device_group)
 
+    # 规约散射的内部实现
     def _reduce_scatter_tensor(
         self,
         output: torch.Tensor,
@@ -755,21 +796,24 @@ class GroupCoordinator:
             )
         return output
 
+    # 用户面向的规约散射操作
     def reduce_scatter_tensor(self, output: torch.Tensor, input: torch.Tensor):
         if _is_npu:
             self._reduce_scatter_tensor(output, input)
         else:
             reg_reduce_scatter_tensor(output, input, group_name=self.unique_name)
 
+    # 规约散射操作（列表输入版本）
     def reduce_scatter(
         self,
         output: torch.Tensor,
         input_list: List[torch.Tensor],
     ) -> None:
-        # TODO(ch-wan): support other backends
+        # TODO(ch-wan): 支持其他后端
         torch.distributed.reduce_scatter(output, input_list, group=self.device_group)
         return output
 
+    # 可变大小的规约散射操作
     def reduce_scatterv(
         self,
         input_: torch.Tensor,
@@ -803,6 +847,7 @@ class GroupCoordinator:
             pynccl_comm.reduce_scatter(output, input_, sizes=sizes)
             return output
 
+    # 全归并到张量的内部实现
     def _all_gather_into_tensor(self, output: torch.Tensor, input: torch.Tensor):
         pynccl_comm = self.pynccl_comm
         if pynccl_comm is not None and (
@@ -818,12 +863,14 @@ class GroupCoordinator:
                 output, input, group=self.device_group
             )
 
+    # 用户面向的全归并到张量操作
     def all_gather_into_tensor(self, output: torch.Tensor, input: torch.Tensor):
         if _is_npu or _is_xpu:
             self._all_gather_into_tensor(output, input)
         else:
             reg_all_gather_into_tensor(output, input, group_name=self.unique_name)
 
+    # 上下文并行异步全归并操作，消除CPU侧同步阻塞
     def cp_all_gather_into_tensor_async(
         self, output: torch.Tensor, input: torch.Tensor, stream: torch.cuda.Stream
     ):
@@ -839,6 +886,7 @@ class GroupCoordinator:
         else:
             pynccl_comm.cp_all_gather_into_tensor(output, input, stream=stream)
 
+    # 全归并操作，支持沿指定维度拼接
     def all_gather(
         self,
         input_: torch.Tensor,
@@ -846,7 +894,7 @@ class GroupCoordinator:
         output_tensor_list: Optional[List[torch.Tensor]] = None,
     ) -> torch.Tensor:
         world_size = self.world_size
-        # Bypass the function if we are using only 1 GPU.
+        # 如果只使用1个GPU，则跳过此函数
         if world_size == 1:
             if output_tensor_list is not None:
                 logger.warning(
@@ -859,7 +907,7 @@ class GroupCoordinator:
                 return input_
 
         if output_tensor_list is not None:
-            # TODO(ch-wan): support other backends
+            # TODO(ch-wan): 支持其他后端
             return torch.distributed.all_gather(
                 output_tensor_list, input_, group=self.device_group
             )
@@ -868,25 +916,25 @@ class GroupCoordinator:
             -input_.dim() <= dim < input_.dim()
         ), f"Invalid dim ({dim}) for input tensor with shape {input_.size()}"
 
-        # For HPUs, use HPU communicator.
+        # 对于HPU，使用HPU通信器
         hpu_comm = self.hpu_communicator
         if hpu_comm is not None and not hpu_comm.disabled:
             return hpu_comm.all_gather(input_, dim)
 
-        # For NPUs, use NPU communicator.
+        # 对于NPU，使用NPU通信器
         npu_comm = self.npu_communicator
         if npu_comm is not None and not npu_comm.disabled:
             return npu_comm.all_gather(input_, dim)
 
         if dim < 0:
-            # Convert negative dim to positive.
+            # 将负维度转换为正维度
             dim += input_.dim()
         input_size = input_.size()
-        # NOTE: we have to use concat-style all-gather here,
-        # stack-style all-gather has compatibility issues with
-        # torch.compile . see https://github.com/pytorch/pytorch/issues/138795
+        # 注意：我们必须使用拼接风格的全归并，
+        # 堆叠风格的全归并与torch.compile有兼容性问题。
+        # 参见 https://github.com/pytorch/pytorch/issues/138795
         output_size = (input_size[0] * world_size,) + input_size[1:]
-        # Allocate output tensor.
+        # 分配输出张量
         with self.use_symmetric_memory(
             self, disabled=not self.is_allocation_symmetric()
         ):
@@ -894,7 +942,7 @@ class GroupCoordinator:
                 output_size, dtype=input_.dtype, device=input_.device
             )
 
-        # All-gather.
+        # 执行全归并
         if input_.is_cpu:
             if is_shm_available(input_.dtype, self.world_size, self.local_size):
                 return torch.ops.sgl_kernel.shm_allgather(input_, dim)
@@ -905,7 +953,7 @@ class GroupCoordinator:
         else:
             self.all_gather_into_tensor(output_tensor, input_)
 
-        # Reshape
+        # 重塑输出张量以匹配指定维度
         output_tensor = output_tensor.reshape((world_size,) + input_size)
         output_tensor = output_tensor.movedim(0, dim)
         output_tensor = output_tensor.reshape(
@@ -913,6 +961,7 @@ class GroupCoordinator:
         )
         return output_tensor
 
+    # 可变大小的全归并操作，支持每个秩不同大小和张量列表输入
     def all_gatherv(
         self,
         input_: Union[torch.Tensor, List[torch.Tensor]],
@@ -930,6 +979,7 @@ class GroupCoordinator:
                 pynccl_comm is not None and not pynccl_comm.disabled
             ), "pynccl is required for all_gatherv"
 
+            # 为全归并分配输出张量的内部函数
             def _all_gather_allocate_output(
                 input_: torch.Tensor, sizes: Optional[List[int]] = None
             ):
@@ -938,12 +988,12 @@ class GroupCoordinator:
                     assert len(sizes) == world_size
                     assert input_.shape[0] == sizes[self.rank_in_group]
                     output_size = (sum(sizes),) + input_size[1:]
-                    # 'sizes' is not needed if all inputs in the same group have the same shape
+                    # 如果同一组内所有输入形状相同，则不需要'sizes'
                     if all(s == sizes[0] for s in sizes):
                         sizes = None
                 else:
                     output_size = (input_size[0] * world_size,) + input_size[1:]
-                # Allocate output tensor.
+                # 分配输出张量
                 with self.use_symmetric_memory(self, disabled=sizes is not None):
                     output_tensor = torch.empty(
                         output_size, dtype=input_.dtype, device=input_.device
@@ -960,6 +1010,7 @@ class GroupCoordinator:
                 output_list.append(output_tensor)
                 size_list.append(s)
 
+            # 批量执行全归并以提高效率
             pynccl_comm.group_start()
             for i, inp in enumerate(input_):
                 pynccl_comm.all_gather(output_list[i], inp, sizes=size_list[i])
@@ -967,6 +1018,7 @@ class GroupCoordinator:
 
             return output_list
 
+    # 收集操作，将所有秩的张量收集到目标秩
     def gather(
         self, input_: torch.Tensor, dst: int = 0, dim: int = -1
     ) -> Optional[torch.Tensor]:
@@ -976,23 +1028,23 @@ class GroupCoordinator:
         NOTE: `dst` is the local rank of the destination rank.
         """
         world_size = self.world_size
-        # Bypass the function if we are using only 1 GPU.
+        # 如果只使用1个GPU，则跳过此函数
         if world_size == 1:
             return input_
         assert (
             -input_.dim() <= dim < input_.dim()
         ), f"Invalid dim ({dim}) for input tensor with shape {input_.size()}"
         if dim < 0:
-            # Convert negative dim to positive.
+            # 将负维度转换为正维度
             dim += input_.dim()
         if self.xpu_communicator is not None and not self.xpu_communicator.disabled:
             return self.xpu_communicator.gather(input_, self.rank_in_group, dst, dim)
-        # Allocate output tensor.
+        # 分配输出张量
         if self.rank_in_group == dst:
             gather_list = [torch.empty_like(input_) for _ in range(world_size)]
         else:
             gather_list = None
-        # Gather.
+        # 执行收集操作
         torch.distributed.gather(
             input_, gather_list, dst=self.ranks[dst], group=self.device_group
         )
@@ -1002,45 +1054,51 @@ class GroupCoordinator:
             output_tensor = None
         return output_tensor
 
+    # 广播张量到组内所有进程
     def broadcast(self, input_: torch.Tensor, src: int = 0):
         """Broadcast the input tensor.
         NOTE: `src` is the local rank of the source rank.
         """
         assert src < self.world_size, f"Invalid src rank ({src})"
 
-        # Bypass the function if we are using only 1 GPU.
+        # 如果只使用1个GPU，则跳过此函数
         if self.world_size == 1:
             return input_
-        # Broadcast.
+        # 执行广播操作
         torch.distributed.broadcast(
             input_, src=self.ranks[src], group=self.device_group
         )
         return input_
 
+    # 广播Python对象到组内所有进程
     def broadcast_object(self, obj: Optional[Any] = None, src: int = 0):
         """Broadcast the input object.
         NOTE: `src` is the local rank of the source rank.
         """
         assert src < self.world_size, f"Invalid src rank ({src})"
 
-        # Bypass the function if we are using only 1 GPU.
+        # 如果只使用1个GPU，则跳过此函数
         if self.world_size == 1:
             return obj
+        # 使用消息队列广播器（仅支持src=0）
         if self.mq_broadcaster is not None:
             assert src == 0, "Message queue broadcaster only supports src=0"
             return self.mq_broadcaster.broadcast_object(obj)
+        # 发送端：广播对象列表
         if self.rank_in_group == src:
             torch.distributed.broadcast_object_list(
                 [obj], src=self.ranks[src], group=self.cpu_group
             )
             return obj
         else:
+            # 接收端：接收广播的对象列表
             recv = [None]
             torch.distributed.broadcast_object_list(
                 recv, src=self.ranks[src], group=self.cpu_group
             )
             return recv[0]
 
+    # 广播对象列表到组内所有进程
     def broadcast_object_list(
         self, obj_list: List[Any], src: int = 0, group: Optional[ProcessGroup] = None
     ):
@@ -1049,20 +1107,22 @@ class GroupCoordinator:
         """
         assert src < self.world_size, f"Invalid src rank ({src})"
 
-        # Bypass the function if we are using only 1 GPU.
+        # 如果只使用1个GPU，则跳过此函数
         if self.world_size == 1:
             return obj_list
-        # Broadcast.
+        # 执行广播操作
         torch.distributed.broadcast_object_list(
             obj_list, src=self.ranks[src], group=self.device_group
         )
         return obj_list
 
+    # 全归并Python对象
     def all_gather_object(self, obj: Any) -> List[Any]:
         objs = [None] * self.world_size
         torch.distributed.all_gather_object(objs, obj, group=self.cpu_group)
         return objs
 
+    # 发送Python对象到目标秩
     def send_object(
         self,
         obj: Any,
@@ -1086,13 +1146,13 @@ class GroupCoordinator:
         )
         send_func = torch.distributed.isend if async_send else torch.distributed.send
 
-        # Serialize object to tensor and get the size as well
+        # 将对象序列化为张量并获取大小
         object_tensor = torch.frombuffer(pickle.dumps(obj), dtype=torch.uint8)
         size_tensor = torch.tensor(
             [object_tensor.numel()], dtype=torch.long, device="cpu"
         )
 
-        # Send object size
+        # 发送对象大小
         p2p_work = []
         size_work = send_func(
             size_tensor,
@@ -1102,6 +1162,7 @@ class GroupCoordinator:
         if async_send:
             p2p_work.append(P2PWork(size_work, size_tensor))
 
+        # 发送序列化的对象数据
         object_work = send_func(
             object_tensor,
             self.ranks[dst],
@@ -1112,6 +1173,7 @@ class GroupCoordinator:
 
         return p2p_work
 
+    # 从源秩接收Python对象
     def recv_object(
         self,
         src: int,
@@ -1126,28 +1188,31 @@ class GroupCoordinator:
 
         size_tensor = torch.empty(1, dtype=torch.long, device="cpu")
 
-        # Receive object size
-        # We have to use irecv here to make it work for both isend and send.
+        # 接收对象大小
+        # 必须使用irecv以同时支持isend和send
         work = torch.distributed.irecv(
             size_tensor, src=self.ranks[src], group=self.cpu_group
         )
         work.wait()
 
-        # Tensor to receive serialized objects into.
+        # 分配接收序列化对象的张量
         object_tensor: Any = torch.empty(  # type: ignore[call-overload]
             size_tensor.item(),  # type: ignore[arg-type]
             dtype=torch.uint8,
             device="cpu",
         )
 
+        # 接收序列化的对象数据
         work = torch.distributed.irecv(
             object_tensor, src=self.ranks[src], group=self.cpu_group
         )
         work.wait()
 
+        # 反序列化对象
         obj = pickle.loads(object_tensor.numpy())
         return obj
 
+    # 广播张量字典，支持异步操作
     def broadcast_tensor_dict(
         self,
         tensor_dict: Optional[Dict[str, Union[torch.Tensor, Any]]] = None,
@@ -1158,7 +1223,7 @@ class GroupCoordinator:
         """Broadcast the input tensor dictionary.
         NOTE: `src` is the local rank of the source rank.
         """
-        # Bypass the function if we are using only 1 GPU.
+        # 如果只使用1个GPU，则跳过此函数
         if not torch.distributed.is_initialized() or self.world_size == 1:
             return tensor_dict
 
@@ -1167,28 +1232,29 @@ class GroupCoordinator:
         assert src < self.world_size, f"Invalid src rank ({src})"
 
         rank_in_group = self.rank_in_group
+        # 发送端：拆分字典为元数据和张量列表，然后广播
         if rank_in_group == src:
             metadata_list: List[Tuple[Any, Any]] = []
             assert isinstance(
                 tensor_dict, dict
             ), f"Expecting a dictionary, got {type(tensor_dict)}"
             metadata_list, tensor_list = _split_tensor_dict(tensor_dict)
-            # `metadata_list` lives in CPU memory.
-            # `broadcast_object_list` has serialization & deserialization,
-            # all happening on CPU. Therefore, we can use the CPU group.
+            # `metadata_list` 存在于CPU内存中。
+            # `broadcast_object_list` 有序列化和反序列化过程，
+            # 全部在CPU上进行。因此可以使用CPU组。
             self.broadcast_object(metadata_list, src=src)
             async_handles = []
             for tensor in tensor_list:
                 if tensor.numel() == 0:
-                    # Skip broadcasting empty tensors.
+                    # 跳过广播空张量
                     continue
                 if tensor.is_cpu:
-                    # use metadata_group for CPU tensors
+                    # CPU张量使用metadata_group
                     handle = torch.distributed.broadcast(
                         tensor, src=self.ranks[src], group=metadata_group, async_op=True
                     )
                 else:
-                    # use group for GPU tensors
+                    # GPU张量使用group
                     handle = torch.distributed.broadcast(
                         tensor, src=self.ranks[src], group=group, async_op=True
                     )
@@ -1197,6 +1263,7 @@ class GroupCoordinator:
                 async_handle.wait()
 
         else:
+            # 接收端：先接收元数据，再接收张量
             metadata_list = self.broadcast_object(None, src=src)
             tensor_dict = {}
             async_handles = []
@@ -1206,11 +1273,11 @@ class GroupCoordinator:
                         value.size, dtype=value.dtype, device=value.device
                     )
                     if tensor.numel() == 0:
-                        # Skip broadcasting empty tensors.
+                        # 跳过广播空张量
                         tensor_dict[key] = tensor
                         continue
                     if tensor.is_cpu:
-                        # use metadata_group for CPU tensors
+                        # CPU张量使用metadata_group
                         handle = torch.distributed.broadcast(
                             tensor,
                             src=self.ranks[src],
@@ -1218,7 +1285,7 @@ class GroupCoordinator:
                             async_op=True,
                         )
                     else:
-                        # use group for GPU tensors
+                        # GPU张量使用group
                         handle = torch.distributed.broadcast(
                             tensor, src=self.ranks[src], group=group, async_op=True
                         )
@@ -1230,6 +1297,7 @@ class GroupCoordinator:
                 async_handle.wait()
         return tensor_dict
 
+    # 发送张量字典到目标秩，支持send-allgather优化
     def send_tensor_dict(
         self,
         tensor_dict: Dict[str, Union[torch.Tensor, Any]],
@@ -1240,7 +1308,7 @@ class GroupCoordinator:
         """Send the input tensor dictionary.
         NOTE: `dst` is the local rank of the source rank.
         """
-        # Bypass the function if we are using only 1 GPU.
+        # 如果只使用1个GPU，则跳过此函数
         if self.world_size == 1:
             return tensor_dict
 
@@ -1260,22 +1328,23 @@ class GroupCoordinator:
             tensor_dict, dict
         ), f"Expecting a dictionary, got {type(tensor_dict)}"
         metadata_list, tensor_list = _split_tensor_dict(tensor_dict)
-        # Note: While switching to Device-to-Device (D2D) would introduce an extra
-        # Device-to-Host (D2H) memory copy overhead for serialization, our benchmarks
-        # show better overall transmission performance with D2D due to:
-        # 1. Superior D2D transfer bandwidth
-        # 2. Ability to overlap send and recv operations
-        # Thus the net performance gain justifies this approach.
+        # 注意：虽然切换到设备到设备（D2D）会引入额外的
+        # 设备到主机（D2H）内存拷贝开销用于序列化，但我们的基准测试
+        # 显示D2D在整体传输性能上更优，因为：
+        # 1. 卓越的D2D传输带宽
+        # 2. 能够重叠发送和接收操作
+        # 因此净性能增益证明了此方法的合理性。
 
+        # 先发送元数据，再发送张量数据
         send_func = torch.distributed.isend if async_send else torch.distributed.send
         p2p_works = self.send_object(metadata_list, dst=dst, async_send=async_send)
 
         for tensor in tensor_list:
             if tensor.numel() == 0:
-                # Skip sending empty tensors.
+                # 跳过发送空张量
                 continue
 
-            # send-allgather: send only a slice, then do allgather.
+            # send-allgather：仅发送一个切片，然后执行全归并
             if all_gather_group is not None and tensor.numel() % all_gather_size == 0:
                 tensor = tensor.reshape(all_gather_size, -1)[all_gather_rank]
 
@@ -1285,6 +1354,7 @@ class GroupCoordinator:
                 p2p_works.append(P2PWork(work, tensor))
         return p2p_works
 
+    # 从源秩接收张量字典，支持send-allgather优化
     def recv_tensor_dict(
         self,
         src: Optional[int] = None,
@@ -1293,7 +1363,7 @@ class GroupCoordinator:
         """Recv the input tensor dictionary.
         NOTE: `src` is the local rank of the source rank.
         """
-        # Bypass the function if we are using only 1 GPU.
+        # 如果只使用1个GPU，则跳过此函数
         if not torch.distributed.is_initialized() or self.world_size == 1:
             return None
 
@@ -1309,17 +1379,18 @@ class GroupCoordinator:
             src = (self.rank_in_group - 1) % self.world_size
         assert src < self.world_size, f"Invalid src rank ({src})"
 
+        # 先接收元数据，再接收张量数据
         recv_metadata_list = self.recv_object(src=src)
         tensor_dict: Dict[str, Any] = {}
         for key, value in recv_metadata_list:
             if isinstance(value, TensorMetadata):
                 tensor = torch.empty(value.size, dtype=value.dtype, device=value.device)
                 if tensor.numel() == 0:
-                    # Skip broadcasting empty tensors.
+                    # 跳过广播空张量
                     tensor_dict[key] = tensor
                     continue
 
-                # send-allgather: send only a slice, then do allgather.
+                # send-allgather：仅发送一个切片，然后执行全归并
                 use_all_gather = (
                     all_gather_group is not None
                     and tensor.numel() % all_gather_size == 0
@@ -1329,13 +1400,14 @@ class GroupCoordinator:
                     orig_shape = tensor.shape
                     tensor = tensor.reshape(all_gather_size, -1)[all_gather_rank]
 
-                # We have to use irecv here to make it work for both isend and send.
+                # 必须使用irecv以同时支持isend和send
                 comm_group = metadata_group if tensor.is_cpu else group
                 work = torch.distributed.irecv(
                     tensor, src=self.ranks[src], group=comm_group
                 )
                 work.wait()
 
+                # 执行全归并以还原完整张量
                 if use_all_gather:
                     tensor = all_gather_group.all_gather(tensor, dim=0)
                     tensor = tensor.reshape(orig_shape)
@@ -1345,6 +1417,7 @@ class GroupCoordinator:
                 tensor_dict[key] = value
         return tensor_dict
 
+    # 屏障同步操作，强制组内所有进程在此处等待
     def barrier(self):
         """Barrier synchronization among the group.
         NOTE: don't use `device_group` here! `barrier` in NCCL is
@@ -1354,6 +1427,7 @@ class GroupCoordinator:
         """
         torch.distributed.barrier(group=self.cpu_group)
 
+    # 非阻塞方式发送张量到目标秩
     def send(self, tensor: torch.Tensor, dst: Optional[int] = None) -> None:
         """Sends a tensor to the destination rank in a non-blocking way"""
         """NOTE: `dst` is the local rank of the destination rank."""
@@ -1366,6 +1440,7 @@ class GroupCoordinator:
         else:
             torch.distributed.send(tensor, self.ranks[dst], self.device_group)
 
+    # 从源秩接收张量
     def recv(
         self, size: torch.Size, dtype: torch.dtype, src: Optional[int] = None
     ) -> torch.Tensor:
@@ -1382,6 +1457,7 @@ class GroupCoordinator:
             torch.distributed.recv(tensor, self.ranks[src], self.device_group)
         return tensor
 
+    # 销毁组协调器，释放所有通信器资源
     def destroy(self):
         if self.device_group is not None:
             torch.distributed.destroy_process_group(self.device_group)
@@ -1397,14 +1473,17 @@ class GroupCoordinator:
             self.mq_broadcaster = None
 
 
+# 全局世界组协调器
 _WORLD: Optional[GroupCoordinator] = None
 
 
+# 获取全局世界组协调器
 def get_world_group() -> GroupCoordinator:
     assert _WORLD is not None, "world group is not initialized"
     return _WORLD
 
 
+# 初始化全局世界组
 def init_world_group(
     ranks: List[int], local_rank: int, backend: str, recovered_rank: bool = False
 ) -> GroupCoordinator:
@@ -1424,6 +1503,7 @@ def init_world_group(
     )
 
 
+# 初始化模型并行组，根据配置决定是否启用各种通信器
 def init_model_parallel_group(
     group_ranks: List[List[int]],
     local_rank: int,
@@ -1463,21 +1543,24 @@ def init_model_parallel_group(
     )
 
 
+# 张量并行组、注意力张量并行组、注意力上下文并行组
 _TP: Optional[GroupCoordinator] = None
 _ATTN_TP: Optional[GroupCoordinator] = None
 _ATTN_CP: Optional[GroupCoordinator] = None
 
-# duplicate GroupCoordinator for prefill in PD-Multiplexing
+# PD多路复用预填充的重复GroupCoordinator
 _PDMUX_PREFILL_TP_GROUP: Optional[GroupCoordinator] = None
 
 _ENABLE_PDMUX_P_TP: bool = False
 
 
+# 设置PD多路复用预填充状态
 def set_pdmux_status(enable_prefill_multiplexing: bool):
     global _ENABLE_PDMUX_P_TP
     _ENABLE_PDMUX_P_TP = enable_prefill_multiplexing
 
 
+# 获取张量并行组协调器
 def get_tp_group() -> GroupCoordinator:
     if _ENABLE_PDMUX_P_TP:
         assert (
@@ -1488,6 +1571,7 @@ def get_tp_group() -> GroupCoordinator:
     return _TP
 
 
+# 获取注意力张量并行组协调器
 def get_attn_tp_group() -> GroupCoordinator:
     assert (
         _ATTN_TP is not None
@@ -1495,6 +1579,7 @@ def get_attn_tp_group() -> GroupCoordinator:
     return _ATTN_TP
 
 
+# 获取注意力上下文并行组协调器
 def get_attn_cp_group() -> GroupCoordinator:
     assert (
         _ATTN_CP is not None
@@ -1502,41 +1587,48 @@ def get_attn_cp_group() -> GroupCoordinator:
     return _ATTN_CP
 
 
+# MoE数据并行组、专家并行组、张量并行组
 _MOE_DP: Optional[GroupCoordinator] = None
 _MOE_EP: Optional[GroupCoordinator] = None
 _MOE_TP: Optional[GroupCoordinator] = None
 
 
+# 获取MoE数据并行组协调器
 def get_moe_dp_group() -> GroupCoordinator:
     assert _MOE_DP is not None, "moe data parallel group is not initialized"
     return _MOE_DP
 
 
+# 获取MoE专家并行组协调器
 def get_moe_ep_group() -> GroupCoordinator:
     assert _MOE_EP is not None, "expert model parallel group is not initialized"
     return _MOE_EP
 
 
+# 获取MoE张量并行组协调器
 def get_moe_tp_group() -> GroupCoordinator:
     assert _MOE_TP is not None, "expert model parallel group is not initialized"
     return _MOE_TP
 
 
-# kept for backward compatibility
+# 为向后兼容保留的别名
 get_tensor_model_parallel_group = get_tp_group
 
+# 流水线并行组
 _PP: Optional[GroupCoordinator] = None
 
 
+# 获取流水线并行组协调器
 def get_pp_group() -> GroupCoordinator:
     assert _PP is not None, "pipeline model parallel group is not initialized"
     return _PP
 
 
-# kept for backward compatibility
+# 为向后兼容保留的别名
 get_pipeline_model_parallel_group = get_pp_group
 
 
+# 获取Mooncake传输引擎（如果已初始化）
 def get_mooncake_transfer_engine():
     """
     Return the shared MooncakeTransferEngine if initialized in device_communicators,
@@ -1549,6 +1641,7 @@ def get_mooncake_transfer_engine():
     return _get_engine()
 
 
+# CUDA图捕获的全局上下文管理器，协调TP和PP组的图捕获
 @contextmanager
 def graph_capture(stream: Optional[torch.cuda.Stream] = None):
     """
@@ -1570,6 +1663,7 @@ def graph_capture(stream: Optional[torch.cuda.Stream] = None):
     ):
         with contextlib.ExitStack() as stack:
             seen = {id(_TP)}
+            # 同时处理MoE专家并行和张量并行组的图捕获
             for group in (_MOE_EP, _MOE_TP):
                 if group is not None and id(group) not in seen:
                     seen.add(id(group))
@@ -1579,26 +1673,31 @@ def graph_capture(stream: Optional[torch.cuda.Stream] = None):
 
 logger = logging.getLogger(__name__)
 
+# 自定义全归约、MSCCLPP全归约、Torch对称内存全归约的全局启用标志
 _ENABLE_CUSTOM_ALL_REDUCE = True
 _ENABLE_MSCCLPP_ALL_REDUCE = False
 _ENABLE_TORCH_SYMM_MEM_ALL_REDUCE = False
 
 
+# 设置是否启用自定义全归约
 def set_custom_all_reduce(enable: bool):
     global _ENABLE_CUSTOM_ALL_REDUCE
     _ENABLE_CUSTOM_ALL_REDUCE = enable
 
 
+# 设置是否启用MSCCLPP全归约
 def set_mscclpp_all_reduce(enable: bool):
     global _ENABLE_MSCCLPP_ALL_REDUCE
     _ENABLE_MSCCLPP_ALL_REDUCE = enable
 
 
+# 设置是否启用Torch对称内存全归约
 def set_torch_symm_mem_all_reduce(enable: bool):
     global _ENABLE_TORCH_SYMM_MEM_ALL_REDUCE
     _ENABLE_TORCH_SYMM_MEM_ALL_REDUCE = enable
 
 
+# 设备到分布式后端的映射表
 _DEVICE_TO_DISTRIBUTED_BACKEND = {
     "cuda": "nccl",
     "xpu": "xccl",
@@ -1609,10 +1708,12 @@ _DEVICE_TO_DISTRIBUTED_BACKEND = {
 }
 
 
+# 根据设备类型获取默认的分布式通信后端
 def get_default_distributed_backend(device: str) -> str:
     return _DEVICE_TO_DISTRIBUTED_BACKEND.get(device, "gloo")
 
 
+# 创建全局TCPStore用于跨秩协调（如NIXL缓冲区设置）
 def _create_global_tcp_store(rank: int, world_size: int) -> None:
     """Create a global TCPStore for coordination across ranks.
 
@@ -1631,8 +1732,8 @@ def _create_global_tcp_store(rank: int, world_size: int) -> None:
 
     base_store_port = envs.SGLANG_TCP_STORE_PORT.get()
 
-    # Rank 0 gets its local IP and broadcasts it to all ranks
-    # Use broadcast_object_list which works with any backend (handles CPU/GPU automatically)
+    # 秩0获取其本地IP并广播给所有秩
+    # 使用broadcast_object_list，可与任何后端配合工作（自动处理CPU/GPU）
     if not master_ip:
         if rank == 0:
             master_ip = get_local_ip_auto()
@@ -1668,6 +1769,7 @@ def _create_global_tcp_store(rank: int, world_size: int) -> None:
         )
 
 
+# 初始化分布式环境，设置进程组和通信后端
 def init_distributed_environment(
     world_size: int = -1,
     rank: int = -1,
@@ -1686,6 +1788,7 @@ def init_distributed_environment(
         distributed_init_method,
         backend,
     )
+    # Mooncake后端需要额外导入和配置
     if "mooncake" in backend:
         try:
             from mooncake import ep as mooncake_ep
@@ -1710,16 +1813,17 @@ def init_distributed_environment(
 
         _MODEL_PARALLEL_GROUP_TIMEOUT = timeout
 
+        # Mooncake后端需要特殊的进程组选项
         if backend == "mooncake":
             from mooncake.ep import MooncakeBackendOptions
 
-            # Setting "cuda" as device here is safe, as it is guarded under the mooncake case
+            # 在mooncake情况下设置"cuda"为设备是安全的
             active_ranks = torch.ones(world_size, dtype=torch.int32, device="cuda")
             pg_options = MooncakeBackendOptions(active_ranks, recovered_rank)
         else:
             pg_options = get_torch_distributed_pg_options()
 
-        # this backend is used for WORLD
+        # 此后端用于WORLD组
         torch.distributed.init_process_group(
             backend=backend,
             init_method=distributed_init_method,
@@ -1729,16 +1833,16 @@ def init_distributed_environment(
             pg_options=pg_options,
         )
 
-        # Create a global TCPStore for coordination (used by NIXL)
+        # 创建全局TCPStore用于协调（NIXL使用）
         if moe_a2a_backend == "nixl":
             _create_global_tcp_store(rank, world_size)
 
-    # set the local rank
-    # local_rank is not available in torch ProcessGroup,
-    # see https://github.com/pytorch/pytorch/issues/122816
+    # 设置本地秩
+    # 本地秩在PyTorch ProcessGroup中不可用，
+    # 参见 https://github.com/pytorch/pytorch/issues/122816
     if local_rank == -1:
-        # local rank not set, this usually happens in single-node
-        # setting, where we can use rank as local rank
+        # 本地秩未设置，通常发生在单节点环境中，
+        # 可以使用全局秩作为本地秩
         if distributed_init_method == "env://":
             local_rank = int(os.environ.get("LOCAL_RANK", "0"))
         else:
@@ -1755,6 +1859,7 @@ def init_distributed_environment(
         ), "world group already initialized with a different world size"
 
 
+# 初始化模型并行组，包括张量并行、流水线并行、注意力并行、MoE并行等
 def initialize_model_parallel(
     tensor_model_parallel_size: int = 1,
     expert_model_parallel_size: int = 1,
@@ -1811,7 +1916,7 @@ def initialize_model_parallel(
     with a total of 16 GPUs, rank 0 to 7 belong to the first box and
     ranks 8 to 15 belong to the second box.
     """
-    # Get world size and rank. Ensure some consistencies.
+    # 获取世界大小和秩，确保一致性
     assert torch.distributed.is_initialized()
     world_size: int = torch.distributed.get_world_size()
     backend = backend or torch.distributed.get_backend(get_world_group().device_group)
@@ -1823,7 +1928,7 @@ def initialize_model_parallel(
             f"pipeline_model_parallel_size ({pipeline_model_parallel_size})"
         )
 
-    # Build the tensor model-parallel groups.
+    # 构建张量模型并行组
     num_tensor_model_parallel_groups: int = world_size // tensor_model_parallel_size
     global _TP
     assert _TP is None, "tensor model parallel group is already initialized"
@@ -1837,7 +1942,7 @@ def initialize_model_parallel(
         )
         group_ranks.append(ranks)
 
-    # message queue broadcaster is only used in tensor model parallel group
+    # 消息队列广播器仅用于张量模型并行组
     _TP = init_model_parallel_group(
         group_ranks,
         get_world_group().local_rank,
@@ -1847,6 +1952,7 @@ def initialize_model_parallel(
         recovered_rank=recovered_rank,
     )
 
+    # 如果需要，复制TP组用于PD多路复用预填充
     if duplicate_tp_group:
         global _PDMUX_PREFILL_TP_GROUP
         assert (
@@ -1864,10 +1970,12 @@ def initialize_model_parallel(
             _TP.pynccl_comm.disabled = False
             _PDMUX_PREFILL_TP_GROUP.pynccl_comm.disabled = False
 
+    # 计算注意力并行维度
     attn_dp_size = attention_data_parallel_size
     attn_cp_size = attention_context_model_parallel_size
     attn_tp_size = tensor_model_parallel_size // attn_cp_size // attn_dp_size
 
+    # 构建注意力上下文并行组
     global _ATTN_CP
     assert (
         _ATTN_CP is None
@@ -1902,6 +2010,7 @@ def initialize_model_parallel(
 
     from sglang.srt.layers.sampler import SYNC_TOKEN_IDS_ACROSS_TP
 
+    # 构建注意力张量并行组
     global _ATTN_TP
     assert (
         _ATTN_TP is None
@@ -1936,16 +2045,18 @@ def initialize_model_parallel(
             recovered_rank=recovered_rank,
         )
 
+    # 计算MoE并行维度
     moe_ep_size = expert_model_parallel_size
     moe_dp_size = moe_data_model_parallel_size
     moe_tp_size = tensor_model_parallel_size // moe_ep_size // moe_dp_size
 
+    # 构建MoE数据并行组
     global _MOE_DP
     assert _MOE_DP is None, "moe data parallel group is already initialized"
     if attn_cp_size > moe_dp_size:
-        # When moe_dp_size < attn_cp_size, CP ranks must share tokens before MoE.
-        # The MOE_DP group includes these CP partners, so the existing DP
-        # allgather/scatter handles the token sharing.
+        # 当moe_dp_size < attn_cp_size时，CP秩必须在MoE之前共享token。
+        # MOE_DP组包含这些CP伙伴，因此现有的DP
+        # allgather/scatter处理了token共享。
         _MOE_DP = _ATTN_CP
     elif moe_dp_size == tensor_model_parallel_size:
         _MOE_DP = _TP
@@ -1967,6 +2078,7 @@ def initialize_model_parallel(
             recovered_rank=recovered_rank,
         )
 
+    # 构建MoE专家并行组
     global _MOE_EP
     assert _MOE_EP is None, "expert model parallel group is already initialized"
     if moe_ep_size == tensor_model_parallel_size:
@@ -1994,6 +2106,7 @@ def initialize_model_parallel(
             recovered_rank=recovered_rank,
         )
 
+    # 构建MoE张量并行组
     global _MOE_TP
     assert _MOE_TP is None, "expert model parallel group is already initialized"
     if moe_tp_size == tensor_model_parallel_size:
@@ -2022,7 +2135,7 @@ def initialize_model_parallel(
             recovered_rank=recovered_rank,
         )
 
-    # Build the pipeline model-parallel groups.
+    # 构建流水线模型并行组
     num_pipeline_model_parallel_groups: int = world_size // pipeline_model_parallel_size
     global _PP
     assert _PP is None, "pipeline model parallel group is already initialized"
@@ -2032,7 +2145,7 @@ def initialize_model_parallel(
             range(pp_group_idx, world_size, num_pipeline_model_parallel_groups)
         )
         group_ranks.append(ranks)
-    # pipeline parallel does not need custom allreduce
+    # 流水线并行不需要自定义全归约
     _PP = init_model_parallel_group(
         group_ranks,
         get_world_group().local_rank,
@@ -2043,6 +2156,7 @@ def initialize_model_parallel(
     )
 
 
+# 根据提供的秩列表创建自定义并行组
 def create_custom_parallel_group(
     group_ranks: List[int], backend: str = "gloo"
 ) -> Optional[torch.distributed.ProcessGroup]:
@@ -2065,8 +2179,10 @@ def create_custom_parallel_group(
     local_config = sorted(list(set(group_ranks)))
     gathered_configs = [None for _ in range(world_size)]
 
+    # 收集所有秩的组配置
     torch.distributed.all_gather_object(gathered_configs, local_config)
 
+    # 去重并排序
     unique_groups = []
     seen_signatures = set()
 
@@ -2080,6 +2196,7 @@ def create_custom_parallel_group(
 
     my_new_group = None
 
+    # 为每个唯一组创建进程组
     for g_ranks in unique_groups:
         group = torch.distributed.new_group(ranks=g_ranks, backend=backend)
 
@@ -2092,6 +2209,7 @@ def create_custom_parallel_group(
     return my_new_group
 
 
+# 确保模型并行组已初始化，或验证其大小与预期一致
 def ensure_model_parallel_initialized(
     tensor_model_parallel_size: int,
     expert_model_parallel_size: int,
@@ -2125,6 +2243,7 @@ def ensure_model_parallel_initialized(
     )
 
 
+# 检查张量并行和流水线并行组是否已初始化
 def model_parallel_is_initialized():
     """Check if tensor and pipeline parallel groups are initialized."""
     return _TP is not None and _PP is not None
@@ -2133,6 +2252,7 @@ def model_parallel_is_initialized():
 _TP_STATE_PATCHED = False
 
 
+# 临时替换张量并行组的上下文管理器，用于投机解码的draft worker
 @contextmanager
 def patch_tensor_parallel_group(tp_group: GroupCoordinator):
     """Patch the tp group temporarily until this function ends.
@@ -2153,96 +2273,108 @@ def patch_tensor_parallel_group(tp_group: GroupCoordinator):
     try:
         yield
     finally:
-        # restore the original state
+        # 恢复原始状态
         _TP_STATE_PATCHED = False
         _TP = old_tp_group
 
 
+# 返回世界组的世界大小
 def get_world_size():
     """Return world size for the world group."""
     return get_world_group().world_size
 
 
+# 返回世界组中当前进程的秩
 def get_world_rank():
     """Return my rank for the world group."""
     return get_world_group().rank_in_group
 
 
+# 返回张量模型并行组的世界大小
 def get_tensor_model_parallel_world_size():
     """Return world size for the tensor model parallel group."""
     return get_tp_group().world_size
 
 
+# 返回张量模型并行组中当前进程的秩
 def get_tensor_model_parallel_rank():
     """Return my rank for the tensor model parallel group."""
     return get_tp_group().rank_in_group
 
 
-# ATTN_TP
+# 返回注意力张量并行组的世界大小
 def get_attn_tensor_model_parallel_world_size():
     """Return world size for the attention tensor model parallel group."""
     return get_attn_tp_group().world_size
 
 
+# 返回注意力张量并行组中当前进程的秩
 def get_attn_tensor_model_parallel_rank():
     """Return my rank for the attention tensor model parallel group."""
     return get_attn_tp_group().rank_in_group
 
 
-# ATTN_CP
+# 返回注意力上下文并行组的世界大小
 def get_attn_context_model_parallel_world_size():
     """Return world size for the attention context model parallel group."""
     return get_attn_cp_group().world_size
 
 
+# 返回注意力上下文并行组中当前进程的秩
 def get_attn_context_model_parallel_rank():
     """Return my rank for the attention context model parallel group."""
     return get_attn_cp_group().rank_in_group
 
 
+# 返回流水线模型并行组的世界大小
 def get_pipeline_model_parallel_world_size():
     """Return world size for the pipeline model parallel group."""
     return get_pp_group().world_size
 
 
+# 返回流水线模型并行组中当前进程的秩
 def get_pipeline_model_parallel_rank():
     """Return my rank for the pipeline model parallel group."""
     return get_pp_group().rank_in_group
 
 
-# MOE_DP
+# 返回MoE数据并行组的世界大小
 def get_moe_data_parallel_world_size():
     """Return world size for the moe data parallel group."""
     return get_moe_dp_group().world_size
 
 
+# 返回MoE数据并行组中当前进程的秩
 def get_moe_data_parallel_rank():
     """Return my rank for the moe data parallel group."""
     return get_moe_dp_group().rank_in_group
 
 
-# MOE_EP
+# 返回MoE专家并行组的世界大小
 def get_moe_expert_parallel_world_size():
     """Return world size for the moe expert parallel group."""
     return get_moe_ep_group().world_size
 
 
+# 返回MoE专家并行组中当前进程的秩
 def get_moe_expert_parallel_rank():
     """Return my rank for the moe expert parallel group."""
     return get_moe_ep_group().rank_in_group
 
 
-# MOE_TP
+# 返回MoE张量并行组的世界大小
 def get_moe_tensor_parallel_world_size():
     """Return world size for the moe tensor parallel group."""
     return get_moe_tp_group().world_size
 
 
+# 返回MoE张量并行组中当前进程的秩
 def get_moe_tensor_parallel_rank():
     """Return my rank for the moe tensor parallel group."""
     return get_moe_tp_group().rank_in_group
 
 
+# 销毁所有模型并行组，将它们设为None
 def destroy_model_parallel():
     """Set the groups to none and destroy them."""
     global _TP
@@ -2267,8 +2399,8 @@ def destroy_model_parallel():
 
     global _ATTN_CP
     global _MOE_DP
-    # Destroy _MOE_DP before _ATTN_CP since it may alias _ATTN_CP.
-    # Only destroy if not aliasing another group.
+    # 在_ATTN_CP之前销毁_MOE_DP，因为它可能是_ATTN_CP的别名。
+    # 仅在不别名其他组时销毁。
     if _MOE_DP and _MOE_DP is not _ATTN_CP and _MOE_DP is not _TP:
         _MOE_DP.destroy()
     _MOE_DP = None
@@ -2287,6 +2419,7 @@ def destroy_model_parallel():
     _PDMUX_PREFILL_TP_GROUP = None
 
 
+# 销毁分布式环境，释放全局世界组和进程组
 def destroy_distributed_environment():
     global _WORLD, _MODEL_PARALLEL_GROUP_TIMEOUT
     if _WORLD:
@@ -2297,16 +2430,18 @@ def destroy_distributed_environment():
         torch.distributed.destroy_process_group()
 
 
+# 清理分布式环境和内存，包括垃圾回收和GPU缓存清理
 def cleanup_dist_env_and_memory(shutdown_ray: bool = False):
     destroy_model_parallel()
     destroy_distributed_environment()
     with contextlib.suppress(AssertionError):
         torch.distributed.destroy_process_group()
     if shutdown_ray:
-        import ray  # Lazy import Ray
+        import ray  # 延迟导入Ray
 
         ray.shutdown()
     gc.collect()
+    # 根据硬件平台清理对应的设备缓存
     if not _is_cpu:
         if hasattr(torch, "cuda") and torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -2324,6 +2459,7 @@ def cleanup_dist_env_and_memory(shutdown_ray: bool = False):
             torch.musa.empty_cache()
 
 
+# 判断每个秩是否与源秩在同一节点上（通过共享内存测试）
 def in_the_same_node_as(pg: ProcessGroup, source_rank: int = 0) -> List[bool]:
     """
     This is a collective operation that returns if each rank is in the same node
@@ -2333,14 +2469,14 @@ def in_the_same_node_as(pg: ProcessGroup, source_rank: int = 0) -> List[bool]:
     assert (
         torch.distributed.get_backend(pg) != torch.distributed.Backend.NCCL
     ), "in_the_same_node_as should be tested with a non-NCCL group."
-    # local rank inside the group
+    # 组内的本地秩
     rank = torch.distributed.get_rank(group=pg)
     world_size = torch.distributed.get_world_size(group=pg)
 
-    # local tensor in each process to store the result
+    # 每个进程中的本地张量用于存储结果
     is_in_the_same_node = torch.tensor([0] * world_size, dtype=torch.int32)
 
-    # global ranks of the processes in the group
+    # 组内进程的全局秩
     ranks = torch.distributed.get_process_group_ranks(pg)
 
     magic_message = b"magic_message"
@@ -2349,7 +2485,7 @@ def in_the_same_node_as(pg: ProcessGroup, source_rank: int = 0) -> List[bool]:
     try:
         with contextlib.suppress(OSError):
             if rank == source_rank:
-                # create a shared memory segment
+                # 创建共享内存段
                 shm = shared_memory.SharedMemory(create=True, size=128)
                 shm.buf[: len(magic_message)] = magic_message
                 torch.distributed.broadcast_object_list(
@@ -2357,15 +2493,15 @@ def in_the_same_node_as(pg: ProcessGroup, source_rank: int = 0) -> List[bool]:
                 )
                 is_in_the_same_node[rank] = 1
             else:
-                # try to open the shared memory segment
+                # 尝试打开共享内存段
                 recv = [None]
                 torch.distributed.broadcast_object_list(
                     recv, src=ranks[source_rank], group=pg
                 )
                 name = recv[0]
-                # fix to https://stackoverflow.com/q/62748654/9191338
-                # Python incorrectly tracks shared memory even if it is not
-                # created by the process. The following patch is a workaround.
+                # 修复 https://stackoverflow.com/q/62748654/9191338
+                # Python错误地跟踪共享内存，即使它不是
+                # 由进程创建的。以下补丁是解决方法。
                 with patch(
                     "multiprocessing.resource_tracker.register",
                     lambda *args, **kwargs: None,
@@ -2379,9 +2515,10 @@ def in_the_same_node_as(pg: ProcessGroup, source_rank: int = 0) -> List[bool]:
         if shm:
             shm.close()
 
+    # 屏障同步
     torch.distributed.barrier(group=pg)
 
-    # clean up the shared memory segment
+    # 清理共享内存段
     with contextlib.suppress(OSError):
         if rank == source_rank and shm:
             shm.unlink()
@@ -2390,11 +2527,13 @@ def in_the_same_node_as(pg: ProcessGroup, source_rank: int = 0) -> List[bool]:
     return [x == 1 for x in is_in_the_same_node.tolist()]
 
 
+# vLLM原始函数引用，用于猴子补丁的恢复
 vllm_get_pp_group = None
 vllm_get_tp_group = None
 vllm_get_world_group = None
 
 
+# 猴子补丁vLLM的并行状态，使其使用SGLang的组协调器
 def monkey_patch_vllm_parallel_state(reverse: bool = False):
     try:
         import vllm.distributed.parallel_state as vllm_parallel_state
@@ -2407,10 +2546,12 @@ def monkey_patch_vllm_parallel_state(reverse: bool = False):
         vllm_get_tp_group = vllm_parallel_state.get_tp_group
         vllm_get_world_group = vllm_parallel_state.get_world_group
     if reverse:
+        # 恢复vLLM原始函数
         setattr(vllm_parallel_state, "get_pp_group", vllm_get_pp_group)
         setattr(vllm_parallel_state, "get_tp_group", vllm_get_tp_group)
         setattr(vllm_parallel_state, "get_world_group", vllm_get_world_group)
     else:
+        # 替换为SGLang的组协调器
         setattr(vllm_parallel_state, "get_pp_group", get_pp_group)
         setattr(vllm_parallel_state, "get_tp_group", get_tp_group)
         setattr(vllm_parallel_state, "get_world_group", get_world_group)

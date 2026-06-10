@@ -1,3 +1,4 @@
+# 文件名: test_minicpm5_detector.py - MiniCPM5检测器
 import json
 
 import pytest
@@ -11,6 +12,7 @@ from sglang.test.ci.ci_register import register_cpu_ci
 register_cpu_ci(1.0, "base-a-test-cpu")
 
 
+# make_tools_weather
 def make_tools_weather():
     return [
         Tool(
@@ -29,6 +31,7 @@ def make_tools_weather():
     ]
 
 
+# make_tools_sum
 def make_tools_sum():
     return [
         Tool(
@@ -47,6 +50,7 @@ def make_tools_sum():
     ]
 
 
+# make_tools_config
 def make_tools_config():
     return [
         Tool(
@@ -64,6 +68,7 @@ def make_tools_config():
     ]
 
 
+# make_tools_no_required
 def make_tools_no_required():
     return [
         Tool(
@@ -79,6 +84,7 @@ def make_tools_no_required():
     ]
 
 
+# 测试detectandparsesinglecallv3
 def test_detect_and_parse_single_call_v3():
     detector = MiniCPM5Detector()
     tools = make_tools_weather()
@@ -99,6 +105,7 @@ def test_detect_and_parse_single_call_v3():
     assert "<tool_sep>" not in res.normal_text
 
 
+# 测试detectandparsecdatamultilinev3
 def test_detect_and_parse_cdata_multiline_v3():
     detector = MiniCPM5Detector()
     tools = make_tools_weather()
@@ -115,6 +122,7 @@ def test_detect_and_parse_cdata_multiline_v3():
     assert args["date"] == "2024-06-27"
 
 
+# 测试unknowntoolblockpreservedv3
 def test_unknown_tool_block_preserved_v3():
     detector = MiniCPM5Detector()
     tools = make_tools_weather()
@@ -124,6 +132,7 @@ def test_unknown_tool_block_preserved_v3():
     assert "unknown" in res.normal_text
 
 
+# 测试nonstringtypesv3
 def test_non_string_types_v3():
     detector = MiniCPM5Detector()
     tools = make_tools_sum()
@@ -140,6 +149,7 @@ def test_non_string_types_v3():
     assert args["exact"] is True
 
 
+# 测试multiplecallsinterleavedtextv3
 def test_multiple_calls_interleaved_text_v3():
     detector = MiniCPM5Detector()
     tools = make_tools_weather() + make_tools_sum()
@@ -165,6 +175,7 @@ def test_multiple_calls_interleaved_text_v3():
     assert "<tool_sep>" not in res.normal_text
 
 
+# 测试incompletemissingfunctionendv3
 def test_incomplete_missing_function_end_v3():
     detector = MiniCPM5Detector()
     tools = make_tools_weather()
@@ -174,6 +185,7 @@ def test_incomplete_missing_function_end_v3():
     assert "get_weather" in res.normal_text
 
 
+# 测试parammissingnameinvalidv3
 def test_param_missing_name_invalid_v3():
     detector = MiniCPM5Detector()
     tools = make_tools_weather()
@@ -188,6 +200,7 @@ def test_param_missing_name_invalid_v3():
     assert "<param>北京</param>" in res.normal_text
 
 
+# 测试duplicateparamnamesinvalidv3
 def test_duplicate_param_names_invalid_v3():
     detector = MiniCPM5Detector()
     tools = make_tools_weather()
@@ -201,6 +214,7 @@ def test_duplicate_param_names_invalid_v3():
     assert len(res.calls) == 0
 
 
+# 测试casesensitiveparamnameinvalidv3
 def test_case_sensitive_param_name_invalid_v3():
     detector = MiniCPM5Detector()
     tools = make_tools_weather()
@@ -213,6 +227,7 @@ def test_case_sensitive_param_name_invalid_v3():
     assert len(res.calls) == 0
 
 
+# 测试norequiredandzeroparamvalidv3
 def test_no_required_and_zero_param_valid_v3():
     detector = MiniCPM5Detector()
     tools = make_tools_no_required()
@@ -223,6 +238,7 @@ def test_no_required_and_zero_param_valid_v3():
     assert args == {}
 
 
+# 测试streamingincrementv3
 def test_streaming_increment_v3():
     detector = MiniCPM5Detector()
     tools = make_tools_weather()
@@ -240,6 +256,7 @@ def test_streaming_increment_v3():
     assert args["date"] == "2024-06-27"
 
 
+# 测试streamingsplitbottoken
 def test_streaming_split_bot_token():
     detector = MiniCPM5Detector()
     tools = make_tools_weather()
@@ -257,6 +274,7 @@ def test_streaming_split_bot_token():
     assert args["city"] == "北京"
 
 
+# 测试streamingmultiplecompleteblocksinonedelta
 def test_streaming_multiple_complete_blocks_in_one_delta():
     detector = MiniCPM5Detector()
     tools = make_tools_weather() + make_tools_sum()
@@ -271,6 +289,7 @@ def test_streaming_multiple_complete_blocks_in_one_delta():
     assert json.loads(result.calls[1].parameters)["nums"] == [1, 2]
 
 
+# 测试malformedxmlwithunescapedampersandfallsbacktoregex
 def test_malformed_xml_with_unescaped_ampersand_falls_back_to_regex():
     detector = MiniCPM5Detector()
     tools = make_tools_weather()

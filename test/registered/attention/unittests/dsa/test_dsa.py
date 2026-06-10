@@ -1,3 +1,4 @@
+# 文件名: test_dsa.py - DSA注意力测试
 import sys
 import unittest
 from pathlib import Path
@@ -56,6 +57,7 @@ class TestDSAAttentionBackendCorrectness(CustomTestCase):
     # output diverges by ~50% mismatch under piecewise CG. See
     # dsa/README.md "Production-Unsupported" for the path forward.
 
+    # 测试mhaoneshotdensefallbackcases
     def test_mha_one_shot_dense_fallback_cases(self):
         for case in self.CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -63,6 +65,7 @@ class TestDSAAttentionBackendCorrectness(CustomTestCase):
                 # use head_dim=128 rather than the generic DEFAULT_HEAD_DIM=16.
                 run_dsa_attention_case(self, case, head_dim=128)
 
+    # 测试sparsetopkcases
     def test_sparse_topk_cases(self):
         for case in self.SPARSE_CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -103,6 +106,7 @@ class TestDSAAttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试sparsenontrailingindexcases
     def test_sparse_non_trailing_index_cases(self):
         for case, pattern in self.NON_TRAILING_INDEX_CASES:
             with self.subTest(case=case.name, backend=case.backend, pattern=pattern):
@@ -138,12 +142,14 @@ class TestDSAAttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试layoutrobustnessdensecases
     def test_layout_robustness_dense_cases(self):
         for case in self.LAYOUT_DENSE_CASES:
             for layout in ("interleaved_pages", "non_monotonic_extend"):
                 with self.subTest(case=case.name, layout=layout):
                     run_dsa_attention_case(self, case, head_dim=128, loc_layout=layout)
 
+    # 测试layoutrobustnesssparsecases
     def test_layout_robustness_sparse_cases(self):
         for case in self.LAYOUT_SPARSE_CASES:
             for layout in ("interleaved_pages",):
@@ -167,6 +173,7 @@ class TestDSAAttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试runnermodecudagraphdecodecases
     def test_runner_mode_cuda_graph_decode_cases(self):
         for case in self.CUDA_GRAPH_DECODE_CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -203,6 +210,7 @@ class TestDSAAttentionBackendCorrectness(CustomTestCase):
         prefix_lens=(128,),
     )
 
+    # 测试sparseprefillimplvariants
     def test_sparse_prefill_impl_variants(self):
         for impl in DSA_PREFILL_IMPL_VARIANTS:
             with self.subTest(impl=impl):
@@ -210,6 +218,7 @@ class TestDSAAttentionBackendCorrectness(CustomTestCase):
                     self, self.PREFILL_IMPL_CASE, impl
                 )
 
+    # 测试sparsedecodeimplvariants
     def test_sparse_decode_impl_variants(self):
         for impl in DSA_DECODE_IMPL_VARIANTS:
             with self.subTest(impl=impl):
@@ -257,6 +266,7 @@ class TestDSAAttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试sparsespeculativeforwardmodecases
     def test_sparse_speculative_forward_mode_cases(self):
         for case in self.SPECULATIVE_FORWARD_MODE_CASES:
             with self.subTest(case=case.name, mode=case.forward_mode.name):
@@ -307,6 +317,7 @@ class TestDSAAttentionBackendCorrectness(CustomTestCase):
         prefix_lens=(128,),
     )
 
+    # 测试sparsefp8prefillcases
     def test_sparse_fp8_prefill_cases(self):
         for impl in DSA_PREFILL_IMPL_VARIANTS:
             with self.subTest(impl=impl):
@@ -321,6 +332,7 @@ class TestDSAAttentionBackendCorrectness(CustomTestCase):
                 )
                 run_dsa_sparse_fp8_prefill_case(self, case, dsa_prefill_backend=impl)
 
+    # 测试sparsefp8decodecases
     def test_sparse_fp8_decode_cases(self):
         for impl in DSA_DECODE_IMPL_VARIANTS:
             with self.subTest(impl=impl):
@@ -353,9 +365,11 @@ class TestDSAAttentionBackendCorrectness(CustomTestCase):
         prefix_lens=(4096,),
     )
 
+    # 测试sparsetilelangprefillcase
     def test_sparse_tilelang_prefill_case(self):
         run_dsa_sparse_tilelang_prefill_case(self, self.TILELANG_PREFILL_CASE)
 
+    # 测试sparsetilelangdecodecase
     def test_sparse_tilelang_decode_case(self):
         run_dsa_sparse_tilelang_decode_case(self, self.TILELANG_DECODE_CASE)
 
@@ -377,6 +391,7 @@ class TestDSAAttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试runnermodeeagledraftcudagraphrunnercases
     def test_runner_mode_eagle_draft_cuda_graph_runner_cases(self):
         for case in self.EAGLE_DRAFT_CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -400,6 +415,7 @@ class TestDSAAttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试runnermodeeagledraftextendcudagraphrunnercases
     def test_runner_mode_eagle_draft_extend_cuda_graph_runner_cases(self):
         for case in self.EAGLE_DRAFT_EXTEND_CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -410,6 +426,7 @@ class TestDSAAttentionBackendCorrectness(CustomTestCase):
     # `_clone_dsa_sparse_cache` hook is reused as-is — it snapshots the
     # raw uint8 K buffer bytes, which round-trip correctly across
     # capture/replay regardless of bf16 vs FP8 packing.
+    # 测试sparsefp8cudagraphdecodecase
     def test_sparse_fp8_cuda_graph_decode_case(self):
         from sglang.test.kits.attention_unittest.runner_modes.cuda_graph_decode_runner import (
             run_dsa_sparse_cuda_graph_decode_case,
@@ -429,6 +446,7 @@ class TestDSAAttentionBackendCorrectness(CustomTestCase):
     # `flashmla_kv` / `fa3` on H200, with `tilelang` / `trtllm` / `aiter`
     # skip-gated). Each impl re-builds the fixture with the impl forced
     # so the captured graph uses that specific kernel.
+    # 测试sparsecudagraphdecodeimplvariants
     def test_sparse_cuda_graph_decode_impl_variants(self):
         for impl in DSA_DECODE_IMPL_VARIANTS:
             with self.subTest(impl=impl):

@@ -1,3 +1,4 @@
+# 文件名: test_flashinfer.py - FlashInfer后端测试
 import sys
 import unittest
 from pathlib import Path
@@ -359,6 +360,7 @@ class TestFlashInferDenseAttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试projecteddenseattentioncases
     def test_projected_dense_attention_cases(self):
         for case in self.CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -395,6 +397,7 @@ class TestFlashInferDenseAttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试layoutrobustnesscases
     def test_layout_robustness_cases(self):
         for case in self.LAYOUT_ROBUSTNESS_CASES:
             # shuffled_pages is the default and already covered.
@@ -413,6 +416,7 @@ class TestFlashInferDenseAttentionBackendCorrectness(CustomTestCase):
                         loc_layout=layout,
                     )
 
+    # 测试runnermodecudagraphdecodecases
     def test_runner_mode_cuda_graph_decode_cases(self):
         for case in self.CUDA_GRAPH_CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -423,6 +427,7 @@ class TestFlashInferDenseAttentionBackendCorrectness(CustomTestCase):
                     hidden_size=self.HIDDEN_SIZE,
                 )
 
+    # 测试runnermodesplitopextendcases
     def test_runner_mode_split_op_extend_cases(self):
         for case, static_num_tokens in self.SPLIT_OP_CASES:
             for breakable in (False, True):
@@ -441,6 +446,7 @@ class TestFlashInferDenseAttentionBackendCorrectness(CustomTestCase):
                         hidden_size=self.HIDDEN_SIZE,
                     )
 
+    # 测试runnermodespecverifycases
     def test_runner_mode_spec_verify_cases(self):
         for case, topk, spec_kind in self.SPEC_VERIFY_CASES:
             with self.subTest(
@@ -458,6 +464,7 @@ class TestFlashInferDenseAttentionBackendCorrectness(CustomTestCase):
                     hidden_size=self.HIDDEN_SIZE,
                 )
 
+    # 测试runnermodespecverifycudagraphcases
     def test_runner_mode_spec_verify_cuda_graph_cases(self):
         for case, topk, spec_kind in self.SPEC_VERIFY_CUDA_GRAPH_CASES:
             with self.subTest(
@@ -475,6 +482,7 @@ class TestFlashInferDenseAttentionBackendCorrectness(CustomTestCase):
                     hidden_size=self.HIDDEN_SIZE,
                 )
 
+    # 测试runnermodeeagledraftextendcases
     def test_runner_mode_eagle_draft_extend_cases(self):
         for case, spec_kind in self.EAGLE_DRAFT_EXTEND_CASES:
             with self.subTest(
@@ -490,6 +498,7 @@ class TestFlashInferDenseAttentionBackendCorrectness(CustomTestCase):
                     spec_kind=spec_kind,
                 )
 
+    # 测试runnermodedraftextendcudagraphcases
     def test_runner_mode_draft_extend_cuda_graph_cases(self):
         for case, spec_kind in self.DRAFT_EXTEND_CUDA_GRAPH_CASES:
             with self.subTest(
@@ -505,6 +514,7 @@ class TestFlashInferDenseAttentionBackendCorrectness(CustomTestCase):
                     spec_kind=spec_kind,
                 )
 
+    # 测试runnermodeeagledraftextendcudagraphrunnercases
     def test_runner_mode_eagle_draft_extend_cuda_graph_runner_cases(self):
         for case in self.EAGLE_DRAFT_EXTEND_RUNNER_CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -515,6 +525,7 @@ class TestFlashInferDenseAttentionBackendCorrectness(CustomTestCase):
                     hidden_size=self.HIDDEN_SIZE,
                 )
 
+    # 测试runnermodeeagledraftcudagraphrunnercases
     def test_runner_mode_eagle_draft_cuda_graph_runner_cases(self):
         for case, topk, num_draft_tokens in self.EAGLE_DRAFT_RUNNER_CASES:
             with self.subTest(case=case.name, backend=case.backend, topk=topk):
@@ -527,6 +538,7 @@ class TestFlashInferDenseAttentionBackendCorrectness(CustomTestCase):
                     hidden_size=self.HIDDEN_SIZE,
                 )
 
+    # 测试runnermodefrozenkvmtpcudagraphrunnercases
     def test_runner_mode_frozen_kv_mtp_cuda_graph_runner_cases(self):
         for case in self.FROZEN_KV_MTP_RUNNER_CASES:
             with self.subTest(case=case.name, backend=case.backend):

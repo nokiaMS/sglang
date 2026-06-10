@@ -1,3 +1,4 @@
+# 文件名: test_deepseek_v3_fp4_cutedsl_moe.py - DeepSeek V3 FP4 CuteDSL MoE测试
 """Backend tests for CuteDSL MoE (FusedMoE + moe_runner, moe_a2a=none).
 
 Exercises the CuteDSL moe_runner path with ModelOpt FP4 by launching a
@@ -39,6 +40,7 @@ class TestDeepseekV3FP4CuteDSLMoE(CustomTestCase):
     """CuteDSL standard moe_runner path: flashinfer_cutedsl + modelopt_fp4, EP=1."""
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = FULL_DEEPSEEK_V3_FP4_MODEL_PATH
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -66,9 +68,11 @@ class TestDeepseekV3FP4CuteDSLMoE(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试agsm8k
     def test_a_gsm8k(
         self,
     ):  # Append an "a" to make this test run first (alphabetically) to warm up the server
@@ -94,6 +98,7 @@ class TestDeepseekV3FP4CuteDSLMoEEP4(CustomTestCase):
     """CuteDSL standard moe_runner path: flashinfer_cutedsl + modelopt_fp4, EP=TP=4."""
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = FULL_DEEPSEEK_V3_FP4_MODEL_PATH
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -123,9 +128,11 @@ class TestDeepseekV3FP4CuteDSLMoEEP4(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试agsm8k
     def test_a_gsm8k(self):
         args = SimpleNamespace(
             num_shots=8,

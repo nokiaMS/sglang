@@ -1,3 +1,4 @@
+# 文件名: test_encoder_embedding_models.py - 编码器嵌入模型测试 - 验证SRT和HuggingFace推理结果的相似度
 import multiprocessing as mp
 import random
 import time
@@ -39,9 +40,11 @@ sgl_to_st_ratio = []
 class TestEncoderEmbeddingModels(CustomTestCase):
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         mp.set_start_method("spawn", force=True)
 
+    # 截断提示文本 - 根据模型最大长度限制截断输入
     def _truncate_prompts(self, prompts, model_path):
         config = AutoConfig.from_pretrained(model_path)
         max_length = getattr(config, "max_position_embeddings", 512) - 20
@@ -61,6 +64,7 @@ class TestEncoderEmbeddingModels(CustomTestCase):
 
         return truncated_prompts
 
+    # 验证预填充logits的相似度 - 比较HF和SRT的推理结果
     def assert_close_prefill_logits(
         self,
         prompts,
@@ -119,6 +123,7 @@ class TestEncoderEmbeddingModels(CustomTestCase):
                     abs(similarity - 1) < prefill_tolerance
                 ), "embeddings are not all close"
 
+    # 测试prefill logits
     def test_prefill_logits(self):
         models_to_test = MODELS
 

@@ -1,3 +1,4 @@
+# 文件名: test_expert_location_updater.py - 专家位置更新器测试 - 验证MoE专家位置动态更新功能
 import os
 import traceback
 import unittest
@@ -25,9 +26,11 @@ class _TestInfo:
 
 class TestExpertLocationUpdater(CustomTestCase):
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         mp.set_start_method("spawn", force=True)
 
+    # 测试cpu
     def test_cpu(self):
         self._test_common(device="cpu")
         self._test_core(
@@ -43,6 +46,7 @@ class TestExpertLocationUpdater(CustomTestCase):
             ],
         )
 
+    # 测试cpu slow
     def test_cpu_slow(self):
         if is_in_ci():
             return
@@ -59,11 +63,13 @@ class TestExpertLocationUpdater(CustomTestCase):
             ],
         )
 
+    # 测试gpu
     def test_gpu(self):
         if is_in_ci():
             return
         self._test_common(device=get_device())
 
+    # 内部方法: test common
     def _test_common(self, device):
         infos = []
 
@@ -82,6 +88,7 @@ class TestExpertLocationUpdater(CustomTestCase):
 
         self._test_core(num_gpus=8, device=device, infos=infos)
 
+    # 内部方法: test core
     def _test_core(
         self,
         num_gpus: int,
@@ -116,6 +123,7 @@ class TestExpertLocationUpdater(CustomTestCase):
             p.join()
 
 
+# 内部方法: run subprocess
 def _run_subprocess(
     rank: int,
     num_gpus: int,
@@ -152,6 +160,7 @@ def _run_subprocess(
     output_writer.close()
 
 
+# 内部方法: execute test
 def _execute_test(info: _TestInfo, rank: int, num_gpus: int, device: str):
     if rank == 0:
         print(f"Test: {num_gpus=} {info=}", flush=True)
@@ -161,6 +170,7 @@ def _execute_test(info: _TestInfo, rank: int, num_gpus: int, device: str):
     assert num_gpus % info.nnodes == 0
     num_gpu_per_node = num_gpus // info.nnodes
 
+    # 内部方法: create routed experts weights
     def _create_routed_experts_weights(physical_to_logical_map):
         local_logical_expert_ids = physical_to_logical_map[
             rank * num_local_physical_experts : (rank + 1) * num_local_physical_experts
@@ -176,6 +186,7 @@ def _execute_test(info: _TestInfo, rank: int, num_gpus: int, device: str):
             ),
         ]
 
+    # 内部方法: create physical to logical map
     def _create_physical_to_logical_map():
         if rank == 0:
             ans = torch.concat(

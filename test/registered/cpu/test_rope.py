@@ -1,3 +1,4 @@
+# 文件名: test_rope.py - 旋转位置编码测试
 import unittest
 
 import torch
@@ -21,6 +22,7 @@ torch.manual_seed(1234)
 
 
 class TestROPE(CustomTestCase):
+    # 测试mrope
     def test_mrope(self):
         torch.manual_seed(100)
         head_size = 128
@@ -66,7 +68,7 @@ class TestROPE(CustomTestCase):
             )
             enable_autocast = True
 
-            with torch.no_grad(), torch.amp.autocast("cpu", enabled=enable_autocast):
+            with torch.no_grad(), torch.amp.autocast("cpu", enabled=enable_autocast):  # 禁用梯度计算
                 q = torch.randn(seq_len, num_heads * head_size, dtype=dtype)
                 q_clone = q.clone()
                 k = torch.randn(seq_len, num_kv_heads * head_size, dtype=dtype)
@@ -93,6 +95,7 @@ class TestROPE(CustomTestCase):
                 torch.testing.assert_close(q_ref, q_sgl, atol=atol, rtol=rtol)
                 torch.testing.assert_close(k_ref, k_sgl, atol=atol, rtol=rtol)
 
+    # 测试deepseekv2rope
     def test_deepseek_v2_rope(self):
         num_head = 16
         seq_len = 1024
@@ -127,7 +130,7 @@ class TestROPE(CustomTestCase):
         for dtype in [torch.bfloat16]:
             enable_autocast = True
 
-            with torch.no_grad(), torch.amp.autocast("cpu", enabled=enable_autocast):
+            with torch.no_grad(), torch.amp.autocast("cpu", enabled=enable_autocast):  # 禁用梯度计算
                 q = torch.randn(seq_len, num_head, q_head_dim, dtype=dtype)
                 q_clone = q.clone()
                 k = torch.randn(seq_len, 1, k_dim, dtype=dtype)
@@ -161,7 +164,9 @@ class TestROPE(CustomTestCase):
                 torch.testing.assert_close(k_pe, k_pe_clone, atol=atol, rtol=rtol)
                 torch.testing.assert_close(k_pe, k_pe_clone)
 
+    # 测试originrope
     def test_origin_rope(self):
+        # 执行singletest
         def single_test(
             head_size: int,
             rotary_dim: int,
@@ -259,6 +264,7 @@ class TestROPE(CustomTestCase):
                     num_kv_heads,
                 )
 
+    # 测试applyrotaryposemb
     def test_apply_rotary_pos_emb(self):
         num_tokens = 1024
         num_heads = 8

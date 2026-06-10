@@ -1,3 +1,4 @@
+# 文件名: test_auth.py - 认证
 """Unit tests for srt/utils/auth.py — no server, no model loading."""
 
 import unittest
@@ -14,51 +15,69 @@ from sglang.test.test_utils import CustomTestCase
 register_cpu_ci(1.0, "base-a-test-cpu")
 
 
+# TestAuthDecision类
 class TestAuthDecision(CustomTestCase):
+
+    # TestAuthDecision类的测试alloweddefault
     def test_allowed_default(self):
         decision = AuthDecision(allowed=True)
-        self.assertTrue(decision.allowed)
-        self.assertEqual(decision.error_status_code, 401)
+        self.assertTrue(decision.allowed)  # 断言为真
+        self.assertEqual(decision.error_status_code, 401)  # 断言相等
 
+    # TestAuthDecision类的测试notallowedwithcustomstatus
     def test_not_allowed_with_custom_status(self):
         decision = AuthDecision(allowed=False, error_status_code=403)
-        self.assertFalse(decision.allowed)
-        self.assertEqual(decision.error_status_code, 403)
+        self.assertFalse(decision.allowed)  # 断言为假
+        self.assertEqual(decision.error_status_code, 403)  # 断言相等
 
+    # TestAuthDecision类的测试frozen
     def test_frozen(self):
         decision = AuthDecision(allowed=True)
-        with self.assertRaises(AttributeError):
+        with self.assertRaises(AttributeError):  # 断言抛出异常
             decision.allowed = False
 
 
+# TestAuthLevel类
 class TestAuthLevel(CustomTestCase):
-    def test_enum_values(self):
-        self.assertEqual(AuthLevel.NORMAL.value, "normal")
-        self.assertEqual(AuthLevel.ADMIN_OPTIONAL.value, "admin_optional")
-        self.assertEqual(AuthLevel.ADMIN_FORCE.value, "admin_force")
 
+    # TestAuthLevel类的测试enumvalues
+    def test_enum_values(self):
+        self.assertEqual(AuthLevel.NORMAL.value, "normal")  # 断言相等
+        self.assertEqual(AuthLevel.ADMIN_OPTIONAL.value, "admin_optional")  # 断言相等
+        self.assertEqual(AuthLevel.ADMIN_FORCE.value, "admin_force")  # 断言相等
+
+    # TestAuthLevel类的测试isstringenum
     def test_is_string_enum(self):
         self.assertIsInstance(AuthLevel.NORMAL, str)
         # str mixin allows direct comparison with string values
-        self.assertEqual(AuthLevel.NORMAL, "normal")
+        self.assertEqual(AuthLevel.NORMAL, "normal")  # 断言相等
 
 
+# TestAuthLevelDecorator类
 class TestAuthLevelDecorator(CustomTestCase):
+
+    # TestAuthLevelDecorator类的测试decoratorsetsauthlevel
     def test_decorator_sets_auth_level(self):
         @auth_level(AuthLevel.ADMIN_FORCE)
+
+        # my_endpoint
         def my_endpoint():
             pass
 
-        self.assertEqual(my_endpoint._auth_level, AuthLevel.ADMIN_FORCE)
+        self.assertEqual(my_endpoint._auth_level, AuthLevel.ADMIN_FORCE)  # 断言相等
 
+    # TestAuthLevelDecorator类的测试decoratorpreservesfunction
     def test_decorator_preserves_function(self):
         @auth_level(AuthLevel.NORMAL)
+
+        # my_endpoint
         def my_endpoint():
             return 42
 
-        self.assertEqual(my_endpoint(), 42)
+        self.assertEqual(my_endpoint(), 42)  # 断言相等
 
 
+# TestDecideRequestAuth类
 class TestDecideRequestAuth(CustomTestCase):
     """Tests for the pure decide_request_auth function."""
 
@@ -73,8 +92,9 @@ class TestDecideRequestAuth(CustomTestCase):
             admin_api_key="admin-secret",
             auth_level=AuthLevel.ADMIN_FORCE,
         )
-        self.assertTrue(decision.allowed)
+        self.assertTrue(decision.allowed)  # 断言为真
 
+    # TestDecideRequestAuth类的测试healthpathalwaysallowed
     def test_health_path_always_allowed(self):
         decision = decide_request_auth(
             method="GET",
@@ -84,8 +104,9 @@ class TestDecideRequestAuth(CustomTestCase):
             admin_api_key=None,
             auth_level=AuthLevel.NORMAL,
         )
-        self.assertTrue(decision.allowed)
+        self.assertTrue(decision.allowed)  # 断言为真
 
+    # TestDecideRequestAuth类的测试healthsubpathalwaysallowed
     def test_health_subpath_always_allowed(self):
         decision = decide_request_auth(
             method="GET",
@@ -95,8 +116,9 @@ class TestDecideRequestAuth(CustomTestCase):
             admin_api_key=None,
             auth_level=AuthLevel.NORMAL,
         )
-        self.assertTrue(decision.allowed)
+        self.assertTrue(decision.allowed)  # 断言为真
 
+    # TestDecideRequestAuth类的测试metricspathalwaysallowed
     def test_metrics_path_always_allowed(self):
         decision = decide_request_auth(
             method="GET",
@@ -106,7 +128,7 @@ class TestDecideRequestAuth(CustomTestCase):
             admin_api_key=None,
             auth_level=AuthLevel.NORMAL,
         )
-        self.assertTrue(decision.allowed)
+        self.assertTrue(decision.allowed)  # 断言为真
 
     # ==================== NORMAL Auth Level ====================
 
@@ -119,8 +141,9 @@ class TestDecideRequestAuth(CustomTestCase):
             admin_api_key=None,
             auth_level=AuthLevel.NORMAL,
         )
-        self.assertTrue(decision.allowed)
+        self.assertTrue(decision.allowed)  # 断言为真
 
+    # TestDecideRequestAuth类的测试normalwithapikeycorrect
     def test_normal_with_api_key_correct(self):
         decision = decide_request_auth(
             method="POST",
@@ -130,8 +153,9 @@ class TestDecideRequestAuth(CustomTestCase):
             admin_api_key=None,
             auth_level=AuthLevel.NORMAL,
         )
-        self.assertTrue(decision.allowed)
+        self.assertTrue(decision.allowed)  # 断言为真
 
+    # TestDecideRequestAuth类的测试normalwithapikeywrong
     def test_normal_with_api_key_wrong(self):
         decision = decide_request_auth(
             method="POST",
@@ -141,8 +165,9 @@ class TestDecideRequestAuth(CustomTestCase):
             admin_api_key=None,
             auth_level=AuthLevel.NORMAL,
         )
-        self.assertFalse(decision.allowed)
+        self.assertFalse(decision.allowed)  # 断言为假
 
+    # TestDecideRequestAuth类的测试normalwithapikeymissingheader
     def test_normal_with_api_key_missing_header(self):
         decision = decide_request_auth(
             method="POST",
@@ -152,8 +177,9 @@ class TestDecideRequestAuth(CustomTestCase):
             admin_api_key=None,
             auth_level=AuthLevel.NORMAL,
         )
-        self.assertFalse(decision.allowed)
+        self.assertFalse(decision.allowed)  # 断言为假
 
+    # TestDecideRequestAuth类的测试normalonlyadminkeyconfigured
     def test_normal_only_admin_key_configured(self):
         """When only admin_api_key is configured, normal endpoints allow all."""
         decision = decide_request_auth(
@@ -164,7 +190,7 @@ class TestDecideRequestAuth(CustomTestCase):
             admin_api_key="admin-secret",
             auth_level=AuthLevel.NORMAL,
         )
-        self.assertTrue(decision.allowed)
+        self.assertTrue(decision.allowed)  # 断言为真
 
     # ==================== ADMIN_FORCE Auth Level ====================
 
@@ -178,9 +204,10 @@ class TestDecideRequestAuth(CustomTestCase):
             admin_api_key=None,
             auth_level=AuthLevel.ADMIN_FORCE,
         )
-        self.assertFalse(decision.allowed)
-        self.assertEqual(decision.error_status_code, 403)
+        self.assertFalse(decision.allowed)  # 断言为假
+        self.assertEqual(decision.error_status_code, 403)  # 断言相等
 
+    # TestDecideRequestAuth类的测试adminforcecorrectadminkey
     def test_admin_force_correct_admin_key(self):
         decision = decide_request_auth(
             method="POST",
@@ -190,8 +217,9 @@ class TestDecideRequestAuth(CustomTestCase):
             admin_api_key="admin-secret",
             auth_level=AuthLevel.ADMIN_FORCE,
         )
-        self.assertTrue(decision.allowed)
+        self.assertTrue(decision.allowed)  # 断言为真
 
+    # TestDecideRequestAuth类的测试adminforcewrongadminkey
     def test_admin_force_wrong_admin_key(self):
         decision = decide_request_auth(
             method="POST",
@@ -201,9 +229,10 @@ class TestDecideRequestAuth(CustomTestCase):
             admin_api_key="admin-secret",
             auth_level=AuthLevel.ADMIN_FORCE,
         )
-        self.assertFalse(decision.allowed)
-        self.assertEqual(decision.error_status_code, 401)
+        self.assertFalse(decision.allowed)  # 断言为假
+        self.assertEqual(decision.error_status_code, 401)  # 断言相等
 
+    # TestDecideRequestAuth类的测试adminforceapikeynotaccepted
     def test_admin_force_api_key_not_accepted(self):
         """ADMIN_FORCE rejects api_key, only accepts admin_api_key."""
         decision = decide_request_auth(
@@ -214,7 +243,7 @@ class TestDecideRequestAuth(CustomTestCase):
             admin_api_key="admin-secret",
             auth_level=AuthLevel.ADMIN_FORCE,
         )
-        self.assertFalse(decision.allowed)
+        self.assertFalse(decision.allowed)  # 断言为假
 
     # ==================== ADMIN_OPTIONAL Auth Level ====================
 
@@ -227,8 +256,9 @@ class TestDecideRequestAuth(CustomTestCase):
             admin_api_key=None,
             auth_level=AuthLevel.ADMIN_OPTIONAL,
         )
-        self.assertTrue(decision.allowed)
+        self.assertTrue(decision.allowed)  # 断言为真
 
+    # TestDecideRequestAuth类的测试adminoptionalonlyapikeycorrect
     def test_admin_optional_only_api_key_correct(self):
         decision = decide_request_auth(
             method="POST",
@@ -238,8 +268,9 @@ class TestDecideRequestAuth(CustomTestCase):
             admin_api_key=None,
             auth_level=AuthLevel.ADMIN_OPTIONAL,
         )
-        self.assertTrue(decision.allowed)
+        self.assertTrue(decision.allowed)  # 断言为真
 
+    # TestDecideRequestAuth类的测试adminoptionalonlyapikeywrong
     def test_admin_optional_only_api_key_wrong(self):
         decision = decide_request_auth(
             method="POST",
@@ -249,8 +280,9 @@ class TestDecideRequestAuth(CustomTestCase):
             admin_api_key=None,
             auth_level=AuthLevel.ADMIN_OPTIONAL,
         )
-        self.assertFalse(decision.allowed)
+        self.assertFalse(decision.allowed)  # 断言为假
 
+    # TestDecideRequestAuth类的测试adminoptionalonlyadminkeycorrect
     def test_admin_optional_only_admin_key_correct(self):
         decision = decide_request_auth(
             method="POST",
@@ -260,8 +292,9 @@ class TestDecideRequestAuth(CustomTestCase):
             admin_api_key="admin-secret",
             auth_level=AuthLevel.ADMIN_OPTIONAL,
         )
-        self.assertTrue(decision.allowed)
+        self.assertTrue(decision.allowed)  # 断言为真
 
+    # TestDecideRequestAuth类的测试adminoptionalbothkeysrequiresadmin
     def test_admin_optional_both_keys_requires_admin(self):
         """When both keys configured, ADMIN_OPTIONAL requires admin_api_key."""
         decision = decide_request_auth(
@@ -272,8 +305,9 @@ class TestDecideRequestAuth(CustomTestCase):
             admin_api_key="admin-secret",
             auth_level=AuthLevel.ADMIN_OPTIONAL,
         )
-        self.assertFalse(decision.allowed)
+        self.assertFalse(decision.allowed)  # 断言为假
 
+    # TestDecideRequestAuth类的测试adminoptionalbothkeysadminaccepted
     def test_admin_optional_both_keys_admin_accepted(self):
         decision = decide_request_auth(
             method="POST",
@@ -283,7 +317,7 @@ class TestDecideRequestAuth(CustomTestCase):
             admin_api_key="admin-secret",
             auth_level=AuthLevel.ADMIN_OPTIONAL,
         )
-        self.assertTrue(decision.allowed)
+        self.assertTrue(decision.allowed)  # 断言为真
 
     # ==================== Bearer Token Edge Cases ====================
 
@@ -296,8 +330,9 @@ class TestDecideRequestAuth(CustomTestCase):
             admin_api_key=None,
             auth_level=AuthLevel.NORMAL,
         )
-        self.assertFalse(decision.allowed)
+        self.assertFalse(decision.allowed)  # 断言为假
 
+    # TestDecideRequestAuth类的测试emptyauthorizationheader
     def test_empty_authorization_header(self):
         decision = decide_request_auth(
             method="POST",
@@ -307,8 +342,9 @@ class TestDecideRequestAuth(CustomTestCase):
             admin_api_key=None,
             auth_level=AuthLevel.NORMAL,
         )
-        self.assertFalse(decision.allowed)
+        self.assertFalse(decision.allowed)  # 断言为假
 
+    # TestDecideRequestAuth类的测试bearercaseinsensitive
     def test_bearer_case_insensitive(self):
         decision = decide_request_auth(
             method="POST",
@@ -318,7 +354,7 @@ class TestDecideRequestAuth(CustomTestCase):
             admin_api_key=None,
             auth_level=AuthLevel.NORMAL,
         )
-        self.assertTrue(decision.allowed)
+        self.assertTrue(decision.allowed)  # 断言为真
 
 
 if __name__ == "__main__":

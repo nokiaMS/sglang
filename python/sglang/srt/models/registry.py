@@ -1,3 +1,4 @@
+# 模型注册表模块，管理SGLang支持的所有模型架构的注册、发现和解析
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 # Adapted from https://github.com/vllm-project/vllm/blob/v0.6.4.post1/vllm/model_executor/models/registry.py
@@ -16,6 +17,7 @@ from sglang.srt.environ import envs
 logger = logging.getLogger(__name__)
 
 
+# 模型注册表数据类，以模型架构名为键存储模型类的映射关系
 @dataclass
 class _ModelRegistry:
     # Keyed by model_arch
@@ -91,6 +93,7 @@ class _ModelRegistry:
         return self._raise_for_unsupported(architectures)
 
 
+# 从指定包中导入所有模型类，扫描模块中的EntryClass属性建立架构名到类的映射
 @lru_cache()
 def import_model_classes(package_name: str, strict: bool = False):
     model_arch_name_to_cls = {}

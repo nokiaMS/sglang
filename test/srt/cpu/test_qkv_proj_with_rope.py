@@ -1,3 +1,4 @@
+# 文件名: test_qkv_proj_with_rope.py - 测试带旋转位置编码的QKV投影融合算子（BF16/INT8/FP8）
 import unittest
 
 import torch
@@ -16,7 +17,7 @@ convert_weight_packed = torch.ops.sgl_kernel.convert_weight_packed
 qkv_proj_with_rope = torch.ops.sgl_kernel.qkv_proj_with_rope
 qkv_proj_with_rope_fused_weight = torch.ops.sgl_kernel.qkv_proj_with_rope_fused_weight
 torch.manual_seed(1234)
-# constants
+# constants 常量定义
 kv_lora_rank = 512
 qk_head_dim = 192
 qk_nope_head_dim = 128
@@ -30,6 +31,7 @@ eps = 1e-6
 
 
 def layernorm(x, weight, variance_epsilon=1e-6, residual=None):
+    # 层归一化：计算方差，归一化后乘以权重
     orig_dtype = x.dtype
     x = x.to(torch.float32)
     variance = x.pow(2).mean(dim=-1, keepdim=True)
@@ -38,6 +40,7 @@ def layernorm(x, weight, variance_epsilon=1e-6, residual=None):
 
 
 def rotary_emb(q_pe, k_pe, pos, cos_sin_cache):
+    # 旋转位置编码：应用cos/sin旋转到查询和键的位置编码部分
     orig_dtype = q_pe.dtype
     q_pe = q_pe.float()
     k_pe = k_pe.float()
@@ -64,6 +67,7 @@ def native_torch(
     pos,
     cos_sin_cache,
 ):
+    # 原生PyTorch实现的QKV投影+RoPE前向计算
 
     q = torch.matmul(hidden_states, q_a_proj_weight.t())
     q = layernorm(q, norm_weight1)
@@ -102,6 +106,7 @@ def native_torch_int8(
     pos,
     cos_sin_cache,
 ):
+    # INT8量化版本的QKV投影+RoPE前向计算
 
     a_q, a_s = per_token_quant_int8(hidden_states)
     q = native_w8a8_per_token_matmul(a_q, w1_q, a_s, w1_s, None, torch.bfloat16)
@@ -135,6 +140,7 @@ def native_torch_int8(
 
 class TestQKVProjWithROPE(CustomTestCase):
     def test_bf16_qkv_proj_with_rope(self):
+        # 测试BF16精度下的QKV投影+RoPE融合算子
         dtype = torch.bfloat16
         hidden_states = torch.randn(B, hidden_size, dtype=dtype) / hidden_size
         q_input = torch.empty(
@@ -221,6 +227,7 @@ class TestQKVProjWithROPE(CustomTestCase):
         torch.testing.assert_close(fused_v_out, v_out)
 
     def test_int8_qkv_proj_with_rope(self):
+        # 测试INT8量化下的QKV投影+RoPE融合算子
         dtype = torch.bfloat16
         hidden_states = torch.randn(B, hidden_size, dtype=dtype) / hidden_size
         q_input = torch.empty(
@@ -314,6 +321,7 @@ class TestQKVProjWithROPE(CustomTestCase):
         torch.testing.assert_close(fused_v_out, v_out)
 
     def test_fp8_qkv_proj_with_rope(self):
+        # 测试FP8量化下的QKV投影+RoPE融合算子
         dtype = torch.bfloat16
         hidden_states = torch.randn(B, hidden_size, dtype=dtype) / hidden_size
         q_input = torch.empty(
@@ -428,6 +436,7 @@ class TestQKVProjWithROPE(CustomTestCase):
         # Due to the change in multiplication order, the error is amplified.
         # In the model, with fewer layers, this doesn't cause issues, but in
         # tests with more layers, we need to enlarge the tolerance to pass the tests.
+        # 由于乘法顺序改变，误差被放大，需要放宽容差
         torch.testing.assert_close(q_ref, q_out, atol=1e-1, rtol=1e-1)
         torch.testing.assert_close(k_ref, k_out, atol=atol, rtol=rtol)
         torch.testing.assert_close(v_ref, v_out, atol=atol, rtol=rtol)

@@ -1,3 +1,4 @@
+# 文件名: test_qwen3_235b.py - Qwen3-235B测试 - 验证Qwen3-235B-FP8模型的准确性、性能和上下文并行
 import unittest
 
 from sglang.test.accuracy_test_runner import AccuracyTestParams
@@ -24,6 +25,7 @@ class TestQwen3235BFP8(unittest.TestCase):
     - Accuracy test (using run_eval with gsm8k)
     """
 
+    # 测试qwen3 235b fp8 all variants
     def test_qwen3_235b_fp8_all_variants(self):
         """Run performance and accuracy for Qwen3-235B-FP8."""
         base_args = [
@@ -66,6 +68,7 @@ class TestQwen3235BFP8(unittest.TestCase):
         )
 
     @unittest.skipIf(is_blackwell_system(), "Requires H200 system")
+    # 测试qwen3 235b fp8 cp
     def test_qwen3_235b_fp8_cp(self):
         """Run performance and accuracy for Qwen3-235B-FP8 with context parallelism."""
 

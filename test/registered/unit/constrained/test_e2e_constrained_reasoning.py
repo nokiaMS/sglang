@@ -1,3 +1,4 @@
+# 文件名: test_e2e_constrained_reasoning.py - 端到端约束推理
 """
 End-to-end tests for strict reasoning + constrained decoding.
 
@@ -29,8 +30,11 @@ BASE_URL = "http://127.0.0.1:39877"
 API_KEY = "sk-test-1234"
 
 
+# TestConstrainedReasoningE2E类
 class TestConstrainedReasoningE2E(CustomTestCase):
     @classmethod
+
+    # TestConstrainedReasoningE2E类的测试类初始化设置
     def setUpClass(cls):
         cls.model = MODEL
         cls.base_url = BASE_URL
@@ -47,9 +51,12 @@ class TestConstrainedReasoningE2E(CustomTestCase):
         )
 
     @classmethod
+
+    # TestConstrainedReasoningE2E类的测试类清理
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # TestConstrainedReasoningE2E类的内部方法_chat
     def _chat(self, **kwargs):
         default = {
             "model": self.model,
@@ -69,9 +76,10 @@ class TestConstrainedReasoningE2E(CustomTestCase):
             json=default,
             timeout=60,
         )
-        self.assertEqual(resp.status_code, 200, f"Request failed: {resp.text}")
+        self.assertEqual(resp.status_code, 200, f"Request failed: {resp.text}")  # 断言相等
         return resp.json()
 
+    # TestConstrainedReasoningE2E类的测试reasoningwithjsonschema
     def test_reasoning_with_json_schema(self):
         """AC-5.1: Reasoning + JSON schema produces valid JSON output."""
         schema = {
@@ -102,18 +110,19 @@ class TestConstrainedReasoningE2E(CustomTestCase):
         if content.strip():
             try:
                 parsed = json.loads(content)
-                self.assertIn("answer", parsed)
+                self.assertIn("answer", parsed)  # 断言包含
                 self.assertIsInstance(parsed["answer"], int)
             except (json.JSONDecodeError, TypeError):
                 # Small models may produce imperfect JSON
-                self.assertTrue(
+                self.assertTrue(  # 断言为真
                     content.strip().startswith("{"),
                     f"Expected JSON-like output, got: {content!r}",
                 )
 
         # Content should NOT contain <think> tags (those go to reasoning_content)
-        self.assertNotIn("<think>", content)
+        self.assertNotIn("<think>", content)  # 断言不包含
 
+    # TestConstrainedReasoningE2E类的测试reasoningdisabledwithjsonschema
     def test_reasoning_disabled_with_json_schema(self):
         """JSON schema still works when reasoning is explicitly disabled."""
         schema = {
@@ -139,8 +148,9 @@ class TestConstrainedReasoningE2E(CustomTestCase):
 
         # Should still produce valid JSON
         parsed = json.loads(content)
-        self.assertIn("answer", parsed)
+        self.assertIn("answer", parsed)  # 断言包含
 
+    # TestConstrainedReasoningE2E类的测试reasoningwithseparateoutput
     def test_reasoning_with_separate_output(self):
         """Reasoning content is correctly separated from normal content."""
         data = self._chat(
@@ -153,9 +163,10 @@ class TestConstrainedReasoningE2E(CustomTestCase):
         reasoning = choice["message"].get("reasoning_content")
 
         # Content should not contain think tags
-        self.assertNotIn("<think>", content)
-        self.assertNotIn("</think>", content)
+        self.assertNotIn("<think>", content)  # 断言不包含
+        self.assertNotIn("</think>", content)  # 断言不包含
 
+    # TestConstrainedReasoningE2E类的测试toolcallafterreasoning
     def test_tool_call_after_reasoning(self):
         """AC-5.2: Tool call parsing works with reasoning enabled."""
         tools = [
@@ -189,12 +200,13 @@ class TestConstrainedReasoningE2E(CustomTestCase):
         choice = data["choices"][0]
         # The model may or may not produce tool calls (depends on model capability)
         # but the response should be well-formed (no crashes)
-        self.assertIn("message", choice)
-        self.assertIn("finish_reason", choice)
+        self.assertIn("message", choice)  # 断言包含
+        self.assertIn("finish_reason", choice)  # 断言包含
         # finish_reason should be either "stop" or "tool_calls"
-        self.assertIn(choice["finish_reason"], ["stop", "tool_calls", "length"])
+        self.assertIn(choice["finish_reason"], ["stop", "tool_calls", "length"])  # 断言包含
 
 
+# TestStrictThinkingE2E类
 class TestStrictThinkingE2E(CustomTestCase):
     """E2E tests with --enable-strict-thinking flag.
 
@@ -204,6 +216,8 @@ class TestStrictThinkingE2E(CustomTestCase):
     """
 
     @classmethod
+
+    # TestStrictThinkingE2E类的测试类初始化设置
     def setUpClass(cls):
         cls.model = MODEL
         cls.base_url = "http://127.0.0.1:39878"
@@ -221,9 +235,12 @@ class TestStrictThinkingE2E(CustomTestCase):
         )
 
     @classmethod
+
+    # TestStrictThinkingE2E类的测试类清理
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # TestStrictThinkingE2E类的内部方法_chat
     def _chat(self, **kwargs):
         default = {
             "model": self.model,
@@ -243,9 +260,10 @@ class TestStrictThinkingE2E(CustomTestCase):
             json=default,
             timeout=60,
         )
-        self.assertEqual(resp.status_code, 200, f"Request failed: {resp.text}")
+        self.assertEqual(resp.status_code, 200, f"Request failed: {resp.text}")  # 断言相等
         return resp.json()
 
+    # TestStrictThinkingE2E类的测试strictthinkingwithjsonschema
     def test_strict_thinking_with_json_schema(self):
         """Strict thinking + JSON schema: server starts and produces valid output."""
         schema = {
@@ -273,16 +291,17 @@ class TestStrictThinkingE2E(CustomTestCase):
         if content.strip():
             try:
                 parsed = json.loads(content)
-                self.assertIn("answer", parsed)
+                self.assertIn("answer", parsed)  # 断言包含
             except (json.JSONDecodeError, TypeError):
-                self.assertTrue(
+                self.assertTrue(  # 断言为真
                     content.strip().startswith("{"),
                     f"Expected JSON-like output, got: {content!r}",
                 )
 
         # Think tags must not leak into content
-        self.assertNotIn("<think>", content)
+        self.assertNotIn("<think>", content)  # 断言不包含
 
+    # TestStrictThinkingE2E类的测试strictthinkingdisabledperrequest
     def test_strict_thinking_disabled_per_request(self):
         """When thinking is disabled per-request, strict server still works."""
         data = self._chat(
@@ -290,11 +309,12 @@ class TestStrictThinkingE2E(CustomTestCase):
         )
 
         choice = data["choices"][0]
-        self.assertIn("message", choice)
-        self.assertIn("finish_reason", choice)
+        self.assertIn("message", choice)  # 断言包含
+        self.assertIn("finish_reason", choice)  # 断言包含
         # Should complete normally without errors
-        self.assertIn(choice["finish_reason"], ["stop", "length"])
+        self.assertIn(choice["finish_reason"], ["stop", "length"])  # 断言包含
 
+    # TestStrictThinkingE2E类的测试strictthinkingseparatereasoning
     def test_strict_thinking_separate_reasoning(self):
         """Strict thinking with separate_reasoning produces well-formed output."""
         data = self._chat(
@@ -306,8 +326,8 @@ class TestStrictThinkingE2E(CustomTestCase):
         content = choice["message"]["content"] or ""
 
         # Think tags must not leak into content
-        self.assertNotIn("<think>", content)
-        self.assertNotIn("</think>", content)
+        self.assertNotIn("<think>", content)  # 断言不包含
+        self.assertNotIn("</think>", content)  # 断言不包含
 
 
 if __name__ == "__main__":

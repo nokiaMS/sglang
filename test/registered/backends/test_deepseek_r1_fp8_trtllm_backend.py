@@ -1,3 +1,4 @@
+# 文件名: test_deepseek_r1_fp8_trtllm_backend.py - DeepSeek R1 FP8 TRT-LLM后端测试
 import unittest
 from types import SimpleNamespace
 
@@ -19,6 +20,7 @@ SERVER_LAUNCH_TIMEOUT = 1000
 
 class TestDeepseekR1Fp8Flashinfer(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = try_cached_model(FULL_DEEPSEEK_V3_MODEL_PATH)
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -67,9 +69,11 @@ class TestDeepseekR1Fp8Flashinfer(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,

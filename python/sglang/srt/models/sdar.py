@@ -1,63 +1,70 @@
+# SDAR 模型推理实现文件
+# 本文件实现了SDAR（块扩散/dLLM风格）因果语言模型
+# 使用ENCODER_ONLY注意力类型支持非因果/块掩码
+# 包含MLP、注意力、解码块和模型权重加载等核心组件
+
 # coding=utf-8
 """
 SGLang SDARModelLM (block diffusion / dLLM-style forward).
 """
 
-import logging
-from typing import Iterable, Optional, Tuple, Union
+import logging  # 导入日志模块
+from typing import Iterable, Optional, Tuple, Union  # 导入类型提示
 
-import torch
-from torch import nn
-from transformers import PretrainedConfig
+import torch  # 导入PyTorch
+from torch import nn  # 导入神经网络模块
+from transformers import PretrainedConfig  # 导入预训练配置
 
-from sglang.srt.distributed import get_pp_group, get_tensor_model_parallel_world_size
-from sglang.srt.layers.activation import SiluAndMul
-from sglang.srt.layers.communicator import LayerCommunicator, LayerScatterModes
-from sglang.srt.layers.dp_attention import (
+from sglang.srt.distributed import get_pp_group, get_tensor_model_parallel_world_size  # 导入分布式
+from sglang.srt.layers.activation import SiluAndMul  # 导入SiLU激活
+from sglang.srt.layers.communicator import LayerCommunicator, LayerScatterModes  # 导入层通信器
+from sglang.srt.layers.dp_attention import (  # 导入DP注意力
     get_attention_tp_rank,
     get_attention_tp_size,
     is_dp_attention_enabled,
 )
-from sglang.srt.layers.layernorm import RMSNorm
-from sglang.srt.layers.linear import (
+from sglang.srt.layers.layernorm import RMSNorm  # 导入RMS归一化
+from sglang.srt.layers.linear import (  # 导入线性层
     MergedColumnParallelLinear,
     QKVParallelLinear,
     RowParallelLinear,
 )
-from sglang.srt.layers.logits_processor import LogitsProcessor
-from sglang.srt.layers.quantization.base_config import QuantizationConfig
-from sglang.srt.layers.radix_attention import AttentionType, RadixAttention
-from sglang.srt.layers.rotary_embedding import get_rope
-from sglang.srt.layers.utils import PPMissingLayer, get_layer_id
-from sglang.srt.layers.vocab_parallel_embedding import (
+from sglang.srt.layers.logits_processor import LogitsProcessor  # 导入逻辑处理器
+from sglang.srt.layers.quantization.base_config import QuantizationConfig  # 导入量化配置
+from sglang.srt.layers.radix_attention import AttentionType, RadixAttention  # 导入基数注意力
+from sglang.srt.layers.rotary_embedding import get_rope  # 导入旋转位置编码
+from sglang.srt.layers.utils import PPMissingLayer, get_layer_id  # 导入工具
+from sglang.srt.layers.vocab_parallel_embedding import (  # 导入词表并行嵌入
     ParallelLMHead,
     VocabParallelEmbedding,
 )
-from sglang.srt.model_executor.forward_batch_info import ForwardBatch, PPProxyTensors
-from sglang.srt.model_loader.weight_utils import (
+from sglang.srt.model_executor.forward_batch_info import ForwardBatch, PPProxyTensors  # 导入前向批次
+from sglang.srt.model_loader.weight_utils import (  # 导入权重工具
     default_weight_loader,
     maybe_remap_kv_scale_name,
 )
-from sglang.srt.models.utils import (
+from sglang.srt.models.utils import (  # 导入模型工具
     apply_qk_norm,
     create_fused_set_kv_buffer_arg,
     enable_fused_set_kv_buffer,
 )
-from sglang.srt.server_args import get_global_server_args
-from sglang.srt.utils import add_prefix, is_cuda, make_layers
+from sglang.srt.server_args import get_global_server_args  # 导入服务器参数
+from sglang.srt.utils import add_prefix, is_cuda, make_layers  # 导入工具函数
 
-logger = logging.getLogger(__name__)
-_is_cuda = is_cuda()
+logger = logging.getLogger(__name__)  # 创建日志记录器
+_is_cuda = is_cuda()  # 是否CUDA
 
 
 class SDARMLP(nn.Module):
+    """SDAR MLP模块，使用SiLU门控激活"""
     def __init__(
         self,
-        config: PretrainedConfig,
-        quant_config=None,
-        reduce_results: bool = True,
-        prefix: str = "",
+        config: PretrainedConfig,  # 模型配置
+        quant_config=None,  # 量化配置
+        reduce_results: bool = True,  # 是否归约结果
+        prefix: str = "",  # 前缀
     ):
+        """初始化MLP，配置门控上投影和下投影"""
         super().__init__()
         self.gate_up_proj = MergedColumnParallelLinear(
             config.hidden_size,
@@ -77,6 +84,7 @@ class SDARMLP(nn.Module):
         self.act_fn = SiluAndMul()
 
     def forward(self, hidden_states: torch.Tensor, use_reduce_scatter: bool = False):
+        """MLP前向传播：门控上投影、SiLU激活、下投影"""
         gate_up, _ = self.gate_up_proj(hidden_states)
         hidden_states = self.act_fn(gate_up)
         hidden_states, _ = self.down_proj(
@@ -86,15 +94,17 @@ class SDARMLP(nn.Module):
 
 
 class SDARAttention(nn.Module):
+    """SDAR注意力模块，使用ENCODER_ONLY类型支持非因果注意力"""
     def __init__(
         self,
-        config: PretrainedConfig,
-        layer_id: int,
-        quant_config=None,
-        reduce_results: bool = True,
-        prefix: str = "",
-        alt_stream: Optional[torch.cuda.Stream] = None,
+        config: PretrainedConfig,  # 模型配置
+        layer_id: int,  # 层ID
+        quant_config=None,  # 量化配置
+        reduce_results: bool = True,  # 是否归约结果
+        prefix: str = "",  # 前缀
+        alt_stream: Optional[torch.cuda.Stream] = None,  # 替代CUDA流
     ):
+        """初始化SDAR注意力，配置QKV投影、QK归一化、RoPE和注意力层"""
         super().__init__()
         self.layer_id = layer_id
         self.hidden_size = config.hidden_size
@@ -145,8 +155,8 @@ class SDARAttention(nn.Module):
             prefix=add_prefix("o_proj", prefix),
         )
 
-        self.q_norm = RMSNorm(self.head_dim, eps=config.rms_norm_eps)
-        self.k_norm = RMSNorm(self.head_dim, eps=config.rms_norm_eps)
+        self.q_norm = RMSNorm(self.head_dim, eps=config.rms_norm_eps)  # Q归一化
+        self.k_norm = RMSNorm(self.head_dim, eps=config.rms_norm_eps)  # K归一化
 
         rope_theta = getattr(config, "rope_theta", 10000.0)
         rope_scaling = getattr(config, "rope_scaling", None)
@@ -168,12 +178,13 @@ class SDARAttention(nn.Module):
             self.scale,
             num_kv_heads=self.num_kv_heads,
             layer_id=layer_id,
-            attn_type=AttentionType.ENCODER_ONLY,
+            attn_type=AttentionType.ENCODER_ONLY,  # 编码器注意力类型（非因果）
             prefix=add_prefix("attn", prefix),
         )
         self.alt_stream = alt_stream
 
     def forward_prepare_native(self, positions, hidden_states, forward_batch):
+        """原生注意力准备：QKV投影、QK归一化、RoPE"""
         qkv, _ = self.qkv_proj(hidden_states)
         q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
         q, k = apply_qk_norm(
@@ -202,11 +213,12 @@ class SDARAttention(nn.Module):
 
     def forward(
         self,
-        positions: torch.Tensor,
-        hidden_states: torch.Tensor,
-        forward_batch: ForwardBatch,
+        positions: torch.Tensor,  # 位置
+        hidden_states: torch.Tensor,  # 隐藏状态
+        forward_batch: ForwardBatch,  # 前向批次
     ):
-        if get_global_server_args().rl_on_policy_target is not None:
+        """SDAR注意力前向传播"""
+        if get_global_server_args().rl_on_policy_target is not None:  # RL训练模式
             hidden_states = hidden_states.bfloat16()
 
         qkv, _ = self.qkv_proj(hidden_states)
@@ -234,7 +246,7 @@ class SDARAttention(nn.Module):
             ),
         )
 
-        if get_global_server_args().rl_on_policy_target is not None:
+        if get_global_server_args().rl_on_policy_target is not None:  # RL模式转换精度
             q = q.to(torch.bfloat16)
             k = k.to(torch.bfloat16)
 
@@ -250,14 +262,16 @@ class SDARAttention(nn.Module):
 
 
 class SDARBlock(nn.Module):
+    """SDAR解码块，包含注意力和MLP"""
     def __init__(
         self,
-        config: PretrainedConfig,
-        layer_id: int,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
-        alt_stream: Optional[torch.cuda.Stream] = None,
+        config: PretrainedConfig,  # 模型配置
+        layer_id: int,  # 层ID
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
+        alt_stream: Optional[torch.cuda.Stream] = None,  # 替代CUDA流
     ):
+        """初始化SDAR块，配置归一化、注意力和MLP"""
         super().__init__()
         self.hidden_size = config.hidden_size
         self.layer_id = layer_id
@@ -311,11 +325,12 @@ class SDARBlock(nn.Module):
 
     def forward(
         self,
-        positions: torch.Tensor,
-        hidden_states: torch.Tensor,
-        forward_batch: ForwardBatch,
-        residual: Optional[torch.Tensor],
+        positions: torch.Tensor,  # 位置
+        hidden_states: torch.Tensor,  # 隐藏状态
+        forward_batch: ForwardBatch,  # 前向批次
+        residual: Optional[torch.Tensor],  # 残差
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """SDAR块前向传播：注意力+MLP"""
         hidden_states, residual = self.layer_communicator.prepare_attn(
             hidden_states,
             residual,
@@ -348,13 +363,15 @@ class SDARBlock(nn.Module):
 
 
 class SDARModel(nn.Module):
+    """SDAR模型，包含嵌入层、解码块和最终归一化"""
     def __init__(
         self,
-        config: PretrainedConfig,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
-        alt_stream: Optional[torch.cuda.Stream] = None,
+        config: PretrainedConfig,  # 模型配置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
+        alt_stream: Optional[torch.cuda.Stream] = None,  # 替代CUDA流
     ):
+        """初始化SDAR模型"""
         super().__init__()
         self.config = config
         self.vocab_size = config.vocab_size
@@ -402,12 +419,13 @@ class SDARModel(nn.Module):
 
     def forward(
         self,
-        input_ids: torch.Tensor,
-        positions: torch.Tensor,
-        forward_batch: ForwardBatch,
-        input_embeds: torch.Tensor = None,
-        pp_proxy_tensors: Optional[PPProxyTensors] = None,
+        input_ids: torch.Tensor,  # 输入ID
+        positions: torch.Tensor,  # 位置
+        forward_batch: ForwardBatch,  # 前向批次
+        input_embeds: torch.Tensor = None,  # 输入嵌入
+        pp_proxy_tensors: Optional[PPProxyTensors] = None,  # PP代理张量
     ) -> Union[torch.Tensor, PPProxyTensors]:
+        """SDAR模型前向传播"""
         if self.pp_group.is_first_rank:
             hidden_states = (
                 self.embed_tokens(input_ids) if input_embeds is None else input_embeds
@@ -435,12 +453,14 @@ class SDARModel(nn.Module):
 
 
 class SDARForCausalLM(nn.Module):
+    """SDAR因果语言模型，使用块扩散/dLLM风格前向"""
     def __init__(
         self,
-        config: PretrainedConfig,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        config: PretrainedConfig,  # 模型配置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
     ):
+        """初始化SDAR因果语言模型"""
         super().__init__()
         self.pp_group = get_pp_group()
         assert self.pp_group.world_size == 1, (
@@ -466,7 +486,7 @@ class SDARForCausalLM(nn.Module):
                 and config.tie_word_embeddings
                 and tp_size == 1
             ):
-                self.lm_head = self.model.embed_tokens
+                self.lm_head = self.model.embed_tokens  # 权重共享
             else:
                 self.lm_head = ParallelLMHead(
                     config.vocab_size,
@@ -482,21 +502,24 @@ class SDARForCausalLM(nn.Module):
 
     @property
     def start_layer(self):
+        """起始层"""
         return self.model.start_layer
 
     @property
     def end_layer(self):
+        """结束层"""
         return self.model.end_layer
 
     @torch.no_grad()
     def forward(
         self,
-        input_ids: torch.Tensor,
-        positions: torch.Tensor,
-        forward_batch: ForwardBatch,
-        input_embeds: Optional[torch.Tensor] = None,
-        pp_proxy_tensors: Optional[PPProxyTensors] = None,
+        input_ids: torch.Tensor,  # 输入ID
+        positions: torch.Tensor,  # 位置
+        forward_batch: ForwardBatch,  # 前向批次
+        input_embeds: Optional[torch.Tensor] = None,  # 输入嵌入
+        pp_proxy_tensors: Optional[PPProxyTensors] = None,  # PP代理张量
     ) -> torch.Tensor:
+        """SDAR因果语言模型前向传播"""
         hidden_states = self.model(
             input_ids=input_ids,
             positions=positions,
@@ -512,6 +535,7 @@ class SDARForCausalLM(nn.Module):
             return hidden_states
 
     def load_weights(self, weights: Iterable[Tuple[str, torch.Tensor]]):
+        """加载模型权重"""
         stacked_params_mapping = [
             # (param_name, shard_name, shard_id)
             ("qkv_proj", "q_proj", "q"),
@@ -586,4 +610,4 @@ class SDARForCausalLM(nn.Module):
                     logger.warning(f"Parameter {name} not found in params_dict")
 
 
-EntryClass = SDARForCausalLM
+EntryClass = SDARForCausalLM  # 模型注册入口类

@@ -18,6 +18,9 @@
 # https://github.com/vllm-project/vllm/blob/c7f2cf2b7f67bce5842fedfdba508440fe257375/vllm/model_executor/models/mixtral.py#L1
 """Inference-only Mixtral model."""
 
+# 本文件实现了 Mixtral（Mistral MoE）模型的推理代码，包括 MoE 专家混合层、注意力层、解码器层和因果语言模型。
+# Mixtral 是 Mistral AI 推出的基于稀疏混合专家（Sparse MoE）的 Transformer 语言模型。
+
 import logging
 from typing import Iterable, Optional, Tuple, Union
 
@@ -63,6 +66,9 @@ class MixtralMoE(nn.Module):
     across ranks.
     """
 
+    # Mixtral 的稀疏混合专家（MoE）模块，将每个专家分片到所有张量并行 rank 上，
+    # 使用融合 MoE 内核进行前向计算，最后跨 rank 做全归约。
+
     def __init__(
         self,
         num_experts: int,
@@ -80,6 +86,7 @@ class MixtralMoE(nn.Module):
         self.hidden_size = hidden_size
 
         # Gate always runs at half / full precision for now.
+        # 路由门控网络，以半精度/全精度运行
         self.gate = ReplicatedLinear(
             hidden_size,
             num_experts,
@@ -89,11 +96,13 @@ class MixtralMoE(nn.Module):
             prefix=add_prefix("gate", prefix),
         )
 
+        # Top-K 选择器，选择 top_k 个专家并重新归一化权重
         self.topk = TopK(
             top_k=top_k,
             renormalize=True,
         )
 
+        # 融合 MoE 专家层，使用 Triton 内核加速
         self.experts = FusedMoE(
             num_experts=num_experts,
             top_k=top_k,
@@ -108,17 +117,20 @@ class MixtralMoE(nn.Module):
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         # NOTE: hidden_states can have either 1D or 2D shape.
         orig_shape = hidden_states.shape
-        hidden_states = hidden_states.view(-1, self.hidden_size)
+        hidden_states = hidden_states.view(-1, self.hidden_size)  # 展平为 2D
         # router_logits: (num_tokens, n_experts)
-        router_logits, _ = self.gate(hidden_states)
-        topk_output = self.topk(hidden_states, router_logits)
-        final_hidden_states = self.experts(hidden_states, topk_output)
+        router_logits, _ = self.gate(hidden_states)  # 计算路由门控 logits
+        topk_output = self.topk(hidden_states, router_logits)  # 选择 top-k 专家
+        final_hidden_states = self.experts(hidden_states, topk_output)  # 执行专家计算
         if self.tp_size > 1:
+            # 跨张量并行 rank 做全归约
             final_hidden_states = tensor_model_parallel_all_reduce(final_hidden_states)
-        return final_hidden_states.view(orig_shape)
+        return final_hidden_states.view(orig_shape)  # 恢复原始形状
 
 
 class MixtralAttention(nn.Module):
+    """Mixtral 注意力层，使用旋转位置编码（RoPE）和分组查询注意力（GQA）"""
+
     def __init__(
         self,
         hidden_size: int,
@@ -135,7 +147,7 @@ class MixtralAttention(nn.Module):
         tp_size = get_tensor_model_parallel_world_size()
         self.total_num_heads = num_heads
         assert self.total_num_heads % tp_size == 0
-        self.num_heads = self.total_num_heads // tp_size
+        self.num_heads = self.total_num_heads // tp_size  # 每个 TP 分片的注意力头数
         self.total_num_kv_heads = num_kv_heads
         if self.total_num_kv_heads >= tp_size:
             # Number of KV heads is greater than TP size, so we partition
@@ -145,13 +157,14 @@ class MixtralAttention(nn.Module):
             # Number of KV heads is less than TP size, so we replicate
             # the KV heads across multiple tensor parallel GPUs.
             assert tp_size % self.total_num_kv_heads == 0
-        self.num_kv_heads = max(1, self.total_num_kv_heads // tp_size)
-        self.head_dim = hidden_size // self.total_num_heads
+        self.num_kv_heads = max(1, self.total_num_kv_heads // tp_size)  # 每个 TP 分片的 KV 头数
+        self.head_dim = hidden_size // self.total_num_heads  # 每个头的维度
         self.q_size = self.num_heads * self.head_dim
         self.kv_size = self.num_kv_heads * self.head_dim
-        self.scaling = self.head_dim**-0.5
+        self.scaling = self.head_dim**-0.5  # 注意力缩放因子
         self.rope_theta = rope_theta
 
+        # QKV 投影层
         self.qkv_proj = QKVParallelLinear(
             hidden_size,
             self.head_dim,
@@ -161,6 +174,7 @@ class MixtralAttention(nn.Module):
             quant_config=quant_config,
             prefix=add_prefix("qkv_proj", prefix),
         )
+        # 输出投影层
         self.o_proj = RowParallelLinear(
             self.total_num_heads * self.head_dim,
             hidden_size,
@@ -168,6 +182,7 @@ class MixtralAttention(nn.Module):
             quant_config=quant_config,
             prefix=add_prefix("o_proj", prefix),
         )
+        # 旋转位置编码
         self.rotary_emb = get_rope(
             self.head_dim,
             rotary_dim=self.head_dim,
@@ -175,6 +190,7 @@ class MixtralAttention(nn.Module):
             base=int(self.rope_theta),
             is_neox_style=True,
         )
+        # 注意力实现
         self.attn = RadixAttention(
             self.num_heads,
             self.head_dim,
@@ -191,15 +207,17 @@ class MixtralAttention(nn.Module):
         hidden_states: torch.Tensor,
         forward_batch: ForwardBatch,
     ) -> torch.Tensor:
-        qkv, _ = self.qkv_proj(hidden_states)
-        q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
-        q, k = self.rotary_emb(positions, q, k)
-        attn_output = self.attn(q, k, v, forward_batch)
-        output, _ = self.o_proj(attn_output)
+        qkv, _ = self.qkv_proj(hidden_states)  # 计算 QKV 投影
+        q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)  # 分割 Q/K/V
+        q, k = self.rotary_emb(positions, q, k)  # 应用旋转位置编码
+        attn_output = self.attn(q, k, v, forward_batch)  # 计算注意力
+        output, _ = self.o_proj(attn_output)  # 输出投影
         return output
 
 
 class MixtralDecoderLayer(nn.Module):
+    """Mixtral 解码器层，包含自注意力和稀疏 MoE 前馈网络"""
+
     def __init__(
         self,
         config: MixtralConfig,
@@ -221,6 +239,7 @@ class MixtralDecoderLayer(nn.Module):
             quant_config=quant_config,
             prefix=add_prefix("self_attn", prefix),
         )
+        # 稀疏混合专家层
         self.block_sparse_moe = MixtralMoE(
             num_experts=config.num_local_experts,
             top_k=config.num_experts_per_tok,
@@ -256,11 +275,13 @@ class MixtralDecoderLayer(nn.Module):
 
         # Fully Connected
         hidden_states, residual = self.post_attention_layernorm(hidden_states, residual)
-        hidden_states = self.block_sparse_moe(hidden_states)
+        hidden_states = self.block_sparse_moe(hidden_states)  # 稀疏 MoE 前馈计算
         return hidden_states, residual
 
 
 class MixtralModel(nn.Module):
+    """Mixtral 模型主体，包含词嵌入、多个解码器层和最终归一化，支持流水线并行"""
+
     def __init__(
         self,
         config: MixtralConfig,
@@ -272,6 +293,7 @@ class MixtralModel(nn.Module):
         self.vocab_size = config.vocab_size
         self.pp_group = get_pp_group()
 
+        # 流水线并行第一 rank 负责词嵌入
         if self.pp_group.is_first_rank:
             self.embed_tokens = VocabParallelEmbedding(
                 config.vocab_size,
@@ -281,6 +303,7 @@ class MixtralModel(nn.Module):
         else:
             self.embed_tokens = PPMissingLayer()
 
+        # 构建解码器层，按流水线并行分配层范围
         self.layers, self.start_layer, self.end_layer = make_layers(
             config.num_hidden_layers,
             lambda idx, prefix: MixtralDecoderLayer(
@@ -292,6 +315,7 @@ class MixtralModel(nn.Module):
             return_tuple=True,
         )
 
+        # 流水线并行最后 rank 负责最终归一化
         if self.pp_group.is_last_rank:
             self.norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         else:
@@ -307,11 +331,12 @@ class MixtralModel(nn.Module):
     ) -> Union[torch.Tensor, PPProxyTensors]:
         if self.pp_group.is_first_rank:
             if input_embeds is None:
-                hidden_states = self.embed_tokens(input_ids)
+                hidden_states = self.embed_tokens(input_ids)  # 词嵌入查找
             else:
                 hidden_states = input_embeds
             residual = None
         else:
+            # 非第一 rank 从流水线代理张量中获取隐藏状态
             assert pp_proxy_tensors is not None
             hidden_states = pp_proxy_tensors["hidden_states"]
             residual = pp_proxy_tensors["residual"]
@@ -323,6 +348,7 @@ class MixtralModel(nn.Module):
             )
 
         if not self.pp_group.is_last_rank:
+            # 非最后 rank 返回代理张量用于流水线通信
             return PPProxyTensors(
                 {
                     "hidden_states": hidden_states,
@@ -330,12 +356,13 @@ class MixtralModel(nn.Module):
                 }
             )
         else:
-            hidden_states, _ = self.norm(hidden_states, residual)
+            hidden_states, _ = self.norm(hidden_states, residual)  # 最终归一化
 
         return hidden_states
 
 
 class MixtralForCausalLM(nn.Module):
+    """Mixtral 因果语言模型，包含模型主体和语言模型头，用于文本生成"""
 
     def __init__(
         self,
@@ -350,6 +377,7 @@ class MixtralForCausalLM(nn.Module):
         self.model = MixtralModel(
             config, quant_config=quant_config, prefix=add_prefix("model", prefix)
         )
+        # 语言模型头，将隐藏状态映射到词表大小
         self.lm_head = ParallelLMHead(
             config.vocab_size, config.hidden_size, prefix=add_prefix("lm_head", prefix)
         )
@@ -364,6 +392,7 @@ class MixtralForCausalLM(nn.Module):
         input_embeds: torch.Tensor = None,
         pp_proxy_tensors: Optional[PPProxyTensors] = None,
     ) -> torch.Tensor:
+        """前向传播：计算隐藏状态并生成 logits"""
         hidden_states = self.model(
             input_ids,
             positions,
@@ -381,13 +410,16 @@ class MixtralForCausalLM(nn.Module):
 
     @property
     def start_layer(self):
+        """获取流水线并行的起始层索引"""
         return self.model.start_layer
 
     @property
     def end_layer(self):
+        """获取流水线并行的结束层索引"""
         return self.model.end_layer
 
     def load_weights(self, weights: Iterable[Tuple[str, torch.Tensor]]):
+        """加载模型权重，处理堆叠参数和 MoE 专家权重的映射"""
         stacked_params_mapping = [
             # (param_name, shard_name, shard_id)
             ("qkv_proj", "q_proj", "q"),
@@ -407,6 +439,7 @@ class MixtralForCausalLM(nn.Module):
         params_dict = dict(self.named_parameters())
         for name, loaded_weight in weights:
             layer_id = get_layer_id(name)
+            # 跳过不属于当前流水线阶段的权重
             if (
                 layer_id is not None
                 and hasattr(self.model, "start_layer")
@@ -432,7 +465,7 @@ class MixtralForCausalLM(nn.Module):
 
                 param = params_dict[name]
                 weight_loader = param.weight_loader
-                weight_loader(param, loaded_weight, shard_id)
+                weight_loader(param, loaded_weight, shard_id)  # 加载堆叠参数
                 break
             else:
                 for mapping in expert_params_mapping:
@@ -453,7 +486,7 @@ class MixtralForCausalLM(nn.Module):
                         name,
                         shard_id=shard_id,
                         expert_id=expert_id,
-                    )
+                    )  # 加载专家权重
                     break
                 else:
                     # Skip loading extra bias for GPTQ models.
@@ -472,7 +505,7 @@ class MixtralForCausalLM(nn.Module):
                         weight_loader = getattr(
                             param, "weight_loader", default_weight_loader
                         )
-                        weight_loader(param, loaded_weight)
+                        weight_loader(param, loaded_weight)  # 默认方式加载权重
                     else:
                         logger.warning(f"Parameter {name} not found in params_dict")
 

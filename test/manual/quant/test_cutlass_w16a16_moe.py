@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# 文件名: test_cutlass_w16a16_moe.py - CUTLASS W16A16 MoE测试 - 验证bf16 CUTLASS融合MoE API的正确性
 import pytest
 import torch
 from flashinfer.fused_moe import cutlass_fused_moe as flashinfer_cutlass_fused_moe
@@ -59,6 +60,7 @@ def torch_moe_reference(a, w13, w2, score, topk):
 @pytest.mark.parametrize("e", [40, 64, 256])
 @pytest.mark.parametrize("topk", [1, 6, 8])
 @torch.inference_mode()
+# 测试flashinfer bf16 cutlass moe
 def test_flashinfer_bf16_cutlass_moe(m: int, n: int, k: int, e: int, topk: int):
     """
     Test the bf16 cutlass moe API.

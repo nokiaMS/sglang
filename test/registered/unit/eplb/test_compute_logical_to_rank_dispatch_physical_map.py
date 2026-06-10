@@ -1,3 +1,4 @@
+# 文件名: test_compute_logical_to_rank_dispatch_physical_map.py - 逻辑到物理排名映射
 """Unit tests for compute_logical_to_rank_dispatch_physical_map — no server, no model loading."""
 
 from sglang.test.ci.ci_register import register_cpu_ci
@@ -15,11 +16,13 @@ from sglang.srt.eplb.expert_location import (
 from sglang.test.test_utils import CustomTestCase
 
 
+# 内部方法_make_server_args
 def _make_server_args(ep_size: int, nnodes: int):
     """Minimal server_args stub — only ep_size and nnodes are used."""
     return types.SimpleNamespace(ep_size=ep_size, nnodes=nnodes)
 
 
+# 内部方法_make_logical_to_all_physical_map
 def _make_logical_to_all_physical_map(
     num_layers: int,
     num_logical_experts: int,
@@ -40,6 +43,7 @@ def _make_logical_to_all_physical_map(
     return mapping
 
 
+# TestComputeLogicalToRankDispatchPhysicalMap类
 class TestComputeLogicalToRankDispatchPhysicalMap(CustomTestCase):
     """Tests for compute_logical_to_rank_dispatch_physical_map.
 
@@ -62,6 +66,7 @@ class TestComputeLogicalToRankDispatchPhysicalMap(CustomTestCase):
     NUM_LOGICAL = 4
     NUM_LAYERS = 2
 
+    # TestComputeLogicalToRankDispatchPhysicalMap类的测试初始化设置
     def setUp(self):
         self.server_args = _make_server_args(self.EP_SIZE, self.NNODES)
         self.logical_to_all_physical = _make_logical_to_all_physical_map(
@@ -71,6 +76,7 @@ class TestComputeLogicalToRankDispatchPhysicalMap(CustomTestCase):
             replicas_per_logical=2,
         )
 
+    # TestComputeLogicalToRankDispatchPhysicalMap类的内部方法_call
     def _call(self, ep_rank, seed=42):
         return compute_logical_to_rank_dispatch_physical_map(
             server_args=self.server_args,
@@ -86,25 +92,27 @@ class TestComputeLogicalToRankDispatchPhysicalMap(CustomTestCase):
     def test_output_shape(self):
         """Output is [num_layers, num_logical_experts]."""
         result = self._call(ep_rank=0)
-        self.assertEqual(result.shape, (self.NUM_LAYERS, self.NUM_LOGICAL))
+        self.assertEqual(result.shape, (self.NUM_LAYERS, self.NUM_LOGICAL))  # 断言相等
 
+    # TestComputeLogicalToRankDispatchPhysicalMap类的测试allvaluesarevalidphysicalexpertids
     def test_all_values_are_valid_physical_expert_ids(self):
         """Every entry is a valid physical expert ID in [0, num_physical_experts)."""
         for ep_rank in range(self.EP_SIZE):
             result = self._call(ep_rank=ep_rank)
-            self.assertTrue(
+            self.assertTrue(  # 断言为真
                 torch.all(result >= 0), f"ep_rank={ep_rank} has negative values"
             )
-            self.assertTrue(
+            self.assertTrue(  # 断言为真
                 torch.all(result < self.NUM_PHYSICAL),
                 f"ep_rank={ep_rank} has out-of-range values",
             )
 
+    # TestComputeLogicalToRankDispatchPhysicalMap类的测试nominusoneinoutput
     def test_no_minus_one_in_output(self):
         """No -1 sentinel values remain in the output (all ranks are assigned)."""
         for ep_rank in range(self.EP_SIZE):
             result = self._call(ep_rank=ep_rank)
-            self.assertFalse(
+            self.assertFalse(  # 断言为假
                 torch.any(result == -1),
                 f"ep_rank={ep_rank} still has unassigned entries",
             )
@@ -116,15 +124,17 @@ class TestComputeLogicalToRankDispatchPhysicalMap(CustomTestCase):
         result = self._call(ep_rank=0)
         # Logical 0 has candidates [0,1] — both on GPU 0 → nearest is 0
         for layer in range(self.NUM_LAYERS):
-            self.assertIn(result[layer, 0].item(), [0, 1])
+            self.assertIn(result[layer, 0].item(), [0, 1])  # 断言包含
 
+    # TestComputeLogicalToRankDispatchPhysicalMap类的测试samenodefallback
     def test_same_node_fallback(self):
         """GPU 0 (node 0) should get a node-0 expert for logical 1 (experts 2,3 on GPU 1)."""
         result = self._call(ep_rank=0)
         # Logical 1 → candidates [2, 3], GPU 1 (node 0) → same-node match
         for layer in range(self.NUM_LAYERS):
-            self.assertIn(result[layer, 1].item(), [2, 3])
+            self.assertIn(result[layer, 1].item(), [2, 3])  # 断言包含
 
+    # TestComputeLogicalToRankDispatchPhysicalMap类的测试eachrankgetsdifferentassignment
     def test_each_rank_gets_different_assignment(self):
         """Different ep_ranks should in general get different physical experts."""
         results = [self._call(ep_rank=r) for r in range(self.EP_SIZE)]
@@ -134,7 +144,7 @@ class TestComputeLogicalToRankDispatchPhysicalMap(CustomTestCase):
             for i in range(self.EP_SIZE)
             for j in range(i + 1, self.EP_SIZE)
         )
-        self.assertTrue(any_diff, "All ranks produced identical mappings")
+        self.assertTrue(any_diff, "All ranks produced identical mappings")  # 断言为真
 
     # ------------------------------------------------------------------ determinism & seed
 
@@ -142,15 +152,16 @@ class TestComputeLogicalToRankDispatchPhysicalMap(CustomTestCase):
         """Same seed always produces the same result."""
         r1 = self._call(ep_rank=0, seed=7)
         r2 = self._call(ep_rank=0, seed=7)
-        self.assertTrue(torch.equal(r1, r2))
+        self.assertTrue(torch.equal(r1, r2))  # 断言为真
 
+    # TestComputeLogicalToRankDispatchPhysicalMap类的测试differentseedsmaydiffer
     def test_different_seeds_may_differ(self):
         """Different seeds can produce different assignments for remote experts."""
         results = {
             tuple(self._call(ep_rank=2, seed=s).flatten().tolist()) for s in range(20)
         }
         # GPU 2 has some remote experts → seed affects _fair_choices → results can vary
-        self.assertGreater(len(results), 1)
+        self.assertGreater(len(results), 1)  # 断言大于
 
     # ------------------------------------------------------------------ edge cases
 
@@ -169,9 +180,10 @@ class TestComputeLogicalToRankDispatchPhysicalMap(CustomTestCase):
             num_physical_experts=self.NUM_PHYSICAL,
             ep_rank=0,
         )
-        self.assertEqual(result.shape, (1, self.NUM_LOGICAL))
-        self.assertTrue(torch.all(result >= 0))
+        self.assertEqual(result.shape, (1, self.NUM_LOGICAL))  # 断言相等
+        self.assertTrue(torch.all(result >= 0))  # 断言为真
 
+    # TestComputeLogicalToRankDispatchPhysicalMap类的测试singlenode
     def test_single_node(self):
         """With nnodes=1, all GPUs are on the same node."""
         server_args = _make_server_args(ep_size=4, nnodes=1)
@@ -182,10 +194,11 @@ class TestComputeLogicalToRankDispatchPhysicalMap(CustomTestCase):
             num_physical_experts=self.NUM_PHYSICAL,
             ep_rank=0,
         )
-        self.assertEqual(result.shape, (self.NUM_LAYERS, self.NUM_LOGICAL))
-        self.assertTrue(torch.all(result >= 0))
-        self.assertTrue(torch.all(result < self.NUM_PHYSICAL))
+        self.assertEqual(result.shape, (self.NUM_LAYERS, self.NUM_LOGICAL))  # 断言相等
+        self.assertTrue(torch.all(result >= 0))  # 断言为真
+        self.assertTrue(torch.all(result < self.NUM_PHYSICAL))  # 断言为真
 
+    # TestComputeLogicalToRankDispatchPhysicalMap类的测试allexpertsreplicatedtoallgpus
     def test_all_experts_replicated_to_all_gpus(self):
         """When every physical expert maps to the same logical expert, all ranks get valid IDs."""
         # All physical experts are replicas of a single logical expert
@@ -200,8 +213,8 @@ class TestComputeLogicalToRankDispatchPhysicalMap(CustomTestCase):
             num_physical_experts=self.NUM_PHYSICAL,
             ep_rank=0,
         )
-        self.assertEqual(result.shape, (self.NUM_LAYERS, 1))
-        self.assertTrue(torch.all(result >= 0))
+        self.assertEqual(result.shape, (self.NUM_LAYERS, 1))  # 断言相等
+        self.assertTrue(torch.all(result >= 0))  # 断言为真
 
 
 if __name__ == "__main__":

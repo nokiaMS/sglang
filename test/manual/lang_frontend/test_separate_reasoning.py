@@ -1,3 +1,4 @@
+# 文件名: test_separate_reasoning.py - 测试分离推理功能的创建与名称处理
 """
 Tests for the separate_reasoning functionality in sglang.
 
@@ -19,27 +20,27 @@ class TestSeparateReasoning(CustomTestCase):
         test_gen = gen("test")
         expr = separate_reasoning(test_gen, model_type="deepseek-r1")
         self.assertIsInstance(expr, SglExprList)
-        self.assertEqual(len(expr.expr_list), 2)
-        self.assertEqual(expr.expr_list[0], test_gen)
+        self.assertEqual(len(expr.expr_list), 2)  # 断言值相等
+        self.assertEqual(expr.expr_list[0], test_gen)  # 断言值相等
         reasoning_expr = expr.expr_list[1]
         self.assertIsInstance(reasoning_expr, SglSeparateReasoning)
-        self.assertEqual(reasoning_expr.model_type, "deepseek-r1")
-        self.assertEqual(reasoning_expr.name, "test_reasoning_content")
+        self.assertEqual(reasoning_expr.model_type, "deepseek-r1")  # 断言值相等
+        self.assertEqual(reasoning_expr.name, "test_reasoning_content")  # 断言值相等
 
         # Test with another valid model type
         expr = separate_reasoning(test_gen, model_type="qwen3")
         self.assertIsInstance(expr, SglExprList)
-        self.assertEqual(expr.expr_list[1].model_type, "qwen3")
+        self.assertEqual(expr.expr_list[1].model_type, "qwen3")  # 断言值相等
 
     def test_separate_reasoning_name_processing(self):
         """Test that separate_reasoning correctly processes names."""
         test_gen = gen("test_var")
         expr = separate_reasoning(test_gen, model_type="deepseek-r1")
         reasoning_expr = expr.expr_list[1]
-        self.assertEqual(reasoning_expr.name, "test_var_reasoning_content")
+        self.assertEqual(reasoning_expr.name, "test_var_reasoning_content")  # 断言值相等
 
         # Test the process_name_for_reasoning method
-        self.assertEqual(
+        self.assertEqual(  # 断言值相等
             reasoning_expr.process_name_for_reasoning("another_var"),
             "another_var_reasoning_content",
         )
@@ -49,7 +50,7 @@ class TestSeparateReasoning(CustomTestCase):
         test_gen = gen("test_var")
         expr = separate_reasoning(test_gen, model_type="deepseek-r1")
         reasoning_expr = expr.expr_list[1]
-        self.assertEqual(
+        self.assertEqual(  # 断言值相等
             repr(reasoning_expr),
             "SeparateReasoning(model_type=deepseek-r1, name=test_var_reasoning_content)",
         )
@@ -60,7 +61,7 @@ class TestSeparateReasoning(CustomTestCase):
         test_gen = gen("test")
         expr = separate_reasoning(test_gen, model_type="invalid-model")
         self.assertIsInstance(expr, SglExprList)
-        self.assertEqual(expr.expr_list[1].model_type, "invalid-model")
+        self.assertEqual(expr.expr_list[1].model_type, "invalid-model")  # 断言值相等
         # The actual validation happens in the ReasoningParser constructor
 
 

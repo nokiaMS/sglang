@@ -1,3 +1,4 @@
+# 文件名: test_wave_attention_backend.py - Wave注意力后端测试 - 验证wave注意力后端的延迟和MMLU准确性
 """
 Usage:
 python3 -m unittest test_wave_attention_backend.TestWaveAttnBackend.test_mmlu
@@ -19,6 +20,7 @@ from sglang.test.test_utils import (
 
 
 class TestWaveAttnBackend(unittest.TestCase):
+    # 测试latency
     def test_latency(self):
         _, output_throughput, _ = run_bench_one_batch(
             DEFAULT_MODEL_NAME_FOR_TEST,
@@ -32,6 +34,7 @@ class TestWaveAttnBackend(unittest.TestCase):
         if is_in_ci():
             self.assertGreater(output_throughput, 153)
 
+    # 内部方法: test mmlu
     def _test_mmlu(self):
         model = DEFAULT_MODEL_NAME_FOR_TEST
         base_url = DEFAULT_URL_FOR_TEST

@@ -1,3 +1,4 @@
+# 文件名: test_triton_moe_wna16.py - Triton MoE WNA16测试 - 验证W4A16/W8A16量化MoE Triton内核的正确性
 from typing import Optional
 
 import pytest
@@ -13,6 +14,7 @@ NUM_EXPERTS = [8, 64]
 TOP_KS = [2, 6]
 
 
+# 量化权重 - 将权重按指定类型和分组大小进行量化
 def quantize_weights(
     w: torch.Tensor,
     quant_type: str,
@@ -95,6 +97,7 @@ def quantize_weights(
     # Restore original shapes
     if group_size is not None and group_size < size_k:
 
+        # reshape w
         def reshape_w(w):
             w = w.reshape((group_size, -1, size_n))
             w = w.permute(1, 0, 2)
@@ -117,6 +120,7 @@ def quantize_weights(
     )
 
 
+# torch MoE参考实现 - 使用torch实现的MoE参考
 def torch_moe(a, w1, w2, score, topk):
     B, D = a.shape
     a = a.view(B, -1, D).repeat(1, topk, 1).reshape(-1, D)
@@ -146,6 +150,7 @@ def torch_moe(a, w1, w2, score, topk):
 @pytest.mark.parametrize("group_size", [64, 128])
 @pytest.mark.parametrize("has_zp", [True, False])
 @pytest.mark.parametrize("weight_bits", [8])  # [4, 8])
+# 测试WNA16融合MoE - 验证W4A16/W8A16量化MoE内核
 def test_fused_moe_wn16(
     m: int,
     n: int,

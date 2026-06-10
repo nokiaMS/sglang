@@ -1,3 +1,4 @@
+# 文件名: test_model_validation.py - 模型验证测试
 import json
 import sys
 
@@ -49,18 +50,22 @@ register_cpu_ci(est_time=1, suite="base-b-test-cpu")
 
 
 class TestCheckEqualLengths:
+    # 测试allequal
     def test_all_equal(self):
         _check_equal_lengths(a=[1, 2], b=[3, 4])
 
+    # 测试emptylists
     def test_empty_lists(self):
         _check_equal_lengths(a=[], b=[])
 
+    # 测试mismatchraises
     def test_mismatch_raises(self):
         with pytest.raises(ValueError, match="Length mismatch"):
             _check_equal_lengths(a=[1, 2], b=[3])
 
 
 class TestTokenAlignerStepAux:
+    # 测试valid
     def test_valid(self):
         aux = TokenAlignerStepAux(
             input_ids=[10, 20, 30],
@@ -73,6 +78,7 @@ class TestTokenAlignerStepAux:
         )
         assert len(aux.input_ids) == 3
 
+    # 测试tokenlengthmismatch
     def test_token_length_mismatch(self):
         with pytest.raises(ValueError, match="Length mismatch"):
             TokenAlignerStepAux(
@@ -85,6 +91,7 @@ class TestTokenAlignerStepAux:
                 ],
             )
 
+    # 测试seqlengthmismatch
     def test_seq_length_mismatch(self):
         with pytest.raises(ValueError, match="Length mismatch"):
             TokenAlignerStepAux(
@@ -94,6 +101,7 @@ class TestTokenAlignerStepAux:
                 seq_ids=[PositionalSeqId(step=0, seq_index=0)],
             )
 
+    # 测试sumseqlensmismatch
     def test_sum_seq_lens_mismatch(self):
         with pytest.raises(ValueError, match="sum\\(seq_lens\\)"):
             TokenAlignerStepAux(
@@ -108,6 +116,7 @@ class TestTokenAlignerStepAux:
 
 
 class TestTokenAlignerSeqInfo:
+    # 测试valid
     def test_valid(self):
         info = TokenAlignerSeqInfo(
             input_ids=[10, 20, 30],
@@ -116,6 +125,7 @@ class TestTokenAlignerSeqInfo:
         )
         assert len(info.input_ids) == 3
 
+    # 测试lengthmismatch
     def test_length_mismatch(self):
         with pytest.raises(ValidationError):
             TokenAlignerSeqInfo(
@@ -124,6 +134,7 @@ class TestTokenAlignerSeqInfo:
                 locator=TokenLocator(steps=[0, 0], token_index_in_step=[0, 1, 0]),
             )
 
+    # 测试positionsnotsequential
     def test_positions_not_sequential(self):
         with pytest.raises(ValidationError, match="positions must be"):
             TokenAlignerSeqInfo(
@@ -134,6 +145,7 @@ class TestTokenAlignerSeqInfo:
 
 
 class TestTokenAlignerPlan:
+    # 测试valid
     def test_valid(self):
         plan = TokenAlignerPlan(
             locators=Pair(
@@ -144,6 +156,7 @@ class TestTokenAlignerPlan:
         )
         assert len(plan.locators.x.steps) == 3
 
+    # 测试lengthmismatch
     def test_length_mismatch(self):
         with pytest.raises(ValidationError, match="Length mismatch"):
             TokenAlignerPlan(
@@ -156,49 +169,60 @@ class TestTokenAlignerPlan:
 
 
 class TestSummaryRecord:
+    # 测试valid
     def test_valid(self):
         record = SummaryRecord(total=10, passed=7, failed=2, skipped=1)
         assert record.total == 10
 
+    # 测试totalmismatch
     def test_total_mismatch(self):
         with pytest.raises(ValidationError, match="total=10"):
             SummaryRecord(total=10, passed=5, failed=2, skipped=1)
 
+    # 测试validwitherrored
     def test_valid_with_errored(self):
         record = SummaryRecord(total=10, passed=6, failed=2, skipped=1, errored=1)
         assert record.errored == 1
 
+    # 测试totalmismatchwitherrored
     def test_total_mismatch_with_errored(self):
         with pytest.raises(ValidationError, match="total=10"):
             SummaryRecord(total=10, passed=6, failed=2, skipped=1, errored=0)
 
 
 class TestAxisInfo:
+    # 测试valid
     def test_valid(self):
         info = AxisInfo(axis_rank=0, axis_size=4)
         assert info.axis_rank == 0
 
+    # 测试axissizezero
     def test_axis_size_zero(self):
         with pytest.raises(ValidationError, match="axis_size must be > 0"):
             AxisInfo(axis_rank=0, axis_size=0)
 
+    # 测试axissizenegative
     def test_axis_size_negative(self):
         with pytest.raises(ValidationError, match="axis_size must be > 0"):
             AxisInfo(axis_rank=0, axis_size=-1)
 
+    # 测试axisranknegative
     def test_axis_rank_negative(self):
         with pytest.raises(ValidationError, match="axis_rank must be in"):
             AxisInfo(axis_rank=-1, axis_size=4)
 
+    # 测试axisranktoolarge
     def test_axis_rank_too_large(self):
         with pytest.raises(ValidationError, match="axis_rank must be in"):
             AxisInfo(axis_rank=4, axis_size=4)
 
+    # 测试axisrankequalssizeminusone
     def test_axis_rank_equals_size_minus_one(self):
         info = AxisInfo(axis_rank=3, axis_size=4)
         assert info.axis_rank == 3
 
 
+# 执行maketensorinfo
 def _make_tensor_info() -> TensorInfo:
     return TensorInfo(
         shape=[4, 4],
@@ -207,6 +231,7 @@ def _make_tensor_info() -> TensorInfo:
     )
 
 
+# 执行makediffinfo
 def _make_diff_info(*, passed: bool) -> DiffInfo:
     return DiffInfo(
         rel_diff=0.001,
@@ -220,6 +245,7 @@ def _make_diff_info(*, passed: bool) -> DiffInfo:
     )
 
 
+# 执行makecomparisonrecord
 def _make_comparison_record(
     *,
     diff: DiffInfo | None,
@@ -238,6 +264,7 @@ def _make_comparison_record(
 
 
 class TestOutputRecordCategories:
+    # 测试skiprecordwitherrorsisfailed
     def test_skip_record_with_errors_is_failed(self) -> None:
         record = ComparisonSkipRecord(
             name="t",
@@ -246,14 +273,17 @@ class TestOutputRecordCategories:
         )
         assert record.category == "failed"
 
+    # 测试skiprecordnowarningsisskipped
     def test_skip_record_no_warnings_is_skipped(self) -> None:
         record = ComparisonSkipRecord(name="t", reason="test")
         assert record.category == "skipped"
 
+    # 测试comparisonrecorddiffnoneisfailed
     def test_comparison_record_diff_none_is_failed(self) -> None:
         record: ComparisonTensorRecord = _make_comparison_record(diff=None)
         assert record.category == "failed"
 
+    # 测试comparisonrecordpassedwitherrorsisfailed
     def test_comparison_record_passed_with_errors_is_failed(self) -> None:
         record: ComparisonTensorRecord = _make_comparison_record(
             diff=_make_diff_info(passed=True),
@@ -261,12 +291,14 @@ class TestOutputRecordCategories:
         )
         assert record.category == "failed"
 
+    # 测试comparisonrecordpassednowarningsispassed
     def test_comparison_record_passed_no_warnings_is_passed(self) -> None:
         record: ComparisonTensorRecord = _make_comparison_record(
             diff=_make_diff_info(passed=True),
         )
         assert record.category == "passed"
 
+    # 测试nontensorrecordequalispassed
     def test_non_tensor_record_equal_is_passed(self) -> None:
         record = ComparisonNonTensorRecord(
             name="sm_scale",
@@ -278,6 +310,7 @@ class TestOutputRecordCategories:
         )
         assert record.category == "passed"
 
+    # 测试nontensorrecorddifferentisfailed
     def test_non_tensor_record_different_is_failed(self) -> None:
         record = ComparisonNonTensorRecord(
             name="sm_scale",
@@ -289,6 +322,7 @@ class TestOutputRecordCategories:
         )
         assert record.category == "failed"
 
+    # 测试nontensorrecordwitherrorsisfailed
     def test_non_tensor_record_with_errors_is_failed(self) -> None:
         record = ComparisonNonTensorRecord(
             name="sm_scale",
@@ -301,6 +335,7 @@ class TestOutputRecordCategories:
         )
         assert record.category == "failed"
 
+    # 测试nontensorrecordjsonroundtrip
     def test_non_tensor_record_json_roundtrip(self) -> None:
         record = ComparisonNonTensorRecord(
             name="sm_scale",
@@ -318,6 +353,7 @@ class TestOutputRecordCategories:
         assert roundtripped.baseline_value == "0.125"
         assert roundtripped.target_value == "0.25"
 
+    # 测试nontensorrecordtextformatequal
     def test_non_tensor_record_text_format_equal(self) -> None:
         record = ComparisonNonTensorRecord(
             name="sm_scale",
@@ -331,6 +367,7 @@ class TestOutputRecordCategories:
         assert "sm_scale" in text
         assert "[equal]" in text
 
+    # 测试nontensorrecordtextformatdifferent
     def test_non_tensor_record_text_format_different(self) -> None:
         record = ComparisonNonTensorRecord(
             name="sm_scale",
@@ -344,6 +381,7 @@ class TestOutputRecordCategories:
         assert "baseline" in text
         assert "target" in text
 
+    # 测试errorrecordcategoryiserrored
     def test_error_record_category_is_errored(self) -> None:
         record = ComparisonErrorRecord(
             name="t",
@@ -353,6 +391,7 @@ class TestOutputRecordCategories:
         )
         assert record.category == "errored"
 
+    # 测试errorrecordjsonroundtrip
     def test_error_record_json_roundtrip(self) -> None:
         record = ComparisonErrorRecord(
             name="t",
@@ -367,6 +406,7 @@ class TestOutputRecordCategories:
         assert roundtripped.exception_type == "ValueError"
         assert roundtripped.exception_message == "bad"
 
+    # 测试errorrecordtextformat
     def test_error_record_text_format(self) -> None:
         record = ComparisonErrorRecord(
             name="t",
@@ -380,6 +420,7 @@ class TestOutputRecordCategories:
         assert "Traceback" in text
 
 
+# 执行maketracedalignerplan
 def _make_traced_aligner_plan() -> TracedAlignerPlan:
     unsharder = UnsharderPlan(
         axis=ParallelAxis.TP,
@@ -414,6 +455,7 @@ def _make_traced_aligner_plan() -> TracedAlignerPlan:
 
 
 class TestAlignerPlanInComparisonTensorRecord:
+    # 测试comparisonrecordwithtracedplan
     def test_comparison_record_with_traced_plan(self) -> None:
         traced_plan: TracedAlignerPlan = _make_traced_aligner_plan()
         record: ComparisonTensorRecord = _make_comparison_record(
@@ -423,6 +465,7 @@ class TestAlignerPlanInComparisonTensorRecord:
         assert record_with_plan.traced_plan is not None
         assert record_with_plan.traced_plan.per_side.x.step_plans[0].step == 0
 
+    # 测试tracedplanjsonroundtrip
     def test_traced_plan_json_roundtrip(self) -> None:
         traced_plan: TracedAlignerPlan = _make_traced_aligner_plan()
         record: ComparisonTensorRecord = _make_comparison_record(
@@ -447,6 +490,7 @@ class TestAlignerPlanInComparisonTensorRecord:
             == "unsharder"
         )
 
+    # 测试comparisonrecordwithouttracedplan
     def test_comparison_record_without_traced_plan(self) -> None:
         record: ComparisonTensorRecord = _make_comparison_record(
             diff=_make_diff_info(passed=True),
@@ -455,6 +499,7 @@ class TestAlignerPlanInComparisonTensorRecord:
         roundtripped: ComparisonTensorRecord = parse_record_json(json_str)
         assert roundtripped.traced_plan is None
 
+    # 测试tracedplantextformat
     def test_traced_plan_text_format(self) -> None:
         traced_plan: TracedAlignerPlan = _make_traced_aligner_plan()
         record: ComparisonTensorRecord = _make_comparison_record(

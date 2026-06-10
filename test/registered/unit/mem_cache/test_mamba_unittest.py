@@ -1,3 +1,4 @@
+# 文件名: test_mamba_unittest.py - Mamba单元测试
 import unittest
 from array import array
 
@@ -29,15 +30,21 @@ register_cuda_ci(est_time=10, stage="base-b", runner_config="1-gpu-small")
 register_amd_ci(est_time=9, suite="stage-b-test-1-gpu-small-amd")
 
 
+# TestMamba类
 class TestMamba(unittest.TestCase):
     @classmethod
+
+    # TestMamba类的测试类初始化设置
     def setUpClass(cls):
         pass
 
     @classmethod
+
+    # TestMamba类的测试类清理
     def tearDownClass(cls):
         pass
 
+    # TestMamba类的测试hybridlinearkvpool
     def test_hybrid_linear_kv_pool(self):
         size = 16
         head_num = 2
@@ -63,12 +70,13 @@ class TestMamba(unittest.TestCase):
         )
         assert pool._transfer_full_attention_id(global_interval - 1) == 0
         assert pool._transfer_full_attention_id(2 * global_interval - 1) == 1
-        with self.assertRaises(ValueError) as context:
+        with self.assertRaises(ValueError) as context:  # 断言抛出异常
             pool._transfer_full_attention_id(1)
-        self.assertIn(
+        self.assertIn(  # 断言包含
             "layer_id=1 not in full attention layers:", str(context.exception)
         )
 
+    # TestMamba类的测试mambapool
     def test_mamba_pool(self):
         max_num_reqs = 10
         mamba_cache_size = 20
@@ -145,6 +153,7 @@ class TestMamba(unittest.TestCase):
         assert req_to_token_pool.available_size() == max_num_reqs - 1
         assert req_to_token_pool.mamba_pool.available_size() == mamba_cache_size - 1
 
+    # TestMamba类的测试mambaradixcache1
     def test_mamba_radix_cache_1(self):
         tree, allocator, req_to_token_pool, make_dummy_req = (
             self._setup_tree_and_allocator()
@@ -318,6 +327,7 @@ class TestMamba(unittest.TestCase):
         print(available_and_evictable_str(tree))
         tree.sanity_check()
 
+    # TestMamba类的测试mambaradixcachekvevents
     def test_mamba_radix_cache_kv_events(self):
         tree, allocator, _, make_dummy_req = self._setup_tree_and_allocator(
             enable_kv_cache_events=True
@@ -337,8 +347,8 @@ class TestMamba(unittest.TestCase):
         )
         events = tree.take_events()
         stored_events = [e for e in events if isinstance(e, BlockStored)]
-        self.assertEqual(len(stored_events), 3)
-        self.assertEqual([e.token_ids[0] for e in stored_events], [1, 2, 3])
+        self.assertEqual(len(stored_events), 3)  # 断言相等
+        self.assertEqual([e.token_ids[0] for e in stored_events], [1, 2, 3])  # 断言相等
         stored_hashes.extend(e.block_hashes[0] for e in stored_events)
 
         req2 = make_dummy_req()
@@ -352,17 +362,17 @@ class TestMamba(unittest.TestCase):
         )
         events = tree.take_events()
         stored_events = [e for e in events if isinstance(e, BlockStored)]
-        self.assertEqual(len(stored_events), 2)
-        self.assertEqual([e.token_ids[0] for e in stored_events], [4, 5])
+        self.assertEqual(len(stored_events), 2)  # 断言相等
+        self.assertEqual([e.token_ids[0] for e in stored_events], [4, 5])  # 断言相等
         stored_hashes.extend(e.block_hashes[0] for e in stored_events)
 
         # Evicting an internal mamba state creates a tombstone but does not
         # remove full-attention KV blocks, so it must not emit BlockRemoved.
         result = tree.evict(EvictParams(num_tokens=0, mamba_num=1))
-        self.assertEqual(result.num_tokens_evicted, 0)
-        self.assertEqual(result.mamba_num_evicted, 1)
+        self.assertEqual(result.num_tokens_evicted, 0)  # 断言相等
+        self.assertEqual(result.mamba_num_evicted, 1)  # 断言相等
         events = tree.take_events()
-        self.assertEqual([e for e in events if isinstance(e, BlockRemoved)], [])
+        self.assertEqual([e for e in events if isinstance(e, BlockRemoved)], [])  # 断言相等
 
         result = tree.evict(EvictParams(num_tokens=1))
         self.assertGreaterEqual(result.num_tokens_evicted, 1)
@@ -372,6 +382,7 @@ class TestMamba(unittest.TestCase):
         ]
         self.assertCountEqual(removed_hashes, stored_hashes)
 
+    # TestMamba类的测试mambaradixcachekveventssplithash
     def test_mamba_radix_cache_kv_events_split_hash(self):
         tree, allocator, _, make_dummy_req = self._setup_tree_and_allocator(
             enable_kv_cache_events=True
@@ -390,7 +401,7 @@ class TestMamba(unittest.TestCase):
         first_insert_events = [
             e for e in tree.take_events() if isinstance(e, BlockStored)
         ]
-        self.assertEqual(len(first_insert_events), 4)
+        self.assertEqual(len(first_insert_events), 4)  # 断言相等
         split_parent_hash = first_insert_events[1].block_hashes[0]
 
         req2 = make_dummy_req()
@@ -405,10 +416,11 @@ class TestMamba(unittest.TestCase):
         second_insert_events = [
             e for e in tree.take_events() if isinstance(e, BlockStored)
         ]
-        self.assertEqual(len(second_insert_events), 2)
-        self.assertEqual(list(second_insert_events[0].token_ids), [5])
-        self.assertEqual(second_insert_events[0].parent_block_hash, split_parent_hash)
+        self.assertEqual(len(second_insert_events), 2)  # 断言相等
+        self.assertEqual(list(second_insert_events[0].token_ids), [5])  # 断言相等
+        self.assertEqual(second_insert_events[0].parent_block_hash, split_parent_hash)  # 断言相等
 
+    # TestMamba类的内部方法_setup_tree_and_allocator
     def _setup_tree_and_allocator(self, enable_kv_cache_events=False):
         """Helper to create a MambaRadixCache with allocator for testing."""
         server_args = ServerArgs(model_path="dummy", page_size=1)
@@ -485,6 +497,7 @@ class TestMamba(unittest.TestCase):
         )
         tree = MambaRadixCache(params=params)
 
+        # make_dummy_req
         def make_dummy_req():
             sampling_params = SamplingParams(
                 temperature=0,
@@ -501,6 +514,7 @@ class TestMamba(unittest.TestCase):
 
         return tree, allocator, req_to_token_pool, make_dummy_req
 
+    # TestMamba类的测试himambatombstonecleanuprespectshostref
     def test_hi_mamba_tombstone_cleanup_respects_host_ref(self):
         tree = object.__new__(HiMambaRadixCache)
         root = TreeNode()
@@ -516,14 +530,19 @@ class TestMamba(unittest.TestCase):
         parent.protect_host()
         root.children[parent.key.child_key(1)] = parent
 
+        # RecordingCacheController类
         class RecordingCacheController:
+
+            # RecordingCacheController类的初始化
             def __init__(self):
                 self.device_evictions = []
                 self.host_evictions = []
 
+            # RecordingCacheController类的evict_device
             def evict_device(self, value):
                 self.device_evictions.append(value)
 
+            # RecordingCacheController类的evict_host
             def evict_host(self, value):
                 self.host_evictions.append(value)
 
@@ -540,21 +559,22 @@ class TestMamba(unittest.TestCase):
             tree._iteratively_delete_tombstone_leaf(deleted)
         )
 
-        self.assertIs(result_node, deleted)
-        self.assertEqual(full_evicted, 0)
-        self.assertEqual(mamba_evicted, 0)
-        self.assertIs(root.children[parent.key.child_key(1)], parent)
-        self.assertTrue(tree.full_lru_list.in_list(parent))
-        self.assertEqual(tree.cache_controller.device_evictions, [])
-        self.assertEqual(tree.cache_controller.host_evictions, [])
+        self.assertIs(result_node, deleted)  # 断言是同一对象
+        self.assertEqual(full_evicted, 0)  # 断言相等
+        self.assertEqual(mamba_evicted, 0)  # 断言相等
+        self.assertIs(root.children[parent.key.child_key(1)], parent)  # 断言是同一对象
+        self.assertTrue(tree.full_lru_list.in_list(parent))  # 断言为真
+        self.assertEqual(tree.cache_controller.device_evictions, [])  # 断言相等
+        self.assertEqual(tree.cache_controller.host_evictions, [])  # 断言相等
 
+    # TestMamba类的测试mambapoolcpuoffload
     def test_mamba_pool_cpu_offload(self):
         """MambaPool.get_cpu_copy / load_cpu_copy round-trips conv and temporal state."""
         _, _, req_to_token_pool, _ = self._setup_tree_and_allocator()
         mamba_pool = req_to_token_pool.mamba_pool
         n = 3
         indices = mamba_pool.alloc(n)
-        self.assertIsNotNone(indices)
+        self.assertIsNotNone(indices)  # 断言不为None
 
         # Write known sentinel values at the allocated slots.
         for conv in mamba_pool.mamba_cache.conv:
@@ -567,12 +587,12 @@ class TestMamba(unittest.TestCase):
         # Verify CPU tensors match what was written.
         for i, conv in enumerate(mamba_pool.mamba_cache.conv):
             expected = conv[:, indices].cpu()
-            self.assertTrue(
+            self.assertTrue(  # 断言为真
                 torch.allclose(conv_cpu[i].float(), expected.float()),
                 f"conv[{i}] CPU copy mismatch",
             )
         expected_t = mamba_pool.mamba_cache.temporal[:, indices].cpu()
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             torch.allclose(temporal_cpu.float(), expected_t.float()),
             "temporal CPU copy mismatch",
         )
@@ -587,15 +607,16 @@ class TestMamba(unittest.TestCase):
         # Verify restored values match the sentinels.
         for conv in mamba_pool.mamba_cache.conv:
             restored = conv[:, indices]
-            self.assertTrue(
+            self.assertTrue(  # 断言为真
                 torch.all(restored == 1.0),
                 "conv not restored after load_cpu_copy",
             )
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             torch.all(mamba_pool.mamba_cache.temporal[:, indices] == 2.0),
             "temporal not restored after load_cpu_copy",
         )
 
+    # TestMamba类的测试hybridkvpoolcpuoffload
     def test_hybrid_kv_pool_cpu_offload(self):
         """HybridLinearKVPool.get_cpu_copy / load_cpu_copy saves and restores both
         the full-attention KV cache and Mamba state in a single round-trip."""
@@ -607,9 +628,9 @@ class TestMamba(unittest.TestCase):
 
         n_tokens = 4
         kv_indices = allocator.alloc(n_tokens)
-        self.assertIsNotNone(kv_indices)
+        self.assertIsNotNone(kv_indices)  # 断言不为None
         mamba_indices = mamba_pool.alloc(1)
-        self.assertIsNotNone(mamba_indices)
+        self.assertIsNotNone(mamba_indices)  # 断言不为None
 
         # Write sentinel values into KV buffers (all full-attention layers).
         for layer_id in range(hybrid_pool.full_kv_pool.layer_num):
@@ -624,7 +645,7 @@ class TestMamba(unittest.TestCase):
         # --- Round-trip with Mamba indices provided ---
         cpu_copy = allocator.get_cpu_copy(kv_indices, mamba_indices=mamba_indices)
         kv_cpu, mamba_cpu = cpu_copy
-        self.assertIsNotNone(
+        self.assertIsNotNone(  # 断言不为None
             mamba_cpu, "mamba_cpu should be saved when mamba_indices given"
         )
 
@@ -640,13 +661,13 @@ class TestMamba(unittest.TestCase):
 
         # Verify KV restored.
         for layer_id in range(hybrid_pool.full_kv_pool.layer_num):
-            self.assertTrue(
+            self.assertTrue(  # 断言为真
                 torch.all(
                     hybrid_pool.full_kv_pool.k_buffer[layer_id][kv_indices] == 3.0
                 ),
                 f"k_buffer layer {layer_id} not restored",
             )
-            self.assertTrue(
+            self.assertTrue(  # 断言为真
                 torch.all(
                     hybrid_pool.full_kv_pool.v_buffer[layer_id][kv_indices] == 4.0
                 ),
@@ -655,11 +676,11 @@ class TestMamba(unittest.TestCase):
 
         # Verify Mamba restored.
         for conv in mamba_pool.mamba_cache.conv:
-            self.assertTrue(
+            self.assertTrue(  # 断言为真
                 torch.all(conv[:, mamba_indices] == 5.0),
                 "conv not restored after load_cpu_copy",
             )
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             torch.all(mamba_pool.mamba_cache.temporal[:, mamba_indices] == 6.0),
             "temporal not restored after load_cpu_copy",
         )
@@ -667,10 +688,11 @@ class TestMamba(unittest.TestCase):
         # --- Without mamba_indices: mamba_cpu must be None ---
         cpu_copy_no_mamba = allocator.get_cpu_copy(kv_indices, mamba_indices=None)
         _, mamba_cpu_none = cpu_copy_no_mamba
-        self.assertIsNone(
+        self.assertIsNone(  # 断言为None
             mamba_cpu_none, "mamba_cpu should be None when mamba_indices=None"
         )
 
+    # TestMamba类的测试insertprevprefixlen
     def test_insert_prev_prefix_len(self):
         """Test that prev_prefix_len correctly controls which KV indices are freed
         during insert, covering: full free, partial free across multi-node, and no free.

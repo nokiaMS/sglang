@@ -1,3 +1,4 @@
+# 文件名: test_flashinfer_fusion_preflight.py - FlashInfer融合预检测试
 """Distributed tests for FlashInfer allreduce-fusion workspace preflight."""
 
 import multiprocessing as mp
@@ -16,21 +17,23 @@ register_cuda_ci(est_time=30, stage="base-b", runner_config="2-gpu-large")
 WORLD_SIZE = 2
 
 
+# 执行getfreeport
 def _get_free_port():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return sock.getsockname()[1]
 
 
+# 执行runrank
 def _run_rank(rank, world_size, port, scenario, result_q):
     held = None
     cuda_driver = None
     try:
-        os.environ["MASTER_ADDR"] = "127.0.0.1"
-        os.environ["MASTER_PORT"] = str(port)
-        os.environ["RANK"] = str(rank)
-        os.environ["WORLD_SIZE"] = str(world_size)
-        os.environ["LOCAL_RANK"] = str(rank)
+        os.environ["MASTER_ADDR"] = "127.0.0.1"  # 访问环境变量
+        os.environ["MASTER_PORT"] = str(port)  # 访问环境变量
+        os.environ["RANK"] = str(rank)  # 访问环境变量
+        os.environ["WORLD_SIZE"] = str(world_size)  # 访问环境变量
+        os.environ["LOCAL_RANK"] = str(rank)  # 访问环境变量
 
         torch.cuda.set_device(rank)
 
@@ -91,6 +94,7 @@ def _run_rank(rank, world_size, port, scenario, result_q):
             pass
 
 
+# 执行spawnandcollect
 def _spawn_and_collect(scenario, world_size=WORLD_SIZE):
     ctx = mp.get_context("spawn")
     q = ctx.Queue()
@@ -124,6 +128,7 @@ def _spawn_and_collect(scenario, world_size=WORLD_SIZE):
 
 class TestFlashInferPreflightDistributed(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         if not torch.cuda.is_available() or torch.cuda.device_count() < WORLD_SIZE:
             raise unittest.SkipTest(
@@ -143,12 +148,14 @@ class TestFlashInferPreflightDistributed(CustomTestCase):
                 f"FlashInfer preflight dependencies unavailable: {e}"
             )
 
+    # 测试happypathvotesproceed
     def test_happy_path_votes_proceed(self):
         results = _spawn_and_collect("normal")
         for rank, (status, payload) in results.items():
             self.assertEqual(status, "ok", f"rank {rank}: {payload}")
             self.assertTrue(payload, f"rank {rank} voted SKIP unexpectedly")
 
+    # 测试starvedrankbroadcastsskip
     def test_starved_rank_broadcasts_skip(self):
         results = _spawn_and_collect("rank0_starved")
         for rank, (status, payload) in results.items():

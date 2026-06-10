@@ -1,3 +1,4 @@
+# 文件名: utils.py - CPU工具函数
 import itertools
 import math
 
@@ -16,8 +17,11 @@ factor_for_scale = 1e-3
 fp8_max, fp8_min = 400, -400
 
 
+# 执行parametrize
 def parametrize(**params):
+    # 执行decorator
     def decorator(func):
+        # 执行wrapper
         def wrapper(self):
             for combo in itertools.product(*params.values()):
                 kwargs = dict(zip(params.keys(), combo))
@@ -29,18 +33,21 @@ def parametrize(**params):
     return decorator
 
 
+# 执行SiluAndMul
 def SiluAndMul(x: torch.Tensor) -> torch.Tensor:
     d = x.shape[-1] // 2
     return F.silu(x[..., :d]) * x[..., d:]
 
 
+# 执行GeluAndMul
 def GeluAndMul(x: torch.Tensor, approximate="tanh") -> torch.Tensor:
     d = x.shape[-1] // 2
     return F.gelu(x[..., :d], approximate=approximate) * x[..., d:]
 
 
+# 执行pertokenquantint8
 def per_token_quant_int8(x):
-    x = x.float()
+    x = x.float()  # 转换为单精度
     absmax = x.abs().max(dim=-1).values
     absmax = absmax.clamp_min(1e-10).unsqueeze(-1)
     scale_x = absmax / 127
@@ -50,6 +57,7 @@ def per_token_quant_int8(x):
     return x_q, scale_x
 
 
+# 转换weight
 def convert_weight(weight, scale_block_size, A_dtype):
     N, K = weight.size()
     fp8_max = 448.0
@@ -85,7 +93,7 @@ def convert_weight(weight, scale_block_size, A_dtype):
     else:
         q_fp8_reshape = q_fp8_reshape.view(N, K)
 
-    dq_weight = q_fp8.float() * scales
+    dq_weight = q_fp8.float() * scales  # 转换为单精度
     dq_weight = dq_weight.permute(0, 2, 1, 3).contiguous()  # (8, 128, 8, 128)
 
     if pad_N > 0 or pad_K > 0:
@@ -101,6 +109,7 @@ def convert_weight(weight, scale_block_size, A_dtype):
     return q_fp8_reshape, scales, w_dq
 
 
+# 执行nativew8a8pertokenmatmul
 def native_w8a8_per_token_matmul(A, B, As, Bs, bias, output_dtype=torch.bfloat16):
     """Matrix multiplication function that supports per-token input quantization and per-column weight quantization"""
     A = A.to(torch.float32)
@@ -126,6 +135,7 @@ def native_w8a8_per_token_matmul(A, B, As, Bs, bias, output_dtype=torch.bfloat16
     return C.reshape(origin_C_shape).to(output_dtype)
 
 
+# 执行torchnaivemoe
 def torch_naive_moe(a, w1, w2, b, routed_scaling_factor, output_dtype=torch.bfloat16):
 
     a = a.to(torch.float32)
@@ -142,6 +152,7 @@ def torch_naive_moe(a, w1, w2, b, routed_scaling_factor, output_dtype=torch.bflo
     return out.to(output_dtype)
 
 
+# 执行torchw8a8percolumnmoe
 def torch_w8a8_per_column_moe(
     a, w1_q, w2_q, w1_s, w2_s, b, routed_scaling_factor, output_dtype=torch.bfloat16
 ):
@@ -167,6 +178,7 @@ def torch_w8a8_per_column_moe(
     return out.to(output_dtype)
 
 
+# 执行scaledweight
 def scaled_weight(weight, scales):
     E, N, K = weight.shape
     pad_N = (BLOCK_N - (N % BLOCK_N)) % BLOCK_N
@@ -178,7 +190,7 @@ def scaled_weight(weight, scales):
     weight_block = (
         weight.view(E, math.ceil(N / BLOCK_N), BLOCK_N, math.ceil(K / BLOCK_K), BLOCK_K)
         .permute(0, 1, 3, 2, 4)
-        .float()
+        .float()  # 转换为单精度
         .contiguous()
     )
 
@@ -198,6 +210,7 @@ def scaled_weight(weight, scales):
     return weight_scaled
 
 
+# 执行torchnaivefusedmoe
 def torch_naive_fused_moe(a, w1, w2, score, topk, renormalize):
     B, D = a.shape
     a = a.view(B, -1, D).repeat(1, topk, 1).reshape(-1, D)
@@ -221,6 +234,7 @@ def torch_naive_fused_moe(a, w1, w2, score, topk, renormalize):
     ).sum(dim=1)
 
 
+# 执行moegptossact
 def moe_gptoss_act(x, alpha: float = 1.702, limit: float = 7.0):
     x_glu, x_linear = x[..., ::2], x[..., 1::2]
     # Clamp the input values
@@ -231,6 +245,7 @@ def moe_gptoss_act(x, alpha: float = 1.702, limit: float = 7.0):
     return out_glu * (x_linear + 1.0)
 
 
+# 执行torchnaivegptossfusedmoe
 def torch_naive_gptoss_fused_moe(
     x,
     w1,
@@ -251,7 +266,7 @@ def torch_naive_gptoss_fused_moe(
     idxs = topk_ids.view(-1).argsort()
 
     sorted_tokens = x[idxs // topk_ids.shape[1]]
-    tokens_per_expert = tokens_per_expert.cpu().numpy()
+    tokens_per_expert = tokens_per_expert.cpu().numpy()  # 转移到CPU
 
     outputs = []
     start_idx = 0
@@ -292,6 +307,7 @@ def torch_naive_gptoss_fused_moe(
     return final_out
 
 
+# 执行torchnaivefusedmoegptoss
 def torch_naive_fused_moe_gptoss(
     a,
     w1,
@@ -322,6 +338,7 @@ def torch_naive_fused_moe_gptoss(
     )
 
 
+# 执行torchw8a8percolumnfusedmoe
 def torch_w8a8_per_column_fused_moe(a, w1, w2, w1_s, w2_s, topk_weight, topk_ids, topk):
     """This function performs fused moe with per-column int8 quantization using native torch."""
 
@@ -372,9 +389,10 @@ def torch_w8a8_per_column_fused_moe(a, w1, w2, w1_s, w2_s, topk_weight, topk_ids
     )
 
 
+# 执行nativefp8fusedmoe
 def native_fp8_fused_moe(a, w1, w2, topk_weight, topk_ids, topk):
     B, D = a.shape
-    a = a.view(B, -1, D).repeat(1, topk, 1).reshape(-1, D).float()
+    a = a.view(B, -1, D).repeat(1, topk, 1).reshape(-1, D).float()  # 转换为单精度
     out = torch.zeros(B * topk, w2.shape[1], dtype=torch.float32, device=a.device)
 
     # Calculate routing
@@ -405,12 +423,14 @@ class MXFP4QuantizeUtil:
     block_size = 32
 
     @classmethod
+    # 执行quantize
     def quantize(cls, input: torch.Tensor) -> tuple:
         """Converting a tensor to a quantized format based on MXFP4 quantization. Only E4M3 is supported.
         Args:
             input (torch.Tensor): The input tensor to be quantized.
         """
 
+        # 执行castfp4
         def cast_fp4(x):
             sign = torch.sign(x)
             sign_bit = (2 - sign) // 2
@@ -420,6 +440,7 @@ class MXFP4QuantizeUtil:
             fp4_val = (sign_bit * 0b1000 + ord_).to(torch.uint8)
             return fp4_val
 
+        # 执行fuseuint4touint8
         def fuse_uint4_to_uint8(x):
             # If the last dimension is odd, pad with zeros
             # If this behavior is not desired, please modify the code accordingly
@@ -449,9 +470,11 @@ class MXFP4QuantizeUtil:
         return input_q, e8m0_scale
 
     @classmethod
+    # 执行dequantize
     def dequantize(cls, quantized_data, dtype: torch.dtype, scale):
         """Dequantze MXFP4 packed tensor to a target dtype."""
 
+        # 执行unfuseuint8touint4
         def unfuse_uint8_to_uint4(x):
             """Unfuse uint8 values back to uint4 values.
             This is the inverse operation of fuse_uint4_to_uint8.
@@ -494,22 +517,23 @@ class MXFP4QuantizeUtil:
         x_float = values[magnitude.reshape(-1)].reshape(original_shape)
 
         # Apply sign and scale
-        x_float = sign.float() * x_float
+        x_float = sign.float() * x_float  # 转换为单精度
 
         # Reshape to apply block-wise scaling
         x_float = x_float.reshape(-1, cls.block_size)
 
         # Apply the E8M0 scale
-        scale_factor = torch.exp2(e8m0_scale.float() - 127)
+        scale_factor = torch.exp2(e8m0_scale.float() - 127)  # 转换为单精度
         scale_factor = scale_factor.reshape(-1, 1)  # Reshape for proper broadcasting
 
         # Apply scaling and reshape back to original shape
         x_float = x_float * scale_factor
 
         # Reshape back to the original shape
-        return x_float.reshape(original_shape).to(dtype)
+        return x_float.reshape(original_shape).to(dtype)  # 转换数据类型
 
 
+# 执行makenoncontiguous
 def make_non_contiguous(x: torch.Tensor) -> torch.Tensor:
     """
     Make a tensor non-contiguous by slicing it via last dimension.
@@ -518,6 +542,7 @@ def make_non_contiguous(x: torch.Tensor) -> torch.Tensor:
     return x[..., : last_dim // 2] if x.is_contiguous() else x
 
 
+# 执行awqreversereorderinttensor
 def awq_reverse_reorder_int_tensor(int_tensor, bits: int):
     assert bits == 4
 
@@ -545,6 +570,7 @@ def awq_reverse_reorder_int_tensor(int_tensor, bits: int):
     return int_tensor
 
 
+# 执行unpackanddequantawq
 def unpack_and_dequant_awq(
     awq_qweight: torch.Tensor,
     awq_qzeros: torch.Tensor,
@@ -620,6 +646,7 @@ def unpack_and_dequant_awq(
     return fp16_weight, zeros
 
 
+# 执行unpack4bitto32bitsigned
 def unpack_4bit_to_32bit_signed(qweight, qzeros):
     # Unpack 4-bit values and interpret them as signed integers
     unpacked_weights = torch.zeros(
@@ -646,6 +673,7 @@ def unpack_4bit_to_32bit_signed(qweight, qzeros):
     return unpacked_weights, unpacked_zeros + 1
 
 
+# 执行unpackanddequantgptq
 def unpack_and_dequant_gptq(qweight, qzeros, scales):
     unpacked_qweight, unpacked_qzeros = unpack_4bit_to_32bit_signed(qweight, qzeros)
     group_size = unpacked_qweight.shape[0] // scales.shape[0]

@@ -1,3 +1,4 @@
+# 文件名: test_hisparse_unit.py - HiSparse单元
 """Unit tests for HiSparse hierarchical sparse KV cache system.
 
 Tests cover:
@@ -34,6 +35,7 @@ MAX_NUM_REQS = 8
 MAX_CONTEXT_LEN = 2048
 
 
+# 内部方法_make_req
 def _make_req(rid="test-req-0", origin_input_ids=None, output_ids=None):
     """Create a minimal mock Req object with the fields HiSparseCoordinator uses."""
     if origin_input_ids is None:
@@ -61,6 +63,7 @@ def _make_req(rid="test-req-0", origin_input_ids=None, output_ids=None):
     return req
 
 
+# TestHiSparseUnit类
 class TestHiSparseUnit(unittest.TestCase):
     """Test class that builds a minimal HiSparse component stack."""
 
@@ -69,13 +72,15 @@ class TestHiSparseUnit(unittest.TestCase):
     # ==================================================================
 
     @classmethod
+
+    # TestHiSparseUnit类的测试类初始化设置
     def setUpClass(cls):
         if not torch.cuda.is_available():
-            raise unittest.SkipTest("CUDA is required for HiSparse tests.")
+            raise unittest.SkipTest("CUDA is required for HiSparse tests.")  # 抛出异常
         if is_npu() or is_xpu():
-            raise unittest.SkipTest("HiSparse tests only support CUDA/ROCm.")
+            raise unittest.SkipTest("HiSparse tests only support CUDA/ROCm.")  # 抛出异常
         if not (is_cuda() or is_hip()):
-            raise unittest.SkipTest("CUDA/ROCm not available.")
+            raise unittest.SkipTest("CUDA/ROCm not available.")  # 抛出异常
 
         os.environ.setdefault("MASTER_ADDR", "127.0.0.1")
         os.environ.setdefault("MASTER_PORT", "29599")
@@ -144,6 +149,8 @@ class TestHiSparseUnit(unittest.TestCase):
         )
 
     @classmethod
+
+    # TestHiSparseUnit类的测试类清理
     def tearDownClass(cls):
         from sglang.srt.mem_cache.memory_pool_host import ALLOC_MEMORY_FUNCS
 
@@ -151,6 +158,7 @@ class TestHiSparseUnit(unittest.TestCase):
         if torch.distributed.is_initialized():
             torch.distributed.destroy_process_group()
 
+    # TestHiSparseUnit类的测试初始化设置
     def setUp(self):
         """Reset shared allocator / coordinator state so tests are isolated.
 
@@ -180,14 +188,16 @@ class TestHiSparseUnit(unittest.TestCase):
     def _alloc_req_slot(self, req):
         """Allocate a req_pool_idx for the request."""
         indices = self.req_to_token_pool.alloc([req])
-        self.assertIsNotNone(indices, "Failed to allocate req pool slot")
+        self.assertIsNotNone(indices, "Failed to allocate req pool slot")  # 断言不为None
         return req.req_pool_idx
 
+    # TestHiSparseUnit类的内部方法_free_req_slot
     def _free_req_slot(self, req):
         """Free the req_pool_idx."""
         if req.req_pool_idx is not None:
             self.req_to_token_pool.free(req)
 
+    # TestHiSparseUnit类的内部方法_alloc_kv
     def _alloc_kv(self, req, fill_len, *, logical_only=False):
         """Allocate KV indices, write req_to_token_pool, update req fields.
         If logical_only=True, uses alloc_logical_only (PD-separated path).
@@ -206,7 +216,7 @@ class TestHiSparseUnit(unittest.TestCase):
             last_loc=torch.tensor([-1], dtype=torch.int64, device=device),
             extend_num_tokens=fill_len,
         )
-        self.assertIsNotNone(kv_loc, "KV alloc failed")
+        self.assertIsNotNone(kv_loc, "KV alloc failed")  # 断言不为None
         self.req_to_token_pool.write((req.req_pool_idx, slice(0, len(kv_loc))), kv_loc)
         req.kv_allocated_len = fill_len
         req.kv_committed_len = fill_len
@@ -218,11 +228,14 @@ class TestHiSparseUnit(unittest.TestCase):
     # ==================================================================
 
     @staticmethod
+
+    # TestHiSparseUnit类的内部方法_kv_pattern
     def _kv_pattern(layer_id, token_id):
         """Deterministic KV value for (layer, token) — used by write & verify."""
         v = (layer_id * 10000 + token_id + 1) * 0.001
         return float(torch.tensor(v, dtype=torch.bfloat16))
 
+    # TestHiSparseUnit类的内部方法_write_device_patterns
     def _write_device_patterns(self, kv_loc, fill_len):
         """Write distinguishable patterns into device KV buffer for all layers.
 
@@ -237,12 +250,13 @@ class TestHiSparseUnit(unittest.TestCase):
                     lid, i
                 )
 
+    # TestHiSparseUnit类的内部方法_populate_host_pool
     def _populate_host_pool(self, req, fill_len):
         """Allocate host slots, write known patterns, register in coordinator.
         Returns host_indices (cuda tensor)."""
         host_pool = self.coordinator.mem_pool_host
         host_indices = host_pool.alloc(fill_len)
-        self.assertIsNotNone(host_indices, "Host alloc failed")
+        self.assertIsNotNone(host_indices, "Host alloc failed")  # 断言不为None
         host_indices = host_indices.to(device="cuda")
         self.coordinator.req_to_host_pool[req.req_pool_idx, :fill_len] = host_indices
         self.coordinator.req_to_host_pool_allocated_len[req.req_pool_idx] = fill_len
@@ -251,6 +265,7 @@ class TestHiSparseUnit(unittest.TestCase):
                 host_pool.kv_buffer[lid][host_indices[i]] = self._kv_pattern(lid, i)
         return host_indices
 
+    # TestHiSparseUnit类的内部方法_build_topk_tokens
     def _build_topk_tokens(self, fill_len, *, include_newest=False):
         """Build a 1-D [TOP_K] int32 cuda tensor of token positions.
 
@@ -278,6 +293,7 @@ class TestHiSparseUnit(unittest.TestCase):
             tokens = torch.cat([tokens, pad])
         return tokens
 
+    # TestHiSparseUnit类的内部方法_make_batch_tensors
     def _make_batch_tensors(self, reqs, fill_lens):
         """Build (req_pool_indices [int64], seq_lens [int32]) on cuda."""
         rpi = torch.tensor(
@@ -286,6 +302,7 @@ class TestHiSparseUnit(unittest.TestCase):
         sls = torch.tensor(fill_lens, dtype=torch.int32, device="cuda")
         return rpi, sls
 
+    # TestHiSparseUnit类的内部方法_assert_kv_correct
     def _assert_kv_correct(self, locs_row, tokens_row, layer_id, count, msg=""):
         """Assert device KV data at *locs_row[:count]* matches the written
         pattern for the corresponding *tokens_row[:count]* positions."""
@@ -295,7 +312,7 @@ class TestHiSparseUnit(unittest.TestCase):
                 continue
             expected = self._kv_pattern(layer_id, tok)
             actual = self.device_pool.kv_buffer[layer_id][locs_row[i].long()]
-            self.assertTrue(
+            self.assertTrue(  # 断言为真
                 torch.allclose(
                     actual.float(),
                     torch.full_like(actual.float(), expected),
@@ -304,6 +321,7 @@ class TestHiSparseUnit(unittest.TestCase):
                 f"{msg}layer {layer_id}, token {tok}: KV data mismatch",
             )
 
+    # TestHiSparseUnit类的内部方法_assert_matches_naive
     def _assert_matches_naive(self, rpi, sls, batch, kernel_locs, layer_id, msg=""):
         """Assert kernel swap_in KV data matches naive_load_topk KV data."""
         naive_locs = self.coordinator.naive_load_topk(rpi, sls, batch, layer_id)
@@ -317,11 +335,12 @@ class TestHiSparseUnit(unittest.TestCase):
                 kernel_data = self.device_pool.kv_buffer[layer_id][
                     kernel_locs[b, i].long()
                 ]
-                self.assertTrue(
+                self.assertTrue(  # 断言为真
                     torch.allclose(naive_data.float(), kernel_data.float(), atol=1e-2),
                     f"{msg}layer {layer_id}, b{b} idx {i}: naive != kernel",
                 )
 
+    # TestHiSparseUnit类的内部方法_swap_in_selected_pages
     def _swap_in_selected_pages(
         self,
         rpi: torch.Tensor,
@@ -337,6 +356,7 @@ class TestHiSparseUnit(unittest.TestCase):
         self.coordinator.num_real_reqs[0] = rpi.shape[0]
         return self.coordinator.swap_in_selected_pages(rpi, sls, batch, layer_id)
 
+    # TestHiSparseUnit类的内部方法_cleanup_req
     def _cleanup_req(self, req, kv_loc, *, logical_only=False):
         """request_finished -> free KV -> free req slot."""
         self.coordinator.request_finished(req)
@@ -346,6 +366,7 @@ class TestHiSparseUnit(unittest.TestCase):
             self.allocator.free(kv_loc)
         self._free_req_slot(req)
 
+    # TestHiSparseUnit类的内部方法_get_initial_sizes
     def _get_initial_sizes(self):
         """Snapshot allocator available sizes."""
         return (
@@ -354,12 +375,13 @@ class TestHiSparseUnit(unittest.TestCase):
             self.coordinator.mem_pool_host.available_size(),
         )
 
+    # TestHiSparseUnit类的内部方法_assert_sizes_restored
     def _assert_sizes_restored(self, initial_sizes, msg=""):
         """Assert allocator sizes match the snapshot."""
         logical, hisparse, host = self._get_initial_sizes()
-        self.assertEqual(logical, initial_sizes[0], f"Logical leak {msg}")
-        self.assertEqual(hisparse, initial_sizes[1], f"HiSparse leak {msg}")
-        self.assertEqual(host, initial_sizes[2], f"Host leak {msg}")
+        self.assertEqual(logical, initial_sizes[0], f"Logical leak {msg}")  # 断言相等
+        self.assertEqual(hisparse, initial_sizes[1], f"HiSparse leak {msg}")  # 断言相等
+        self.assertEqual(host, initial_sizes[2], f"Host leak {msg}")  # 断言相等
 
     # ==================================================================
     # Test: Kernel correctness — short sequence (fast path)
@@ -384,7 +406,7 @@ class TestHiSparseUnit(unittest.TestCase):
             naive_locs = self.coordinator.naive_load_topk(rpi, sls, batch, lid)
             kernel_locs = self._swap_in_selected_pages(rpi, sls, batch, lid)
             valid = batch[0] >= 0
-            self.assertTrue(
+            self.assertTrue(  # 断言为真
                 torch.equal(naive_locs[0][valid].cpu(), kernel_locs[0][valid].cpu()),
                 f"Layer {lid}: kernel locs != naive oracle",
             )
@@ -417,8 +439,8 @@ class TestHiSparseUnit(unittest.TestCase):
         for lid in range(LAYER_NUM):
             naive_locs = self.coordinator.naive_load_topk(rpi, sls, batch, lid)
             kernel_locs = self._swap_in_selected_pages(rpi, sls, batch, lid)
-            self.assertTrue(torch.all(naive_locs[0, :TOP_K] >= 0))
-            self.assertTrue(torch.all(kernel_locs[0, :TOP_K] >= 0))
+            self.assertTrue(torch.all(naive_locs[0, :TOP_K] >= 0))  # 断言为真
+            self.assertTrue(torch.all(kernel_locs[0, :TOP_K] >= 0))  # 断言为真
             # Verify both return correct KV data independently
             self._assert_kv_correct(naive_locs[0], tokens, lid, TOP_K, msg="Naive: ")
             self._assert_kv_correct(kernel_locs[0], tokens, lid, TOP_K, msg="Kernel: ")
@@ -450,7 +472,7 @@ class TestHiSparseUnit(unittest.TestCase):
         locs1 = self._swap_in_selected_pages(
             rpi, sls, tokens_s1.unsqueeze(0), layer_id=0
         )
-        self.assertTrue(torch.all(locs1[0, :TOP_K] >= 0))
+        self.assertTrue(torch.all(locs1[0, :TOP_K] >= 0))  # 断言为真
 
         # Step 2: half overlap (hit) + half new (miss).
         # Choose new tokens from a range safely below fill_len.
@@ -467,7 +489,7 @@ class TestHiSparseUnit(unittest.TestCase):
         locs2 = self._swap_in_selected_pages(
             rpi, sls, tokens_s2.unsqueeze(0), layer_id=0
         )
-        self.assertTrue(torch.all(locs2[0, :TOP_K] >= 0))
+        self.assertTrue(torch.all(locs2[0, :TOP_K] >= 0))  # 断言为真
 
         # Verify repeated (hit) tokens still have correct KV data
         self._assert_kv_correct(
@@ -502,21 +524,21 @@ class TestHiSparseUnit(unittest.TestCase):
             last_loc=torch.tensor([-1], dtype=torch.int64, device=device),
             extend_num_tokens=fill_len,
         )
-        self.assertIsNotNone(kv_loc)
-        self.assertEqual(len(kv_loc), fill_len)
+        self.assertIsNotNone(kv_loc)  # 断言不为None
+        self.assertEqual(len(kv_loc), fill_len)  # 断言相等
 
         mapping = self.allocator.full_to_hisparse_device_index_mapping[kv_loc]
-        self.assertTrue(torch.all(mapping > 0), "Mapping should be non-zero")
-        self.assertLess(self.allocator.available_size(), initial[0])
+        self.assertTrue(torch.all(mapping > 0), "Mapping should be non-zero")  # 断言为真
+        self.assertLess(self.allocator.available_size(), initial[0])  # 断言小于
 
         need_size = min(
             ((fill_len + self.page_size - 1) // self.page_size) * self.page_size,
             DEVICE_BUFFER_SIZE,
         )
         buf_idx = self.allocator.alloc_device_buffer(kv_loc, need_size)
-        self.assertIsNotNone(buf_idx)
+        self.assertIsNotNone(buf_idx)  # 断言不为None
         mapping_after = self.allocator.full_to_hisparse_device_index_mapping[kv_loc]
-        self.assertTrue(torch.all(mapping_after == 0), "Mapping should be cleared")
+        self.assertTrue(torch.all(mapping_after == 0), "Mapping should be cleared")  # 断言为真
 
         self.allocator.free_hisparse_indices(buf_idx)
         self.allocator.logical_attn_allocator.free(kv_loc)
@@ -536,13 +558,13 @@ class TestHiSparseUnit(unittest.TestCase):
         self._write_device_patterns(kv_loc, fill_len)
 
         self.coordinator.admit_request_into_staging(req)
-        self.assertTrue(req.hisparse_staging)
+        self.assertTrue(req.hisparse_staging)  # 断言为真
 
         torch.cuda.synchronize()
         ready = self.coordinator.collect_ready_reqs()
-        self.assertEqual(len(ready), 1)
-        self.assertFalse(req.hisparse_staging)
-        self.assertTrue(self.coordinator._skip_first_backup[req.req_pool_idx])
+        self.assertEqual(len(ready), 1)  # 断言相等
+        self.assertFalse(req.hisparse_staging)  # 断言为假
+        self.assertTrue(self.coordinator._skip_first_backup[req.req_pool_idx])  # 断言为真
 
         tokens = self._build_topk_tokens(fill_len)
         batch = tokens.unsqueeze(0)
@@ -550,7 +572,7 @@ class TestHiSparseUnit(unittest.TestCase):
 
         locs = self._swap_in_selected_pages(rpi, sls, batch, layer_id=0)
         valid_n = min(fill_len, TOP_K)
-        self.assertTrue(torch.all(locs[0, :valid_n] >= 0))
+        self.assertTrue(torch.all(locs[0, :valid_n] >= 0))  # 断言为真
         self._assert_kv_correct(
             locs[0], tokens, layer_id=0, count=valid_n, msg="Staging: "
         )
@@ -576,12 +598,12 @@ class TestHiSparseUnit(unittest.TestCase):
         self.coordinator.admit_request_into_staging(req)
         torch.cuda.synchronize()
         ready = self.coordinator.collect_ready_reqs()
-        self.assertEqual(ready, [req])
+        self.assertEqual(ready, [req])  # 断言相等
 
         host_row = self.coordinator.req_to_host_pool[req.req_pool_idx, :rounded_len]
-        self.assertTrue(torch.all(host_row >= 0))
-        self.assertEqual(torch.unique(host_row).numel(), rounded_len)
-        self.assertEqual(
+        self.assertTrue(torch.all(host_row >= 0))  # 断言为真
+        self.assertEqual(torch.unique(host_row).numel(), rounded_len)  # 断言相等
+        self.assertEqual(  # 断言相等
             int(self.coordinator.req_to_host_pool_allocated_len[req.req_pool_idx]),
             rounded_len,
         )
@@ -594,17 +616,17 @@ class TestHiSparseUnit(unittest.TestCase):
             fill_len,
             1,
         )
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             self.coordinator.mem_pool_host.available_size(), available_size
         )
-        self.assertTrue(torch.all(next_host_index >= 0))
+        self.assertTrue(torch.all(next_host_index >= 0))  # 断言为真
 
         allocated_host_indices = self.coordinator.mem_pool_host.allocated_host_indices(
             self.coordinator.req_to_host_pool,
             req.req_pool_idx,
             int(self.coordinator.req_to_host_pool_allocated_len[req.req_pool_idx]),
         )
-        self.assertEqual(allocated_host_indices.numel(), rounded_len)
+        self.assertEqual(allocated_host_indices.numel(), rounded_len)  # 断言相等
 
         self._cleanup_req(req, kv_loc)
         self._assert_sizes_restored(initial, "single_node_staging_pages")
@@ -623,19 +645,19 @@ class TestHiSparseUnit(unittest.TestCase):
         self._populate_host_pool(req, fill_len)
         self.coordinator.admit_request_direct(req)
 
-        self.assertFalse(req.staging)
-        self.assertTrue(self.coordinator._skip_first_backup[req.req_pool_idx])
+        self.assertFalse(req.staging)  # 断言为假
+        self.assertTrue(self.coordinator._skip_first_backup[req.req_pool_idx])  # 断言为真
         buf_tokens = self.coordinator.req_device_buffer_tokens[
             :, req.req_pool_idx, :DEVICE_BUFFER_SIZE
         ]
-        self.assertTrue(torch.all(buf_tokens == -1))
+        self.assertTrue(torch.all(buf_tokens == -1))  # 断言为真
 
         tokens = self._build_topk_tokens(fill_len - 1)
         batch = tokens.unsqueeze(0)
         rpi, sls = self._make_batch_tensors([req], [fill_len])
 
         locs = self._swap_in_selected_pages(rpi, sls, batch, layer_id=0)
-        self.assertTrue(torch.all(locs[0, :TOP_K] >= 0))
+        self.assertTrue(torch.all(locs[0, :TOP_K] >= 0))  # 断言为真
         self._assert_kv_correct(
             locs[0], tokens, layer_id=0, count=TOP_K, msg="Direct: "
         )
@@ -669,20 +691,20 @@ class TestHiSparseUnit(unittest.TestCase):
         )
 
         host_indices = queue._pre_alloc(req)
-        self.assertEqual(host_indices.numel(), fill_len)
-        self.assertTrue(torch.all(host_indices >= 0))
-        self.assertTrue(
+        self.assertEqual(host_indices.numel(), fill_len)  # 断言相等
+        self.assertTrue(torch.all(host_indices >= 0))  # 断言为真
+        self.assertTrue(  # 断言为真
             torch.equal(
                 host_indices,
                 self.coordinator.req_to_host_pool[req.req_pool_idx, :fill_len],
             )
         )
-        self.assertEqual(req.kv_allocated_len, fill_len)
-        self.assertEqual(req.kv_committed_len, fill_len)
-        self.assertEqual(req.extend_input_len, fill_len)
+        self.assertEqual(req.kv_allocated_len, fill_len)  # 断言相等
+        self.assertEqual(req.kv_committed_len, fill_len)  # 断言相等
+        self.assertEqual(req.extend_input_len, fill_len)  # 断言相等
 
         rounded_len = (fill_len + self.page_size - 1) // self.page_size * self.page_size
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             int(self.coordinator.req_to_host_pool_allocated_len[req.req_pool_idx]),
             rounded_len,
         )
@@ -691,7 +713,7 @@ class TestHiSparseUnit(unittest.TestCase):
             req.req_pool_idx,
             int(self.coordinator.req_to_host_pool_allocated_len[req.req_pool_idx]),
         )
-        self.assertEqual(allocated_host_indices.numel(), rounded_len)
+        self.assertEqual(allocated_host_indices.numel(), rounded_len)  # 断言相等
 
         kv_loc = self.req_to_token_pool.req_to_token[
             req.req_pool_idx, : req.kv_allocated_len
@@ -742,7 +764,7 @@ class TestHiSparseUnit(unittest.TestCase):
             locs = self._swap_in_selected_pages(rpi, sls, top_k_batch, lid)
             for i, (rid, fl) in enumerate(configs):
                 vn = min(fl, TOP_K)
-                self.assertTrue(
+                self.assertTrue(  # 断言为真
                     torch.all(locs[i, :vn] >= 0),
                     f"Req {rid}, layer {lid}: negative locs",
                 )

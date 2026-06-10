@@ -1,3 +1,4 @@
+# 文件名: test_disaggregation_different_tp.py - 不同TP分离式部署测试
 import os
 import unittest
 from types import SimpleNamespace
@@ -21,6 +22,7 @@ register_cuda_ci(est_time=375, stage="base-c", runner_config="8-gpu-h20")
 
 class TestDisaggregationMooncakePrefillLargerTP(PDDisaggregationServerBase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
         # Temporarily disable JIT DeepGEMM
@@ -39,6 +41,7 @@ class TestDisaggregationMooncakePrefillLargerTP(PDDisaggregationServerBase):
         cls.launch_lb()
 
     @classmethod
+    # 执行startprefill
     def start_prefill(cls):
         prefill_args = [
             "--trust-remote-code",
@@ -60,6 +63,7 @@ class TestDisaggregationMooncakePrefillLargerTP(PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 执行startdecode
     def start_decode(cls):
         decode_args = [
             "--trust-remote-code",
@@ -82,6 +86,7 @@ class TestDisaggregationMooncakePrefillLargerTP(PDDisaggregationServerBase):
             other_args=decode_args,
         )
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -100,6 +105,7 @@ class TestDisaggregationMooncakePrefillLargerTP(PDDisaggregationServerBase):
 
 class TestDisaggregationMooncakeDecodeLargerTP(PDDisaggregationServerBase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
         # Temporarily disable JIT DeepGEMM
@@ -118,6 +124,7 @@ class TestDisaggregationMooncakeDecodeLargerTP(PDDisaggregationServerBase):
         cls.launch_lb()
 
     @classmethod
+    # 执行startprefill
     def start_prefill(cls):
         prefill_args = [
             "--trust-remote-code",
@@ -139,6 +146,7 @@ class TestDisaggregationMooncakeDecodeLargerTP(PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 执行startdecode
     def start_decode(cls):
         decode_args = [
             "--trust-remote-code",
@@ -161,6 +169,7 @@ class TestDisaggregationMooncakeDecodeLargerTP(PDDisaggregationServerBase):
             other_args=decode_args,
         )
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -179,6 +188,7 @@ class TestDisaggregationMooncakeDecodeLargerTP(PDDisaggregationServerBase):
 
 class TestDisaggregationMooncakeMHAPrefillLargerTP(PDDisaggregationServerBase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
         # Temporarily disable JIT DeepGEMM
@@ -197,6 +207,7 @@ class TestDisaggregationMooncakeMHAPrefillLargerTP(PDDisaggregationServerBase):
         cls.launch_lb()
 
     @classmethod
+    # 执行startprefill
     def start_prefill(cls):
         prefill_args = [
             "--trust-remote-code",
@@ -218,6 +229,7 @@ class TestDisaggregationMooncakeMHAPrefillLargerTP(PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 执行startdecode
     def start_decode(cls):
         decode_args = [
             "--trust-remote-code",
@@ -240,6 +252,7 @@ class TestDisaggregationMooncakeMHAPrefillLargerTP(PDDisaggregationServerBase):
             other_args=decode_args,
         )
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -258,6 +271,7 @@ class TestDisaggregationMooncakeMHAPrefillLargerTP(PDDisaggregationServerBase):
 
 class TestDisaggregationMooncakeMHADecodeLargerTP(PDDisaggregationServerBase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
         # Temporarily disable JIT DeepGEMM
@@ -276,6 +290,7 @@ class TestDisaggregationMooncakeMHADecodeLargerTP(PDDisaggregationServerBase):
         cls.launch_lb()
 
     @classmethod
+    # 执行startprefill
     def start_prefill(cls):
         prefill_args = [
             "--trust-remote-code",
@@ -297,6 +312,7 @@ class TestDisaggregationMooncakeMHADecodeLargerTP(PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 执行startdecode
     def start_decode(cls):
         decode_args = [
             "--trust-remote-code",
@@ -319,6 +335,7 @@ class TestDisaggregationMooncakeMHADecodeLargerTP(PDDisaggregationServerBase):
             other_args=decode_args,
         )
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -346,6 +363,7 @@ class TestDisaggregationStagingPrefillLargerTP(PDDisaggregationServerBase):
     """Prefill TP=4 -> Decode TP=2 with staging buffer enabled (MHA model)."""
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
         envs.SGLANG_ENABLE_JIT_DEEPGEMM.set(False)
@@ -361,6 +379,7 @@ class TestDisaggregationStagingPrefillLargerTP(PDDisaggregationServerBase):
         cls.launch_lb()
 
     @classmethod
+    # 执行startprefill
     def start_prefill(cls):
         prefill_args = [
             "--trust-remote-code",
@@ -374,7 +393,7 @@ class TestDisaggregationStagingPrefillLargerTP(PDDisaggregationServerBase):
             "--enable-request-time-stats-logging",
         ]
         prefill_args += cls.transfer_backend + cls.rdma_devices
-        env = {**os.environ, **STAGING_ENV}
+        env = {**os.environ, **STAGING_ENV}  # 访问环境变量
         cls.process_prefill = popen_launch_pd_server(
             cls.model,
             cls.prefill_url,
@@ -384,6 +403,7 @@ class TestDisaggregationStagingPrefillLargerTP(PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 执行startdecode
     def start_decode(cls):
         decode_args = [
             "--trust-remote-code",
@@ -399,7 +419,7 @@ class TestDisaggregationStagingPrefillLargerTP(PDDisaggregationServerBase):
             "--enable-request-time-stats-logging",
         ]
         decode_args += cls.transfer_backend + cls.rdma_devices
-        env = {**os.environ, **STAGING_ENV}
+        env = {**os.environ, **STAGING_ENV}  # 访问环境变量
         cls.process_decode = popen_launch_pd_server(
             cls.model,
             cls.decode_url,
@@ -408,6 +428,7 @@ class TestDisaggregationStagingPrefillLargerTP(PDDisaggregationServerBase):
             env=env,
         )
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -427,6 +448,7 @@ class TestDisaggregationStagingDecodeLargerTP(PDDisaggregationServerBase):
     """Prefill TP=2 -> Decode TP=4 with staging buffer enabled (MHA model)."""
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
         envs.SGLANG_ENABLE_JIT_DEEPGEMM.set(False)
@@ -442,6 +464,7 @@ class TestDisaggregationStagingDecodeLargerTP(PDDisaggregationServerBase):
         cls.launch_lb()
 
     @classmethod
+    # 执行startprefill
     def start_prefill(cls):
         prefill_args = [
             "--trust-remote-code",
@@ -455,7 +478,7 @@ class TestDisaggregationStagingDecodeLargerTP(PDDisaggregationServerBase):
             "--enable-request-time-stats-logging",
         ]
         prefill_args += cls.transfer_backend + cls.rdma_devices
-        env = {**os.environ, **STAGING_ENV}
+        env = {**os.environ, **STAGING_ENV}  # 访问环境变量
         cls.process_prefill = popen_launch_pd_server(
             cls.model,
             cls.prefill_url,
@@ -465,6 +488,7 @@ class TestDisaggregationStagingDecodeLargerTP(PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 执行startdecode
     def start_decode(cls):
         decode_args = [
             "--trust-remote-code",
@@ -480,7 +504,7 @@ class TestDisaggregationStagingDecodeLargerTP(PDDisaggregationServerBase):
             "--enable-request-time-stats-logging",
         ]
         decode_args += cls.transfer_backend + cls.rdma_devices
-        env = {**os.environ, **STAGING_ENV}
+        env = {**os.environ, **STAGING_ENV}  # 访问环境变量
         cls.process_decode = popen_launch_pd_server(
             cls.model,
             cls.decode_url,
@@ -489,6 +513,7 @@ class TestDisaggregationStagingDecodeLargerTP(PDDisaggregationServerBase):
             env=env,
         )
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,

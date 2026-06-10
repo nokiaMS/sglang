@@ -1,3 +1,4 @@
+# N-gram推测解码验证输入模块，实现N-gram算法的草稿验证和KV缓存管理
 from __future__ import annotations
 
 import copy
@@ -47,6 +48,7 @@ elif is_hip():
     from sgl_kernel import verify_tree_greedy
 
 
+# N-gram验证输入数据类，处理N-gram推测解码的验证阶段
 @dataclass
 class NgramVerifyInput(SpecInput):
     def __init__(

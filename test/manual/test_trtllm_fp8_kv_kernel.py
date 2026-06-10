@@ -1,3 +1,4 @@
+# 文件名: test_trtllm_fp8_kv_kernel.py - TRTLLM FP8 KV内核测试 - 验证融合FP8 KV缓存写入内核的正确性和CUDA图兼容性
 """
 Unit tests for TRTLLM FP8 KV cache fusion kernel.
 """
@@ -16,6 +17,7 @@ class TestTRTLLMFP8KVKernel(CustomTestCase):
     """Test fused FP8 KV cache write kernel correctness."""
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         if not torch.cuda.is_available():
             raise unittest.SkipTest("CUDA not available")
@@ -23,6 +25,7 @@ class TestTRTLLMFP8KVKernel(CustomTestCase):
         if torch.cuda.get_device_capability()[0] < 9:
             raise unittest.SkipTest("FP8 requires compute capability >= 9.0")
 
+    # 测试内核正确性 - 比较Triton内核和朴素实现的结果
     def _test_kernel_correctness(
         self,
         num_tokens,
@@ -149,6 +152,7 @@ class TestTRTLLMFP8KVKernel(CustomTestCase):
             "V cache mismatch between Triton and naive",
         )
 
+    # 测试basic 3d input 3d cache
     def test_basic_3d_input_3d_cache(self):
         """Test basic case: 3D input, 3D cache, no scale."""
         self._test_kernel_correctness(
@@ -161,6 +165,7 @@ class TestTRTLLMFP8KVKernel(CustomTestCase):
             cache_ndim=3,
         )
 
+    # 测试basic 3d input 4d cache
     def test_basic_3d_input_4d_cache(self):
         """Test basic case: 3D input, 4D cache, no scale."""
         self._test_kernel_correctness(
@@ -173,6 +178,7 @@ class TestTRTLLMFP8KVKernel(CustomTestCase):
             cache_ndim=4,
         )
 
+    # 测试with scale 3d cache
     def test_with_scale_3d_cache(self):
         """Test with scale: 3D input, 3D cache."""
         self._test_kernel_correctness(
@@ -185,6 +191,7 @@ class TestTRTLLMFP8KVKernel(CustomTestCase):
             cache_ndim=3,
         )
 
+    # 测试with scale 4d cache
     def test_with_scale_4d_cache(self):
         """Test with scale: 3D input, 4D cache."""
         self._test_kernel_correctness(
@@ -197,6 +204,7 @@ class TestTRTLLMFP8KVKernel(CustomTestCase):
             cache_ndim=4,
         )
 
+    # 测试2d input 3d cache
     def test_2d_input_3d_cache(self):
         """Test 2D input (flattened): 2D input, 3D cache."""
         self._test_kernel_correctness(
@@ -209,6 +217,7 @@ class TestTRTLLMFP8KVKernel(CustomTestCase):
             cache_ndim=3,
         )
 
+    # 测试2d input 4d cache
     def test_2d_input_4d_cache(self):
         """Test 2D input (flattened): 2D input, 4D cache."""
         self._test_kernel_correctness(
@@ -221,6 +230,7 @@ class TestTRTLLMFP8KVKernel(CustomTestCase):
             cache_ndim=4,
         )
 
+    # 测试single token
     def test_single_token(self):
         """Test edge case: single token."""
         self._test_kernel_correctness(
@@ -233,6 +243,7 @@ class TestTRTLLMFP8KVKernel(CustomTestCase):
             cache_ndim=3,
         )
 
+    # 测试large batch
     def test_large_batch(self):
         """Test larger batch size."""
         self._test_kernel_correctness(
@@ -245,6 +256,7 @@ class TestTRTLLMFP8KVKernel(CustomTestCase):
             cache_ndim=4,
         )
 
+    # 测试different head dims
     def test_different_head_dims(self):
         """Test different head dimensions."""
         for head_dim in [64, 128]:
@@ -258,6 +270,7 @@ class TestTRTLLMFP8KVKernel(CustomTestCase):
                 cache_ndim=3,
             )
 
+    # 测试empty input
     def test_empty_input(self):
         """Test edge case: empty input (0 tokens)."""
         device = torch.device("cuda")
@@ -303,6 +316,7 @@ class TestTRTLLMFP8KVKernel(CustomTestCase):
             page_size=page_size,
         )
 
+    # 测试fp8 kv kernel accepts tensor scales
     def test_fp8_kv_kernel_accepts_tensor_scales(self):
         """
         Regression test for B200 Triton compilation issue.
@@ -358,6 +372,7 @@ class TestTRTLLMFP8KVKernel(CustomTestCase):
 
         # If we get here without exception, the regression is fixed
 
+    # 测试fp8 kv kernel cuda graph compatible
     def test_fp8_kv_kernel_cuda_graph_compatible(self):
         """
         Regression test for CUDA graph capture compatibility.
@@ -419,6 +434,7 @@ class TestTRTLLMFP8KVKernel(CustomTestCase):
 
         # If we get here without exception, CUDA graph compatibility is confirmed
 
+    # 测试fp8 kv kernel cuda graph compatible no scale
     def test_fp8_kv_kernel_cuda_graph_compatible_no_scale(self):
         """
         Regression test for CUDA graph capture compatibility without scales.

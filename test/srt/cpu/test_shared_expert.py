@@ -1,3 +1,4 @@
+# 文件名: test_shared_expert.py - 测试共享专家（Shared Expert）算子在BF16、INT8和FP8精度下的正确性
 import itertools
 import math
 import unittest
@@ -33,6 +34,7 @@ class TestSharedExpert(CustomTestCase):
     K_fp8 = [256]
 
     def _bf16_shared_expert(self, m, n, k, routed_scaling_factor, apply_scaling_factor):
+        # 测试BF16精度下的共享专家前向计算
         dtype = torch.bfloat16
 
         hidden_states = torch.randn(m, k, dtype=dtype) / k
@@ -44,6 +46,7 @@ class TestSharedExpert(CustomTestCase):
         routed_scaling_factor = routed_scaling_factor if apply_scaling_factor else None
 
         # fused moe mutates content in hs
+        # 融合MoE会修改隐藏状态内容，需要克隆
         hidden_states2 = hidden_states.clone()
 
         # bfloat16
@@ -74,6 +77,7 @@ class TestSharedExpert(CustomTestCase):
         torch.testing.assert_close(ref, out, atol=atol, rtol=rtol)
 
     def test_bf16_shared_expert(self):
+        # 参数化测试BF16共享专家
         for params in itertools.product(
             self.M,
             self.N,
@@ -91,6 +95,7 @@ class TestSharedExpert(CustomTestCase):
                 self._bf16_shared_expert(*params)
 
     def _int8_shared_expert(self, m, n, k, routed_scaling_factor, apply_scaling_factor):
+        # 测试INT8量化下的共享专家前向计算
         dtype = torch.bfloat16
 
         hidden_states = torch.randn(m, k, dtype=dtype) / k
@@ -102,6 +107,7 @@ class TestSharedExpert(CustomTestCase):
         routed_scaling_factor = routed_scaling_factor if apply_scaling_factor else None
 
         # fused moe mutates content in hs
+        # 融合MoE会修改隐藏状态内容，需要克隆
         hidden_states2 = hidden_states.clone()
 
         w1_q, w1_s = per_token_quant_int8(w1)
@@ -134,6 +140,7 @@ class TestSharedExpert(CustomTestCase):
         torch.testing.assert_close(ref, out, atol=atol, rtol=rtol)
 
     def test_int8_shared_expert(self):
+        # 参数化测试INT8共享专家
         for params in itertools.product(
             self.M,
             self.N,
@@ -151,6 +158,7 @@ class TestSharedExpert(CustomTestCase):
                 self._int8_shared_expert(*params)
 
     def _fp8_shared_expert(self, m, n, k, routed_scaling_factor, apply_scaling_factor):
+        # 测试FP8量化下的共享专家前向计算
         dtype = torch.bfloat16
 
         hidden_states = torch.randn(m, k, dtype=dtype) / math.sqrt(k)
@@ -167,7 +175,7 @@ class TestSharedExpert(CustomTestCase):
         w1_scaled = scaled_weight(w1, w1s).view(2 * n, k)
         w2_scaled = scaled_weight(w2, w2s).view(k, n)
 
-        # change back to 2D
+        # change back to 2D 恢复为2D形状
         w1, w2 = w1.squeeze(0), w2.squeeze(0)
         w1s, w2s = w1s.squeeze(0), w2s.squeeze(0)
         w1_scaled, w2_scaled = w1_scaled.squeeze(0), w2_scaled.squeeze(0)
@@ -180,7 +188,7 @@ class TestSharedExpert(CustomTestCase):
         routed_scaling_factor = routed_scaling_factor if apply_scaling_factor else None
         hidden_states2 = hidden_states.clone()
 
-        # ref with bfloat16
+        # ref with bfloat16 使用bfloat16参考实现
         ref = torch_naive_moe(
             hidden_states,
             w1_scaled,
@@ -211,6 +219,7 @@ class TestSharedExpert(CustomTestCase):
         torch.testing.assert_close(ref, out, atol=atol, rtol=rtol)
 
     def test_fp8_shared_expert(self):
+        # 参数化测试FP8共享专家
         for params in itertools.product(
             self.M_fp8,
             self.N_fp8,

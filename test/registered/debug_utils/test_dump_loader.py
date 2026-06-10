@@ -1,3 +1,4 @@
+# 文件名: test_dump_loader.py - 转储加载器测试
 import sys
 
 import polars as pl
@@ -19,6 +20,7 @@ register_cpu_ci(est_time=30, suite="base-a-test-cpu", nightly=True)
 
 
 class TestReadMeta:
+    # 测试基本功能
     def test_basic(self, tmp_path):
         for fn in [
             "step=1___rank=0___dump_index=1___name=a.pt",
@@ -32,28 +34,34 @@ class TestReadMeta:
 
 
 class TestFindRow:
+    # 测试singlematch
     def test_single_match(self):
         df = pl.DataFrame({"id": [1, 2], "name": ["a", "b"], "file": ["f1", "f2"]})
         assert find_row(df, {"id": 2})["file"] == "f2"
 
+    # 测试nomatch
     def test_no_match(self):
         df = pl.DataFrame({"id": [1, 2], "name": ["a", "b"], "file": ["f1", "f2"]})
         assert find_row(df, {"id": 999}) is None
 
+    # 测试ambiguous
     def test_ambiguous(self):
         df = pl.DataFrame({"id": [1, 1], "file": ["f1", "f2"]})
         assert find_row(df, {"id": 1}) is None
 
 
 class TestCastToPolars:
+    # 测试int
     def test_int(self):
         assert _cast_to_polars_dtype("42", pl.Int64) == 42
 
+    # 测试float
     def test_float(self):
         assert _cast_to_polars_dtype("3.14", pl.Float64) == pytest.approx(3.14)
 
 
 class TestAddDuplicateIndex:
+    # 测试基本功能
     def test_basic(self):
         df = pl.DataFrame(
             {
@@ -69,6 +77,7 @@ class TestAddDuplicateIndex:
 
 
 class TestValueWithMeta:
+    # 测试loaddictformat
     def test_load_dict_format(self, tmp_path) -> None:
         path = tmp_path / "step=0___rank=0___dump_index=1___name=hidden.pt"
         tensor = torch.randn(4, 8)
@@ -80,6 +89,7 @@ class TestValueWithMeta:
         assert loaded.meta["name"] == "hidden"
         assert loaded.meta["rank"] == 0
 
+    # 测试loadbaretensor
     def test_load_bare_tensor(self, tmp_path) -> None:
         path = tmp_path / "step=0___rank=0___dump_index=1___name=bare.pt"
         tensor = torch.randn(3, 3)
@@ -89,6 +99,7 @@ class TestValueWithMeta:
         assert torch.allclose(loaded.value, tensor)
         assert loaded.meta["name"] == "bare"
 
+    # 测试loadcorruptedfile
     def test_load_corrupted_file(self, tmp_path) -> None:
         path = tmp_path / "step=0___rank=0___dump_index=1___name=bad.pt"
         path.write_text("not a valid pt file")
@@ -99,6 +110,7 @@ class TestValueWithMeta:
 
 
 class TestRecomputeStatusParsing:
+    # 测试parserecomputestatusfromfilename
     def test_parse_recompute_status_from_filename(self) -> None:
         from pathlib import Path
 

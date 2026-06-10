@@ -1,3 +1,4 @@
+# 文件名: test_hybrid_attn_backend.py - 混合注意力后端测试
 import unittest
 
 from sglang.test.ci.ci_register import register_cuda_ci

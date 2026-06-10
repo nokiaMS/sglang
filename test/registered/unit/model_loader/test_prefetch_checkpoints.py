@@ -1,3 +1,4 @@
+# 文件名: test_prefetch_checkpoints.py - 预取检查点
 """
 Unit tests for coordinated checkpoint prefetch.
 
@@ -21,6 +22,7 @@ from sglang.test.ci.ci_register import register_cpu_ci
 register_cpu_ci(est_time=10, suite="base-a-test-cpu")
 
 
+# TestPrefetchWeightsIdentical类
 class TestPrefetchWeightsIdentical(unittest.TestCase):
     """Verify that loading with prefetch yields identical weights to without."""
 
@@ -38,6 +40,8 @@ class TestPrefetchWeightsIdentical(unittest.TestCase):
         return paths
 
     @patch("torch.distributed.is_initialized", return_value=False)
+
+    # TestPrefetchWeightsIdentical类的测试weightsmatchwithandwithoutprefetch
     def test_weights_match_with_and_without_prefetch(self, _):
         """Tensors yielded must be bit-identical regardless of prefetch flag."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -46,7 +50,7 @@ class TestPrefetchWeightsIdentical(unittest.TestCase):
             without = dict(safetensors_weights_iterator(paths, prefetch=False))
             with_pf = dict(safetensors_weights_iterator(paths, prefetch=True))
 
-            self.assertEqual(set(without.keys()), set(with_pf.keys()))
+            self.assertEqual(set(without.keys()), set(with_pf.keys()))  # 断言相等
             for name in without:
                 torch.testing.assert_close(without[name], with_pf[name])
 

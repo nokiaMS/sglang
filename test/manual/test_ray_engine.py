@@ -1,3 +1,4 @@
+# 文件名: test_ray_engine.py - Ray引擎测试 - 验证Ray后端的TP/PP/DP并行推理、放置组和HTTP服务器
 """Integration tests for RayEngine and Ray HTTP server (requires GPU + Ray).
 
 Tests the Ray actor scheduler backend:
@@ -75,6 +76,7 @@ _PROMPTS = [
 # ---------------------------------------------------------------------------
 
 
+# 在放置组上创建引擎 - 在Ray放置组中创建引擎Actor
 def _create_engine_on_pg(
     tp_size, pp_size=1, dp_size=1, model=_MODEL, extra_kwargs=None
 ):
@@ -85,17 +87,21 @@ def _create_engine_on_pg(
 
     @ray.remote
     class EngineActor:
+        # 内部方法: init  
         def __init__(self, **kwargs):
             from sglang.srt.ray.engine import RayEngine
 
             self.engine = RayEngine(**kwargs)
 
+        # is ready
         def is_ready(self):
             return True
 
+        # generate
         def generate(self, prompt, sampling_params):
             return self.engine.generate(prompt=prompt, sampling_params=sampling_params)
 
+        # shutdown
         def shutdown(self):
             if self.engine:
                 self.engine.shutdown()
@@ -135,6 +141,7 @@ def _create_engine_on_pg(
     return actor, pg
 
 
+# 清理 - 关闭引擎Actor并移除放置组
 def _cleanup(actor, pg):
     """Shutdown engine actor and remove placement group."""
     try:
@@ -157,16 +164,19 @@ def _cleanup(actor, pg):
 class TestRayEngineOfflineTP1(unittest.TestCase):
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         if not ray.is_initialized():
             ray.init(log_to_driver=True, runtime_env=_RAY_RUNTIME_ENV)
         cls.actor, cls.pg = _create_engine_on_pg(tp_size=1)
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         _cleanup(cls.actor, cls.pg)
         ray.shutdown()
 
+    # 测试offline generate
     def test_offline_generate(self):
         result = ray.get(
             self.actor.generate.remote("The capital of France is", _SAMPLING_PARAMS)
@@ -175,12 +185,14 @@ class TestRayEngineOfflineTP1(unittest.TestCase):
         self.assertGreater(len(result["text"]), 0)
         print(f"Generated: {result['text'][:200]}")
 
+    # 测试batch generate
     def test_batch_generate(self):
         for prompt in _PROMPTS:
             result = ray.get(self.actor.generate.remote(prompt, _SAMPLING_PARAMS))
             self.assertIn("text", result)
             self.assertGreater(len(result["text"]), 0, f"Empty output for: {prompt}")
 
+    # 测试deterministic
     def test_deterministic(self):
         prompt = "The meaning of life is"
         r1 = ray.get(self.actor.generate.remote(prompt, _SAMPLING_PARAMS))
@@ -198,16 +210,19 @@ class TestRayEngineOfflineTP1(unittest.TestCase):
 class TestRayEngineOfflineTP2(unittest.TestCase):
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         if not ray.is_initialized():
             ray.init(log_to_driver=True, runtime_env=_RAY_RUNTIME_ENV)
         cls.actor, cls.pg = _create_engine_on_pg(tp_size=2)
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         _cleanup(cls.actor, cls.pg)
         ray.shutdown()
 
+    # 测试offline generate tp2
     def test_offline_generate_tp2(self):
         result = ray.get(
             self.actor.generate.remote("The capital of France is", _SAMPLING_PARAMS)
@@ -216,6 +231,7 @@ class TestRayEngineOfflineTP2(unittest.TestCase):
         self.assertGreater(len(result["text"]), 0)
         print(f"Generated (TP=2): {result['text'][:200]}")
 
+    # 测试batch generate tp2
     def test_batch_generate_tp2(self):
         for prompt in _PROMPTS:
             result = ray.get(self.actor.generate.remote(prompt, _SAMPLING_PARAMS))
@@ -233,16 +249,19 @@ class TestRayEngineOfflineTP2(unittest.TestCase):
 class TestRayEngineOfflinePP2(unittest.TestCase):
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         if not ray.is_initialized():
             ray.init(log_to_driver=True, runtime_env=_RAY_RUNTIME_ENV)
         cls.actor, cls.pg = _create_engine_on_pg(tp_size=1, pp_size=2)
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         _cleanup(cls.actor, cls.pg)
         ray.shutdown()
 
+    # 测试offline generate pp2
     def test_offline_generate_pp2(self):
         result = ray.get(
             self.actor.generate.remote("The capital of France is", _SAMPLING_PARAMS)
@@ -251,6 +270,7 @@ class TestRayEngineOfflinePP2(unittest.TestCase):
         self.assertGreater(len(result["text"]), 0)
         print(f"Generated (PP=2): {result['text'][:200]}")
 
+    # 测试batch generate pp2
     def test_batch_generate_pp2(self):
         for prompt in _PROMPTS:
             result = ray.get(self.actor.generate.remote(prompt, _SAMPLING_PARAMS))
@@ -269,16 +289,19 @@ class TestRayEngineOfflineDP2(unittest.TestCase):
     """Test Ray engine with dp_size=2, tp_size=1."""
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         if not ray.is_initialized():
             ray.init(log_to_driver=True, runtime_env=_RAY_RUNTIME_ENV)
         cls.actor, cls.pg = _create_engine_on_pg(tp_size=1, dp_size=2)
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         _cleanup(cls.actor, cls.pg)
         ray.shutdown()
 
+    # 测试offline generate dp2
     def test_offline_generate_dp2(self):
         result = ray.get(
             self.actor.generate.remote("The capital of France is", _SAMPLING_PARAMS)
@@ -287,6 +310,7 @@ class TestRayEngineOfflineDP2(unittest.TestCase):
         self.assertGreater(len(result["text"]), 0)
         print(f"Generated (DP=2): {result['text'][:200]}")
 
+    # 测试batch generate dp2
     def test_batch_generate_dp2(self):
         for prompt in _PROMPTS:
             result = ray.get(self.actor.generate.remote(prompt, _SAMPLING_PARAMS))
@@ -305,6 +329,7 @@ class TestRayEngineOfflineDPAttention(unittest.TestCase):
     """Test Ray engine with dp_size=2, tp_size=2, enable_dp_attention=True."""
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         if not ray.is_initialized():
             ray.init(log_to_driver=True, runtime_env=_RAY_RUNTIME_ENV)
@@ -320,10 +345,12 @@ class TestRayEngineOfflineDPAttention(unittest.TestCase):
         )
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         _cleanup(cls.actor, cls.pg)
         ray.shutdown()
 
+    # 测试offline generate dp attention
     def test_offline_generate_dp_attention(self):
         result = ray.get(
             self.actor.generate.remote("The capital of France is", _SAMPLING_PARAMS)
@@ -332,6 +359,7 @@ class TestRayEngineOfflineDPAttention(unittest.TestCase):
         self.assertGreater(len(result["text"]), 0)
         print(f"Generated (DP-Attention): {result['text'][:200]}")
 
+    # 测试batch generate dp attention
     def test_batch_generate_dp_attention(self):
         for prompt in _PROMPTS:
             result = ray.get(self.actor.generate.remote(prompt, _SAMPLING_PARAMS))
@@ -349,18 +377,22 @@ class TestRayEngineOfflineDPAttention(unittest.TestCase):
 class TestRayEngineErrors(unittest.TestCase):
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         if not ray.is_initialized():
             ray.init(log_to_driver=True, runtime_env=_RAY_RUNTIME_ENV)
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         ray.shutdown()
 
+    # 测试missing placement group raises
     def test_missing_placement_group_raises(self):
         """RayEngine without a placement group should raise RuntimeError."""
 
         @ray.remote(num_gpus=1)
+        # 内部方法: try create without pg
         def _try_create_without_pg():
             from sglang.srt.ray.engine import RayEngine
 
@@ -396,6 +428,7 @@ class TestRayHTTPServerTP1(unittest.TestCase):
     """
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         import requests as req_lib
 
@@ -416,6 +449,7 @@ class TestRayHTTPServerTP1(unittest.TestCase):
 
         # Resolve the node IP where the server will run
         @ray.remote(num_cpus=0, num_gpus=0)
+        # 内部方法: get ip
         def _get_ip():
             return ray.util.get_node_ip_address()
 
@@ -424,6 +458,7 @@ class TestRayHTTPServerTP1(unittest.TestCase):
 
         # Launch server as a Ray task (blocks until server exits)
         @ray.remote
+        # 内部方法: launch
         def _launch(**kwargs):
             from sglang.srt.ray.http_server import launch_server
             from sglang.srt.server_args import ServerArgs
@@ -467,6 +502,7 @@ class TestRayHTTPServerTP1(unittest.TestCase):
             raise RuntimeError(f"Server did not become healthy within {timeout}s")
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         try:
             ray.cancel(cls.server_ref, force=True)
@@ -478,12 +514,14 @@ class TestRayHTTPServerTP1(unittest.TestCase):
             pass
         ray.shutdown()
 
+    # 测试health endpoint
     def test_health_endpoint(self):
         import requests
 
         resp = requests.get(f"{self.base_url}/health", timeout=10)
         self.assertEqual(resp.status_code, 200)
 
+    # 测试generate endpoint
     def test_generate_endpoint(self):
         import requests
 
@@ -501,6 +539,7 @@ class TestRayHTTPServerTP1(unittest.TestCase):
         self.assertGreater(len(data["text"]), 0)
         print(f"HTTP response: {data['text'][:200]}")
 
+    # 测试generate multiple
     def test_generate_multiple(self):
         import requests
 
@@ -530,14 +569,17 @@ class TestRayEnginePlacementGroup(unittest.TestCase):
     """Test RayEngine with custom placement_group and SGLANG_RAY_BUNDLE_INDICES."""
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         if not ray.is_initialized():
             ray.init(log_to_driver=True, runtime_env=_RAY_RUNTIME_ENV)
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         ray.shutdown()
 
+    # 测试custom pg dp1 tp2
     def test_custom_pg_dp1_tp2(self):
         """Test custom placement_group with dp_size=1, tp_size=2."""
         from sglang.srt.ray.engine import RayEngine
@@ -560,6 +602,7 @@ class TestRayEnginePlacementGroup(unittest.TestCase):
         engine.shutdown()
         ray.util.remove_placement_group(pg)
 
+    # 测试bundle indices dp1 tp2
     def test_bundle_indices_dp1_tp2(self):
         """Test SGLANG_RAY_BUNDLE_INDICES with dp_size=1, tp_size=2."""
         from sglang.srt.ray.engine import RayEngine
@@ -585,6 +628,7 @@ class TestRayEnginePlacementGroup(unittest.TestCase):
         ray.util.remove_placement_group(pg)
         del os.environ["SGLANG_RAY_BUNDLE_INDICES"]
 
+    # 测试custom pg dp2 tp1
     def test_custom_pg_dp2_tp1(self):
         """Test custom placement_group with dp_size=2, tp_size=1."""
         from sglang.srt.ray.engine import RayEngine
@@ -608,6 +652,7 @@ class TestRayEnginePlacementGroup(unittest.TestCase):
         engine.shutdown()
         ray.util.remove_placement_group(pg)
 
+    # 测试bundle indices skip bundle
     def test_bundle_indices_skip_bundle(self):
         """Test skipping unhealthy GPU by using bundle_indices."""
         from sglang.srt.ray.engine import RayEngine
@@ -633,6 +678,7 @@ class TestRayEnginePlacementGroup(unittest.TestCase):
         ray.util.remove_placement_group(pg)
         del os.environ["SGLANG_RAY_BUNDLE_INDICES"]
 
+    # 测试custom pg dp attention
     def test_custom_pg_dp_attention(self):
         """Test custom placement_group with enable_dp_attention=True."""
         from sglang.srt.ray.engine import RayEngine
@@ -663,18 +709,22 @@ class TestRayEnginePlacementGroupErrors(unittest.TestCase):
     """Test error handling for placement_group and bundle indices."""
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         if not ray.is_initialized():
             ray.init(log_to_driver=True, runtime_env=_RAY_RUNTIME_ENV)
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         ray.shutdown()
 
+    # 测试multi gpu bundle raises error
     def test_multi_gpu_bundle_raises_error(self):
         """Custom PG with multi-GPU bundles should raise an error."""
 
         @ray.remote(num_gpus=0)
+        # 内部方法: try multi gpu bundle
         def _try_multi_gpu_bundle():
             pg = placement_group([{"GPU": 2}], strategy="STRICT_PACK")
             ray.get(pg.ready())
@@ -698,10 +748,12 @@ class TestRayEnginePlacementGroupErrors(unittest.TestCase):
         self.assertIsNotNone(error_msg)
         self.assertIn("exactly 1 GPU per bundle", error_msg)
 
+    # 测试invalid bundle index raises error
     def test_invalid_bundle_index_raises_error(self):
         """SGLANG_RAY_BUNDLE_INDICES with invalid index should raise an error."""
 
         @ray.remote(num_gpus=0)
+        # 内部方法: try invalid bundle index
         def _try_invalid_bundle_index():
             import os
 

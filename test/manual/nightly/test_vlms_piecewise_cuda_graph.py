@@ -1,3 +1,4 @@
+# 文件名: test_vlms_piecewise_cuda_graph.py - 夜间测试：VLM模型使用分段CUDA图的MMMU评估
 import argparse
 import glob
 import json
@@ -30,6 +31,7 @@ class TestVLMPiecewiseCudaGraph(CustomTestCase):
     parsed_args = None  # Class variable to store args
 
     @classmethod
+    # 类级别初始化，启动服务器或设置测试环境
     def setUpClass(cls):
         # Removed argument parsing from here
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -42,9 +44,10 @@ class TestVLMPiecewiseCudaGraph(CustomTestCase):
             )
 
         # Set OpenAI API key and base URL environment variables. Needed for lmm-evals to work.
-        os.environ["OPENAI_API_KEY"] = cls.api_key
-        os.environ["OPENAI_API_BASE"] = f"{cls.base_url}/v1"
+        os.environ["OPENAI_API_KEY"] = cls.api_key  # 设置环境变量
+        os.environ["OPENAI_API_BASE"] = f"{cls.base_url}/v1"  # 设置环境变量
 
+    # 使用lmms-eval评估VLM在MMMU验证集上的表现
     def run_mmmu_eval(
         self,
         model_version: str,
@@ -87,6 +90,7 @@ class TestVLMPiecewiseCudaGraph(CustomTestCase):
 
         _run_lmms_eval_with_retry(cmd, timeout=3600)
 
+    # 通用VLM MMMU基准测试方法
     def _run_vlm_mmmu_test(
         self,
         model,
@@ -128,7 +132,7 @@ class TestVLMPiecewiseCudaGraph(CustomTestCase):
                 stderr_file = open("/tmp/server_stderr.log", "w")
 
             # Launch server for testing
-            process = popen_launch_server(
+            process = popen_launch_server(  # 启动推理服务器
                 model.model,
                 base_url=self.base_url,
                 timeout=self.time_out,
@@ -179,7 +183,7 @@ class TestVLMPiecewiseCudaGraph(CustomTestCase):
                 server_output = self._read_output_from_files()
 
             # Assert performance meets expected threshold
-            self.assertGreaterEqual(
+            self.assertGreaterEqual(  # 断言精度大于等于阈值
                 mmmu_accuracy,
                 model.mmmu_accuracy,
                 f"Model {model.model} accuracy ({mmmu_accuracy:.4f}) below expected threshold ({model.mmmu_accuracy:.4f}){test_name}",
@@ -196,7 +200,7 @@ class TestVLMPiecewiseCudaGraph(CustomTestCase):
             if process is not None and process.poll() is None:
                 print(f"Cleaning up process {process.pid}")
                 try:
-                    kill_process_tree(process.pid)
+                    kill_process_tree(process.pid)  # 终止服务器进程
                 except Exception as e:
                     print(f"Error killing process: {e}")
 
@@ -213,6 +217,7 @@ class TestVLMPiecewiseCudaGraph(CustomTestCase):
                     except Exception as e:
                         print(f"Error removing {filename}: {e}")
 
+    # 从日志文件读取服务器输出
     def _read_output_from_files(self):
         output_lines = []
 

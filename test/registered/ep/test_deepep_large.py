@@ -1,3 +1,4 @@
+# 文件名: test_deepep_large.py - DeepEP大规模测试
 import unittest
 from types import SimpleNamespace
 
@@ -24,6 +25,7 @@ DEEPSEEK_V32_MODEL_PATH = "deepseek-ai/DeepSeek-V3.2"
 @unittest.skip("Skip for saving ci time")
 class TestDeepseek(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = DEFAULT_DEEPEP_MODEL_NAME_FOR_TEST
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -63,9 +65,11 @@ class TestDeepseek(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -84,6 +88,7 @@ class TestDeepseek(CustomTestCase):
 
 class TestDeepseekMTP(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = DEFAULT_DEEPEP_MODEL_NAME_FOR_TEST
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -132,9 +137,11 @@ class TestDeepseekMTP(CustomTestCase):
             )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -164,6 +171,7 @@ class TestDeepseekMTP(CustomTestCase):
 
 class TestDeepseekV32TBO(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = DEEPSEEK_V32_MODEL_PATH
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -190,9 +198,11 @@ class TestDeepseekV32TBO(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试agsm8k
     def test_a_gsm8k(
         self,
     ):  # Append an "a" to make this test run first (alphabetically) to warm up the server
@@ -209,6 +219,7 @@ class TestDeepseekV32TBO(CustomTestCase):
         print(f"{metrics=}")
         self.assertGreater(metrics["score"], 0.92)
 
+    # 测试bs1speed
     def test_bs_1_speed(self):
         args = BenchArgs(port=int(self.base_url.split(":")[-1]), max_new_tokens=2048)
         acc_length, speed = send_one_prompt(args)

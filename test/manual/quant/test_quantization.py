@@ -1,3 +1,4 @@
+# 文件名: test_quantization.py - 量化模型夜间评估测试 - 使用GSM8K评估AWQ/GPTQ等量化模型的准确性
 import json
 import unittest
 import warnings
@@ -25,10 +26,12 @@ MODEL_SCORE_THRESHOLDS = {
 }
 
 
+# 解析模型列表 - 将逗号分隔的模型字符串解析为列表
 def parse_models(model_string):
     return [model.strip() for model in model_string.split(",") if model.strip()]
 
 
+# 启动服务器包装器 - 根据模型配置启动SRT服务器
 def popen_launch_server_wrapper(base_url, model, is_fp8, is_tp2):
     other_args = ["--log-level-http", "warning", "--trust-remote-code"]
     if is_fp8:
@@ -54,6 +57,7 @@ def popen_launch_server_wrapper(base_url, model, is_fp8, is_tp2):
     return process
 
 
+# 检查模型分数 - 验证模型评估分数是否达到阈值
 def check_model_scores(results):
     failed_models = []
     summary = " | model | score | threshold |\n"
@@ -87,12 +91,14 @@ def check_model_scores(results):
 
 class TestNightlyGsm8KEval(unittest.TestCase):
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         cls.model_groups = [
             (parse_models(DEFAULT_MODEL_NAME_FOR_NIGHTLY_EVAL_QUANT_TP1), False, False),
         ]
         cls.base_url = DEFAULT_URL_FOR_TEST
 
+    # 测试gsm8k all models
     def test_gsm8k_all_models(self):
         warnings.filterwarnings(
             "ignore", category=ResourceWarning, message="unclosed.*socket"

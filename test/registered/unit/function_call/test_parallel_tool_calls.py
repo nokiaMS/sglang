@@ -1,3 +1,4 @@
+# 文件名: test_parallel_tool_calls.py - 并行工具调用
 import json
 
 """
@@ -27,6 +28,7 @@ register_cpu_ci(5, "base-a-test-cpu")
 register_cpu_ci(est_time=7, suite="base-b-test-cpu")
 
 
+# TestParallelToolCalls类
 class TestParallelToolCalls(unittest.TestCase):
     """Test case for parallel tool call parsing with array parameters."""
 
@@ -54,6 +56,7 @@ class TestParallelToolCalls(unittest.TestCase):
         ]
         self.detector = JsonArrayParser()
 
+    # TestParallelToolCalls类的内部方法_accumulate_tool_calls
     def _accumulate_tool_calls(self, tool_calls, result):
         """Helper method to accumulate tool call results from parsing output."""
         if not result.calls:
@@ -68,6 +71,7 @@ class TestParallelToolCalls(unittest.TestCase):
             if call.parameters:
                 tool_calls[call.tool_index]["parameters"] += call.parameters
 
+    # TestParallelToolCalls类的测试paralleltoolcallswitharrayparameters
     def test_parallel_tool_calls_with_array_parameters(self):
         """
         Test parsing two parallel tool calls where both have array parameters.
@@ -108,32 +112,33 @@ class TestParallelToolCalls(unittest.TestCase):
             self.fail("Errors occurred during parsing:\n" + "\n".join(errors))
 
         # Verify both tool calls were parsed
-        self.assertEqual(len(tool_calls), 2, "Should have parsed exactly 2 tool calls")
+        self.assertEqual(len(tool_calls), 2, "Should have parsed exactly 2 tool calls")  # 断言相等
 
         # Verify first tool call
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             tool_calls[0]["name"],
             "search_docs",
             "First tool name should be search_docs",
         )
         params1 = json.loads(tool_calls[0]["parameters"])
-        self.assertEqual(params1["title"], ["7.8.9"], "First tool title should match")
-        self.assertEqual(
+        self.assertEqual(params1["title"], ["7.8.9"], "First tool title should match")  # 断言相等
+        self.assertEqual(  # 断言相等
             params1["filename"], "doc1", "First tool filename should be doc1"
         )
 
         # Verify second tool call
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             tool_calls[1]["name"],
             "search_docs",
             "Second tool name should be search_docs",
         )
         params2 = json.loads(tool_calls[1]["parameters"])
-        self.assertEqual(params2["title"], ["4.8"], "Second tool title should match")
-        self.assertEqual(
+        self.assertEqual(params2["title"], ["4.8"], "Second tool title should match")  # 断言相等
+        self.assertEqual(  # 断言相等
             params2["filename"], "doc2", "Second tool filename should be doc2"
         )
 
+    # TestParallelToolCalls类的测试simpleparalleltoolcalls
     def test_simple_parallel_tool_calls(self):
         """
         Test a simpler case of two parallel tool calls with array parameters.
@@ -155,9 +160,9 @@ class TestParallelToolCalls(unittest.TestCase):
             self._accumulate_tool_calls(tool_calls, result)
 
         # Should parse both tools successfully
-        self.assertEqual(len(tool_calls), 2, "Should parse 2 tool calls")
-        self.assertEqual(tool_calls[0]["name"], "search_docs")
-        self.assertEqual(tool_calls[1]["name"], "search_docs")
+        self.assertEqual(len(tool_calls), 2, "Should parse 2 tool calls")  # 断言相等
+        self.assertEqual(tool_calls[0]["name"], "search_docs")  # 断言相等
+        self.assertEqual(tool_calls[1]["name"], "search_docs")  # 断言相等
 
 
 if __name__ == "__main__":

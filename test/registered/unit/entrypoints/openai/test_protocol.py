@@ -1,3 +1,4 @@
+# 文件名: test_protocol.py - 协议
 # Copyright 2023-2024 SGLang Team
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -35,6 +36,7 @@ from sglang.test.ci.ci_register import register_cpu_ci
 register_cpu_ci(est_time=7, suite="base-a-test-cpu")
 
 
+# TestModelCard类
 class TestModelCard(unittest.TestCase):
     """Test ModelCard protocol model"""
 
@@ -42,20 +44,22 @@ class TestModelCard(unittest.TestCase):
         """Test model card JSON serialization"""
         card = ModelCard(id="test-model", max_model_len=4096)
         data = card.model_dump()
-        self.assertEqual(data["id"], "test-model")
-        self.assertEqual(data["object"], "model")
-        self.assertEqual(data["max_model_len"], 4096)
+        self.assertEqual(data["id"], "test-model")  # 断言相等
+        self.assertEqual(data["object"], "model")  # 断言相等
+        self.assertEqual(data["max_model_len"], 4096)  # 断言相等
 
 
+# TestModelList类
 class TestModelList(unittest.TestCase):
     """Test ModelList protocol model"""
 
     def test_empty_model_list(self):
         """Test empty model list creation"""
         model_list = ModelList()
-        self.assertEqual(model_list.object, "list")
-        self.assertEqual(len(model_list.data), 0)
+        self.assertEqual(model_list.object, "list")  # 断言相等
+        self.assertEqual(len(model_list.data), 0)  # 断言相等
 
+    # TestModelList类的测试modellistwithcards
     def test_model_list_with_cards(self):
         """Test model list with model cards"""
         cards = [
@@ -63,25 +67,27 @@ class TestModelList(unittest.TestCase):
             ModelCard(id="model-2", max_model_len=2048),
         ]
         model_list = ModelList(data=cards)
-        self.assertEqual(len(model_list.data), 2)
-        self.assertEqual(model_list.data[0].id, "model-1")
-        self.assertEqual(model_list.data[1].id, "model-2")
+        self.assertEqual(len(model_list.data), 2)  # 断言相等
+        self.assertEqual(model_list.data[0].id, "model-1")  # 断言相等
+        self.assertEqual(model_list.data[1].id, "model-2")  # 断言相等
 
 
+# TestCompletionRequest类
 class TestCompletionRequest(unittest.TestCase):
     """Test CompletionRequest protocol model"""
 
     def test_basic_completion_request(self):
         """Test basic completion request"""
         request = CompletionRequest(model="test-model", prompt="Hello world")
-        self.assertEqual(request.model, "test-model")
-        self.assertEqual(request.prompt, "Hello world")
-        self.assertEqual(request.max_tokens, 16)  # default
-        self.assertEqual(request.temperature, 1.0)  # default
-        self.assertEqual(request.n, 1)  # default
-        self.assertFalse(request.stream)  # default
-        self.assertFalse(request.echo)  # default
+        self.assertEqual(request.model, "test-model")  # 断言相等
+        self.assertEqual(request.prompt, "Hello world")  # 断言相等
+        self.assertEqual(request.max_tokens, 16)  # default  # 断言相等
+        self.assertEqual(request.temperature, 1.0)  # default  # 断言相等
+        self.assertEqual(request.n, 1)  # default  # 断言相等
+        self.assertFalse(request.stream)  # default  # 断言为假
+        self.assertFalse(request.echo)  # default  # 断言为假
 
+    # TestCompletionRequest类的测试completionrequestsglangextensions
     def test_completion_request_sglang_extensions(self):
         """Test completion request with SGLang-specific extensions"""
         request = CompletionRequest(
@@ -94,22 +100,24 @@ class TestCompletionRequest(unittest.TestCase):
             json_schema='{"type": "object"}',
             lora_path="/path/to/lora",
         )
-        self.assertEqual(request.top_k, 50)
-        self.assertEqual(request.min_p, 0.1)
-        self.assertEqual(request.repetition_penalty, 1.1)
-        self.assertEqual(request.regex, r"\d+")
-        self.assertEqual(request.json_schema, '{"type": "object"}')
-        self.assertEqual(request.lora_path, "/path/to/lora")
+        self.assertEqual(request.top_k, 50)  # 断言相等
+        self.assertEqual(request.min_p, 0.1)  # 断言相等
+        self.assertEqual(request.repetition_penalty, 1.1)  # 断言相等
+        self.assertEqual(request.regex, r"\d+")  # 断言相等
+        self.assertEqual(request.json_schema, '{"type": "object"}')  # 断言相等
+        self.assertEqual(request.lora_path, "/path/to/lora")  # 断言相等
 
+    # TestCompletionRequest类的测试completionrequestvalidationerrors
     def test_completion_request_validation_errors(self):
         """Test completion request validation errors"""
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(ValidationError):  # 断言抛出异常
             CompletionRequest()  # missing required fields
 
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(ValidationError):  # 断言抛出异常
             CompletionRequest(model="test-model")  # missing prompt
 
 
+# TestChatCompletionRequest类
 class TestChatCompletionRequest(unittest.TestCase):
     """Test ChatCompletionRequest protocol model"""
 
@@ -117,14 +125,15 @@ class TestChatCompletionRequest(unittest.TestCase):
         """Test basic chat completion request"""
         messages = [{"role": "user", "content": "Hello"}]
         request = ChatCompletionRequest(model="test-model", messages=messages)
-        self.assertEqual(request.model, "test-model")
-        self.assertEqual(len(request.messages), 1)
-        self.assertEqual(request.messages[0].role, "user")
-        self.assertEqual(request.messages[0].content, "Hello")
-        self.assertEqual(request.temperature, None)  # default
-        self.assertFalse(request.stream)  # default
-        self.assertEqual(request.tool_choice, "none")  # default when no tools
+        self.assertEqual(request.model, "test-model")  # 断言相等
+        self.assertEqual(len(request.messages), 1)  # 断言相等
+        self.assertEqual(request.messages[0].role, "user")  # 断言相等
+        self.assertEqual(request.messages[0].content, "Hello")  # 断言相等
+        self.assertEqual(request.temperature, None)  # default  # 断言相等
+        self.assertFalse(request.stream)  # default  # 断言为假
+        self.assertEqual(request.tool_choice, "none")  # default when no tools  # 断言相等
 
+    # TestChatCompletionRequest类的测试samplingparambuild
     def test_sampling_param_build(self):
         req = ChatCompletionRequest(
             model="x",
@@ -136,18 +145,19 @@ class TestChatCompletionRequest(unittest.TestCase):
             stop=["</s>"],
         )
         params = req.to_sampling_params(["</s>"], {}, None)
-        self.assertEqual(params["temperature"], 0.8)
-        self.assertEqual(params["max_new_tokens"], 150)
-        self.assertEqual(params["min_new_tokens"], 5)
-        self.assertEqual(params["stop"], ["</s>"])
+        self.assertEqual(params["temperature"], 0.8)  # 断言相等
+        self.assertEqual(params["max_new_tokens"], 150)  # 断言相等
+        self.assertEqual(params["min_new_tokens"], 5)  # 断言相等
+        self.assertEqual(params["stop"], ["</s>"])  # 断言相等
 
+    # TestChatCompletionRequest类的测试chatcompletiontoolchoicevalidation
     def test_chat_completion_tool_choice_validation(self):
         """Test tool choice validation logic"""
         messages = [{"role": "user", "content": "Hello"}]
 
         # No tools, tool_choice should default to "none"
         request1 = ChatCompletionRequest(model="test-model", messages=messages)
-        self.assertEqual(request1.tool_choice, "none")
+        self.assertEqual(request1.tool_choice, "none")  # 断言相等
 
         # With tools, tool_choice should default to "auto"
         tools = [
@@ -159,8 +169,9 @@ class TestChatCompletionRequest(unittest.TestCase):
         request2 = ChatCompletionRequest(
             model="test-model", messages=messages, tools=tools
         )
-        self.assertEqual(request2.tool_choice, "auto")
+        self.assertEqual(request2.tool_choice, "auto")  # 断言相等
 
+    # TestChatCompletionRequest类的测试chatcompletionsglangextensions
     def test_chat_completion_sglang_extensions(self):
         """Test chat completion with SGLang extensions"""
         messages = [{"role": "user", "content": "Hello"}]
@@ -173,12 +184,13 @@ class TestChatCompletionRequest(unittest.TestCase):
             stream_reasoning=False,
             chat_template_kwargs={"custom_param": "value"},
         )
-        self.assertEqual(request.top_k, 40)
-        self.assertEqual(request.min_p, 0.05)
-        self.assertFalse(request.separate_reasoning)
-        self.assertFalse(request.stream_reasoning)
-        self.assertEqual(request.chat_template_kwargs, {"custom_param": "value"})
+        self.assertEqual(request.top_k, 40)  # 断言相等
+        self.assertEqual(request.min_p, 0.05)  # 断言相等
+        self.assertFalse(request.separate_reasoning)  # 断言为假
+        self.assertFalse(request.stream_reasoning)  # 断言为假
+        self.assertEqual(request.chat_template_kwargs, {"custom_param": "value"})  # 断言相等
 
+    # TestChatCompletionRequest类的测试chatcompletionreasoningeffort
     def test_chat_completion_reasoning_effort(self):
         """Test chat completion with reasoning effort"""
         messages = [{"role": "user", "content": "Hello"}]
@@ -190,12 +202,13 @@ class TestChatCompletionRequest(unittest.TestCase):
                 "reasoning_effort": "high",
             },
         )
-        self.assertEqual(request.reasoning_effort, "high")
-        self.assertEqual(
+        self.assertEqual(request.reasoning_effort, "high")  # 断言相等
+        self.assertEqual(  # 断言相等
             request.chat_template_kwargs,
             {"thinking": True, "enable_thinking": True},
         )
 
+    # TestChatCompletionRequest类的测试chatcompletionreasoningeffortnone
     def test_chat_completion_reasoning_effort_none(self):
         """Test reasoning_effort='none' disables thinking"""
         messages = [{"role": "user", "content": "Hello"}]
@@ -204,10 +217,11 @@ class TestChatCompletionRequest(unittest.TestCase):
             messages=messages,
             reasoning_effort="none",
         )
-        self.assertEqual(request.reasoning_effort, "none")
-        self.assertFalse(request.chat_template_kwargs.get("thinking"))
-        self.assertFalse(request.chat_template_kwargs.get("enable_thinking"))
+        self.assertEqual(request.reasoning_effort, "none")  # 断言相等
+        self.assertFalse(request.chat_template_kwargs.get("thinking"))  # 断言为假
+        self.assertFalse(request.chat_template_kwargs.get("enable_thinking"))  # 断言为假
 
+    # TestChatCompletionRequest类的测试chatcompletionreasoningeffortnonefromreasoningdict
     def test_chat_completion_reasoning_effort_none_from_reasoning_dict(self):
         """Test reasoning_effort='none' via nested reasoning dict"""
         messages = [{"role": "user", "content": "Hello"}]
@@ -216,10 +230,11 @@ class TestChatCompletionRequest(unittest.TestCase):
             messages=messages,
             reasoning={"effort": "none"},
         )
-        self.assertEqual(request.reasoning_effort, "none")
-        self.assertFalse(request.chat_template_kwargs.get("thinking"))
-        self.assertFalse(request.chat_template_kwargs.get("enable_thinking"))
+        self.assertEqual(request.reasoning_effort, "none")  # 断言相等
+        self.assertFalse(request.chat_template_kwargs.get("thinking"))  # 断言为假
+        self.assertFalse(request.chat_template_kwargs.get("enable_thinking"))  # 断言为假
 
+    # TestChatCompletionRequest类的测试chatcompletionreasoningeffortmax
     def test_chat_completion_reasoning_effort_max(self):
         """`max` is an sglang extension on chat completion's top-level
         `reasoning_effort` only; the Responses-API-style nested
@@ -232,10 +247,10 @@ class TestChatCompletionRequest(unittest.TestCase):
             messages=messages,
             reasoning_effort="max",
         )
-        self.assertEqual(request.reasoning_effort, "max")
+        self.assertEqual(request.reasoning_effort, "max")  # 断言相等
 
         # Unknown values still rejected.
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(ValidationError):  # 断言抛出异常
             ChatCompletionRequest(
                 model="test-model",
                 messages=messages,
@@ -249,8 +264,9 @@ class TestChatCompletionRequest(unittest.TestCase):
             messages=messages,
             reasoning={"effort": "max"},
         )
-        self.assertNotEqual(request.reasoning_effort, "max")
+        self.assertNotEqual(request.reasoning_effort, "max")  # 断言不相等
 
+    # TestChatCompletionRequest类的测试chatcompletionjsonformat
     def test_chat_completion_json_format(self):
         """Test chat completion json format"""
         transcript = "Good morning! It's 7:00 AM, and I'm just waking up. Today is going to be a busy day, "
@@ -269,6 +285,7 @@ class TestChatCompletionRequest(unittest.TestCase):
             },
         ]
 
+        # VoiceNote类
         class VoiceNote(BaseModel):
             title: str = Field(description="A title for the voice note")
             summary: str = Field(
@@ -297,9 +314,9 @@ class TestChatCompletionRequest(unittest.TestCase):
         name = json_format.name
         schema = json_format.schema_
         strict = json_format.strict
-        self.assertEqual(name, "VoiceNote")
-        self.assertEqual(strict, True)
-        self.assertNotIn("strict", schema["properties"])
+        self.assertEqual(name, "VoiceNote")  # 断言相等
+        self.assertEqual(strict, True)  # 断言相等
+        self.assertNotIn("strict", schema["properties"])  # 断言不包含
 
         request = ChatCompletionRequest(
             model="test-model",
@@ -323,10 +340,11 @@ class TestChatCompletionRequest(unittest.TestCase):
         name = json_format.name
         schema = json_format.schema_
         strict = json_format.strict
-        self.assertEqual(name, "VoiceNote")
-        self.assertEqual(strict, True)
+        self.assertEqual(name, "VoiceNote")  # 断言相等
+        self.assertEqual(strict, True)  # 断言相等
 
 
+# TestModelSerialization类
 class TestModelSerialization(unittest.TestCase):
     """Test model serialization with hidden states"""
 
@@ -348,8 +366,9 @@ class TestModelSerialization(unittest.TestCase):
 
         # Test exclude_none serialization (should exclude None hidden_states)
         data = response.model_dump(exclude_none=True)
-        self.assertNotIn("hidden_states", data["choices"][0])
+        self.assertNotIn("hidden_states", data["choices"][0])  # 断言不包含
 
+    # TestModelSerialization类的测试hiddenstatesincludedwhennotnone
     def test_hidden_states_included_when_not_none(self):
         """Test that non-None hidden_states are included"""
         choice = ChatCompletionResponseChoice(
@@ -368,10 +387,11 @@ class TestModelSerialization(unittest.TestCase):
 
         # Test exclude_none serialization (should include non-None hidden_states)
         data = response.model_dump(exclude_none=True)
-        self.assertIn("hidden_states", data["choices"][0])
-        self.assertEqual(data["choices"][0]["hidden_states"], [0.1, 0.2, 0.3])
+        self.assertIn("hidden_states", data["choices"][0])  # 断言包含
+        self.assertEqual(data["choices"][0]["hidden_states"], [0.1, 0.2, 0.3])  # 断言相等
 
 
+# TestFunctionDeferLoading类
 class TestFunctionDeferLoading(unittest.TestCase):
     """Test defer_loading field behavior on Function/Tool."""
 
@@ -380,23 +400,26 @@ class TestFunctionDeferLoading(unittest.TestCase):
         code (function_call_parser, chat templates) sees the expected shape."""
         f = Function(name="foo")
         data = f.model_dump()
-        self.assertEqual(data["name"], "foo")
-        self.assertEqual(data["strict"], False)
-        self.assertNotIn("defer_loading", data)
+        self.assertEqual(data["name"], "foo")  # 断言相等
+        self.assertEqual(data["strict"], False)  # 断言相等
+        self.assertNotIn("defer_loading", data)  # 断言不包含
 
+    # TestFunctionDeferLoading类的测试functiondeferloadingtrueserialized
     def test_function_defer_loading_true_serialized(self):
         f = Function(name="foo", defer_loading=True)
         data = f.model_dump()
-        self.assertTrue(data["defer_loading"])
-        self.assertEqual(data["strict"], False)
+        self.assertTrue(data["defer_loading"])  # 断言为真
+        self.assertEqual(data["strict"], False)  # 断言相等
 
+    # TestFunctionDeferLoading类的测试functiondeferloadingfalseserialized
     def test_function_defer_loading_false_serialized(self):
         """defer_loading=False is an explicit value and must be preserved."""
         f = Function(name="foo", defer_loading=False)
         data = f.model_dump()
-        self.assertIn("defer_loading", data)
-        self.assertFalse(data["defer_loading"])
+        self.assertIn("defer_loading", data)  # 断言包含
+        self.assertFalse(data["defer_loading"])  # 断言为假
 
+    # TestFunctionDeferLoading类的测试toolleveldeferloadingpropagatestofunction
     def test_tool_level_defer_loading_propagates_to_function(self):
         """defer_loading at the Tool level should propagate to Function."""
         tool = Tool(
@@ -404,10 +427,11 @@ class TestFunctionDeferLoading(unittest.TestCase):
             defer_loading=True,
             function={"name": "search_db"},
         )
-        self.assertTrue(tool.function.defer_loading)
+        self.assertTrue(tool.function.defer_loading)  # 断言为真
         data = tool.model_dump()
-        self.assertTrue(data["function"]["defer_loading"])
+        self.assertTrue(data["function"]["defer_loading"])  # 断言为真
 
+    # TestFunctionDeferLoading类的测试functionleveldeferloadingwinsovertoollevel
     def test_function_level_defer_loading_wins_over_tool_level(self):
         """Explicit function-level value is preserved when both set."""
         tool = Tool(
@@ -415,8 +439,9 @@ class TestFunctionDeferLoading(unittest.TestCase):
             defer_loading=True,
             function={"name": "search_db", "defer_loading": False},
         )
-        self.assertFalse(tool.function.defer_loading)
+        self.assertFalse(tool.function.defer_loading)  # 断言为假
 
+    # TestFunctionDeferLoading类的测试toolreferencecontentpartaccepted
     def test_tool_reference_content_part_accepted(self):
         """Chat completion should accept tool_reference content on tool-role
         messages (GLM-specific extension consumed by the chat template)."""
@@ -432,28 +457,31 @@ class TestFunctionDeferLoading(unittest.TestCase):
         ]
         request = ChatCompletionRequest(model="test-model", messages=messages)
         parts = request.messages[0].content
-        self.assertEqual(len(parts), 2)
-        self.assertEqual(parts[0].type, "tool_reference")
-        self.assertEqual(parts[0].name, "search_db")
-        self.assertEqual(parts[1].type, "text")
+        self.assertEqual(len(parts), 2)  # 断言相等
+        self.assertEqual(parts[0].type, "tool_reference")  # 断言相等
+        self.assertEqual(parts[0].name, "search_db")  # 断言相等
+        self.assertEqual(parts[1].type, "text")  # 断言相等
 
 
+# TestValidationEdgeCases类
 class TestValidationEdgeCases(unittest.TestCase):
     """Test edge cases and validation scenarios"""
 
     def test_invalid_tool_choice_type(self):
         """Test invalid tool choice type"""
         messages = [{"role": "user", "content": "Hello"}]
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(ValidationError):  # 断言抛出异常
             ChatCompletionRequest(
                 model="test-model", messages=messages, tool_choice=123
             )
 
+    # TestValidationEdgeCases类的测试negativetokenlimits
     def test_negative_token_limits(self):
         """Test negative token limits"""
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(ValidationError):  # 断言抛出异常
             CompletionRequest(model="test-model", prompt="Hello", max_tokens=-1)
 
+    # TestValidationEdgeCases类的测试modelserializationroundtrip
     def test_model_serialization_roundtrip(self):
         """Test that models can be serialized and deserialized"""
         original_request = ChatCompletionRequest(
@@ -469,12 +497,13 @@ class TestValidationEdgeCases(unittest.TestCase):
         # Deserialize back
         restored_request = ChatCompletionRequest(**data)
 
-        self.assertEqual(restored_request.model, original_request.model)
-        self.assertEqual(restored_request.temperature, original_request.temperature)
-        self.assertEqual(restored_request.max_tokens, original_request.max_tokens)
-        self.assertEqual(len(restored_request.messages), len(original_request.messages))
+        self.assertEqual(restored_request.model, original_request.model)  # 断言相等
+        self.assertEqual(restored_request.temperature, original_request.temperature)  # 断言相等
+        self.assertEqual(restored_request.max_tokens, original_request.max_tokens)  # 断言相等
+        self.assertEqual(len(restored_request.messages), len(original_request.messages))  # 断言相等
 
 
+# TestParsedResponseFieldsProtocol类
 class TestParsedResponseFieldsProtocol(unittest.TestCase):
     """Test ParsedResponseFields protocol."""
 
@@ -482,6 +511,7 @@ class TestParsedResponseFieldsProtocol(unittest.TestCase):
         """ParsedResponseFields protocol works with isinstance."""
         from sglang.srt.entrypoints.openai.protocol import ParsedResponseFields
 
+        # MockFields类
         class MockFields:
             content = "hello"
             tool_calls = None

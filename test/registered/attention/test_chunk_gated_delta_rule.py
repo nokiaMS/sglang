@@ -1,3 +1,4 @@
+# 文件名: test_chunk_gated_delta_rule.py - 分块门控Delta规则测试
 import unittest
 
 import torch
@@ -23,6 +24,7 @@ class TestChunkGatedDeltaRule(unittest.TestCase):
     ATOL = 2e-2
     RTOL = 1e-2
 
+    # 执行runreference
     def _run_reference(self, pool_init, cache_indices, q, k, v, g, beta):
         """Per-batch token-by-token reference using fused_recurrent_gated_delta_rule.
 
@@ -52,6 +54,7 @@ class TestChunkGatedDeltaRule(unittest.TestCase):
         pool[cache_indices] = h_cur
         return torch.cat(o_list, dim=1), pool
 
+    # 执行runchunk
     def _run_chunk(self, pool_init, cache_indices, q, k, v, g, beta, cu_seqlens):
         """Run chunk_gated_delta_rule with native [V, K] pool."""
         pool = pool_init.clone()
@@ -69,6 +72,7 @@ class TestChunkGatedDeltaRule(unittest.TestCase):
         )
         return o, pool
 
+    # 执行checkshape
     def _check_shape(
         self, B, T_per_seq, H, K, V, pool_size, sequential_indices=False, seed=42
     ):
@@ -110,109 +114,132 @@ class TestChunkGatedDeltaRule(unittest.TestCase):
 
         self.assertTrue(
             torch.allclose(
-                o_ref.float(), o_new.float(), atol=self.ATOL, rtol=self.RTOL
+                o_ref.float(), o_new.float(), atol=self.ATOL, rtol=self.RTOL  # 转换为单精度
             ),
             f"Output mismatch: max_diff="
-            f"{(o_ref.float() - o_new.float()).abs().max().item():.2e}",
+            f"{(o_ref.float() - o_new.float()).abs().max().item():.2e}",  # 获取标量值
         )
 
         ref_slots = pool_ref[cache_indices].contiguous()
         new_slots = pool_new[cache_indices].contiguous()
         self.assertTrue(
             torch.allclose(
-                ref_slots.float(), new_slots.float(), atol=self.ATOL, rtol=self.RTOL
+                ref_slots.float(), new_slots.float(), atol=self.ATOL, rtol=self.RTOL  # 转换为单精度
             ),
             f"State mismatch: max_diff="
-            f"{(ref_slots.float() - new_slots.float()).abs().max().item():.2e}",
+            f"{(ref_slots.float() - new_slots.float()).abs().max().item():.2e}",  # 获取标量值
         )
 
     # ------------------------------------------------------------------
     # Production-style configs (Qwen3-Next)
     # ------------------------------------------------------------------
+    # 测试productionnt1
     def test_production_nt1(self):
         self._check_shape(B=4, T_per_seq=64, H=16, K=128, V=128, pool_size=32)
 
+    # 测试productionnt2
     def test_production_nt2(self):
         self._check_shape(B=4, T_per_seq=128, H=16, K=128, V=128, pool_size=32)
 
+    # 测试productionnt4
     def test_production_nt4(self):
         self._check_shape(B=4, T_per_seq=256, H=16, K=128, V=128, pool_size=32)
 
     # ------------------------------------------------------------------
     # Batch size sweep
     # ------------------------------------------------------------------
+    # 测试batch1
     def test_batch_1(self):
         self._check_shape(B=1, T_per_seq=128, H=16, K=128, V=128, pool_size=32)
 
+    # 测试batch2
     def test_batch_2(self):
         self._check_shape(B=2, T_per_seq=128, H=16, K=128, V=128, pool_size=32)
 
+    # 测试batch8
     def test_batch_8(self):
         self._check_shape(B=8, T_per_seq=128, H=16, K=128, V=128, pool_size=64)
 
+    # 测试batch16
     def test_batch_16(self):
         self._check_shape(B=16, T_per_seq=64, H=16, K=128, V=128, pool_size=128)
 
+    # 测试batch32
     def test_batch_32(self):
         self._check_shape(B=32, T_per_seq=32, H=16, K=128, V=128, pool_size=256)
 
     # ------------------------------------------------------------------
     # Head count sweep
     # ------------------------------------------------------------------
+    # 测试heads4
     def test_heads_4(self):
         self._check_shape(B=4, T_per_seq=128, H=4, K=128, V=128, pool_size=32)
 
+    # 测试heads8
     def test_heads_8(self):
         self._check_shape(B=4, T_per_seq=128, H=8, K=128, V=128, pool_size=32)
 
+    # 测试heads32
     def test_heads_32(self):
         self._check_shape(B=4, T_per_seq=128, H=32, K=128, V=128, pool_size=32)
 
+    # 测试heads64
     def test_heads_64(self):
         self._check_shape(B=4, T_per_seq=128, H=64, K=128, V=128, pool_size=32)
 
     # ------------------------------------------------------------------
     # K != V  (exercises that [V,K] != [K,V] byte-order matters)
     # ------------------------------------------------------------------
+    # 测试dim64x64
     def test_dim_64x64(self):
         self._check_shape(B=4, T_per_seq=128, H=16, K=64, V=64, pool_size=32)
 
+    # 测试dimkltv
     def test_dim_k_lt_v(self):
         self._check_shape(B=4, T_per_seq=128, H=16, K=64, V=128, pool_size=32)
 
+    # 测试dimkgtv
     def test_dim_k_gt_v(self):
         self._check_shape(B=4, T_per_seq=128, H=16, K=128, V=64, pool_size=32)
 
+    # 测试dim256x256
     def test_dim_256x256(self):
         self._check_shape(B=4, T_per_seq=128, H=16, K=256, V=256, pool_size=32)
 
     # ------------------------------------------------------------------
     # Short sequences (T < chunk_size=64)
     # ------------------------------------------------------------------
+    # 测试seqlen1
     def test_seqlen_1(self):
         self._check_shape(B=4, T_per_seq=1, H=16, K=128, V=128, pool_size=32)
 
+    # 测试seqlen7
     def test_seqlen_7(self):
         self._check_shape(B=4, T_per_seq=7, H=16, K=128, V=128, pool_size=32)
 
+    # 测试seqlen16
     def test_seqlen_16(self):
         self._check_shape(B=4, T_per_seq=16, H=16, K=128, V=128, pool_size=32)
 
+    # 测试seqlen32
     def test_seqlen_32(self):
         self._check_shape(B=4, T_per_seq=32, H=16, K=128, V=128, pool_size=32)
 
     # ------------------------------------------------------------------
     # Multi-chunk and large pool
     # ------------------------------------------------------------------
+    # 测试multichunknt8
     def test_multi_chunk_nt8(self):
         self._check_shape(B=4, T_per_seq=512, H=16, K=128, V=128, pool_size=32)
 
+    # 测试largepool
     def test_large_pool(self):
         self._check_shape(B=4, T_per_seq=128, H=16, K=128, V=128, pool_size=512)
 
     # ------------------------------------------------------------------
     # Long prompts (many chunks; regression test for cross-chunk errors)
     # ------------------------------------------------------------------
+    # 测试longprompt
     def test_long_prompt(self):
         for B, T_per_seq in [(1, 1024), (1, 1536), (1, 2048), (2, 1024)]:
             with self.subTest(T_per_seq=T_per_seq):
@@ -223,12 +250,14 @@ class TestChunkGatedDeltaRule(unittest.TestCase):
     # ------------------------------------------------------------------
     # Combined stress
     # ------------------------------------------------------------------
+    # 测试压力
     def test_stress(self):
         self._check_shape(B=32, T_per_seq=128, H=32, K=128, V=128, pool_size=256)
 
     # ------------------------------------------------------------------
     # Sequential-index variants (pool_size == B, indices = 0..B-1)
     # ------------------------------------------------------------------
+    # 测试seqidxb4
     def test_seq_idx_b4(self):
         self._check_shape(
             B=4,
@@ -240,6 +269,7 @@ class TestChunkGatedDeltaRule(unittest.TestCase):
             sequential_indices=True,
         )
 
+    # 测试seqidxb8
     def test_seq_idx_b8(self):
         self._check_shape(
             B=8,
@@ -251,6 +281,7 @@ class TestChunkGatedDeltaRule(unittest.TestCase):
             sequential_indices=True,
         )
 
+    # 测试seqidxh32
     def test_seq_idx_h32(self):
         self._check_shape(
             B=4,
@@ -262,6 +293,7 @@ class TestChunkGatedDeltaRule(unittest.TestCase):
             sequential_indices=True,
         )
 
+    # 测试seqidxh64
     def test_seq_idx_h64(self):
         self._check_shape(
             B=4,
@@ -273,6 +305,7 @@ class TestChunkGatedDeltaRule(unittest.TestCase):
             sequential_indices=True,
         )
 
+    # 测试seqidxstress
     def test_seq_idx_stress(self):
         self._check_shape(
             B=32,

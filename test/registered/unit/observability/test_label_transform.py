@@ -1,3 +1,4 @@
+# 文件名: test_label_transform.py - 标签转换
 """Unit tests for label_transform — no server, no model loading."""
 
 from sglang.test.ci.ci_register import register_cpu_ci
@@ -13,27 +14,31 @@ from sglang.srt.observability.label_transform import (
 )
 
 
+# TestTransformPriority类
 class TestTransformPriority(unittest.TestCase):
     """Test cases for transform_priority."""
 
     def test_none_returns_unknown(self):
         """None priority returns UNKNOWN."""
-        self.assertEqual(transform_priority(None), UNKNOWN_PRIORITY_VALUE)
+        self.assertEqual(transform_priority(None), UNKNOWN_PRIORITY_VALUE)  # 断言相等
 
+    # TestTransformPriority类的测试negativereturnslow
     def test_negative_returns_low(self):
         """Priority below minimum returns LOW."""
-        self.assertEqual(transform_priority(-1), "LOW")
+        self.assertEqual(transform_priority(-1), "LOW")  # 断言相等
 
+    # TestTransformPriority类的测试abovemaxreturnshigh
     def test_above_max_returns_high(self):
         """Priority at or above max returns HIGH."""
-        self.assertEqual(transform_priority(31), "HIGH")
-        self.assertEqual(transform_priority(100), "HIGH")
+        self.assertEqual(transform_priority(31), "HIGH")  # 断言相等
+        self.assertEqual(transform_priority(100), "HIGH")  # 断言相等
 
+    # TestTransformPriority类的测试inrangereturnsstring
     def test_in_range_returns_string(self):
         """Priority in valid range [0, 31) returns its string representation."""
-        self.assertEqual(transform_priority(0), "0")
-        self.assertEqual(transform_priority(15), "15")
-        self.assertEqual(transform_priority(30), "30")
+        self.assertEqual(transform_priority(0), "0")  # 断言相等
+        self.assertEqual(transform_priority(15), "15")  # 断言相等
+        self.assertEqual(transform_priority(30), "30")  # 断言相等
 
 
 if __name__ == "__main__":

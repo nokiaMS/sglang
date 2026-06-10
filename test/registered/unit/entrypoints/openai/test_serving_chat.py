@@ -1,3 +1,4 @@
+# 文件名: test_serving_chat.py - 聊天服务
 """
 Unit-tests for OpenAIServingChat -- rewritten to use only the std-lib 'unittest'.
 Run with either:
@@ -35,6 +36,7 @@ from sglang.test.ci.ci_register import register_cpu_ci
 register_cpu_ci(est_time=11, suite="base-a-test-cpu")
 
 
+# _MockTokenizerManager类
 class _MockTokenizerManager:
     """Minimal mock that satisfies OpenAIServingChat."""
 
@@ -80,6 +82,7 @@ class _MockTokenizerManager:
         self.create_abort_task = Mock()
 
 
+# _MockTemplateManager类
 class _MockTemplateManager:
     """Minimal mock for TemplateManager."""
 
@@ -91,6 +94,7 @@ class _MockTemplateManager:
         self.force_reasoning = False
 
 
+# ServingChatTestCase类
 class ServingChatTestCase(unittest.TestCase):
     # ------------- common fixtures -------------
     def setUp(self):
@@ -144,9 +148,10 @@ class ServingChatTestCase(unittest.TestCase):
 
             adapted, processed = self.chat._convert_to_internal_request(self.basic_req)
             self.assertIsInstance(adapted, GenerateReqInput)
-            self.assertFalse(adapted.stream)
-            self.assertEqual(processed, self.basic_req)
+            self.assertFalse(adapted.stream)  # 断言为假
+            self.assertEqual(processed, self.basic_req)  # 断言相等
 
+    # ServingChatTestCase类的测试kimitoolcallkeepsdefaultreasoning
     def test_kimi_tool_call_keeps_default_reasoning(self):
         self.template_manager.reasoning_config = ReasoningToggleConfig(
             toggle_param="thinking", default_enabled=True
@@ -187,8 +192,9 @@ class ServingChatTestCase(unittest.TestCase):
 
             adapted, _ = self.chat._convert_to_internal_request(req)
 
-        self.assertTrue(adapted.require_reasoning)
+        self.assertTrue(adapted.require_reasoning)  # 断言为真
 
+    # ServingChatTestCase类的测试kimitoolcallkeepsexplicitreasoning
     def test_kimi_tool_call_keeps_explicit_reasoning(self):
         self.template_manager.reasoning_config = ReasoningToggleConfig(
             toggle_param="thinking", default_enabled=True
@@ -230,8 +236,9 @@ class ServingChatTestCase(unittest.TestCase):
 
             adapted, _ = self.chat._convert_to_internal_request(req)
 
-        self.assertTrue(adapted.require_reasoning)
+        self.assertTrue(adapted.require_reasoning)  # 断言为真
 
+    # ServingChatTestCase类的测试kimitoolcallrespectsexplicitreasoningdisable
     def test_kimi_tool_call_respects_explicit_reasoning_disable(self):
         self.template_manager.reasoning_config = ReasoningToggleConfig(
             toggle_param="thinking", default_enabled=True
@@ -273,8 +280,9 @@ class ServingChatTestCase(unittest.TestCase):
 
             adapted, _ = self.chat._convert_to_internal_request(req)
 
-        self.assertFalse(adapted.require_reasoning)
+        self.assertFalse(adapted.require_reasoning)  # 断言为假
 
+    # ServingChatTestCase类的测试kimitoolcallkeepstemplatedefaultthinking
     def test_kimi_tool_call_keeps_template_default_thinking(self):
         self.template_manager.chat_template_name = None
         self.template_manager.jinja_template_content_format = "string"
@@ -308,8 +316,9 @@ class ServingChatTestCase(unittest.TestCase):
         self.chat._process_messages(req, is_multimodal=False)
 
         kwargs = self.tm.tokenizer.apply_chat_template.call_args.kwargs
-        self.assertNotIn("thinking", kwargs)
+        self.assertNotIn("thinking", kwargs)  # 断言不包含
 
+    # ServingChatTestCase类的测试kimitoolcallkeepsexplicittemplatethinking
     def test_kimi_tool_call_keeps_explicit_template_thinking(self):
         self.template_manager.chat_template_name = None
         self.template_manager.jinja_template_content_format = "string"
@@ -344,8 +353,9 @@ class ServingChatTestCase(unittest.TestCase):
         self.chat._process_messages(req, is_multimodal=False)
 
         kwargs = self.tm.tokenizer.apply_chat_template.call_args.kwargs
-        self.assertTrue(kwargs["thinking"])
+        self.assertTrue(kwargs["thinking"])  # 断言为真
 
+    # ServingChatTestCase类的测试kimitoolcallkeepsexplicittemplatethinkingfalse
     def test_kimi_tool_call_keeps_explicit_template_thinking_false(self):
         self.template_manager.chat_template_name = None
         self.template_manager.jinja_template_content_format = "string"
@@ -380,8 +390,9 @@ class ServingChatTestCase(unittest.TestCase):
         self.chat._process_messages(req, is_multimodal=False)
 
         kwargs = self.tm.tokenizer.apply_chat_template.call_args.kwargs
-        self.assertFalse(kwargs["thinking"])
+        self.assertFalse(kwargs["thinking"])  # 断言为假
 
+    # ServingChatTestCase类的测试jinjausesopenaitoolschemafirst
     def test_jinja_uses_openai_tool_schema_first(self):
         """Ensure Jinja chat templates receive OpenAI-shaped tools by default."""
         self.template_manager.chat_template_name = None
@@ -413,8 +424,9 @@ class ServingChatTestCase(unittest.TestCase):
 
         expected_tools = [tool.model_dump() for tool in req.tools]
         kwargs = self.tm.tokenizer.apply_chat_template.call_args.kwargs
-        self.assertEqual(kwargs["tools"], expected_tools)
+        self.assertEqual(kwargs["tools"], expected_tools)  # 断言相等
 
+    # ServingChatTestCase类的测试jinjatoolschemafallbacktoflatfunction
     def test_jinja_tool_schema_fallback_to_flat_function(self):
         """Fallback to function-only schema when template rejects OpenAI wrapper."""
         self.template_manager.chat_template_name = None
@@ -455,11 +467,12 @@ class ServingChatTestCase(unittest.TestCase):
         second_tools = self.tm.tokenizer.apply_chat_template.call_args_list[1].kwargs[
             "tools"
         ]
-        self.assertEqual(first_tools, [tool.model_dump() for tool in req.tools])
-        self.assertEqual(
+        self.assertEqual(first_tools, [tool.model_dump() for tool in req.tools])  # 断言相等
+        self.assertEqual(  # 断言相等
             second_tools, [tool.function.model_dump() for tool in req.tools]
         )
 
+    # ServingChatTestCase类的测试xgrammartagomitsreasoningwhenparserownsit
     def test_xgrammar_tag_omits_reasoning_when_parser_owns_it(self):
         """ReasonerGrammarBackend owns the thinking prefix when a parser is set."""
         self.template_manager.chat_template_name = None
@@ -505,10 +518,11 @@ class ServingChatTestCase(unittest.TestCase):
             self.chat._process_messages(req, is_multimodal=False)
 
             parser.get_structure_constraint.assert_called_once()
-            self.assertFalse(
+            self.assertFalse(  # 断言为假
                 parser.get_structure_constraint.call_args.kwargs["thinking_mode"]
             )
 
+    # ServingChatTestCase类的测试stopstrisolationbetweenrequests
     def test_stop_str_isolation_between_requests(self):
         """Test that stop strings from one request don't affect subsequent requests.
 
@@ -544,10 +558,10 @@ class ServingChatTestCase(unittest.TestCase):
 
             # Verify first request has both stop strings
             expected_stop1 = initial_stop_str + ["CUSTOM_STOP"]
-            self.assertEqual(result1.stop, expected_stop1)
+            self.assertEqual(result1.stop, expected_stop1)  # 断言相等
 
             # Verify the original template's stop_str wasn't mutated after first request
-            self.assertEqual(conv_ins.stop_str, initial_stop_str)
+            self.assertEqual(conv_ins.stop_str, initial_stop_str)  # 断言相等
 
             # Second request without additional stop string
             req2 = ChatCompletionRequest(
@@ -558,10 +572,11 @@ class ServingChatTestCase(unittest.TestCase):
             result2 = self.chat._apply_conversation_template(req2, is_multimodal=False)
 
             # Verify second request only has original stop strings (no CUSTOM_STOP from req1)
-            self.assertEqual(result2.stop, initial_stop_str)
-            self.assertNotIn("CUSTOM_STOP", result2.stop)
-            self.assertEqual(conv_ins.stop_str, initial_stop_str)
+            self.assertEqual(result2.stop, initial_stop_str)  # 断言相等
+            self.assertNotIn("CUSTOM_STOP", result2.stop)  # 断言不包含
+            self.assertEqual(conv_ins.stop_str, initial_stop_str)  # 断言相等
 
+    # ServingChatTestCase类的测试unstreamedtoolargscompletion
     def test_unstreamed_tool_args_completion(self):
         """Test that remaining tool call arguments are sent when generation finishes."""
 
@@ -602,22 +617,23 @@ class ServingChatTestCase(unittest.TestCase):
         )
 
         # Should return a chunk with remaining arguments
-        self.assertIsNotNone(result, "Should return chunk with remaining arguments")
+        self.assertIsNotNone(result, "Should return chunk with remaining arguments")  # 断言不为None
 
         # Parse the result to verify content
-        self.assertTrue(result.startswith("data: "))
+        self.assertTrue(result.startswith("data: "))  # 断言为真
         chunk = json.loads(result[6:])
         tool_calls = chunk["choices"][0]["delta"]["tool_calls"]
-        self.assertEqual(len(tool_calls), 1)
+        self.assertEqual(len(tool_calls), 1)  # 断言相等
         arguments = tool_calls[0]["function"]["arguments"]
-        self.assertIn(', "unit": "celsius"}', arguments)
+        self.assertIn(', "unit": "celsius"}', arguments)  # 断言包含
 
-        self.assertIn(
+        self.assertIn(  # 断言包含
             '"finish_reason":null',
             result,
             "Should not include finish_reason in completion chunk",
         )
 
+    # ServingChatTestCase类的测试unstreamedtoolargsnocompletionneeded
     def test_unstreamed_tool_args_no_completion_needed(self):
         """Test that no completion chunk is sent when all arguments were already streamed."""
 
@@ -655,8 +671,9 @@ class ServingChatTestCase(unittest.TestCase):
         )
 
         # Should return None since no completion is needed
-        self.assertIsNone(result, "Should return None when no completion is needed")
+        self.assertIsNone(result, "Should return None when no completion is needed")  # 断言为None
 
+    # ServingChatTestCase类的测试unstreamedtoolargsnoparserdata
     def test_unstreamed_tool_args_no_parser_data(self):
         """Test that no completion chunk is sent when parser has no tool call data."""
 
@@ -688,7 +705,7 @@ class ServingChatTestCase(unittest.TestCase):
         )
 
         # Should return None since there's no parser data
-        self.assertIsNone(
+        self.assertIsNone(  # 断言为None
             result, "Should return None when parser has no tool call data"
         )
 
@@ -725,11 +742,12 @@ class ServingChatTestCase(unittest.TestCase):
                 finish_reason=finish_reason,
             )
 
-            self.assertIsNotNone(tool_calls)
-            self.assertEqual(len(tool_calls), 1)
-            self.assertEqual(tool_calls[0].id, "functions.get_weather:0")
-            self.assertEqual(tool_calls[0].function.name, "get_weather")
+            self.assertIsNotNone(tool_calls)  # 断言不为None
+            self.assertEqual(len(tool_calls), 1)  # 断言相等
+            self.assertEqual(tool_calls[0].id, "functions.get_weather:0")  # 断言相等
+            self.assertEqual(tool_calls[0].function.name, "get_weather")  # 断言相等
 
+    # ServingChatTestCase类的测试kimik2streamingtoolcallidformat
     def test_kimi_k2_streaming_tool_call_id_format(self):
         """Ensure streaming first chunk tool_call.id matches functions.{name}:{index} for kimi_k2 parser."""
 
@@ -778,13 +796,14 @@ class ServingChatTestCase(unittest.TestCase):
 
             loop = get_or_create_event_loop()
             line = loop.run_until_complete(collect_first_tool_chunk())
-            self.assertIsNotNone(line)
-            self.assertTrue(line.startswith("data: "))
+            self.assertIsNotNone(line)  # 断言不为None
+            self.assertTrue(line.startswith("data: "))  # 断言为真
 
             payload = json.loads(line[len("data: ") :])
             tool_calls = payload["choices"][0]["delta"]["tool_calls"]
-            self.assertEqual(tool_calls[0]["id"], "functions.get_weather:0")
+            self.assertEqual(tool_calls[0]["id"], "functions.get_weather:0")  # 断言相等
 
+    # ServingChatTestCase类的测试kimik2nonstreamingtoolcallidwithhistory
     def test_kimi_k2_non_streaming_tool_call_id_with_history(self):
         """Ensure non-streaming tool_call.id increase with tool calls history for kimi_k2 parser."""
 
@@ -866,14 +885,15 @@ class ServingChatTestCase(unittest.TestCase):
                 history_tool_calls_cnt=history_tool_calls_cnt,
             )
 
-            self.assertEqual(history_tool_calls_cnt, 1)
-            self.assertIsNotNone(tool_calls)
-            self.assertEqual(len(tool_calls), 2)
-            self.assertEqual(tool_calls[0].id, "functions.get_weather:1")
-            self.assertEqual(tool_calls[0].function.name, "get_weather")
-            self.assertEqual(tool_calls[1].id, "functions.get_weather:2")
-            self.assertEqual(tool_calls[1].function.name, "get_weather")
+            self.assertEqual(history_tool_calls_cnt, 1)  # 断言相等
+            self.assertIsNotNone(tool_calls)  # 断言不为None
+            self.assertEqual(len(tool_calls), 2)  # 断言相等
+            self.assertEqual(tool_calls[0].id, "functions.get_weather:1")  # 断言相等
+            self.assertEqual(tool_calls[0].function.name, "get_weather")  # 断言相等
+            self.assertEqual(tool_calls[1].id, "functions.get_weather:2")  # 断言相等
+            self.assertEqual(tool_calls[1].function.name, "get_weather")  # 断言相等
 
+    # ServingChatTestCase类的测试kimik2streamingtoolcallidwithhistory
     def test_kimi_k2_streaming_tool_call_id_with_history(self):
         """Ensure streaming first chunk tool_call.id increase with tool calls history for kimi_k2 parser."""
 
@@ -953,13 +973,14 @@ class ServingChatTestCase(unittest.TestCase):
 
             loop = get_or_create_event_loop()
             line = loop.run_until_complete(collect_first_tool_chunk())
-            self.assertIsNotNone(line)
-            self.assertTrue(line.startswith("data: "))
+            self.assertIsNotNone(line)  # 断言不为None
+            self.assertTrue(line.startswith("data: "))  # 断言为真
 
             payload = json.loads(line[len("data: ") :])
             tool_calls = payload["choices"][0]["delta"]["tool_calls"]
-            self.assertEqual(tool_calls[0]["id"], "functions.get_weather:1")
+            self.assertEqual(tool_calls[0]["id"], "functions.get_weather:1")  # 断言相等
 
+    # ServingChatTestCase类的测试dpskv32encodingpath
     def test_dpsk_v32_encoding_path(self):
         """Test DeepSeek V3.2 encoding path detection and application."""
         from sglang.srt.managers.template_manager import TemplateManager
@@ -975,29 +996,29 @@ class ServingChatTestCase(unittest.TestCase):
         # Case 1: No chat template + DeepSeek V3.2 arch -> should use dsv32 encoding
         tm.tokenizer.chat_template = None
         serving_chat = OpenAIServingChat(tm, TemplateManager())
-        self.assertEqual(serving_chat.chat_encoding_spec, "dsv32")
+        self.assertEqual(serving_chat.chat_encoding_spec, "dsv32")  # 断言相等
 
         # Case 2: Chat template exists -> should NOT use dsv32 encoding
         tm.tokenizer.chat_template = "some template"
         serving_chat = OpenAIServingChat(tm, TemplateManager())
-        self.assertIsNone(serving_chat.chat_encoding_spec)
+        self.assertIsNone(serving_chat.chat_encoding_spec)  # 断言为None
 
         # Case 3: Not DeepSeek V3.2 architecture -> should NOT use dsv32 encoding
         tm.tokenizer.chat_template = None
         mock_hf_config.architectures = ["LlamaForCausalLM"]
         serving_chat = OpenAIServingChat(tm, TemplateManager())
-        self.assertIsNone(serving_chat.chat_encoding_spec)
+        self.assertIsNone(serving_chat.chat_encoding_spec)  # 断言为None
 
         # Case 4: DeepseekV4 arch -> always dsv4, even with chat_template
         # (release ships a stale V3 jinja we deliberately override).
         mock_hf_config.architectures = ["DeepseekV4ForCausalLM"]
         tm.tokenizer.chat_template = "stale v3 jinja"
         serving_chat = OpenAIServingChat(tm, TemplateManager())
-        self.assertEqual(serving_chat.chat_encoding_spec, "dsv4")
+        self.assertEqual(serving_chat.chat_encoding_spec, "dsv4")  # 断言相等
 
         tm.tokenizer.chat_template = None
         serving_chat = OpenAIServingChat(tm, TemplateManager())
-        self.assertEqual(serving_chat.chat_encoding_spec, "dsv4")
+        self.assertEqual(serving_chat.chat_encoding_spec, "dsv4")  # 断言相等
 
     # ------------- dsv4 task + latest_reminder -------------
     def test_dsv4_task_field_schema(self):
@@ -1008,21 +1029,22 @@ class ServingChatTestCase(unittest.TestCase):
                 messages=[{"role": "user", "content": "hi"}],
                 task=valid,
             )
-            self.assertEqual(req.task, valid)
+            self.assertEqual(req.task, valid)  # 断言相等
 
         # None / unset is fine
-        self.assertIsNone(self.basic_req.task)
+        self.assertIsNone(self.basic_req.task)  # 断言为None
 
         # Bogus value rejected at validation time
         from pydantic import ValidationError
 
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(ValidationError):  # 断言抛出异常
             ChatCompletionRequest(
                 model="x",
                 messages=[{"role": "user", "content": "hi"}],
                 task="bogus",
             )
 
+    # ServingChatTestCase类的测试latestreminderroleaccepted
     def test_latest_reminder_role_accepted(self):
         """`latest_reminder` is a first-class message role on generic param."""
         from sglang.srt.entrypoints.openai.protocol import (
@@ -1032,7 +1054,7 @@ class ServingChatTestCase(unittest.TestCase):
         msg = ChatCompletionMessageGenericParam(
             role="latest_reminder", content="Be terse."
         )
-        self.assertEqual(msg.role, "latest_reminder")
+        self.assertEqual(msg.role, "latest_reminder")  # 断言相等
 
         # Full request with reminder before user parses cleanly.
         req = ChatCompletionRequest(
@@ -1042,16 +1064,17 @@ class ServingChatTestCase(unittest.TestCase):
                 {"role": "user", "content": "Hi"},
             ],
         )
-        self.assertEqual(req.messages[0].role, "latest_reminder")
-        self.assertEqual(req.messages[1].role, "user")
+        self.assertEqual(req.messages[0].role, "latest_reminder")  # 断言相等
+        self.assertEqual(req.messages[1].role, "user")  # 断言相等
 
+    # ServingChatTestCase类的测试attachtasktolastusermessage
     def test_attach_task_to_last_user_message(self):
         """Helper attaches task to the nearest user/developer message."""
         from sglang.srt.entrypoints.openai import encoding_dsv4
 
         messages = [{"role": "user", "content": "Hi"}]
         encoding_dsv4.attach_task_to_last_user_message(messages, "domain")
-        self.assertEqual(messages[0]["task"], "domain")
+        self.assertEqual(messages[0]["task"], "domain")  # 断言相等
 
         # Prefers the LAST user message across a multi-turn conversation.
         messages = [
@@ -1060,20 +1083,21 @@ class ServingChatTestCase(unittest.TestCase):
             {"role": "user", "content": "second"},
         ]
         encoding_dsv4.attach_task_to_last_user_message(messages, "query")
-        self.assertNotIn("task", messages[0])
-        self.assertEqual(messages[2]["task"], "query")
+        self.assertNotIn("task", messages[0])  # 断言不包含
+        self.assertEqual(messages[2]["task"], "query")  # 断言相等
 
         # `developer` role is treated like `user` (matches encoder semantics).
         messages = [{"role": "developer", "content": "dev"}]
         encoding_dsv4.attach_task_to_last_user_message(messages, "authority")
-        self.assertEqual(messages[0]["task"], "authority")
+        self.assertEqual(messages[0]["task"], "authority")  # 断言相等
 
         # No user/developer present -> raises.
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError):  # 断言抛出异常
             encoding_dsv4.attach_task_to_last_user_message(
                 [{"role": "system", "content": "s"}], "domain"
             )
 
+    # ServingChatTestCase类的测试dsv4contentpartslistnormalized
     def test_dsv4_content_parts_list_normalized(self):
         """OpenAI list-of-parts content flattens to text before reaching the encoder."""
         from sglang.srt.entrypoints.openai import encoding_dsv4
@@ -1099,7 +1123,7 @@ class ServingChatTestCase(unittest.TestCase):
                     msg, "string", [], [], [], []
                 )
         out = encoding_dsv4.encode_messages(messages, thinking_mode="chat")
-        self.assertIn("<｜User｜>say hi", out)
+        self.assertIn("<｜User｜>say hi", out)  # 断言包含
 
         # Multiple text parts concat with single space; non-text parts dropped.
         messages = [
@@ -1117,9 +1141,10 @@ class ServingChatTestCase(unittest.TestCase):
                     msg, "string", [], [], [], []
                 )
         out = encoding_dsv4.encode_messages(messages, thinking_mode="chat")
-        self.assertIn("<｜User｜>describe", out)
-        self.assertNotIn("image_url", out)
+        self.assertIn("<｜User｜>describe", out)  # 断言包含
+        self.assertNotIn("image_url", out)  # 断言不包含
 
+    # ServingChatTestCase类的测试dsv4taskandreminderencodeendtoend
     def test_dsv4_task_and_reminder_encode_end_to_end(self):
         """Task + latest_reminder plumb through to the dsv4 encoder correctly."""
         from sglang.srt.entrypoints.openai import encoding_dsv4
@@ -1134,9 +1159,9 @@ class ServingChatTestCase(unittest.TestCase):
         messages = [m.model_dump() for m in req.messages]
         encoding_dsv4.attach_task_to_last_user_message(messages, req.task)
         out = encoding_dsv4.encode_messages(messages, thinking_mode="chat")
-        self.assertIn("<｜domain｜>", out)
-        self.assertTrue(out.rstrip().endswith("<｜domain｜>"))
-        self.assertNotIn("<｜Assistant｜>", out)
+        self.assertIn("<｜domain｜>", out)  # 断言包含
+        self.assertTrue(out.rstrip().endswith("<｜domain｜>"))  # 断言为真
+        self.assertNotIn("<｜Assistant｜>", out)  # 断言不包含
 
         # 2) task='action' in thinking mode -> Assistant + <think> + <｜action｜>
         #    (action is the one task that still runs a reasoning pass).
@@ -1148,9 +1173,9 @@ class ServingChatTestCase(unittest.TestCase):
         messages = [m.model_dump() for m in req.messages]
         encoding_dsv4.attach_task_to_last_user_message(messages, req.task)
         out = encoding_dsv4.encode_messages(messages, thinking_mode="thinking")
-        self.assertIn("<｜Assistant｜>", out)
-        self.assertIn("<think>", out)
-        self.assertTrue(out.rstrip().endswith("<｜action｜>"))
+        self.assertIn("<｜Assistant｜>", out)  # 断言包含
+        self.assertIn("<think>", out)  # 断言包含
+        self.assertTrue(out.rstrip().endswith("<｜action｜>"))  # 断言为真
 
         # 3) latest_reminder preceding user -> reminder renders before user,
         #    Assistant prefix still comes after user.
@@ -1163,14 +1188,15 @@ class ServingChatTestCase(unittest.TestCase):
         )
         messages = [m.model_dump() for m in req.messages]
         out = encoding_dsv4.encode_messages(messages, thinking_mode="chat")
-        self.assertIn("<｜latest_reminder｜>Be terse.", out)
-        self.assertIn("<｜User｜>Hello", out)
-        self.assertLess(
+        self.assertIn("<｜latest_reminder｜>Be terse.", out)  # 断言包含
+        self.assertIn("<｜User｜>Hello", out)  # 断言包含
+        self.assertLess(  # 断言小于
             out.index("<｜latest_reminder｜>"),
             out.index("<｜User｜>"),
         )
-        self.assertIn("<｜Assistant｜>", out)
+        self.assertIn("<｜Assistant｜>", out)  # 断言包含
 
+    # ServingChatTestCase类的测试streamingabortyieldserror
     def test_streaming_abort_yields_error(self):
         """Test that an abort finish reason during streaming correctly yields an error and stops."""
         err_msg = "Aborted by scheduler"
@@ -1236,18 +1262,19 @@ class ServingChatTestCase(unittest.TestCase):
             if "error" in c:
                 error_chunk_data = json.loads(c[len("data: ") :])
                 break
-        self.assertIsNotNone(error_chunk_data, "Error chunk not found in stream")
-        self.assertEqual(error_chunk_data["error"]["message"], err_msg)
-        self.assertEqual(error_chunk_data["error"]["code"], err_code.value)
+        self.assertIsNotNone(error_chunk_data, "Error chunk not found in stream")  # 断言不为None
+        self.assertEqual(error_chunk_data["error"]["message"], err_msg)  # 断言相等
+        self.assertEqual(error_chunk_data["error"]["code"], err_code.value)  # 断言相等
 
         # Ensure the stream stops after the abort error
         # The last chunk should be "data: [DONE]\n\n"
-        self.assertEqual(chunks[-1], "data: [DONE]\n\n")
+        self.assertEqual(chunks[-1], "data: [DONE]\n\n")  # 断言相等
 
         # Check that there is an error chunk and a DONE chunk
-        self.assertEqual(len(chunks), 2)
-        self.assertIn("error", chunks[0])
+        self.assertEqual(len(chunks), 2)  # 断言相等
+        self.assertIn("error", chunks[0])  # 断言包含
 
+    # ServingChatTestCase类的测试nonstreamingcachedtokensdetailsemitssglext
     def test_non_streaming_cached_tokens_details_emits_sglext(self):
         """Test that non-streaming chat responses emit cached token details in sglext."""
 
@@ -1279,8 +1306,8 @@ class ServingChatTestCase(unittest.TestCase):
 
         response = self.chat._build_chat_response(req, ret, 1234567890)
 
-        self.assertIsNotNone(response.sglext)
-        self.assertEqual(
+        self.assertIsNotNone(response.sglext)  # 断言不为None
+        self.assertEqual(  # 断言相等
             response.sglext.cached_tokens_details.model_dump(exclude_none=True),
             {
                 "device": 4,
@@ -1290,6 +1317,7 @@ class ServingChatTestCase(unittest.TestCase):
             },
         )
 
+    # ServingChatTestCase类的测试streamingcachedtokensdetailsemitssglext
     def test_streaming_cached_tokens_details_emits_sglext(self):
         """Test that streaming chat responses emit cached token details in sglext."""
 
@@ -1356,9 +1384,9 @@ class ServingChatTestCase(unittest.TestCase):
             if "sglext" in data:
                 sglext_chunks.append(data)
 
-        self.assertEqual(len(sglext_chunks), 1)
-        self.assertEqual(sglext_chunks[0]["choices"], [])
-        self.assertEqual(
+        self.assertEqual(len(sglext_chunks), 1)  # 断言相等
+        self.assertEqual(sglext_chunks[0]["choices"], [])  # 断言相等
+        self.assertEqual(  # 断言相等
             sglext_chunks[0]["sglext"]["cached_tokens_details"],
             {
                 "device": 4,
@@ -1450,7 +1478,7 @@ class ServingChatTestCase(unittest.TestCase):
                     deltas.append(content)
 
         joined = "".join(deltas)
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             joined,
             "I am a large language model.",
             f"Streaming deltas produced broken text: {deltas!r}",
@@ -1463,36 +1491,40 @@ class ServingChatTestCase(unittest.TestCase):
         result = self.chat.extract_routed_dp_rank_from_header(
             self.fastapi_request, body_routed_dp_rank=None
         )
-        self.assertIsNone(result)
+        self.assertIsNone(result)  # 断言为None
 
+    # ServingChatTestCase类的测试extractrouteddprankfromheaderwithheader
     def test_extract_routed_dp_rank_from_header_with_header(self):
         """Test that header value is extracted correctly."""
         self.fastapi_request.headers = {"x-data-parallel-rank": "2"}
         result = self.chat.extract_routed_dp_rank_from_header(
             self.fastapi_request, body_routed_dp_rank=None
         )
-        self.assertEqual(result, 2)
+        self.assertEqual(result, 2)  # 断言相等
 
+    # ServingChatTestCase类的测试extractrouteddprankheaderoverridesbody
     def test_extract_routed_dp_rank_header_overrides_body(self):
         """Test that header value has higher priority than body."""
         self.fastapi_request.headers = {"x-data-parallel-rank": "3"}
         result = self.chat.extract_routed_dp_rank_from_header(
             self.fastapi_request, body_routed_dp_rank=1
         )
-        self.assertEqual(result, 3)  # header wins
+        self.assertEqual(result, 3)  # header wins  # 断言相等
 
+    # ServingChatTestCase类的测试extractrouteddprankfromheaderinvalid
     def test_extract_routed_dp_rank_from_header_invalid(self):
         """Test that invalid header value raises HTTPException."""
         from fastapi import HTTPException
 
         self.fastapi_request.headers = {"x-data-parallel-rank": "abc"}
-        with self.assertRaises(HTTPException) as context:
+        with self.assertRaises(HTTPException) as context:  # 断言抛出异常
             self.chat.extract_routed_dp_rank_from_header(
                 self.fastapi_request, body_routed_dp_rank=None
             )
-        self.assertEqual(context.exception.status_code, 400)
-        self.assertIn("must be an integer", context.exception.detail)
+        self.assertEqual(context.exception.status_code, 400)  # 断言相等
+        self.assertIn("must be an integer", context.exception.detail)  # 断言包含
 
+    # ServingChatTestCase类的测试hunyuanreasoningeffortdispatch
     def test_hunyuan_reasoning_effort_dispatch(self):
         tm = _MockTokenizerManager()
         tm.server_args.reasoning_parser = "hunyuan"
@@ -1510,8 +1542,9 @@ class ServingChatTestCase(unittest.TestCase):
         for effort, expected in cases:
             with self.subTest(effort=effort):
                 req.reasoning_effort = effort
-                self.assertEqual(chat._get_reasoning_from_request(req), expected)
+                self.assertEqual(chat._get_reasoning_from_request(req), expected)  # 断言相等
 
+    # ServingChatTestCase类的测试nonstreamreasoningresponsepreservespayloadwhitespace
     def test_non_stream_reasoning_response_preserves_payload_whitespace(self):
         self.chat.reasoning_parser = "qwen3"
         self.template_manager.force_reasoning = False
@@ -1540,8 +1573,8 @@ class ServingChatTestCase(unittest.TestCase):
         response = self.chat._build_chat_response(req, ret, created=123)
 
         message = response.choices[0].message
-        self.assertEqual(message.reasoning_content, "\nLet me think\n")
-        self.assertEqual(message.content, "\n\nThe answer is 42.\n")
+        self.assertEqual(message.reasoning_content, "\nLet me think\n")  # 断言相等
+        self.assertEqual(message.content, "\n\nThe answer is 42.\n")  # 断言相等
 
     # ------------- reasoning config tests -------------
     def test_get_reasoning_from_request_default_true_toggle(self):
@@ -1560,9 +1593,10 @@ class ServingChatTestCase(unittest.TestCase):
             chat_template_kwargs={"enable_thinking": False},
         )
 
-        self.assertTrue(self.chat._get_reasoning_from_request(enabled_by_default))
-        self.assertFalse(self.chat._get_reasoning_from_request(disabled_explicitly))
+        self.assertTrue(self.chat._get_reasoning_from_request(enabled_by_default))  # 断言为真
+        self.assertFalse(self.chat._get_reasoning_from_request(disabled_explicitly))  # 断言为假
 
+    # ServingChatTestCase类的测试getreasoningfromrequestdefaultfalsetoggle
     def test_get_reasoning_from_request_default_false_toggle(self):
         self.tm.server_args.reasoning_parser = "deepseek-v3"
         self.chat.reasoning_parser = "deepseek-v3"
@@ -1579,9 +1613,10 @@ class ServingChatTestCase(unittest.TestCase):
             chat_template_kwargs={"thinking": True},
         )
 
-        self.assertFalse(self.chat._get_reasoning_from_request(disabled_by_default))
-        self.assertTrue(self.chat._get_reasoning_from_request(enabled_explicitly))
+        self.assertFalse(self.chat._get_reasoning_from_request(disabled_by_default))  # 断言为假
+        self.assertTrue(self.chat._get_reasoning_from_request(enabled_explicitly))  # 断言为真
 
+    # ServingChatTestCase类的测试getreasoningfromrequestspecialcases
     def test_get_reasoning_from_request_special_cases(self):
         self.tm.server_args.reasoning_parser = "mistral"
         self.chat.reasoning_parser = "mistral"
@@ -1592,14 +1627,14 @@ class ServingChatTestCase(unittest.TestCase):
         self.template_manager.reasoning_config = ReasoningToggleConfig(
             special_case="always"
         )
-        self.assertTrue(self.chat._get_reasoning_from_request(req))
+        self.assertTrue(self.chat._get_reasoning_from_request(req))  # 断言为真
 
         self.template_manager.reasoning_config = ReasoningToggleConfig(
             special_case="mistral"
         )
-        self.assertFalse(self.chat._get_reasoning_from_request(req))
+        self.assertFalse(self.chat._get_reasoning_from_request(req))  # 断言为假
         req.reasoning_effort = "medium"
-        self.assertTrue(self.chat._get_reasoning_from_request(req))
+        self.assertTrue(self.chat._get_reasoning_from_request(req))  # 断言为真
 
     # --- fallback path tests (config=None, uses reasoning_default) ---
 
@@ -1610,69 +1645,75 @@ class ServingChatTestCase(unittest.TestCase):
         self.chat.reasoning_parser = parser_name
         self.template_manager.reasoning_config = None
 
+    # ServingChatTestCase类的测试fallbackalwaysmode
     def test_fallback_always_mode(self):
         self._setup_fallback("deepseek-r1")
         req = ChatCompletionRequest(
             model="x", messages=[{"role": "user", "content": "Hi?"}]
         )
-        self.assertTrue(self.chat._get_reasoning_from_request(req))
+        self.assertTrue(self.chat._get_reasoning_from_request(req))  # 断言为真
 
+    # ServingChatTestCase类的测试fallbackmistralmode
     def test_fallback_mistral_mode(self):
         self._setup_fallback("mistral")
         req_no_effort = ChatCompletionRequest(
             model="x", messages=[{"role": "user", "content": "Hi?"}]
         )
-        self.assertFalse(self.chat._get_reasoning_from_request(req_no_effort))
+        self.assertFalse(self.chat._get_reasoning_from_request(req_no_effort))  # 断言为假
 
         req_with_effort = ChatCompletionRequest(
             model="x",
             messages=[{"role": "user", "content": "Hi?"}],
             reasoning_effort="high",
         )
-        self.assertTrue(self.chat._get_reasoning_from_request(req_with_effort))
+        self.assertTrue(self.chat._get_reasoning_from_request(req_with_effort))  # 断言为真
 
+    # ServingChatTestCase类的测试fallbackenablethinkingmodedefaulton
     def test_fallback_enable_thinking_mode_default_on(self):
         self._setup_fallback("qwen3")
         req_default = ChatCompletionRequest(
             model="x", messages=[{"role": "user", "content": "Hi?"}]
         )
-        self.assertTrue(self.chat._get_reasoning_from_request(req_default))
+        self.assertTrue(self.chat._get_reasoning_from_request(req_default))  # 断言为真
 
         req_disabled = ChatCompletionRequest(
             model="x",
             messages=[{"role": "user", "content": "Hi?"}],
             chat_template_kwargs={"enable_thinking": False},
         )
-        self.assertFalse(self.chat._get_reasoning_from_request(req_disabled))
+        self.assertFalse(self.chat._get_reasoning_from_request(req_disabled))  # 断言为假
 
+    # ServingChatTestCase类的测试fallbackexplicitthinkingmodedefaultoff
     def test_fallback_explicit_thinking_mode_default_off(self):
         self._setup_fallback("deepseek-v3")
         req_default = ChatCompletionRequest(
             model="x", messages=[{"role": "user", "content": "Hi?"}]
         )
-        self.assertFalse(self.chat._get_reasoning_from_request(req_default))
+        self.assertFalse(self.chat._get_reasoning_from_request(req_default))  # 断言为假
 
         req_enabled = ChatCompletionRequest(
             model="x",
             messages=[{"role": "user", "content": "Hi?"}],
             chat_template_kwargs={"thinking": True},
         )
-        self.assertTrue(self.chat._get_reasoning_from_request(req_enabled))
+        self.assertTrue(self.chat._get_reasoning_from_request(req_enabled))  # 断言为真
 
+    # ServingChatTestCase类的测试fallbackexplicitenablethinkingmodedefaultoff
     def test_fallback_explicit_enable_thinking_mode_default_off(self):
         self._setup_fallback("mimo")
         req_default = ChatCompletionRequest(
             model="x", messages=[{"role": "user", "content": "Hi?"}]
         )
-        self.assertFalse(self.chat._get_reasoning_from_request(req_default))
+        self.assertFalse(self.chat._get_reasoning_from_request(req_default))  # 断言为假
 
         req_enabled = ChatCompletionRequest(
             model="x",
             messages=[{"role": "user", "content": "Hi?"}],
             chat_template_kwargs={"enable_thinking": True},
         )
-        self.assertTrue(self.chat._get_reasoning_from_request(req_enabled))
+        self.assertTrue(self.chat._get_reasoning_from_request(req_enabled))  # 断言为真
 
+    # ServingChatTestCase类的测试fallbacknodetectorreturnsfalse
     def test_fallback_no_detector_returns_false(self):
         self.chat.reasoning_parser = "qwen3"
         self.chat._reasoning_detector = None
@@ -1680,8 +1721,9 @@ class ServingChatTestCase(unittest.TestCase):
         req = ChatCompletionRequest(
             model="x", messages=[{"role": "user", "content": "Hi?"}]
         )
-        self.assertFalse(self.chat._get_reasoning_from_request(req))
+        self.assertFalse(self.chat._get_reasoning_from_request(req))  # 断言为假
 
+    # ServingChatTestCase类的测试buildchatresponseqwen3thinkingforcesreasoning
     def test_build_chat_response_qwen3_thinking_forces_reasoning(self):
         self.tm.server_args.reasoning_parser = "qwen3-thinking"
         self.chat.reasoning_parser = "qwen3-thinking"
@@ -1709,8 +1751,8 @@ class ServingChatTestCase(unittest.TestCase):
 
         response = self.chat._build_chat_response(req, [ret_item], created=0)
         msg = response.choices[0].message
-        self.assertIsNone(msg.content)
-        self.assertEqual(msg.reasoning_content, "42")
+        self.assertIsNone(msg.content)  # 断言为None
+        self.assertEqual(msg.reasoning_content, "42")  # 断言相等
 
     # --- poolside_v1 (Laguna-XS.2) regression tests ---
 
@@ -1732,8 +1774,9 @@ class ServingChatTestCase(unittest.TestCase):
         for kwargs, expected in cases:
             with self.subTest(kwargs=kwargs):
                 req.chat_template_kwargs = kwargs
-                self.assertEqual(self.chat._get_reasoning_from_request(req), expected)
+                self.assertEqual(self.chat._get_reasoning_from_request(req), expected)  # 断言相等
 
+    # ServingChatTestCase类的测试poolsidev1doesnotdoubleprependthink
     def test_poolside_v1_does_not_double_prepend_think(self):
         """When `enable_thinking=True` for poolside_v1, the HF chat template
         already emits `<think>` via add_generation_prompt — server must NOT
@@ -1756,29 +1799,32 @@ class ServingChatTestCase(unittest.TestCase):
             conv_ins.stop_str = []
             conv_mock.return_value = conv_ins
             result = self.chat._apply_conversation_template(req, is_multimodal=False)
-        self.assertEqual(result.prompt, "BASE_PROMPT")
+        self.assertEqual(result.prompt, "BASE_PROMPT")  # 断言相等
 
     # ------------- hook method tests -------------
     def test_encode_messages_returns_none_by_default(self):
         """Default _encode_messages returns None (use standard encoding)."""
         result = self.chat._encode_messages([], Mock(), False)
-        self.assertIsNone(result)
+        self.assertIsNone(result)  # 断言为None
 
+    # ServingChatTestCase类的测试decoderesponsereturnstext
     def test_decode_response_returns_text(self):
         """Default _decode_response returns ret_item['text']."""
         ret_item = {"text": "Hello world", "output_ids": [1, 2, 3]}
         result = self.chat._decode_response(ret_item)
-        self.assertEqual(result, "Hello world")
+        self.assertEqual(result, "Hello world")  # 断言相等
 
+    # ServingChatTestCase类的测试getparsedresponsefieldspassthrough
     def test_get_parsed_response_fields_passthrough(self):
         """Default _get_parsed_response_fields passes through values."""
         reasoning = "thinking..."
         tool_calls = [{"name": "foo"}]
         r, t = self.chat._get_parsed_response_fields(reasoning, tool_calls)
-        self.assertEqual(r, reasoning)
-        self.assertEqual(t, tool_calls)
+        self.assertEqual(r, reasoning)  # 断言相等
+        self.assertEqual(t, tool_calls)  # 断言相等
 
 
+# TestProcessToolCallsWithRequiredToolChoice类
 class TestProcessToolCallsWithRequiredToolChoice(unittest.TestCase):
     """Test _process_tool_calls with tool_choice='required' uses model-specific parser."""
 
@@ -1787,6 +1833,7 @@ class TestProcessToolCallsWithRequiredToolChoice(unittest.TestCase):
         tm.server_args.tool_call_parser = "kimi_k2"
         self.chat = OpenAIServingChat(tm, _MockTemplateManager())
 
+    # TestProcessToolCallsWithRequiredToolChoice类的测试requiredwithparserusesfunctioncallparser
     def test_required_with_parser_uses_function_call_parser(self):
         """tool_choice='required' should use FunctionCallParser when tool_call_parser is set."""
         with patch(
@@ -1811,11 +1858,12 @@ class TestProcessToolCallsWithRequiredToolChoice(unittest.TestCase):
                 tool_choice="required",
             )
 
-            self.assertIsNotNone(tool_calls)
-            self.assertEqual(len(tool_calls), 1)
-            self.assertEqual(tool_calls[0].function.name, "get_weather")
-            self.assertEqual(fr["type"], "tool_calls")
+            self.assertIsNotNone(tool_calls)  # 断言不为None
+            self.assertEqual(len(tool_calls), 1)  # 断言相等
+            self.assertEqual(tool_calls[0].function.name, "get_weather")  # 断言相等
+            self.assertEqual(fr["type"], "tool_calls")  # 断言相等
 
+    # TestProcessToolCallsWithRequiredToolChoice类的测试requiredwithoutparserfallsbacktojson
     def test_required_without_parser_falls_back_to_json(self):
         """tool_choice='required' without parser should parse as JSON array."""
         self.chat.tool_call_parser = None
@@ -1830,10 +1878,11 @@ class TestProcessToolCallsWithRequiredToolChoice(unittest.TestCase):
             tool_choice="required",
         )
 
-        self.assertIsNotNone(tool_calls)
-        self.assertEqual(len(tool_calls), 1)
-        self.assertEqual(tool_calls[0].function.name, "get_weather")
+        self.assertIsNotNone(tool_calls)  # 断言不为None
+        self.assertEqual(len(tool_calls), 1)  # 断言相等
+        self.assertEqual(tool_calls[0].function.name, "get_weather")  # 断言相等
 
+    # TestProcessToolCallsWithRequiredToolChoice类的测试requiredwithoutparserinvalidjsonreturnsnone
     def test_required_without_parser_invalid_json_returns_none(self):
         """tool_choice='required' without parser and invalid JSON returns tool_calls=None."""
         self.chat.tool_call_parser = None
@@ -1848,44 +1897,51 @@ class TestProcessToolCallsWithRequiredToolChoice(unittest.TestCase):
             tool_choice="required",
         )
 
-        self.assertIsNone(tool_calls)
+        self.assertIsNone(tool_calls)  # 断言为None
 
 
+# TestNormalizeToolContent类
 class TestNormalizeToolContent(unittest.TestCase):
     """Unit tests for normalize_tool_content()."""
 
     def test_openai_text_parts_flattened(self):
         result = normalize_tool_content("tool", [{"type": "text", "text": "10525"}])
-        self.assertEqual(result, "10525")
+        self.assertEqual(result, "10525")  # 断言相等
 
+    # TestNormalizeToolContent类的测试multipletextpartsjoined
     def test_multiple_text_parts_joined(self):
         result = normalize_tool_content(
             "tool",
             [{"type": "text", "text": "hello"}, {"type": "text", "text": "world"}],
         )
-        self.assertEqual(result, "hello world")
+        self.assertEqual(result, "hello world")  # 断言相等
 
+    # TestNormalizeToolContent类的测试nontextpartlistpreserved
     def test_non_text_part_list_preserved(self):
         content = [{"name": "func", "output": "result"}]
         result = normalize_tool_content("tool", content)
-        self.assertIs(result, content)
+        self.assertIs(result, content)  # 断言是同一对象
 
+    # TestNormalizeToolContent类的测试stringcontentunchanged
     def test_string_content_unchanged(self):
-        self.assertEqual(normalize_tool_content("tool", "hello"), "hello")
+        self.assertEqual(normalize_tool_content("tool", "hello"), "hello")  # 断言相等
 
+    # TestNormalizeToolContent类的测试emptylistreturnsemptystring
     def test_empty_list_returns_empty_string(self):
-        self.assertEqual(normalize_tool_content("tool", []), "")
+        self.assertEqual(normalize_tool_content("tool", []), "")  # 断言相等
 
+    # TestNormalizeToolContent类的测试nontoolroleunchanged
     def test_non_tool_role_unchanged(self):
         content = [{"type": "text", "text": "hi"}]
         result = normalize_tool_content("user", content)
-        self.assertIs(result, content)
+        self.assertIs(result, content)  # 断言是同一对象
 
+    # TestNormalizeToolContent类的测试mixedstranddictparts
     def test_mixed_str_and_dict_parts(self):
         result = normalize_tool_content(
             "tool", ["plain", {"type": "text", "text": "rich"}]
         )
-        self.assertEqual(result, "plain rich")
+        self.assertEqual(result, "plain rich")  # 断言相等
 
 
 if __name__ == "__main__":

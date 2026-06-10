@@ -1,3 +1,4 @@
+# 文件名: test_disaggregation_basic.py - 基础分离式部署测试
 import asyncio
 import json
 import os
@@ -26,6 +27,7 @@ register_cuda_ci(est_time=509, stage="base-b", runner_config="2-gpu-large")
 
 class TestDisaggregationAccuracy(PauseResumeInPlaceMixin, PDDisaggregationServerBase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
         cls.model = DEFAULT_MODEL_NAME_FOR_TEST
@@ -33,6 +35,7 @@ class TestDisaggregationAccuracy(PauseResumeInPlaceMixin, PDDisaggregationServer
         cls.pause_target_urls = [cls.prefill_url, cls.decode_url]
         cls.launch_all()
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=f"http://{self.base_host}:{self.lb_port}",
@@ -47,6 +50,7 @@ class TestDisaggregationAccuracy(PauseResumeInPlaceMixin, PDDisaggregationServer
 
         self.assertGreater(metrics["score"], 0.62)
 
+    # 测试logprob
     def test_logprob(self):
         prompt = "The capital of france is "
         response = requests.post(
@@ -72,6 +76,7 @@ class TestDisaggregationAccuracy(PauseResumeInPlaceMixin, PDDisaggregationServer
             len(input_logprobs) > 0
         ), f"input_logprobs should have at least one token, but got {len(input_logprobs)}"
 
+    # 测试chatcompletiontoplogprobs
     def test_chat_completion_top_logprobs(self):
         client = openai.Client(api_key="empty", base_url=f"{self.lb_url}/v1")
         response = client.chat.completions.create(
@@ -98,6 +103,7 @@ class TestDisaggregationAccuracy(PauseResumeInPlaceMixin, PDDisaggregationServer
         self.assertGreater(len(first_top_logprobs), 0)
         self.assertIsInstance(first_top_logprobs[0].token, str)
 
+    # 测试structuredoutput
     def test_structured_output(self):
         json_schema = json.dumps(
             {
@@ -126,6 +132,7 @@ class TestDisaggregationAccuracy(PauseResumeInPlaceMixin, PDDisaggregationServer
         # ensure the output is a valid JSON
         json.loads(output)
 
+    # 测试firsttokenfinish
     def test_first_token_finish(self):
         client = openai.Client(api_key="empty", base_url=f"{self.lb_url}/v1")
         tokenizer = AutoTokenizer.from_pretrained(self.model)
@@ -175,18 +182,21 @@ class TestDisaggregationAccuracy(PauseResumeInPlaceMixin, PDDisaggregationServer
 
 class TestDisaggregationMooncakeFailure(PDDisaggregationServerBase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
         # set DISAGGREGATION_TEST_FAILURE_PROB to simulate failure
-        os.environ["DISAGGREGATION_TEST_FAILURE_PROB"] = "0.05"
+        os.environ["DISAGGREGATION_TEST_FAILURE_PROB"] = "0.05"  # 访问环境变量
         cls.model = DEFAULT_MODEL_NAME_FOR_TEST
         cls.launch_all()
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
-        os.environ.pop("DISAGGREGATION_TEST_FAILURE_PROB")
+        os.environ.pop("DISAGGREGATION_TEST_FAILURE_PROB")  # 访问环境变量
         super().tearDownClass()
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=f"http://{self.base_host}:{self.lb_port}",
@@ -216,6 +226,7 @@ class TestDisaggregationMooncakeFailure(PDDisaggregationServerBase):
 
 class TestDisaggregationMooncakeSpec(PDDisaggregationServerBase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
         cls.model = DEFAULT_TARGET_MODEL_EAGLE3
@@ -238,6 +249,7 @@ class TestDisaggregationMooncakeSpec(PDDisaggregationServerBase):
         cls.extra_decode_args = spec_args
         cls.launch_all()
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=f"http://{self.base_host}:{self.lb_port}",
@@ -255,17 +267,20 @@ class TestDisaggregationMooncakeSpec(PDDisaggregationServerBase):
 
 class TestDisaggregationSimulatedRetract(PDDisaggregationServerBase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
-        os.environ["SGLANG_TEST_RETRACT"] = "true"
+        os.environ["SGLANG_TEST_RETRACT"] = "true"  # 访问环境变量
         cls.model = DEFAULT_MODEL_NAME_FOR_TEST
         cls.launch_all()
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
-        os.environ.pop("SGLANG_TEST_RETRACT")
+        os.environ.pop("SGLANG_TEST_RETRACT")  # 访问环境变量
         super().tearDownClass()
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=f"http://{self.base_host}:{self.lb_port}",
@@ -289,6 +304,7 @@ class TestDisaggregationPauseResumePrefillLeak(PDDisaggregationServerBase):
     MAX_RUNNING = 4
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
         cls.model = DEFAULT_MODEL_NAME_FOR_TEST
@@ -299,6 +315,7 @@ class TestDisaggregationPauseResumePrefillLeak(PDDisaggregationServerBase):
         ]
         cls.launch_all()
 
+    # 测试retractpausenoleakonprefill
     def test_retract_pause_no_leak_on_prefill(self):
         """Retract-mode pause on a disagg prefill node must not leak prefill
         requests into running_batch. Without the fix, each retract pause merges
@@ -307,11 +324,13 @@ class TestDisaggregationPauseResumePrefillLeak(PDDisaggregationServerBase):
         max-running-requests budget is exhausted and all new prefills hang."""
         asyncio.run(self._run_pause_resume_leak_test("retract"))
 
+    # 测试retractpauseemptyrunningbatch
     def test_retract_pause_empty_running_batch(self):
         """Retract-mode pause must not crash when running_batch is empty.
         Regression test for issue #20272."""
         asyncio.run(self._run_pause_on_idle("retract"))
 
+    # 执行runpauseonidle
     async def _run_pause_on_idle(self, mode):
         """Pause/resume on an idle prefill node (no in-flight requests)."""
         async with aiohttp.ClientSession() as session:
@@ -342,6 +361,7 @@ class TestDisaggregationPauseResumePrefillLeak(PDDisaggregationServerBase):
                 self.assertIn("text", body)
                 self.assertGreater(len(body["text"]), 0)
 
+    # 执行getnumrunningreqs
     async def _get_num_running_reqs(self, session):
         """Query sglang:num_running_reqs from prefill node's /metrics."""
         async with session.get(
@@ -360,12 +380,14 @@ class TestDisaggregationPauseResumePrefillLeak(PDDisaggregationServerBase):
                     return int(float(line.split()[-1]))
             return 0
 
+    # 执行runpauseresumeleaktest
     async def _run_pause_resume_leak_test(self, mode):
         NUM_WORKERS = 64
         NUM_PAUSE_RESUME_CYCLES = self.MAX_RUNNING * 4
         MAX_NEW_TOKENS = 1
         LONG_PROMPT = "Tell me a story. " * 200
 
+        # 执行backgroundworker
         async def _background_worker(session, worker_id, cancel_event):
             """Send requests sequentially until cancelled."""
             seq = 0
@@ -387,6 +409,7 @@ class TestDisaggregationPauseResumePrefillLeak(PDDisaggregationServerBase):
                     pass
                 seq += 1
 
+        # 执行post
         async def _post(session, url, json_data):
             async with session.post(
                 url,

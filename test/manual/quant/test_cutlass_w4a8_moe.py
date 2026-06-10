@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
+# 文件名: test_cutlass_w4a8_moe.py - CUTLASS W4A8 MoE测试 - 验证W4A8量化MoE内核与参考实现的一致性
 from typing import Optional
 
 import pytest
@@ -9,6 +10,7 @@ from sglang.srt.layers.moe.cutlass_w4a8_moe import cutlass_w4a8_moe
 from sglang.srt.layers.moe.topk import TopKConfig, select_experts
 
 
+# 将int4值打包为int8 - 将交错排列的int4值压缩存储
 def pack_int4_values_to_int8(int4_values_interleaved: torch.Tensor) -> torch.Tensor:
     if int4_values_interleaved.shape[-1] % 2 != 0:
         raise ValueError(
@@ -25,6 +27,7 @@ def pack_int4_values_to_int8(int4_values_interleaved: torch.Tensor) -> torch.Ten
     return packed_tensor.to(torch.int8)
 
 
+# 打包交错权重 - 将量化权重和缩放因子打包为交错格式
 def pack_interleave(num_experts, ref_weight, ref_scale, alignment=4):
     n, k = ref_weight.shape[1], ref_weight.shape[2]
 
@@ -58,6 +61,7 @@ def pack_interleave(num_experts, ref_weight, ref_scale, alignment=4):
 @pytest.mark.parametrize("topk", [8])
 @pytest.mark.parametrize("group_size", [128])
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
+# 测试cutlass w4a8 moe
 def test_cutlass_w4a8_moe(M, N, K, E, tp_size, use_ep_moe, topk, group_size, dtype):
     if use_ep_moe:
         local_e = E // tp_size
@@ -169,6 +173,7 @@ def test_cutlass_w4a8_moe(M, N, K, E, tp_size, use_ep_moe, topk, group_size, dty
     print("SUCCESS: Final output tensors are close.")
 
 
+# CUTLASS MoE包装 - 准备参数并调用CUTLASS W4A8 MoE内核
 def cutlass_moe(
     a: torch.Tensor,
     w1_q: torch.Tensor,
@@ -228,6 +233,7 @@ def cutlass_moe(
     )
 
 
+# 参考实现 - 使用torch实现的W4A8 MoE前向传播参考
 def ref(
     x: torch.Tensor,
     num_experts: int,

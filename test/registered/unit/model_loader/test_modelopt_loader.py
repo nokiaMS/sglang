@@ -1,3 +1,4 @@
+# 文件名: test_modelopt_loader.py - ModelOpt加载器
 """
 Unit tests for ModelOptModelLoader class.
 
@@ -33,6 +34,7 @@ DEFAULT_DEVICE = "cuda:0"
 register_cuda_ci(est_time=11, stage="base-b", runner_config="1-gpu-small")
 
 
+# TestModelOptModelLoader类
 class TestModelOptModelLoader(CustomTestCase):
     """Test cases for ModelOptModelLoader functionality."""
 
@@ -87,6 +89,7 @@ class TestModelOptModelLoader(CustomTestCase):
             DEFAULT_DEVICE  # Add device attribute for calibration tests
         )
 
+    # TestModelOptModelLoader类的测试清理
     def tearDown(self):
         """Clean up test fixtures."""
         # Stop mocks
@@ -98,6 +101,8 @@ class TestModelOptModelLoader(CustomTestCase):
 
     @patch("sglang.srt.model_loader.loader.QUANT_CFG_CHOICES", QUANT_CFG_CHOICES)
     @patch("sglang.srt.model_loader.loader.logger")
+
+    # TestModelOptModelLoader类的测试successfulfp8quantization
     def test_successful_fp8_quantization(self, mock_logger):
         """Test successful FP8 quantization workflow."""
 
@@ -125,7 +130,7 @@ class TestModelOptModelLoader(CustomTestCase):
             quant_cfg_name = QUANT_CFG_CHOICES.get(quant_choice_str)
 
             if not quant_cfg_name:
-                raise ValueError(f"Invalid modelopt_quant choice: '{quant_choice_str}'")
+                raise ValueError(f"Invalid modelopt_quant choice: '{quant_choice_str}'")  # 抛出异常
 
             # Simulate getattr call and quantization
             if quant_cfg_name == "FP8_DEFAULT_CFG":
@@ -176,9 +181,11 @@ class TestModelOptModelLoader(CustomTestCase):
             self.mock_base_model.eval.assert_called()
 
             # Verify we get back the expected model
-            self.assertEqual(result_model, self.mock_base_model)
+            self.assertEqual(result_model, self.mock_base_model)  # 断言相等
 
     @patch("sglang.srt.model_loader.loader.logger")
+
+    # TestModelOptModelLoader类的测试missingmodeloptimport
     def test_missing_modelopt_import(self, mock_logger):
         """Test error handling when modelopt library is not available."""
 
@@ -191,15 +198,16 @@ class TestModelOptModelLoader(CustomTestCase):
             # Simulate missing modelopt by making import fail
             original_import = __import__
 
+            # mock_import
             def mock_import(name, *args, **kwargs):
                 if name.startswith("modelopt"):
-                    raise ImportError("No module named 'modelopt'")
+                    raise ImportError("No module named 'modelopt'")  # 抛出异常
                 # Return default import behavior for other modules
                 return original_import(name, *args, **kwargs)
 
             with patch("builtins.__import__", side_effect=mock_import):
                 # Expect ImportError to be raised and logged
-                with self.assertRaises(ImportError):
+                with self.assertRaises(ImportError):  # 断言抛出异常
                     loader.load_model(
                         model_config=self.model_config, device_config=self.device_config
                     )
@@ -213,6 +221,8 @@ class TestModelOptModelLoader(CustomTestCase):
     @patch("sglang.srt.model_loader.loader.QUANT_CFG_CHOICES", QUANT_CFG_CHOICES)
     @patch("sglang.srt.model_loader.loader.AutoTokenizer")
     @patch("sglang.srt.model_loader.loader.logger")
+
+    # TestModelOptModelLoader类的测试calibrationworkflowintegration
     def test_calibration_workflow_integration(self, mock_logger, mock_auto_tokenizer):
         """Test end-to-end calibration workflow integration."""
 
@@ -264,7 +274,7 @@ class TestModelOptModelLoader(CustomTestCase):
                 )
 
                 # Verify the model loading was successful
-                self.assertEqual(result_model, self.mock_base_model)
+                self.assertEqual(result_model, self.mock_base_model)  # 断言相等
 
                 # Verify key calibration components were used
                 # Note: We can't easily verify the exact calls due to dynamic imports,
@@ -273,6 +283,8 @@ class TestModelOptModelLoader(CustomTestCase):
     @patch("sglang.srt.model_loader.loader.QUANT_CFG_CHOICES", QUANT_CFG_CHOICES)
     @patch("sglang.srt.model_loader.loader.AutoTokenizer")
     @patch("sglang.srt.model_loader.loader.logger")
+
+    # TestModelOptModelLoader类的测试quantizedcheckpointrestore
     def test_quantized_checkpoint_restore(self, mock_logger, mock_auto_tokenizer):
         """Test restoring from a quantized checkpoint."""
 
@@ -347,8 +359,8 @@ class TestModelOptModelLoader(CustomTestCase):
                     mock_setup.assert_called_once()
                     call_args = mock_setup.call_args
                     # Check that the restore path was passed correctly
-                    self.assertIn("quantized_ckpt_restore_path", call_args[1])
-                    self.assertEqual(
+                    self.assertIn("quantized_ckpt_restore_path", call_args[1])  # 断言包含
+                    self.assertEqual(  # 断言相等
                         call_args[1]["quantized_ckpt_restore_path"],
                         "/path/to/quantized/checkpoint",
                     )
@@ -359,11 +371,13 @@ class TestModelOptModelLoader(CustomTestCase):
                     )
 
                     # Verify we get the expected model back
-                    self.assertEqual(result_model, self.mock_base_model)
+                    self.assertEqual(result_model, self.mock_base_model)  # 断言相等
 
     @patch("sglang.srt.model_loader.loader.QUANT_CFG_CHOICES", QUANT_CFG_CHOICES)
     @patch("sglang.srt.model_loader.loader.AutoTokenizer")
     @patch("sglang.srt.model_loader.loader.logger")
+
+    # TestModelOptModelLoader类的测试quantizedcheckpointsave
     def test_quantized_checkpoint_save(self, mock_logger, mock_auto_tokenizer):
         """Test saving quantized checkpoint after calibration."""
 
@@ -444,8 +458,8 @@ class TestModelOptModelLoader(CustomTestCase):
                     mock_setup.assert_called_once()
                     call_args = mock_setup.call_args
                     # Check that the save path was passed correctly
-                    self.assertIn("quantized_ckpt_save_path", call_args[1])
-                    self.assertEqual(
+                    self.assertIn("quantized_ckpt_save_path", call_args[1])  # 断言包含
+                    self.assertEqual(  # 断言相等
                         call_args[1]["quantized_ckpt_save_path"],
                         "/path/to/save/checkpoint",
                     )
@@ -456,33 +470,37 @@ class TestModelOptModelLoader(CustomTestCase):
                     )
 
                     # Verify we get the expected model back
-                    self.assertEqual(result_model, self.mock_base_model)
+                    self.assertEqual(result_model, self.mock_base_model)  # 断言相等
 
+    # TestModelOptModelLoader类的测试unifiedquantizationflagsupport
     def test_unified_quantization_flag_support(self):
         """Test that ModelOptModelLoader supports unified quantization flags."""
         # Test modelopt_fp8
         config_fp8 = ModelConfig(
             model_path=self.model_path, quantization="modelopt_fp8"
         )
-        self.assertEqual(config_fp8._get_modelopt_quant_type(), "fp8")
+        self.assertEqual(config_fp8._get_modelopt_quant_type(), "fp8")  # 断言相等
 
         # Test modelopt_fp4
         config_fp4 = ModelConfig(
             model_path=self.model_path, quantization="modelopt_fp4"
         )
-        self.assertEqual(config_fp4._get_modelopt_quant_type(), "nvfp4")
+        self.assertEqual(config_fp4._get_modelopt_quant_type(), "nvfp4")  # 断言相等
 
         # Test auto-detection
         config_auto = ModelConfig(model_path=self.model_path, quantization="modelopt")
         # Should default to fp8 when no config is detected
-        self.assertEqual(config_auto._get_modelopt_quant_type(), "fp8")
+        self.assertEqual(config_auto._get_modelopt_quant_type(), "fp8")  # 断言相等
 
 
+# TestModelOptLoaderIntegration类
 class TestModelOptLoaderIntegration(CustomTestCase):
     """Integration tests for ModelOptModelLoader with Engine API."""
 
     @patch("sglang.srt.model_loader.loader.get_model_loader")
     @patch("sglang.srt.entrypoints.engine.Engine.__init__")
+
+    # TestModelOptLoaderIntegration类的测试enginewithmodeloptquantparameter
     def test_engine_with_modelopt_quant_parameter(
         self, mock_engine_init, mock_get_model_loader
     ):
@@ -513,7 +531,7 @@ class TestModelOptLoaderIntegration(CustomTestCase):
             server_args = ServerArgs(**engine_args)
 
             # Verify that modelopt_quant is properly set
-            self.assertEqual(server_args.modelopt_quant, "fp8")
+            self.assertEqual(server_args.modelopt_quant, "fp8")  # 断言相等
 
         except Exception as e:
             # If there are missing dependencies or initialization issues,
@@ -526,6 +544,8 @@ class TestModelOptLoaderIntegration(CustomTestCase):
 
     @patch("sglang.srt.model_loader.loader.get_model_loader")
     @patch("sglang.srt.entrypoints.engine.Engine.__init__")
+
+    # TestModelOptLoaderIntegration类的测试enginewithmodeloptquantcliargument
     def test_engine_with_modelopt_quant_cli_argument(
         self, mock_engine_init, mock_get_model_loader
     ):
@@ -561,10 +581,11 @@ class TestModelOptLoaderIntegration(CustomTestCase):
         server_args = ServerArgs.from_cli_args(args)
 
         # Verify that modelopt_quant was properly parsed
-        self.assertEqual(server_args.modelopt_quant, "fp8")
-        self.assertEqual(server_args.model_path, "TinyLlama/TinyLlama-1.1B-Chat-v1.0")
+        self.assertEqual(server_args.modelopt_quant, "fp8")  # 断言相等
+        self.assertEqual(server_args.model_path, "TinyLlama/TinyLlama-1.1B-Chat-v1.0")  # 断言相等
 
 
+# TestParseQuantHfConfig类
 class TestParseQuantHfConfig(CustomTestCase):
     """Tests for _parse_quant_hf_config and _parse_modelopt_quant_config.
 
@@ -583,6 +604,7 @@ class TestParseQuantHfConfig(CustomTestCase):
         ({"quant_method": "modelopt"}, "modelopt"),
     ]
 
+    # TestParseQuantHfConfig类的测试初始化设置
     def setUp(self):
         """Set up a real ModelConfig using TinyLlama (already used elsewhere)."""
         self.mock_tp_rank = patch(
@@ -601,18 +623,21 @@ class TestParseQuantHfConfig(CustomTestCase):
             model_path="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
         )
 
+    # TestParseQuantHfConfig类的测试清理
     def tearDown(self):
         self.mock_tp_rank.stop()
         self.mock_mp_is_initialized.stop()
 
+    # TestParseQuantHfConfig类的测试modeloptquantparsing
     def test_modelopt_quant_parsing(self):
         """Modelopt quant configs must resolve to the correct quant_method."""
         for quant_cfg_input, expected in self._MODELOPT_CASES:
             with self.subTest(quant_cfg=quant_cfg_input):
                 self.model_config.hf_config.quantization_config = dict(quant_cfg_input)
                 result = self.model_config._parse_quant_hf_config()
-                self.assertEqual(result["quant_method"], expected)
+                self.assertEqual(result["quant_method"], expected)  # 断言相等
 
+    # TestParseQuantHfConfig类的测试nonmodeloptquantmethodunchanged
     def test_non_modelopt_quant_method_unchanged(self):
         """Non-modelopt quant_method (e.g. 'gptq') must NOT enter the modelopt path."""
         self.model_config.hf_config.quantization_config = {
@@ -620,11 +645,14 @@ class TestParseQuantHfConfig(CustomTestCase):
             "bits": 4,
         }
         result = self.model_config._parse_quant_hf_config()
-        self.assertEqual(result["quant_method"], "gptq")
-        self.assertNotIn("quant_algo", result)
+        self.assertEqual(result["quant_method"], "gptq")  # 断言相等
+        self.assertNotIn("quant_algo", result)  # 断言不包含
 
 
+# TestModelOptMixedPrecisionConfig类
 class TestModelOptMixedPrecisionConfig(CustomTestCase):
+
+    # TestModelOptMixedPrecisionConfig类的测试nemotronmixedprecisionusesmodeloptmixed
     def test_nemotron_mixed_precision_uses_modelopt_mixed(self):
         model_config = ModelConfig.__new__(ModelConfig)
         model_config.hf_config = MagicMock()
@@ -635,19 +663,22 @@ class TestModelOptMixedPrecisionConfig(CustomTestCase):
             {"quantization": {"quant_algo": "MIXED_PRECISION"}}
         )
 
-        self.assertEqual(result["quant_method"], "modelopt_mixed")
+        self.assertEqual(result["quant_method"], "modelopt_mixed")  # 断言相等
 
+    # TestModelOptMixedPrecisionConfig类的测试mixedprecisionoverridedoesnothijackw4afp8
     def test_mixed_precision_override_does_not_hijack_w4afp8(self):
-        self.assertIsNone(
+        self.assertIsNone(  # 断言为None
             ModelOptMixedPrecisionConfig.override_quantization_method(
                 {"quant_method": "w4afp8", "quant_algo": "MIXED_PRECISION"},
                 "w4afp8",
             )
         )
 
+    # TestModelOptMixedPrecisionConfig类的测试mixedprecisionusesnvfp4mincapability
     def test_mixed_precision_uses_nvfp4_min_capability(self):
-        self.assertEqual(ModelOptMixedPrecisionConfig.get_min_capability(), 100)
+        self.assertEqual(ModelOptMixedPrecisionConfig.get_min_capability(), 100)  # 断言相等
 
+    # TestModelOptMixedPrecisionConfig类的测试mixedprecisionquantlayerresolutionaftermapping
     def test_mixed_precision_quant_layer_resolution_after_mapping(self):
         quant_config = ModelOptMixedPrecisionConfig.from_config(
             {
@@ -671,15 +702,15 @@ class TestModelOptMixedPrecisionConfig(CustomTestCase):
             WeightsMapper(orig_to_new_prefix={"backbone.": "model."})
         )
 
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             quant_config._resolve_quant_algo("model.layers.0.mixer.in_proj"),
             "FP8",
         )
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             quant_config._resolve_quant_algo("model.layers.1.mixer.experts"),
             "NVFP4",
         )
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             quant_config._resolve_quant_algo("model.layers.2.mixer.qkv_proj"),
             "FP8",
         )

@@ -1,3 +1,4 @@
+# 文件名: test_mm_process_config.py - 多模态处理配置
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -8,6 +9,7 @@ register_cuda_ci(est_time=9, stage="base-b", runner_config="1-gpu-small")
 register_amd_ci(est_time=1, suite="stage-b-test-1-gpu-small-amd")
 
 
+# TestMmProcessConfigValidation类
 class TestMmProcessConfigValidation(unittest.TestCase):
     """Server-args validation for mm_process_config."""
 
@@ -16,38 +18,45 @@ class TestMmProcessConfigValidation(unittest.TestCase):
             model_path="dummy",
             mm_process_config={"image": {"max_pixels": 5000000}},
         )
-        self.assertEqual(args.mm_process_config, {"image": {"max_pixels": 5000000}})
+        self.assertEqual(args.mm_process_config, {"image": {"max_pixels": 5000000}})  # 断言相等
 
+    # TestMmProcessConfigValidation类的测试emptyconfigaccepted
     def test_empty_config_accepted(self):
         args = ServerArgs(model_path="dummy", mm_process_config={})
-        self.assertEqual(args.mm_process_config, {})
+        self.assertEqual(args.mm_process_config, {})  # 断言相等
 
+    # TestMmProcessConfigValidation类的测试noneconfigdefaultstoemptydict
     def test_none_config_defaults_to_empty_dict(self):
         args = ServerArgs(model_path="dummy", mm_process_config=None)
         # None is kept as-is for dummy models (default happens after early return)
         # but for real models it would be set to {}
-        self.assertIsNone(args.mm_process_config)
+        self.assertIsNone(args.mm_process_config)  # 断言为None
 
+    # TestMmProcessConfigValidation类的测试toplevelnondictrejected
     def test_top_level_non_dict_rejected(self):
-        with self.assertRaises(TypeError) as ctx:
+        with self.assertRaises(TypeError) as ctx:  # 断言抛出异常
             ServerArgs(model_path="dummy", mm_process_config="bad")
-        self.assertIn("mm_process_config must be a dict", str(ctx.exception))
+        self.assertIn("mm_process_config must be a dict", str(ctx.exception))  # 断言包含
 
+    # TestMmProcessConfigValidation类的测试modalitynondictrejectedimage
     def test_modality_non_dict_rejected_image(self):
-        with self.assertRaises(TypeError) as ctx:
+        with self.assertRaises(TypeError) as ctx:  # 断言抛出异常
             ServerArgs(model_path="dummy", mm_process_config={"image": "bad"})
-        self.assertIn("mm_process_config['image'] must be a dict", str(ctx.exception))
+        self.assertIn("mm_process_config['image'] must be a dict", str(ctx.exception))  # 断言包含
 
+    # TestMmProcessConfigValidation类的测试modalitynondictrejectedvideo
     def test_modality_non_dict_rejected_video(self):
-        with self.assertRaises(TypeError) as ctx:
+        with self.assertRaises(TypeError) as ctx:  # 断言抛出异常
             ServerArgs(model_path="dummy", mm_process_config={"video": 123})
-        self.assertIn("mm_process_config['video'] must be a dict", str(ctx.exception))
+        self.assertIn("mm_process_config['video'] must be a dict", str(ctx.exception))  # 断言包含
 
+    # TestMmProcessConfigValidation类的测试modalitynondictrejectedaudio
     def test_modality_non_dict_rejected_audio(self):
-        with self.assertRaises(TypeError) as ctx:
+        with self.assertRaises(TypeError) as ctx:  # 断言抛出异常
             ServerArgs(model_path="dummy", mm_process_config={"audio": [1, 2]})
-        self.assertIn("mm_process_config['audio'] must be a dict", str(ctx.exception))
+        self.assertIn("mm_process_config['audio'] must be a dict", str(ctx.exception))  # 断言包含
 
+    # TestMmProcessConfigValidation类的测试multimodalityconfigaccepted
     def test_multi_modality_config_accepted(self):
         config = {
             "image": {"max_pixels": 1048576},
@@ -55,9 +64,10 @@ class TestMmProcessConfigValidation(unittest.TestCase):
             "audio": {"sample_rate": 16000},
         }
         args = ServerArgs(model_path="dummy", mm_process_config=config)
-        self.assertEqual(args.mm_process_config, config)
+        self.assertEqual(args.mm_process_config, config)  # 断言相等
 
 
+# TestBaseProcessorConfigExtraction类
 class TestBaseProcessorConfigExtraction(unittest.TestCase):
     """Verify BaseMultimodalProcessor.__init__ extracts configs from server_args."""
 
@@ -83,6 +93,7 @@ class TestBaseProcessorConfigExtraction(unittest.TestCase):
             )
         return proc
 
+    # TestBaseProcessorConfigExtraction类的测试configsextracted
     def test_configs_extracted(self):
         config = {
             "image": {"max_pixels": 5000000},
@@ -90,17 +101,19 @@ class TestBaseProcessorConfigExtraction(unittest.TestCase):
             "audio": {"sample_rate": 16000},
         }
         proc = self._make_processor(config)
-        self.assertEqual(proc.image_config, {"max_pixels": 5000000})
-        self.assertEqual(proc.video_config, {"fps": 3})
-        self.assertEqual(proc.audio_config, {"sample_rate": 16000})
+        self.assertEqual(proc.image_config, {"max_pixels": 5000000})  # 断言相等
+        self.assertEqual(proc.video_config, {"fps": 3})  # 断言相等
+        self.assertEqual(proc.audio_config, {"sample_rate": 16000})  # 断言相等
 
+    # TestBaseProcessorConfigExtraction类的测试emptyconfigyieldsemptydicts
     def test_empty_config_yields_empty_dicts(self):
         proc = self._make_processor({})
-        self.assertEqual(proc.image_config, {})
-        self.assertEqual(proc.video_config, {})
-        self.assertEqual(proc.audio_config, {})
+        self.assertEqual(proc.image_config, {})  # 断言相等
+        self.assertEqual(proc.video_config, {})  # 断言相等
+        self.assertEqual(proc.audio_config, {})  # 断言相等
 
 
+# TestProcessMmDataKwargs类
 class TestProcessMmDataKwargs(unittest.TestCase):
     """Verify process_mm_data injects per-modality kwargs correctly."""
 
@@ -120,6 +133,7 @@ class TestProcessMmDataKwargs(unittest.TestCase):
         # Capture kwargs passed to __call__
         captured_kwargs = {}
 
+        # capture_call
         def capture_call(**kwargs):
             captured_kwargs.update(kwargs)
             return {}
@@ -139,6 +153,7 @@ class TestProcessMmDataKwargs(unittest.TestCase):
 
         return proc, mock_processor, captured_kwargs
 
+    # TestProcessMmDataKwargs类的测试imageskwargsinjected
     def test_images_kwargs_injected(self):
         config = {"image": {"max_pixels": 5000000}}
         proc, mock_proc, _ = self._make_base_processor(config)
@@ -146,10 +161,11 @@ class TestProcessMmDataKwargs(unittest.TestCase):
         proc.process_mm_data("test", images=["img1"])
 
         call_kwargs = mock_proc.__call__.call_args
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             call_kwargs.kwargs.get("images_kwargs"), {"max_pixels": 5000000}
         )
 
+    # TestProcessMmDataKwargs类的测试videoskwargsinjected
     def test_videos_kwargs_injected(self):
         config = {"video": {"fps": 3, "max_frames": 60}}
         proc, mock_proc, _ = self._make_base_processor(config)
@@ -157,10 +173,11 @@ class TestProcessMmDataKwargs(unittest.TestCase):
         proc.process_mm_data("test", videos=["vid1"])
 
         call_kwargs = mock_proc.__call__.call_args
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             call_kwargs.kwargs.get("videos_kwargs"), {"fps": 3, "max_frames": 60}
         )
 
+    # TestProcessMmDataKwargs类的测试nocollisionwithoverlappingkeys
     def test_no_collision_with_overlapping_keys(self):
         """Core test: image and video both have max_pixels but stay separate."""
         config = {
@@ -172,21 +189,23 @@ class TestProcessMmDataKwargs(unittest.TestCase):
         proc.process_mm_data("test", images=["img1"], videos=["vid1"])
 
         call_kwargs = mock_proc.__call__.call_args
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             call_kwargs.kwargs.get("images_kwargs"), {"max_pixels": 1048576}
         )
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             call_kwargs.kwargs.get("videos_kwargs"), {"max_pixels": 602112}
         )
 
+    # TestProcessMmDataKwargs类的测试emptyconfignokwargsinjected
     def test_empty_config_no_kwargs_injected(self):
         proc, mock_proc, _ = self._make_base_processor({})
 
         proc.process_mm_data("test", images=["img1"])
 
         call_kwargs = mock_proc.__call__.call_args
-        self.assertNotIn("images_kwargs", call_kwargs.kwargs)
+        self.assertNotIn("images_kwargs", call_kwargs.kwargs)  # 断言不包含
 
+    # TestProcessMmDataKwargs类的测试audiokwargspreservedwithconfig
     def test_audio_kwargs_preserved_with_config(self):
         """audio_config merges with existing truncation=False."""
         config = {"audio": {"sample_rate": 16000}}
@@ -198,10 +217,11 @@ class TestProcessMmDataKwargs(unittest.TestCase):
 
         call_kwargs = mock_proc.__call__.call_args
         audio_kw = call_kwargs.kwargs.get("audio_kwargs", {})
-        self.assertFalse(audio_kw.get("truncation", True))
-        self.assertEqual(audio_kw.get("sample_rate"), 16000)
+        self.assertFalse(audio_kw.get("truncation", True))  # 断言为假
+        self.assertEqual(audio_kw.get("sample_rate"), 16000)  # 断言相等
 
 
+# TestOverrideProcessorsConfigInjection类
 class TestOverrideProcessorsConfigInjection(unittest.TestCase):
     """Regression tests for processors that override process_mm_data."""
 
@@ -230,6 +250,7 @@ class TestOverrideProcessorsConfigInjection(unittest.TestCase):
 
         return proc, mock_hf_processor
 
+    # TestOverrideProcessorsConfigInjection类的测试ernie45vlinjectsimageskwargs
     def test_ernie45_vl_injects_images_kwargs(self):
         from sglang.srt.multimodal.processors.ernie45_vl import (
             Ernie4_5_VLImageProcessor,
@@ -243,13 +264,14 @@ class TestOverrideProcessorsConfigInjection(unittest.TestCase):
         proc.process_mm_data("test", images=["img1"], videos=["vid1"])
 
         call_kwargs = mock_proc.__call__.call_args
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             call_kwargs.kwargs.get("images_kwargs"), {"max_pixels": 2000000}
         )
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             call_kwargs.kwargs.get("videos_kwargs"), {"max_pixels": 500000}
         )
 
+    # TestOverrideProcessorsConfigInjection类的测试midashenglminjectsaudiokwargs
     def test_midashenglm_injects_audio_kwargs(self):
         from sglang.srt.multimodal.processors.midashenglm import (
             MiDashengLMMultimodalProcessor,
@@ -264,9 +286,10 @@ class TestOverrideProcessorsConfigInjection(unittest.TestCase):
 
         call_kwargs = mock_proc.__call__.call_args
         audio_kw = call_kwargs.kwargs.get("audio_kwargs", {})
-        self.assertFalse(audio_kw.get("truncation", True))
-        self.assertEqual(audio_kw.get("sample_rate"), 16000)
+        self.assertFalse(audio_kw.get("truncation", True))  # 断言为假
+        self.assertEqual(audio_kw.get("sample_rate"), 16000)  # 断言相等
 
+    # TestOverrideProcessorsConfigInjection类的测试midashenglmuserconfigoverridestruncation
     def test_midashenglm_user_config_overrides_truncation(self):
         """User config can override the default truncation=False."""
         from sglang.srt.multimodal.processors.midashenglm import (
@@ -283,7 +306,7 @@ class TestOverrideProcessorsConfigInjection(unittest.TestCase):
         call_kwargs = mock_proc.__call__.call_args
         audio_kw = call_kwargs.kwargs.get("audio_kwargs", {})
         # User config can override truncation if they explicitly set it
-        self.assertTrue(audio_kw.get("truncation"))
+        self.assertTrue(audio_kw.get("truncation"))  # 断言为真
 
 
 if __name__ == "__main__":

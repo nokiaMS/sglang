@@ -1,3 +1,6 @@
+# 本文件实现了LoRA适配器的配置类LoRAConfig，用于加载和解析LoRA适配器的配置信息，
+# 包括适配器路径、目标模块、LoRA秩（rank）、alpha缩放因子、以及额外token配置等。
+
 # Copyright 2023-2024 SGLang Team
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,6 +25,7 @@ from huggingface_hub import snapshot_download
 logger = logging.getLogger(__name__)
 
 
+# LoRA适配器配置类，负责加载和解析adapter_config.json及added_tokens.json
 class LoRAConfig:
     def __init__(
         self,
@@ -36,6 +40,7 @@ class LoRAConfig:
             self.hf_config = config_dict
             self.added_tokens_config = added_tokens_config
         else:
+            # 从磁盘或HuggingFace Hub加载LoRA配置
             self.hf_config = self.get_lora_config()
             self.added_tokens_config = self.get_added_tokens_config()
 
@@ -55,10 +60,12 @@ class LoRAConfig:
                 if token_id >= base_vocab_size
             }
 
+        # 计算LoRA额外添加的token数量
         self.lora_added_tokens_size = (
             len(self.added_tokens_config) if self.added_tokens_config is not None else 0
         )
 
+    # 从字典创建LoRAConfig的类方法
     @classmethod
     def from_dict(
         cls,
@@ -72,6 +79,7 @@ class LoRAConfig:
             base_vocab_size=base_vocab_size,
         )
 
+    # 从适配器路径加载adapter_config.json配置文件
     def get_lora_config(self, dummy=False):
         if dummy:
             raise NotImplementedError()
@@ -84,6 +92,7 @@ class LoRAConfig:
             with open(os.path.join(weights_dir, config_name), "r") as f:
                 return json.load(f)
 
+    # 加载LoRA适配器中的额外token配置（added_tokens.json）
     def get_added_tokens_config(self):
         """Load added tokens from the LoRA adapter if the file exists."""
         # Determine the weights directory

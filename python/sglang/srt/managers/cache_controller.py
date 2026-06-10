@@ -1,3 +1,4 @@
+# 分层缓存控制器，管理GPU显存、CPU内存和存储后端之间的KV缓存传输（预取、备份、加载、驱逐）
 from __future__ import annotations
 
 """
@@ -49,6 +50,7 @@ logger = logging.getLogger(__name__)
 device_module = get_device_module()
 
 
+# 层级加载事件，用于跟踪每一层KV缓存从CPU到GPU的传输完成状态
 class LayerLoadingEvent:
     def __init__(self, num_layers: int):
         self._num_layers = num_layers
@@ -67,6 +69,7 @@ class LayerLoadingEvent:
         return self.load_events[-1]
 
 
+# 层级完成计数器，管理多轮重叠传输中的生产者-消费者事件对
 class LayerDoneCounter:
     def __init__(self, num_layers: int):
         self.num_layers = num_layers
@@ -98,6 +101,7 @@ class LayerDoneCounter:
         self.consumer_index = -1
 
 
+# 缓存操作，表示一次CPU-GPU之间的KV缓存传输（加载或写回）
 class CacheOperation:
 
     counter = 0
@@ -139,12 +143,14 @@ class CacheOperation:
         return self.priority < other.priority
 
 
+# HiCache确认信号，包含起止事件和节点ID列表
 class HiCacheAck(NamedTuple):
     start_event: device_module.Event
     finish_event: device_module.Event
     node_ids: List[int]
 
 
+# 传输缓冲区，重叠执行缓冲区准备和传输操作以提高吞吐量
 class TransferBuffer:
     """
     Overlapping buffer preparation and transfer operations to improve throughput.
@@ -184,6 +190,7 @@ class TransferBuffer:
         self.buffers.queue.clear()
 
 
+# 存储操作，表示一次从主机内存到存储后端的KV缓存备份
 class StorageOperation:
     counter = 0
 
@@ -209,6 +216,7 @@ class StorageOperation:
         return self.id < other.id
 
 
+# 预取操作，表示一次从存储后端到主机内存的KV缓存预取，支持线程安全的取消和进度跟踪
 class PrefetchOperation(StorageOperation):
     def __init__(
         self,
@@ -241,6 +249,7 @@ class PrefetchOperation(StorageOperation):
         return self._terminated_flag
 
 
+# HiCache控制器，管理GPU显存、CPU内存和存储后端之间的KV缓存层次传输
 class HiCacheController:
 
     def __init__(

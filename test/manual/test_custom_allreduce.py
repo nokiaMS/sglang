@@ -1,3 +1,4 @@
+# 文件名: test_custom_allreduce.py - 自定义AllReduce测试 - 验证自定义AllReduce通信算子的正确性
 import os
 import random
 import socket
@@ -21,6 +22,7 @@ from sglang.srt.server_args import ServerArgs, set_global_server_args_for_schedu
 from sglang.test.test_utils import CustomTestCase
 
 
+# 获取可用端口 - 查找系统可用的网络端口
 def get_open_port() -> int:
     # try ipv4
     try:
@@ -34,6 +36,7 @@ def get_open_port() -> int:
             return s.getsockname()[1]
 
 
+# 多进程并行测试 - 使用Ray启动多进程并行测试
 def multi_process_parallel(
     world_size: int,
     cls: Any,
@@ -71,15 +74,18 @@ class TestCustomAllReduce(CustomTestCase):
     TEST_LOOP = 10
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         random.seed(42)  # keep the deterministic seed
 
+    # 测试graph allreduce
     def test_graph_allreduce(self):
         for world_size in self.WORLD_SIZES:
             if world_size > torch.cuda.device_count():
                 continue
             multi_process_parallel(world_size, self, self.graph_allreduce)
 
+    # 测试eager allreduce
     def test_eager_allreduce(self):
         for world_size in self.WORLD_SIZES:
             if world_size > torch.cuda.device_count():
@@ -87,6 +93,7 @@ class TestCustomAllReduce(CustomTestCase):
             multi_process_parallel(world_size, self, self.eager_allreduce)
 
     @ray.remote(num_gpus=1, max_calls=1)
+    # graph allreduce
     def graph_allreduce(self, world_size, rank, distributed_init_port):
         del os.environ["CUDA_VISIBLE_DEVICES"]
         device = torch.device(f"cuda:{rank}")
@@ -150,6 +157,7 @@ class TestCustomAllReduce(CustomTestCase):
                     torch.testing.assert_close(out2, inp2)
 
     @ray.remote(num_gpus=1, max_calls=1)
+    # eager allreduce
     def eager_allreduce(self, world_size, rank, distributed_init_port):
         del os.environ["CUDA_VISIBLE_DEVICES"]
         device = torch.device(f"cuda:{rank}")

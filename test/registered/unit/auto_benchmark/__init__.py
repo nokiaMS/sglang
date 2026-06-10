@@ -1,3 +1,4 @@
+# 文件名: __init__.py - 自动基准测试测试
 import json
 import tempfile
 import unittest
@@ -12,6 +13,7 @@ from transformers import PreTrainedTokenizerFast
 from sglang.auto_benchmark_lib import build_candidates, build_server_candidates
 
 
+# create_lightweight_tokenizer
 def create_lightweight_tokenizer() -> PreTrainedTokenizerFast:
     vocab = {"[UNK]": 0, "[PAD]": 1, "[BOS]": 2, "[EOS]": 3}
     vocab.update({f"tok_{i}": i + 4 for i in range(4096)})
@@ -35,7 +37,10 @@ def create_lightweight_tokenizer() -> PreTrainedTokenizerFast:
     return hf_tokenizer
 
 
+# AutoBenchmarkTestCase类
 class AutoBenchmarkTestCase(unittest.TestCase):
+
+    # AutoBenchmarkTestCase类的测试初始化设置
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.tmpdir_path = Path(self.tmpdir.name)
@@ -43,9 +48,11 @@ class AutoBenchmarkTestCase(unittest.TestCase):
         self.tokenizer_dir = self.tmpdir_path / "tok"
         self.tokenizer.save_pretrained(self.tokenizer_dir)
 
+    # AutoBenchmarkTestCase类的测试清理
     def tearDown(self):
         self.tmpdir.cleanup()
 
+    # AutoBenchmarkTestCase类的内部方法_write_autobench_jsonl
     def _write_autobench_jsonl(self) -> str:
         rows = [
             {"prompt": "tok_1 tok_2 tok_3", "output_len": 32},
@@ -66,6 +73,7 @@ class AutoBenchmarkTestCase(unittest.TestCase):
                 f.write(json.dumps(row) + "\n")
         return str(path)
 
+    # AutoBenchmarkTestCase类的内部方法_write_sharegpt_json
     def _write_sharegpt_json(self) -> str:
         rows = [
             {
@@ -86,6 +94,7 @@ class AutoBenchmarkTestCase(unittest.TestCase):
             json.dump(rows, f)
         return str(path)
 
+    # AutoBenchmarkTestCase类的内部方法_build_candidates_for_capability
     def _build_candidates_for_capability(
         self,
         base_flags,
@@ -106,6 +115,7 @@ class AutoBenchmarkTestCase(unittest.TestCase):
                 max_candidates=max_candidates,
             )
 
+    # AutoBenchmarkTestCase类的内部方法_build_server_candidates_for_capability
     def _build_server_candidates_for_capability(
         self,
         server_cfg,
@@ -125,6 +135,8 @@ class AutoBenchmarkTestCase(unittest.TestCase):
             )
 
     @staticmethod
+
+    # AutoBenchmarkTestCase类的内部方法_trial_record
     def _trial_record(
         request_rate,
         *,
@@ -149,6 +161,7 @@ class AutoBenchmarkTestCase(unittest.TestCase):
             },
         }
 
+    # AutoBenchmarkTestCase类的内部方法_make_run_trial_side_effect
     def _make_run_trial_side_effect(
         self,
         calls,
@@ -157,6 +170,8 @@ class AutoBenchmarkTestCase(unittest.TestCase):
         mean_ttft_ms=1.0,
         mean_tpot_ms=1.0,
     ):
+
+        # fake_run_trial
         def fake_run_trial(**kwargs):
             calls.append(kwargs["request_rate"])
             return self._trial_record(
@@ -171,6 +186,7 @@ class AutoBenchmarkTestCase(unittest.TestCase):
 
         return fake_run_trial
 
+    # AutoBenchmarkTestCase类的内部方法_run_candidate_kwargs
     def _run_candidate_kwargs(self, benchmark_cfg, **overrides):
         kwargs = {
             "stage_name": "base",

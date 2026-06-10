@@ -1,38 +1,41 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 # Adapted from https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/quantization/moe_wna16.py
-from __future__ import annotations
+# MoE WNA16（W8A16/W4A16）量化方法模块，支持GPTQ和AWQ量化方案，包含MoE层的权重创建、加载和处理功能。
 
-import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from __future__ import annotations  # 启用延迟注解评估
 
-import numpy as np
-import torch
+import logging  # 日志模块
+from typing import TYPE_CHECKING, Any, Dict, List, Optional  # 类型注解
 
-from sglang.srt.distributed import get_tensor_model_parallel_rank
-from sglang.srt.distributed.parallel_state import get_tp_group
-from sglang.srt.layers.moe import MoeRunner, MoeRunnerBackend, MoeRunnerConfig
-from sglang.srt.layers.moe.moe_runner.triton import TritonMoeQuantInfo
-from sglang.srt.layers.quantization.awq import AWQConfig
-from sglang.srt.layers.quantization.base_config import (
+import numpy as np  # 数值计算库
+import torch  # 深度学习框架
+
+from sglang.srt.distributed import get_tensor_model_parallel_rank  # 分布式通信
+from sglang.srt.distributed.parallel_state import get_tp_group  # 分布式通信
+from sglang.srt.layers.moe import MoeRunner, MoeRunnerBackend, MoeRunnerConfig  # MoE混合专家模块
+from sglang.srt.layers.moe.moe_runner.triton import TritonMoeQuantInfo  # Triton MoE运行器
+from sglang.srt.layers.quantization.awq import AWQConfig  # AWQ量化配置
+from sglang.srt.layers.quantization.base_config import (  # 量化基础配置
     FusedMoEMethodBase,
     QuantizationConfig,
     QuantizeMethodBase,
 )
-from sglang.srt.layers.quantization.gptq import GPTQConfig, GPTQMarlinConfig
-from sglang.srt.layers.quantization.unquant import (
+from sglang.srt.layers.quantization.gptq import GPTQConfig, GPTQMarlinConfig  # GPTQ量化配置
+from sglang.srt.layers.quantization.unquant import (  # 未量化方法
     UnquantizedFusedMoEMethod,
     UnquantizedLinearMethod,
 )
-from sglang.srt.utils import get_device_capability, set_weight_attrs
+from sglang.srt.utils import get_device_capability, set_weight_attrs  # SGLang工具函数
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)  # 创建日志记录器
 
 if TYPE_CHECKING:
-    from sglang.srt.layers.moe.token_dispatcher import (
+    from sglang.srt.layers.moe.token_dispatcher import (  # MoE混合专家模块
         CombineInput,
         StandardDispatchOutput,
     )
+# 获取权重排列索引
 
 
 def get_weight_perm(num_bits: int):
@@ -62,12 +65,13 @@ def get_weight_perm(num_bits: int):
 
     perm = perm.reshape((-1, len(interleave)))[:, interleave].ravel()
     perm = torch.from_numpy(perm)
-    return perm
+    return perm  # 返回结果
 
 
+# MoE WNA16（W8A16/W4A16）量化配置类
 class MoeWNA16Config(QuantizationConfig):
     """Config class for MOE WNA16 (W8A16/W4A16) quantization."""
-
+    # 初始化方法
     def __init__(
         self,
         linear_quant_method: str,
@@ -78,7 +82,7 @@ class MoeWNA16Config(QuantizationConfig):
         modules_to_not_convert: Optional[List[str]],
         full_config: Dict[str, Any],
     ) -> None:
-        super().__init__()
+        super().__init__()  # 调用父类初始化
         self.weight_bits = weight_bits
         self.group_size = group_size
         self.has_zp = has_zp
@@ -100,38 +104,44 @@ class MoeWNA16Config(QuantizationConfig):
             )
             awq_min_capability = AWQConfig.get_min_capability()
             if device_capability < awq_min_capability:
-                raise ValueError(
+                raise ValueError(  # 抛出值错误
                     "The quantization method moe_wna16 + awq is not supported "
                     "for the current GPU. "
                     f"Minimum capability: {awq_min_capability}. "
                     f"Current capability: {device_capability}."
                 )
         else:
-            raise ValueError("moe_wna16 only support gptq and awq.")
+            raise ValueError("moe_wna16 only support gptq and awq.")  # 抛出值错误
 
         if modules_to_not_convert is None:
             self.modules_to_not_convert = []
         else:
             self.modules_to_not_convert = modules_to_not_convert
+    # 获取量化方法名称
 
     @classmethod
     def get_name(cls) -> str:
-        return "moe_wna16"
+        return "moe_wna16"  # 返回结果
+    # 获取支持的激活数据类型
 
     @classmethod
     def get_supported_act_dtypes(cls) -> List[torch.dtype]:
-        return [torch.bfloat16, torch.half]
+        return [torch.bfloat16, torch.half]  # 返回结果
+    # 获取最低硬件能力要求
 
     @classmethod
     def get_min_capability(cls) -> int:
-        return 70
+        return 70  # 返回结果
+    # 获取配置文件名列表
 
     @classmethod
     def get_config_filenames(cls) -> List[str]:
-        return ["quantize_config.json"]
+        return ["quantize_config.json"]  # 返回结果
+    # 获取缩放激活名称列表
 
     def get_scaled_act_names(self) -> List[str]:
-        raise NotImplementedError
+        raise NotImplementedError  # 抛出未实现错误
+    # 从配置字典创建实例
 
     @classmethod
     def from_config(cls, config: Dict[str, Any]) -> MoeWNA16Config:
@@ -148,9 +158,9 @@ class MoeWNA16Config(QuantizationConfig):
                 config, ["modules_to_not_convert"], None
             )
         else:
-            raise ValueError("moe_wna16 only support gptq and awq.")
+            raise ValueError("moe_wna16 only support gptq and awq.")  # 抛出值错误
 
-        return cls(
+        return cls(  # 返回结果
             quant_method,
             weight_bits,
             group_size,
@@ -159,12 +169,14 @@ class MoeWNA16Config(QuantizationConfig):
             modules_to_not_convert,
             config,
         )
+    # 覆盖量化方法（自动检测）
 
     @classmethod
     def override_quantization_method(cls, hf_quant_cfg, user_quant) -> Optional[str]:
         if user_quant == "moe_wna16" and cls.is_moe_wna16_compatible(hf_quant_cfg):
-            return cls.get_name()
-        return None
+            return cls.get_name()  # 返回结果
+        return None  # 返回None
+    # 判断是否与MoE WNA16量化兼容
 
     @classmethod
     def is_moe_wna16_compatible(cls, quant_config: Dict[str, Any]):
@@ -189,54 +201,59 @@ class MoeWNA16Config(QuantizationConfig):
             and device_capability >= awq_min_capability
         )
 
-        return gptq_compatible or awq_compatible
+        return gptq_compatible or awq_compatible  # 返回结果
+    # 获取量化方法
 
     def get_quant_method(
         self, layer: torch.nn.Module, prefix: str
     ) -> Optional[QuantizeMethodBase]:
         # avoid circular import
-        from sglang.srt.layers.linear import LinearBase
-        from sglang.srt.layers.moe.fused_moe_triton.layer import FusedMoE
+        from sglang.srt.layers.linear import LinearBase  # 线性层
+        from sglang.srt.layers.moe.fused_moe_triton.layer import FusedMoE  # MoE混合专家模块
 
         if is_layer_skipped_quant(prefix, self.modules_to_not_convert):
             if isinstance(layer, FusedMoE):
-                return UnquantizedFusedMoEMethod()
-            return UnquantizedLinearMethod()
+                return UnquantizedFusedMoEMethod()  # 返回结果
+            return UnquantizedLinearMethod()  # 返回结果
         elif isinstance(layer, LinearBase):
 
             if self.linear_quant_method == "gptq":
                 if self.use_marlin:
-                    return GPTQMarlinConfig.from_config(
+                    return GPTQMarlinConfig.from_config(  # 返回结果
                         self.full_config
                     ).get_quant_method(layer, prefix)
                 else:
-                    return GPTQConfig.from_config(self.full_config).get_quant_method(
+                    return GPTQConfig.from_config(self.full_config).get_quant_method(  # 返回结果
                         layer, prefix
                     )
             elif self.linear_quant_method == "awq":
-                return AWQConfig.from_config(self.full_config).get_quant_method(
+                return AWQConfig.from_config(self.full_config).get_quant_method(  # 返回结果
                     layer, prefix
                 )
             else:
-                raise ValueError("moe_wna16 only support gptq and awq.")
+                raise ValueError("moe_wna16 only support gptq and awq.")  # 抛出值错误
         elif isinstance(layer, FusedMoE):
-            return MoeWNA16Method(self)
-        return None
+            return MoeWNA16Method(self)  # 返回结果
+        return None  # 返回None
+# 判断层是否跳过量化
 
 
 def is_layer_skipped_quant(prefix: str, modules_to_not_convert: List[str]):
-    return any(module_name in prefix for module_name in modules_to_not_convert)
+    return any(module_name in prefix for module_name in modules_to_not_convert)  # 返回结果
 
 
+# MoE WNA16（W8A16/W4A16）量化方法
 class MoeWNA16Method(FusedMoEMethodBase):
     """Linear method for MOE WNA16 (W8A16/W4A16) quantization.
 
     Args:
         quant_config: The MOE WNA16 (W8A16/W4A16) quantization config.
     """
+    # 初始化方法
 
     def __init__(self, quant_config: MoeWNA16Config):
         self.quant_config = quant_config
+    # 创建并注册量化权重参数
 
     def create_weights(
         self,
@@ -247,7 +264,7 @@ class MoeWNA16Method(FusedMoEMethodBase):
         params_dtype: torch.dtype,
         **extra_weight_attrs,
     ):
-        from sglang.srt.layers.moe.fused_moe_triton import FusedMoeWeightScaleSupported
+        from sglang.srt.layers.moe.fused_moe_triton import FusedMoeWeightScaleSupported  # MoE混合专家模块
 
         layer.quant_config = self.quant_config
         bit8_pack_factor = self.quant_config.bit8_pack_factor
@@ -273,78 +290,78 @@ class MoeWNA16Method(FusedMoEMethodBase):
         extra_weight_attrs["weight_loader"] = wrapped_weight_loader
 
         # Fused gate_up_proj (column parallel)
-        w13_qweight = torch.nn.Parameter(
-            torch.empty(
+        w13_qweight = torch.nn.Parameter(  # 创建参数
+            torch.empty(  # 创建空张量
                 num_experts,
                 2 * intermediate_size_per_partition,
                 hidden_size // bit8_pack_factor,
                 dtype=torch.uint8,
             ),
-            requires_grad=False,
+            requires_grad=False,  # 不可训练
         )
-        layer.register_parameter("w13_qweight", w13_qweight)
+        layer.register_parameter("w13_qweight", w13_qweight)  # 注册层参数
         set_weight_attrs(w13_qweight, extra_weight_attrs)
 
         # down_proj (row parallel)
-        w2_qweight = torch.nn.Parameter(
-            torch.empty(
+        w2_qweight = torch.nn.Parameter(  # 创建参数
+            torch.empty(  # 创建空张量
                 num_experts,
                 hidden_size,
                 intermediate_size_per_partition // bit8_pack_factor,
                 dtype=torch.uint8,
             ),
-            requires_grad=False,
+            requires_grad=False,  # 不可训练
         )
-        layer.register_parameter("w2_qweight", w2_qweight)
+        layer.register_parameter("w2_qweight", w2_qweight)  # 注册层参数
         set_weight_attrs(w2_qweight, extra_weight_attrs)
 
-        w13_scales = torch.nn.Parameter(
-            torch.zeros(
+        w13_scales = torch.nn.Parameter(  # 创建参数
+            torch.zeros(  # 创建零张量
                 num_experts,
                 2 * intermediate_size_per_partition,
                 hidden_size // group_size,
                 dtype=params_dtype,
             ),
-            requires_grad=False,
+            requires_grad=False,  # 不可训练
         )
-        layer.register_parameter("w13_scales", w13_scales)
+        layer.register_parameter("w13_scales", w13_scales)  # 注册层参数
         set_weight_attrs(w13_scales, extra_weight_attrs)
 
-        w2_scales = torch.nn.Parameter(
-            torch.zeros(
+        w2_scales = torch.nn.Parameter(  # 创建参数
+            torch.zeros(  # 创建零张量
                 num_experts,
                 hidden_size,
                 intermediate_size_per_partition // group_size,
                 dtype=params_dtype,
             ),
-            requires_grad=False,
+            requires_grad=False,  # 不可训练
         )
-        layer.register_parameter("w2_scales", w2_scales)
+        layer.register_parameter("w2_scales", w2_scales)  # 注册层参数
         set_weight_attrs(w2_scales, extra_weight_attrs)
 
         if self.quant_config.has_zp:
-            w13_qzeros = torch.nn.Parameter(
-                torch.zeros(
+            w13_qzeros = torch.nn.Parameter(  # 创建参数
+                torch.zeros(  # 创建零张量
                     num_experts,
                     2 * intermediate_size_per_partition // bit8_pack_factor,
                     hidden_size // group_size,
                     dtype=torch.uint8,
                 ),
-                requires_grad=False,
+                requires_grad=False,  # 不可训练
             )
-            layer.register_parameter("w13_qzeros", w13_qzeros)
+            layer.register_parameter("w13_qzeros", w13_qzeros)  # 注册层参数
             set_weight_attrs(w13_qzeros, extra_weight_attrs)
 
-            w2_qzeros = torch.nn.Parameter(
-                torch.zeros(
+            w2_qzeros = torch.nn.Parameter(  # 创建参数
+                torch.zeros(  # 创建零张量
                     num_experts,
                     hidden_size // bit8_pack_factor,
                     intermediate_size_per_partition // group_size,
                     dtype=torch.uint8,
                 ),
-                requires_grad=False,
+                requires_grad=False,  # 不可训练
             )
-            layer.register_parameter("w2_qzeros", w2_qzeros)
+            layer.register_parameter("w2_qzeros", w2_qzeros)  # 注册层参数
             set_weight_attrs(w2_qzeros, extra_weight_attrs)
 
         if self.quant_config.linear_quant_method == "gptq":
@@ -354,22 +371,24 @@ class MoeWNA16Method(FusedMoEMethodBase):
             if not self.quant_config.has_zp:
                 invalid_param_keys += ["w13_qzeros", "w2_qzeros"]
             for key in invalid_param_keys:
-                param = torch.nn.Parameter(
-                    torch.empty((0,), dtype=torch.int32), requires_grad=False
+                param = torch.nn.Parameter(  # 创建参数
+                    torch.empty((0,), dtype=torch.int32), requires_grad=False  # 创建空张量
                 )
-                layer.register_parameter(key, param)
+                layer.register_parameter(key, param)  # 注册层参数
                 set_weight_attrs(param, extra_weight_attrs)
+    # 创建MoE运行器
 
     def create_moe_runner(
         self, layer: torch.nn.Module, moe_runner_config: MoeRunnerConfig
     ):
         self.moe_runner_config = moe_runner_config
         self.runner = MoeRunner(MoeRunnerBackend.TRITON, moe_runner_config)
+    # 获取Triton MoE量化信息
 
     def get_triton_quant_info(self, layer: torch.nn.Module) -> TritonMoeQuantInfo:
         weight_bits = self.quant_config.weight_bits
         has_zp = self.quant_config.has_zp
-        return TritonMoeQuantInfo(
+        return TritonMoeQuantInfo(  # 返回结果
             w13_weight=layer.w13_qweight,
             w2_weight=layer.w2_qweight,
             use_int4_w4a16=weight_bits == 4,
@@ -380,6 +399,7 @@ class MoeWNA16Method(FusedMoEMethodBase):
             w2_zp=layer.w2_qzeros if has_zp else None,
             block_shape=[0, layer.group_size],
         )
+    # 应用量化变换
 
     def apply(
         self,
@@ -391,10 +411,12 @@ class MoeWNA16Method(FusedMoEMethodBase):
         ), "Only SiLU activation is supported."
 
         quant_info = self.get_triton_quant_info(layer)
-        return self.runner.run(dispatch_output, quant_info)
+        return self.runner.run(dispatch_output, quant_info)  # 返回结果
+    # 获取权重加载器（静态方法）
 
     @staticmethod
     def get_weight_loader(layer, weight_loader):
+        # 将AWQ量化张量转换为标准格式
 
         def convert_awq_tensor(tensor, tensor_type):
             # convert awq qweight/qzeros to a standard format (assume int4)
@@ -422,7 +444,7 @@ class MoeWNA16Method(FusedMoEMethodBase):
             tensor = tensor.view(size0, -1)
 
             # 4. transpose, shape -> (4 * b * pack_factor_bit8, a)
-            tensor = tensor.T.contiguous()
+            tensor = tensor.T.contiguous()  # 确保内存连续
 
             # 5. repack (only when weight_bits == 4)
             # qweight shape -> (4 * b * pack_factor_bit8, a // pack_factor_bit8)
@@ -432,7 +454,8 @@ class MoeWNA16Method(FusedMoEMethodBase):
                 tensor = tensor[:, 1::2] * 16 + tensor[:, ::2]
             elif tensor_type == "qzeros":
                 tensor = tensor[1::2, :] * 16 + tensor[::2, :]
-            return tensor
+            return tensor  # 返回结果
+        # 将GPTQ int4零点转换为标准格式
 
         def convert_gptq_int4_qzeros(tensor):
             tensor = tensor.view(torch.uint8)
@@ -440,10 +463,11 @@ class MoeWNA16Method(FusedMoEMethodBase):
             tensor = (tensor[:, :, None] >> shifter) & 0xF
             tensor = tensor + 1
             tensor = tensor[:, :, 0] + tensor[:, :, 1] * 16
-            return tensor
+            return tensor  # 返回结果
+        # MoE WNA16权重加载器
 
         def moe_wna16_weight_loader(
-            param: torch.nn.Parameter,
+            param: torch.nn.Parameter,  # 创建参数
             loaded_weight: torch.Tensor,
             weight_name: str,
             shard_id: str,
@@ -471,7 +495,7 @@ class MoeWNA16Method(FusedMoEMethodBase):
             elif layer.quant_config.linear_quant_method == "gptq":
                 assert layer.quant_config.weight_bits in [4, 8]
                 if "weight" in weight_name:
-                    loaded_weight = loaded_weight.T.contiguous().view(torch.uint8)
+                    loaded_weight = loaded_weight.T.contiguous().view(torch.uint8)  # 确保内存连续
                 elif "zeros" in weight_name:
                     # add 1 to gptq qzeros to align with awq
                     loaded_weight = loaded_weight.view(torch.uint8)
@@ -507,4 +531,4 @@ class MoeWNA16Method(FusedMoEMethodBase):
             else:
                 weight_loader(param, loaded_weight, weight_name, shard_id, expert_id)
 
-        return moe_wna16_weight_loader
+        return moe_wna16_weight_loader  # 返回结果

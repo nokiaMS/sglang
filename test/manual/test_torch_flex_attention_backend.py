@@ -1,3 +1,4 @@
+# 文件名: test_torch_flex_attention_backend.py - Torch Flex注意力后端测试 - 验证flex_attention后端的GSM8K准确性
 """
 Usage:
 python3 -m unittest test_torch_flex_attention_backend.TestTorchFlexAttnBackend.test_gsm8k
@@ -18,6 +19,7 @@ from sglang.test.test_utils import (
 
 
 class TestTorchFlexAttnBackend(CustomTestCase):
+    # 测试gsm8k
     def test_gsm8k(self):
         model = DEFAULT_MODEL_NAME_FOR_TEST
         base_url = DEFAULT_URL_FOR_TEST

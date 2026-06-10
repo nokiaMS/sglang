@@ -1,3 +1,4 @@
+# 文件名: test_deepseek_v3_deterministic.py - DeepSeek V3确定性测试
 """
 Usage:
 cd test/srt
@@ -19,11 +20,13 @@ DEEPSEEK_MODEL = "lmsys/sglang-ci-dsv3-test"
 
 class TestFa3Deterministic(TestDeterministicBase):
     @classmethod
+    # 获取model
     def get_model(cls):
         return DEEPSEEK_MODEL
 
     # Test with fa3 attention backend
     @classmethod
+    # 获取serverargs
     def get_server_args(cls):
         args = COMMON_SERVER_ARGS
         args.extend(
@@ -37,11 +40,13 @@ class TestFa3Deterministic(TestDeterministicBase):
 
 class TestTritonDeterministic(TestDeterministicBase):
     @classmethod
+    # 获取model
     def get_model(cls):
         return DEEPSEEK_MODEL
 
     # Test with triton attention backend
     @classmethod
+    # 获取serverargs
     def get_server_args(cls):
         args = COMMON_SERVER_ARGS
         args.extend(

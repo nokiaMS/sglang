@@ -1,3 +1,4 @@
+# 文件名: test_moe.py - MoE混合专家测试
 import math
 import unittest
 
@@ -33,6 +34,7 @@ from sglang.test.test_utils import CustomTestCase
 register_cpu_ci(est_time=10, suite="base-b-test-cpu")
 
 
+# 执行fusedmoe
 def fused_moe(a, w1, w2, score, topk, renormalize, prepack):
 
     G = 1
@@ -73,6 +75,7 @@ def fused_moe(a, w1, w2, score, topk, renormalize, prepack):
 class TestFusedExperts(CustomTestCase):
 
     @parametrize(m=[2, 114], n=[32], k=[32], e=[4], topk=[2], renormalize=[False, True])
+    # 测试bf16moe
     def test_bf16_moe(self, m, n, k, e, topk, renormalize):
         dtype = torch.bfloat16
         prepack = True
@@ -91,6 +94,7 @@ class TestFusedExperts(CustomTestCase):
     @parametrize(
         m=[1, 32], n=[128, 64], k=[128, 64], e=[4], topk=[2], renormalize=[False]
     )
+    # 测试bf16moebias
     def test_bf16_moe_bias(self, m, n, k, e, topk, renormalize):
         dtype = torch.bfloat16
 
@@ -132,6 +136,7 @@ class TestFusedExperts(CustomTestCase):
         torch.testing.assert_close(torch_output, fused_output, atol=atol, rtol=rtol)
 
     @parametrize(M=[1, 39], N=[128], K=[256], E=[8], topk=[3])
+    # 测试int8moe
     def test_int8_moe(self, M, N, K, E, topk):
         dtype = torch.bfloat16
         prepack = True
@@ -195,6 +200,7 @@ class TestFusedExperts(CustomTestCase):
         torch.testing.assert_close(ref_out, out, atol=atol, rtol=rtol)
 
     @parametrize(M=[2, 121], N=[352, 512], K=[256, 320], E=[8], topk=[4])
+    # 测试fp8moe
     def test_fp8_moe(self, M, N, K, E, topk):
         dtype = torch.bfloat16
 
@@ -249,9 +255,10 @@ class TestFusedExperts(CustomTestCase):
         )
 
         atol = rtol = precision[dtype]
-        torch.testing.assert_close(ref_out.bfloat16(), out, atol=atol, rtol=rtol)
+        torch.testing.assert_close(ref_out.bfloat16(), out, atol=atol, rtol=rtol)  # 转换为BF16精度
 
     @parametrize(M=[2, 121], N=[352, 512], K=[256, 320], E=[8], topk=[4])
+    # 测试mxfp4moe
     def test_mxfp4_moe(self, M, N, K, E, topk):
         dtype = torch.bfloat16
 
@@ -277,7 +284,7 @@ class TestFusedExperts(CustomTestCase):
         w2s = kernel.convert_scale_packed(w2s)
 
         ref_out = native_fp8_fused_moe(
-            a, w1dq.float(), w2dq.float(), topk_weight, topk_ids, topk
+            a, w1dq.float(), w2dq.float(), topk_weight, topk_ids, topk  # 转换为单精度
         )
         out = kernel.fused_experts_cpu(
             a,
@@ -300,11 +307,12 @@ class TestFusedExperts(CustomTestCase):
         )
 
         atol = rtol = precision[dtype]
-        torch.testing.assert_close(ref_out.bfloat16(), out, atol=atol, rtol=rtol)
+        torch.testing.assert_close(ref_out.bfloat16(), out, atol=atol, rtol=rtol)  # 转换为BF16精度
 
     @parametrize(
         m=[1, 32], n=[128, 64], k=[128, 64], e=[4], topk=[2], renormalize=[False]
     )
+    # 测试mxfp4moebias
     def test_mxfp4_moe_bias(self, m, n, k, e, topk, renormalize):
         dtype = torch.bfloat16
 
@@ -366,6 +374,7 @@ class TestFusedExperts(CustomTestCase):
         torch.testing.assert_close(torch_output, fused_output, atol=atol, rtol=rtol)
 
     @parametrize(M=[1, 6], N=[512], K=[256], E=[8], topk=[4])
+    # 测试int4moe
     def test_int4_moe(self, M, N, K, E, topk, group_size=128):
         dtype = torch.bfloat16
 
@@ -391,8 +400,8 @@ class TestFusedExperts(CustomTestCase):
             )
             bf16_w13_weight.append(bf16_w13_weight_i)
             bf16_w2_weight.append(bf16_w2_weight_i)
-        bf16_w13_weight = torch.stack(bf16_w13_weight).detach()
-        bf16_w2_weight = torch.stack(bf16_w2_weight).detach()
+        bf16_w13_weight = torch.stack(bf16_w13_weight).detach()  # 分离梯度计算图
+        bf16_w2_weight = torch.stack(bf16_w2_weight).detach()  # 分离梯度计算图
 
         score = torch.rand((M, E), dtype=dtype)
 
@@ -433,7 +442,7 @@ class TestFusedExperts(CustomTestCase):
         )
 
         atol = rtol = precision[dtype]
-        torch.testing.assert_close(ref_out.bfloat16(), out, atol=atol, rtol=rtol)
+        torch.testing.assert_close(ref_out.bfloat16(), out, atol=atol, rtol=rtol)  # 转换为BF16精度
 
 
 if __name__ == "__main__":

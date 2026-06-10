@@ -1,3 +1,4 @@
+# 文件名: test_planner.py - 规划器测试
 import sys
 
 import pytest
@@ -31,6 +32,7 @@ register_cpu_ci(est_time=1, suite="base-b-test-cpu")
 
 
 class TestComputeReordererPlans:
+    # 测试computereordererplanszigzag
     def test_compute_reorderer_plans_zigzag(self) -> None:
         """s[cp:zigzag] produces a ReordererPlan."""
         dim_specs = parse_dims("b s[cp:zigzag] h[tp]").dims
@@ -49,6 +51,7 @@ class TestComputeReordererPlans:
         assert plans[0].params.dim_name == "s"
         assert plans[0].params.cp_size == 2
 
+    # 测试computereordererplansthdzigzag
     def test_compute_reorderer_plans_thd_zigzag(self) -> None:
         """t[cp:zigzag] produces a ZigzagToNaturalThdParams plan."""
         dim_specs = parse_dims("t[cp:zigzag] h[tp]").dims
@@ -70,6 +73,7 @@ class TestComputeReordererPlans:
         assert plans[0].params.cp_size == 2
         assert plans[0].params.seq_lens == [100, 64, 92]
 
+    # 测试nonseqdimstillraises
     def test_non_seq_dim_still_raises(self) -> None:
         """Zigzag on non-sequence/non-token dim (e.g. h[cp:zigzag]) raises ValueError."""
         dim_specs = parse_dims("h[cp:zigzag] d").dims
@@ -79,6 +83,7 @@ class TestComputeReordererPlans:
         with pytest.raises(ValueError, match="only supported on sequence dims"):
             compute_reorderer_plans(dim_specs=dim_specs, parallel_infos=parallel_infos)
 
+    # 测试thdzigzagwithoutseqlensraises
     def test_thd_zigzag_without_seq_lens_raises(self) -> None:
         """t[cp:zigzag] without thd_global_seq_lens raises ValueError."""
         dim_specs = parse_dims("t[cp:zigzag] h[tp]").dims
@@ -91,6 +96,7 @@ class TestComputeReordererPlans:
         with pytest.raises(ValueError, match="thd_global_seq_lens is required"):
             compute_reorderer_plans(dim_specs=dim_specs, parallel_infos=parallel_infos)
 
+    # 测试thdnaturalnoreorder
     def test_thd_natural_no_reorder(self) -> None:
         """t[cp:natural] and t[cp] produce no reorder plans."""
         for dims_str in ["t[cp:natural] h[tp]", "t[cp] h[tp]"]:
@@ -106,6 +112,7 @@ class TestComputeReordererPlans:
             )
             assert plans == []
 
+    # 测试computereordererplansnatural
     def test_compute_reorderer_plans_natural(self) -> None:
         """s[cp] and s[cp:natural] produce no reorder plans."""
         for dims_str in ["b s[cp] h[tp]", "b s[cp:natural] h[tp]"]:
@@ -123,6 +130,7 @@ class TestComputeReordererPlans:
 
 
 class TestCpZigzagTpE2E:
+    # 测试cpzigzagtpe2e
     def test_cp_zigzag_tp_e2e(self) -> None:
         """CP=2 zigzag + TP=2: full pipeline round-trip."""
         torch.manual_seed(42)
@@ -178,6 +186,7 @@ class TestCpZigzagTpE2E:
 class TestCpZigzagSpSameDimE2E:
     """E2E test for t[cp:zigzag,sp] — two axes sharding the same token dim."""
 
+    # 测试cp2sp2zigzage2e
     def test_cp2_sp2_zigzag_e2e(self) -> None:
         """CP=2 zigzag + SP=2 on same token dim: full unshard + reorder round-trip.
 

@@ -1,3 +1,4 @@
+# 文件名: test_data_parallelism.py - 数据并行测试
 import time
 import unittest
 
@@ -22,6 +23,7 @@ class TestDataParallelism(CustomTestCase, GSM8KMixin):
     gsm8k_accuracy_thres = 0.7
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = DEFAULT_MODEL_NAME_FOR_TEST
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -33,9 +35,11 @@ class TestDataParallelism(CustomTestCase, GSM8KMixin):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试updateweight
     def test_update_weight(self):
         response = requests.post(
             self.base_url + "/update_weights_from_disk",
@@ -56,6 +60,7 @@ class TestDataParallelism(CustomTestCase, GSM8KMixin):
         # check if the response is 200
         assert response.status_code == 200
 
+    # 测试getmemorypoolsize
     def test_get_memory_pool_size(self):
         # use `server_info` instead since `get_memory_pool_size` is merged into `server_info`
         response = requests.get(self.base_url + "/server_info")

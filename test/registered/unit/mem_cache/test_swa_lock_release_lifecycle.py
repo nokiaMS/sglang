@@ -1,3 +1,4 @@
+# 文件名: test_swa_lock_release_lifecycle.py - SWA锁释放生命周期
 """Regression for SWA lock release lifecycle.
 
 Hybrid-SWA early-release protocol: once a request's decode position passes
@@ -34,6 +35,7 @@ from sglang.test.test_utils import CustomTestCase
 register_cuda_ci(est_time=12, stage="base-b", runner_config="1-gpu-small")
 
 
+# 内部方法_build_tree
 def _build_tree(
     *,
     sliding_window_size: int = 4,
@@ -84,6 +86,7 @@ def _build_tree(
     return tree, allocator, pool
 
 
+# 内部方法_swa_alloc
 def _swa_alloc(allocator, need_size):
     """Allocate from SWA allocator for any page_size.
 
@@ -110,6 +113,7 @@ def _swa_alloc(allocator, need_size):
     return full_indices
 
 
+# 内部方法_insert_chain
 def _insert_chain(tree, allocator, token_ids):
     token_ids = array("q", token_ids)
     indices = _swa_alloc(allocator, len(token_ids))
@@ -119,6 +123,7 @@ def _insert_chain(tree, allocator, token_ids):
     return match.last_device_node
 
 
+# 内部方法_release_swa_lock_chain_in_place
 def _release_swa_lock_chain_in_place(tree, leaf, swa_uuid_for_lock):
     # Mirrors dec_swa_lock_only's non-tombstone arm (protected->evictable on
     # internal nodes) but skips the leaf-free + tombstone step, to construct
@@ -136,37 +141,39 @@ def _release_swa_lock_chain_in_place(tree, leaf, swa_uuid_for_lock):
         node = node.parent
 
 
+# TestSWALockReleaseLifecycle类
 class TestSWALockReleaseLifecycle(CustomTestCase):
     """Each test pins one component of the early-release fix; method names
     are prefixed with the API surface they exercise so pytest output groups
     them naturally."""
 
+    # TestSWALockReleaseLifecycle类的测试decswalockonlyleaftombstonesandfrees
     def test_dec_swa_lock_only_leaf_tombstones_and_frees(self):
         tree, allocator, _ = _build_tree(sliding_window_size=4)
         leaf = _insert_chain(tree, allocator, [1, 2, 3, 4, 5, 6, 7, 8])
-        self.assertEqual(len(leaf.value), 8)
+        self.assertEqual(len(leaf.value), 8)  # 断言相等
 
         inc_res = tree.inc_lock_ref(leaf)
         swa_uuid = inc_res.swa_uuid_for_lock
-        self.assertIsNotNone(swa_uuid)
+        self.assertIsNotNone(swa_uuid)  # 断言不为None
 
         swa_avail_before = allocator.swa_available_size()
         full_avail_before = allocator.full_available_size()
-        self.assertEqual(leaf.swa_lock_ref, 1)
-        self.assertEqual(leaf.full_lock_ref, 1)
-        self.assertFalse(leaf.swa_tombstone)
-        self.assertTrue(tree.swa_lru_list.in_list(leaf))
+        self.assertEqual(leaf.swa_lock_ref, 1)  # 断言相等
+        self.assertEqual(leaf.full_lock_ref, 1)  # 断言相等
+        self.assertFalse(leaf.swa_tombstone)  # 断言为假
+        self.assertTrue(tree.swa_lru_list.in_list(leaf))  # 断言为真
 
         tree.dec_swa_lock_only(leaf, swa_uuid_for_lock=swa_uuid)
 
-        self.assertTrue(leaf.swa_tombstone)
-        self.assertFalse(tree.swa_lru_list.in_list(leaf))
-        self.assertEqual(leaf.swa_lock_ref, 0)
-        self.assertEqual(
+        self.assertTrue(leaf.swa_tombstone)  # 断言为真
+        self.assertFalse(tree.swa_lru_list.in_list(leaf))  # 断言为假
+        self.assertEqual(leaf.swa_lock_ref, 0)  # 断言相等
+        self.assertEqual(  # 断言相等
             allocator.swa_available_size(), swa_avail_before + len(leaf.value)
         )
-        self.assertEqual(leaf.full_lock_ref, 1)
-        self.assertEqual(allocator.full_available_size(), full_avail_before)
+        self.assertEqual(leaf.full_lock_ref, 1)  # 断言相等
+        self.assertEqual(allocator.full_available_size(), full_avail_before)  # 断言相等
 
         # sanity_check forbids live locks; release the full half before checking.
         tree.dec_lock_ref(
@@ -174,6 +181,7 @@ class TestSWALockReleaseLifecycle(CustomTestCase):
         )
         tree.sanity_check()
 
+    # TestSWALockReleaseLifecycle类的测试decswalockonlyinternalnotombstonenofree
     def test_dec_swa_lock_only_internal_no_tombstone_no_free(self):
         # Two siblings force an internal node at the shared prefix.
         tree, allocator, _ = _build_tree(sliding_window_size=4)
@@ -181,15 +189,15 @@ class TestSWALockReleaseLifecycle(CustomTestCase):
         _insert_chain(tree, allocator, [1, 2, 3, 4, 5, 6, 7, 9])
 
         # Post-split: leaf_a now carries [8] only, parent holds the shared 7.
-        self.assertEqual(len(leaf_a.value), 1)
+        self.assertEqual(len(leaf_a.value), 1)  # 断言相等
         internal = leaf_a.parent
-        self.assertGreater(len(internal.children), 1)
-        self.assertEqual(len(internal.value), 7)
+        self.assertGreater(len(internal.children), 1)  # 断言大于
+        self.assertEqual(len(internal.value), 7)  # 断言相等
 
         inc_res = tree.inc_lock_ref(leaf_a)
         swa_uuid = inc_res.swa_uuid_for_lock
         # window=4, value 1 (leaf) + 7 (internal): swa lock chain ends at internal.
-        self.assertEqual(swa_uuid, internal.swa_uuid)
+        self.assertEqual(swa_uuid, internal.swa_uuid)  # 断言相等
 
         swa_protected_before = tree.swa_protected_size_
         swa_evictable_before = tree.swa_evictable_size_
@@ -197,14 +205,14 @@ class TestSWALockReleaseLifecycle(CustomTestCase):
 
         tree.dec_swa_lock_only(leaf_a, swa_uuid_for_lock=swa_uuid)
 
-        self.assertFalse(internal.swa_tombstone)
-        self.assertTrue(tree.swa_lru_list.in_list(internal))
-        self.assertEqual(internal.swa_lock_ref, 0)
-        self.assertEqual(
+        self.assertFalse(internal.swa_tombstone)  # 断言为假
+        self.assertTrue(tree.swa_lru_list.in_list(internal))  # 断言为真
+        self.assertEqual(internal.swa_lock_ref, 0)  # 断言相等
+        self.assertEqual(  # 断言相等
             tree.swa_protected_size_, swa_protected_before - (len(leaf_a.value) + 7)
         )
-        self.assertEqual(tree.swa_evictable_size_, swa_evictable_before + 7)
-        self.assertEqual(
+        self.assertEqual(tree.swa_evictable_size_, swa_evictable_before + 7)  # 断言相等
+        self.assertEqual(  # 断言相等
             allocator.swa_available_size(), swa_avail_before + len(leaf_a.value)
         )
 
@@ -213,6 +221,7 @@ class TestSWALockReleaseLifecycle(CustomTestCase):
         )
         tree.sanity_check()
 
+    # TestSWALockReleaseLifecycle类的测试declockrefskipswatruedropsfullonly
     def test_dec_lock_ref_skip_swa_true_drops_full_only(self):
         tree, allocator, _ = _build_tree(sliding_window_size=4)
         leaf = _insert_chain(tree, allocator, [1, 2, 3, 4, 5, 6, 7, 8])
@@ -221,8 +230,8 @@ class TestSWALockReleaseLifecycle(CustomTestCase):
         swa_uuid = inc_res.swa_uuid_for_lock
 
         tree.dec_swa_lock_only(leaf, swa_uuid_for_lock=swa_uuid)
-        self.assertTrue(leaf.swa_tombstone)
-        self.assertEqual(leaf.full_lock_ref, 1)
+        self.assertTrue(leaf.swa_tombstone)  # 断言为真
+        self.assertEqual(leaf.full_lock_ref, 1)  # 断言相等
 
         swa_avail_after_release = allocator.swa_available_size()
         swa_protected_after_release = tree.swa_protected_size_
@@ -232,11 +241,12 @@ class TestSWALockReleaseLifecycle(CustomTestCase):
             leaf, DecLockRefParams(swa_uuid_for_lock=swa_uuid), skip_swa=True
         )
 
-        self.assertEqual(leaf.full_lock_ref, 0)
-        self.assertEqual(allocator.swa_available_size(), swa_avail_after_release)
-        self.assertEqual(tree.swa_protected_size_, swa_protected_after_release)
+        self.assertEqual(leaf.full_lock_ref, 0)  # 断言相等
+        self.assertEqual(allocator.swa_available_size(), swa_avail_after_release)  # 断言相等
+        self.assertEqual(tree.swa_protected_size_, swa_protected_after_release)  # 断言相等
         tree.sanity_check()
 
+    # TestSWALockReleaseLifecycle类的测试declockrefskipswafalsedropsboth
     def test_dec_lock_ref_skip_swa_false_drops_both(self):
         # Default skip_swa=False must keep legacy behavior intact.
         tree, allocator, _ = _build_tree(sliding_window_size=4)
@@ -250,28 +260,29 @@ class TestSWALockReleaseLifecycle(CustomTestCase):
 
         tree.dec_lock_ref(leaf, DecLockRefParams(swa_uuid_for_lock=swa_uuid))
 
-        self.assertEqual(leaf.full_lock_ref, 0)
-        self.assertEqual(leaf.swa_lock_ref, 0)
-        self.assertEqual(tree.full_protected_size_, 0)
-        self.assertEqual(tree.swa_protected_size_, 0)
+        self.assertEqual(leaf.full_lock_ref, 0)  # 断言相等
+        self.assertEqual(leaf.swa_lock_ref, 0)  # 断言相等
+        self.assertEqual(tree.full_protected_size_, 0)  # 断言相等
+        self.assertEqual(tree.swa_protected_size_, 0)  # 断言相等
         # dec_lock_ref releases locks but doesn't free; eviction does.
-        self.assertEqual(allocator.full_available_size(), full_avail_before)
-        self.assertEqual(allocator.swa_available_size(), swa_avail_before)
+        self.assertEqual(allocator.full_available_size(), full_avail_before)  # 断言相等
+        self.assertEqual(allocator.swa_available_size(), swa_avail_before)  # 断言相等
         tree.sanity_check()
 
+    # TestSWALockReleaseLifecycle类的测试evictswaleafwithfulllocktombstonesinplace
     def test_evict_swa_leaf_with_full_lock_tombstones_in_place(self):
         # Large window so inc_lock_ref locks the entire SWA chain.
         tree, allocator, _ = _build_tree(sliding_window_size=64)
         leaf = _insert_chain(tree, allocator, [1, 2, 3, 4])
-        self.assertEqual(len(leaf.value), 4)
+        self.assertEqual(len(leaf.value), 4)  # 断言相等
 
         inc_res = tree.inc_lock_ref(leaf)
         _release_swa_lock_chain_in_place(tree, leaf, inc_res.swa_uuid_for_lock)
 
-        self.assertEqual(leaf.full_lock_ref, 1)
-        self.assertEqual(leaf.swa_lock_ref, 0)
-        self.assertFalse(leaf.swa_tombstone)
-        self.assertTrue(tree.swa_lru_list.in_list(leaf))
+        self.assertEqual(leaf.full_lock_ref, 1)  # 断言相等
+        self.assertEqual(leaf.swa_lock_ref, 0)  # 断言相等
+        self.assertFalse(leaf.swa_tombstone)  # 断言为假
+        self.assertTrue(tree.swa_lru_list.in_list(leaf))  # 断言为真
 
         swa_avail_before = allocator.swa_available_size()
         swa_evictable_before = tree.swa_evictable_size_
@@ -280,15 +291,15 @@ class TestSWALockReleaseLifecycle(CustomTestCase):
         evict_res = tree.evict(EvictParams(num_tokens=0, swa_num_tokens=4))
 
         self.assertGreaterEqual(evict_res.swa_num_tokens_evicted, 4)
-        self.assertTrue(leaf.swa_tombstone)
-        self.assertFalse(tree.swa_lru_list.in_list(leaf))
-        self.assertEqual(leaf.full_lock_ref, 1)
-        self.assertEqual(
+        self.assertTrue(leaf.swa_tombstone)  # 断言为真
+        self.assertFalse(tree.swa_lru_list.in_list(leaf))  # 断言为假
+        self.assertEqual(leaf.full_lock_ref, 1)  # 断言相等
+        self.assertEqual(  # 断言相等
             allocator.swa_available_size(), swa_avail_before + len(leaf.value)
         )
         # Full lock prevents _delete_leaf, so the node stays attached.
-        self.assertIs(leaf.parent.children[leaf.key.child_key(tree.page_size)], leaf)
-        self.assertEqual(
+        self.assertIs(leaf.parent.children[leaf.key.child_key(tree.page_size)], leaf)  # 断言是同一对象
+        self.assertEqual(  # 断言相等
             tree.swa_evictable_size_, swa_evictable_before - len(leaf.value)
         )
 
@@ -299,6 +310,7 @@ class TestSWALockReleaseLifecycle(CustomTestCase):
         )
         tree.sanity_check()
 
+    # TestSWALockReleaseLifecycle类的测试deleteleafskipsswasizeontombstone
     def test_delete_leaf_skips_swa_size_on_tombstone(self):
         # Tombstone removes the count once; _delete_leaf must not subtract again.
         tree, allocator, _ = _build_tree(sliding_window_size=4)
@@ -308,14 +320,15 @@ class TestSWALockReleaseLifecycle(CustomTestCase):
         swa_uuid = inc_res.swa_uuid_for_lock
 
         tree.dec_swa_lock_only(leaf, swa_uuid_for_lock=swa_uuid)
-        self.assertTrue(leaf.swa_tombstone)
+        self.assertTrue(leaf.swa_tombstone)  # 断言为真
 
         swa_evictable_before_delete = tree.swa_evictable_size_
         tree.full_lru_list.remove_node(leaf)
         tree._delete_leaf(leaf)
 
-        self.assertEqual(tree.swa_evictable_size_, swa_evictable_before_delete)
+        self.assertEqual(tree.swa_evictable_size_, swa_evictable_before_delete)  # 断言相等
 
+    # TestSWALockReleaseLifecycle类的测试decswalockonlyleafpagesizevariants
     def test_dec_swa_lock_only_leaf_page_size_variants(self):
         """Single-leaf tombstone+free across all (page_size, window) regimes.
 
@@ -339,12 +352,12 @@ class TestSWALockReleaseLifecycle(CustomTestCase):
                 n_tokens = max(window, 2 * page_size)
                 n_tokens = (n_tokens + page_size - 1) // page_size * page_size
                 leaf = _insert_chain(tree, allocator, list(range(1, n_tokens + 1)))
-                self.assertEqual(len(leaf.value), n_tokens)
-                self.assertEqual(len(leaf.value) % page_size, 0)
+                self.assertEqual(len(leaf.value), n_tokens)  # 断言相等
+                self.assertEqual(len(leaf.value) % page_size, 0)  # 断言相等
 
                 inc_res = tree.inc_lock_ref(leaf)
                 swa_uuid = inc_res.swa_uuid_for_lock
-                self.assertIsNotNone(
+                self.assertIsNotNone(  # 断言不为None
                     swa_uuid,
                     f"inc_lock_ref must reach the window with leaf.value="
                     f"{len(leaf.value)} >= window={window}",
@@ -355,16 +368,16 @@ class TestSWALockReleaseLifecycle(CustomTestCase):
 
                 tree.dec_swa_lock_only(leaf, swa_uuid_for_lock=swa_uuid)
 
-                self.assertTrue(leaf.swa_tombstone)
-                self.assertFalse(tree.swa_lru_list.in_list(leaf))
-                self.assertEqual(leaf.swa_lock_ref, 0)
-                self.assertEqual(
+                self.assertTrue(leaf.swa_tombstone)  # 断言为真
+                self.assertFalse(tree.swa_lru_list.in_list(leaf))  # 断言为假
+                self.assertEqual(leaf.swa_lock_ref, 0)  # 断言相等
+                self.assertEqual(  # 断言相等
                     allocator.swa_available_size(),
                     swa_avail_before + len(leaf.value),
                     "free_swa must release the leaf's full page-aligned slot count",
                 )
-                self.assertEqual(leaf.full_lock_ref, 1)
-                self.assertEqual(allocator.full_available_size(), full_avail_before)
+                self.assertEqual(leaf.full_lock_ref, 1)  # 断言相等
+                self.assertEqual(allocator.full_available_size(), full_avail_before)  # 断言相等
 
                 tree.dec_lock_ref(
                     leaf,
@@ -373,6 +386,7 @@ class TestSWALockReleaseLifecycle(CustomTestCase):
                 )
                 tree.sanity_check()
 
+    # TestSWALockReleaseLifecycle类的测试decswalockonlyinternalpagesizegt1
     def test_dec_swa_lock_only_internal_page_size_gt_1(self):
         """Internal-node chain release with page_size > 1.
 
@@ -391,15 +405,15 @@ class TestSWALockReleaseLifecycle(CustomTestCase):
         leaf_a = _insert_chain(tree, allocator, [1, 2, 3, 4, 5, 6])
         _insert_chain(tree, allocator, [1, 2, 3, 4, 7, 8])
 
-        self.assertEqual(len(leaf_a.value), 2)
+        self.assertEqual(len(leaf_a.value), 2)  # 断言相等
         internal = leaf_a.parent
-        self.assertGreater(len(internal.children), 1)
-        self.assertEqual(len(internal.value), 4)
+        self.assertGreater(len(internal.children), 1)  # 断言大于
+        self.assertEqual(len(internal.value), 4)  # 断言相等
 
         inc_res = tree.inc_lock_ref(leaf_a)
         swa_uuid = inc_res.swa_uuid_for_lock
         # leaf_a (2) + internal (4) = 6 >= window=6, so uuid stops at internal.
-        self.assertEqual(swa_uuid, internal.swa_uuid)
+        self.assertEqual(swa_uuid, internal.swa_uuid)  # 断言相等
 
         swa_protected_before = tree.swa_protected_size_
         swa_evictable_before = tree.swa_evictable_size_
@@ -408,21 +422,21 @@ class TestSWALockReleaseLifecycle(CustomTestCase):
         tree.dec_swa_lock_only(leaf_a, swa_uuid_for_lock=swa_uuid)
 
         # Leaf side: tombstoned and pages freed.
-        self.assertTrue(leaf_a.swa_tombstone)
-        self.assertFalse(tree.swa_lru_list.in_list(leaf_a))
-        self.assertEqual(
+        self.assertTrue(leaf_a.swa_tombstone)  # 断言为真
+        self.assertFalse(tree.swa_lru_list.in_list(leaf_a))  # 断言为假
+        self.assertEqual(  # 断言相等
             allocator.swa_available_size(),
             swa_avail_before + len(leaf_a.value),
         )
         # Internal side: protected -> evictable, still in lru, no free.
-        self.assertFalse(internal.swa_tombstone)
-        self.assertTrue(tree.swa_lru_list.in_list(internal))
-        self.assertEqual(internal.swa_lock_ref, 0)
-        self.assertEqual(
+        self.assertFalse(internal.swa_tombstone)  # 断言为假
+        self.assertTrue(tree.swa_lru_list.in_list(internal))  # 断言为真
+        self.assertEqual(internal.swa_lock_ref, 0)  # 断言相等
+        self.assertEqual(  # 断言相等
             tree.swa_protected_size_,
             swa_protected_before - (len(leaf_a.value) + len(internal.value)),
         )
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             tree.swa_evictable_size_,
             swa_evictable_before + len(internal.value),
         )
@@ -432,6 +446,7 @@ class TestSWALockReleaseLifecycle(CustomTestCase):
         )
         tree.sanity_check()
 
+    # TestSWALockReleaseLifecycle类的测试fulllifecycleincdecswadeclockbalances
     def test_full_lifecycle_inc_dec_swa_dec_lock_balances(self):
         tree, allocator, _ = _build_tree(sliding_window_size=4)
         leaf = _insert_chain(tree, allocator, [1, 2, 3, 4, 5, 6, 7, 8])
@@ -444,22 +459,22 @@ class TestSWALockReleaseLifecycle(CustomTestCase):
         inc_res = tree.inc_lock_ref(leaf)
         swa_uuid = inc_res.swa_uuid_for_lock
 
-        self.assertGreater(tree.full_protected_size_, full_protected0)
-        self.assertGreater(tree.swa_protected_size_, swa_protected0)
+        self.assertGreater(tree.full_protected_size_, full_protected0)  # 断言大于
+        self.assertGreater(tree.swa_protected_size_, swa_protected0)  # 断言大于
 
         tree.dec_swa_lock_only(leaf, swa_uuid_for_lock=swa_uuid)
 
-        self.assertEqual(tree.swa_protected_size_, swa_protected0)
-        self.assertGreater(tree.full_protected_size_, full_protected0)
+        self.assertEqual(tree.swa_protected_size_, swa_protected0)  # 断言相等
+        self.assertGreater(tree.full_protected_size_, full_protected0)  # 断言大于
 
         tree.dec_lock_ref(
             leaf, DecLockRefParams(swa_uuid_for_lock=swa_uuid), skip_swa=True
         )
 
-        self.assertEqual(tree.full_protected_size_, full_protected0)
-        self.assertEqual(tree.swa_protected_size_, swa_protected0)
-        self.assertEqual(allocator.full_available_size(), full_avail0)
-        self.assertEqual(allocator.swa_available_size(), swa_avail0 + len(leaf.value))
+        self.assertEqual(tree.full_protected_size_, full_protected0)  # 断言相等
+        self.assertEqual(tree.swa_protected_size_, swa_protected0)  # 断言相等
+        self.assertEqual(allocator.full_available_size(), full_avail0)  # 断言相等
+        self.assertEqual(allocator.swa_available_size(), swa_avail0 + len(leaf.value))  # 断言相等
 
         tree.sanity_check()
 

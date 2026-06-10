@@ -1,3 +1,4 @@
+# 文件名: test_executor.py - 执行器测试
 import sys
 
 import pytest
@@ -38,12 +39,14 @@ register_cpu_ci(est_time=1, suite="base-b-test-cpu")
 
 
 class TestExecuteSubPlans:
+    # 测试emptytensorsreturnsnone
     def test_empty_tensors_returns_none(self) -> None:
         r: SubPlansResult = execute_sub_plans(tensors=[], plans=[])
         assert r.tensor is None
         assert r.checks == []
         assert r.snapshots == []
 
+    # 测试noplanssingletensorpassthrough
     def test_no_plans_single_tensor_passthrough(self) -> None:
         tensor: torch.Tensor = torch.tensor([1.0, 2.0, 3.0])
         r: SubPlansResult = execute_sub_plans(tensors=[tensor], plans=[])
@@ -52,6 +55,7 @@ class TestExecuteSubPlans:
         assert r.checks == []
         assert r.snapshots == []
 
+    # 测试noplansmultipletensorsreturnsnone
     def test_no_plans_multiple_tensors_returns_none(self) -> None:
         tensors: list[torch.Tensor] = [
             torch.tensor([1.0]),
@@ -62,6 +66,7 @@ class TestExecuteSubPlans:
         assert r.checks == []
         assert r.snapshots == []
 
+    # 测试withunsharderplan
     def test_with_unsharder_plan(self) -> None:
         t0: torch.Tensor = apply_dim_names(torch.tensor([[1.0, 2.0]]), ["b", "h"])
         t1: torch.Tensor = apply_dim_names(torch.tensor([[3.0, 4.0]]), ["b", "h"])
@@ -82,6 +87,7 @@ class TestExecuteSubPlans:
 
 
 class TestExecuteSubPlan:
+    # 测试unknownplantyperaises
     def test_unknown_plan_type_raises(self) -> None:
         class _FakePlan:
             pass
@@ -91,6 +97,7 @@ class TestExecuteSubPlan:
 
 
 class TestExecuteStepPlans:
+    # 测试stepwithnoneresultomitted
     def test_step_with_none_result_omitted(self) -> None:
         tensors: list[torch.Tensor] = [
             torch.tensor([1.0]),
@@ -111,6 +118,7 @@ class TestExecuteStepPlans:
         assert r.checks == []
         assert len(r.traced_side.step_plans) == 1
 
+    # 测试singlesteppassthrough
     def test_single_step_passthrough(self) -> None:
         tensor: torch.Tensor = torch.tensor([1.0, 2.0])
 
@@ -132,9 +140,11 @@ class TestExecuteStepPlans:
 
 
 class TestExecuteAlignerPlan:
+    # 执行makestepplan
     def _make_step_plan(self, *, step: int, indices: list[int]) -> AlignerPerStepPlan:
         return AlignerPerStepPlan(step=step, input_object_indices=indices, sub_plans=[])
 
+    # 测试xsideemptyreturnsfailedx
     def test_x_side_empty_returns_failed_x(self) -> None:
         plan = AlignerPlan(
             per_step_plans=Pair(
@@ -156,6 +166,7 @@ class TestExecuteAlignerPlan:
         assert result.tensors is None
         assert result.failed_side_xy == "x"
 
+    # 测试ysideemptyreturnsfailedy
     def test_y_side_empty_returns_failed_y(self) -> None:
         plan = AlignerPlan(
             per_step_plans=Pair(
@@ -177,6 +188,7 @@ class TestExecuteAlignerPlan:
         assert result.tensors is None
         assert result.failed_side_xy == "y"
 
+    # 测试notokenalignersinglestep
     def test_no_token_aligner_single_step(self) -> None:
         plan = AlignerPlan(
             per_step_plans=Pair(
@@ -199,6 +211,7 @@ class TestExecuteAlignerPlan:
         assert torch.equal(result.tensors.x, t_x)
         assert torch.equal(result.tensors.y, t_y)
 
+    # 测试successreturnsnonefailedside
     def test_success_returns_none_failed_side(self) -> None:
         plan = AlignerPlan(
             per_step_plans=Pair(
@@ -224,9 +237,11 @@ class TestExecuteAlignerPlan:
 class TestExecuteAlignerPlanWithTokenDim:
     """End-to-end tests for AlignerPlan with non-zero token_dim."""
 
+    # 执行makestepplan
     def _make_step_plan(self, *, step: int, indices: list[int]) -> AlignerPerStepPlan:
         return AlignerPerStepPlan(step=step, input_object_indices=indices, sub_plans=[])
 
+    # 测试tokendimnonzeroe2e
     def test_token_dim_nonzero_e2e(self) -> None:
         """AlignerPlan with token at dim 1 passes through to token aligner correctly."""
         torch.manual_seed(42)
@@ -280,6 +295,7 @@ class TestExecuteAlignerPlanWithTokenDim:
                 plain_y.select(dim=1, index=i),
             )
 
+    # 测试bshdcrosslayoute2e
     def test_bshd_cross_layout_e2e(self) -> None:
         """x=SGLang THD, y=Megatron BSHD: planner->executor full flow."""
         torch.manual_seed(42)

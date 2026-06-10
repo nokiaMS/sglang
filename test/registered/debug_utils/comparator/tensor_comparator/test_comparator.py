@@ -1,3 +1,4 @@
+# 文件名: test_comparator.py - 比较器测试
 import sys
 
 import pytest
@@ -19,24 +20,28 @@ register_cpu_ci(est_time=1, suite="base-b-test-cpu")
 
 
 class TestComputeTensorInfo:
+    # 测试basictensorreturnscorrectshapeanddtype
     def test_basic_tensor_returns_correct_shape_and_dtype(self) -> None:
         tensor = torch.randn(2, 3)
         info = compute_tensor_info(tensor)
         assert info.shape == [2, 3]
         assert info.dtype == "torch.float32"
-        assert info.stats.mean == pytest.approx(tensor.float().mean().item(), abs=1e-4)
+        assert info.stats.mean == pytest.approx(tensor.float().mean().item(), abs=1e-4)  # 获取标量值
 
+    # 测试includesamplefalsereturnsnonesample
     def test_include_sample_false_returns_none_sample(self) -> None:
         tensor = torch.randn(2, 3)
         info = compute_tensor_info(tensor, include_sample=False)
         assert info.sample is None
 
+    # 测试includesampletruereturnsstringsample
     def test_include_sample_true_returns_string_sample(self) -> None:
         tensor = torch.randn(2, 3)
         info = compute_tensor_info(tensor, include_sample=True)
         assert info.sample is not None
         assert isinstance(info.sample, str)
 
+    # 测试emptytensorstatsarezero
     def test_empty_tensor_stats_are_zero(self) -> None:
         tensor = torch.tensor([])
         info = compute_tensor_info(tensor)
@@ -44,6 +49,7 @@ class TestComputeTensorInfo:
         assert info.stats.std == 0.0
         assert info.shape == [0]
 
+    # 测试integertensorconvertedtofloatforstats
     def test_integer_tensor_converted_to_float_for_stats(self) -> None:
         """Integer tensors should be cast to float internally for stats computation."""
         tensor = torch.tensor([1, 2, 3, 4], dtype=torch.int32)
@@ -53,6 +59,7 @@ class TestComputeTensorInfo:
         assert info.stats.min == pytest.approx(1.0, abs=1e-4)
         assert info.stats.max == pytest.approx(4.0, abs=1e-4)
 
+    # 测试bfloat16tensorshapeandstats
     def test_bfloat16_tensor_shape_and_stats(self) -> None:
         """bfloat16 tensors produce correct shape and dtype string."""
         tensor = torch.ones(3, 4, dtype=torch.bfloat16)
@@ -61,12 +68,14 @@ class TestComputeTensorInfo:
         assert info.dtype == "torch.bfloat16"
         assert info.stats.mean == pytest.approx(1.0, abs=1e-2)
 
+    # 测试multidimensionalshape
     def test_multidimensional_shape(self) -> None:
         """Shape is preserved for high-rank tensors."""
         tensor = torch.randn(2, 3, 4, 5)
         info = compute_tensor_info(tensor)
         assert info.shape == [2, 3, 4, 5]
 
+    # 测试scalartensor
     def test_scalar_tensor(self) -> None:
         """Scalar (0-dim) tensor produces empty shape list."""
         tensor = torch.tensor(3.14)
@@ -76,6 +85,7 @@ class TestComputeTensorInfo:
         assert info.stats.min == pytest.approx(3.14, abs=1e-4)
         assert info.stats.max == pytest.approx(3.14, abs=1e-4)
 
+    # 测试includesampletruecontainstensorrepresentation
     def test_include_sample_true_contains_tensor_representation(self) -> None:
         """Sample string should contain some recognizable tensor content."""
         tensor = torch.tensor([1.0, 2.0])
@@ -83,6 +93,7 @@ class TestComputeTensorInfo:
         assert info.sample is not None
         assert "1." in info.sample or "2." in info.sample
 
+    # 测试percentilespresentforsmalltensor
     def test_percentiles_present_for_small_tensor(self) -> None:
         """Small tensors (< threshold) should have percentile data."""
         tensor = torch.randn(100)
@@ -92,24 +103,28 @@ class TestComputeTensorInfo:
 
 
 class TestComputeTensorInfo:
+    # 测试basictensorreturnscorrectshapeanddtype
     def test_basic_tensor_returns_correct_shape_and_dtype(self) -> None:
         tensor = torch.randn(2, 3)
         info = compute_tensor_info(tensor)
         assert info.shape == [2, 3]
         assert info.dtype == "torch.float32"
-        assert info.stats.mean == pytest.approx(tensor.float().mean().item(), abs=1e-4)
+        assert info.stats.mean == pytest.approx(tensor.float().mean().item(), abs=1e-4)  # 获取标量值
 
+    # 测试includesamplefalsereturnsnonesample
     def test_include_sample_false_returns_none_sample(self) -> None:
         tensor = torch.randn(2, 3)
         info = compute_tensor_info(tensor, include_sample=False)
         assert info.sample is None
 
+    # 测试includesampletruereturnsstringsample
     def test_include_sample_true_returns_string_sample(self) -> None:
         tensor = torch.randn(2, 3)
         info = compute_tensor_info(tensor, include_sample=True)
         assert info.sample is not None
         assert isinstance(info.sample, str)
 
+    # 测试emptytensorstatsarezero
     def test_empty_tensor_stats_are_zero(self) -> None:
         tensor = torch.tensor([])
         info = compute_tensor_info(tensor)
@@ -117,6 +132,7 @@ class TestComputeTensorInfo:
         assert info.stats.std == 0.0
         assert info.shape == [0]
 
+    # 测试integertensorconvertedtofloatforstats
     def test_integer_tensor_converted_to_float_for_stats(self) -> None:
         """Integer tensors should be cast to float internally for stats computation."""
         tensor = torch.tensor([1, 2, 3, 4], dtype=torch.int32)
@@ -126,6 +142,7 @@ class TestComputeTensorInfo:
         assert info.stats.min == pytest.approx(1.0, abs=1e-4)
         assert info.stats.max == pytest.approx(4.0, abs=1e-4)
 
+    # 测试bfloat16tensorshapeandstats
     def test_bfloat16_tensor_shape_and_stats(self) -> None:
         """bfloat16 tensors produce correct shape and dtype string."""
         tensor = torch.ones(3, 4, dtype=torch.bfloat16)
@@ -134,12 +151,14 @@ class TestComputeTensorInfo:
         assert info.dtype == "torch.bfloat16"
         assert info.stats.mean == pytest.approx(1.0, abs=1e-2)
 
+    # 测试multidimensionalshape
     def test_multidimensional_shape(self) -> None:
         """Shape is preserved for high-rank tensors."""
         tensor = torch.randn(2, 3, 4, 5)
         info = compute_tensor_info(tensor)
         assert info.shape == [2, 3, 4, 5]
 
+    # 测试scalartensor
     def test_scalar_tensor(self) -> None:
         """Scalar (0-dim) tensor produces empty shape list."""
         tensor = torch.tensor(3.14)
@@ -149,6 +168,7 @@ class TestComputeTensorInfo:
         assert info.stats.min == pytest.approx(3.14, abs=1e-4)
         assert info.stats.max == pytest.approx(3.14, abs=1e-4)
 
+    # 测试includesampletruecontainstensorrepresentation
     def test_include_sample_true_contains_tensor_representation(self) -> None:
         """Sample string should contain some recognizable tensor content."""
         tensor = torch.tensor([1.0, 2.0])
@@ -156,6 +176,7 @@ class TestComputeTensorInfo:
         assert info.sample is not None
         assert "1." in info.sample or "2." in info.sample
 
+    # 测试percentilespresentforsmalltensor
     def test_percentiles_present_for_small_tensor(self) -> None:
         """Small tensors (< threshold) should have percentile data."""
         tensor = torch.randn(100)
@@ -165,6 +186,7 @@ class TestComputeTensorInfo:
 
 
 class TestComputeTensorStats:
+    # 测试basicstats
     def test_basic_stats(self):
         x = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0])
         stats = _compute_tensor_stats(x)
@@ -175,6 +197,7 @@ class TestComputeTensorStats:
         assert stats.min == pytest.approx(1.0, abs=1e-4)
         assert stats.max == pytest.approx(5.0, abs=1e-4)
 
+    # 测试absmeanwithnegativevalues
     def test_abs_mean_with_negative_values(self):
         x = torch.tensor([-3.0, -1.0, 1.0, 3.0])
         stats = _compute_tensor_stats(x)
@@ -182,6 +205,7 @@ class TestComputeTensorStats:
         assert stats.mean == pytest.approx(0.0, abs=1e-4)
         assert stats.abs_mean == pytest.approx(2.0, abs=1e-4)
 
+    # 测试quantilevalues
     def test_quantile_values(self):
         x = torch.linspace(0.0, 100.0, steps=1000)
         stats = _compute_tensor_stats(x)
@@ -192,6 +216,7 @@ class TestComputeTensorStats:
         assert stats.percentiles[95] == pytest.approx(95.0, abs=0.5)
         assert stats.percentiles[99] == pytest.approx(99.0, abs=0.5)
 
+    # 测试largetensorskipsquantiles
     def test_large_tensor_skips_quantiles(self):
         x = torch.randn(QUANTILE_NUMEL_THRESHOLD + 1)
         stats = _compute_tensor_stats(x)
@@ -201,6 +226,7 @@ class TestComputeTensorStats:
 
 
 class TestComputeDiff:
+    # 测试identicaltensors
     def test_identical_tensors(self):
         x = torch.ones(10, 10)
         diff = compute_diff(x_baseline=x, x_target=x)
@@ -213,6 +239,7 @@ class TestComputeDiff:
         assert diff.abs_diff_percentiles[99] == pytest.approx(0.0, abs=1e-5)
         assert diff.passed is True
 
+    # 测试knownoffset
     def test_known_offset(self):
         x = torch.ones(10, 10)
         y = x.clone()
@@ -230,6 +257,7 @@ class TestComputeDiff:
         assert diff.abs_diff_percentiles[99] > 0
         assert diff.passed is False
 
+    # 测试largetensorskipsdiffquantiles
     def test_large_tensor_skips_diff_quantiles(self):
         x = torch.randn(QUANTILE_NUMEL_THRESHOLD + 1)
         y = x + 0.001
@@ -237,6 +265,7 @@ class TestComputeDiff:
 
         assert diff.abs_diff_percentiles == {}
 
+    # 测试reldiffvalue
     def test_rel_diff_value(self):
         x = torch.tensor([1.0, 0.0])
         y = torch.tensor([0.0, 1.0])
@@ -245,6 +274,7 @@ class TestComputeDiff:
         assert diff.rel_diff == pytest.approx(1.0, abs=1e-5)
         assert diff.passed is False
 
+    # 测试pertokenwithseqdim
     def test_per_token_with_seq_dim(self) -> None:
         """seq_dim provided → per_token_rel_diff is list[float]."""
         torch.manual_seed(42)
@@ -260,6 +290,7 @@ class TestComputeDiff:
         assert len(diff.per_token_rel_diff) == 8
         assert all(isinstance(v, float) for v in diff.per_token_rel_diff)
 
+    # 测试pertokenwithoutseqdim
     def test_per_token_without_seq_dim(self) -> None:
         """No seq_dim → per_token_rel_diff is None."""
         x: torch.Tensor = torch.randn(8, 16)
@@ -269,6 +300,7 @@ class TestComputeDiff:
 
         assert diff.per_token_rel_diff is None
 
+    # 测试pertokenjsonroundtrip
     def test_per_token_json_roundtrip(self) -> None:
         """DiffInfo with per_token_rel_diff survives JSON serialization."""
         torch.manual_seed(42)
@@ -288,6 +320,7 @@ class TestComputeDiff:
 
 
 class TestCompareTensors:
+    # 测试normal
     def test_normal(self):
         x = torch.randn(5, 5)
         y = x + torch.randn(5, 5) * 0.001
@@ -301,6 +334,7 @@ class TestCompareTensors:
         assert info.diff is not None
         assert info.diff_downcast is None
 
+    # 测试shapemismatch
     def test_shape_mismatch(self):
         x = torch.randn(3, 4)
         y = torch.randn(5, 6)
@@ -310,6 +344,7 @@ class TestCompareTensors:
         assert info.shape_mismatch is True
         assert info.diff is None
 
+    # 测试dtypemismatch
     def test_dtype_mismatch(self):
         x = torch.randn(5, 5, dtype=torch.float32)
         y = torch.randn(5, 5, dtype=torch.bfloat16)
@@ -321,6 +356,7 @@ class TestCompareTensors:
         assert info.diff_downcast is not None
         assert info.downcast_dtype == "torch.bfloat16"
 
+    # 测试shapeunification
     def test_shape_unification(self):
         torch.manual_seed(0)
         core = torch.randn(4, 8)
@@ -335,6 +371,7 @@ class TestCompareTensors:
         assert info.diff is not None
         assert info.diff.max_abs_diff == pytest.approx(0.0, abs=1e-5)
 
+    # 测试samplegeneratedwhenlargediff
     def test_sample_generated_when_large_diff(self):
         x = torch.zeros(5, 5)
         y = torch.ones(5, 5)
@@ -346,6 +383,7 @@ class TestCompareTensors:
         assert info.baseline.sample is not None
         assert info.target.sample is not None
 
+    # 测试nosamplewhensmalldiff
     def test_no_sample_when_small_diff(self):
         x = torch.ones(5, 5)
         y = x + 1e-5

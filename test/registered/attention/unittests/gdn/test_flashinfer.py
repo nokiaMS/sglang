@@ -1,3 +1,4 @@
+# 文件名: test_flashinfer.py - FlashInfer后端测试
 import sys
 import unittest
 from pathlib import Path
@@ -212,6 +213,7 @@ class TestFlashInferGDNBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试projectedgdnattentioncases
     def test_projected_gdn_attention_cases(self):
         for case in self.CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -245,6 +247,7 @@ class TestFlashInferGDNBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试layoutrobustnesscases
     def test_layout_robustness_cases(self):
         for case in self.LAYOUT_ROBUSTNESS_CASES:
             for layout in ("interleaved_pages", "non_monotonic_extend"):
@@ -259,6 +262,7 @@ class TestFlashInferGDNBackendCorrectness(CustomTestCase):
                         loc_layout=layout,
                     )
 
+    # 测试runnermodecudagraphdecodecases
     def test_runner_mode_cuda_graph_decode_cases(self):
         for case in self.CUDA_GRAPH_CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -269,6 +273,7 @@ class TestFlashInferGDNBackendCorrectness(CustomTestCase):
                     head_v_dim=self.HEAD_V_DIM,
                 )
 
+    # 测试runnermodesplitopextendcases
     def test_runner_mode_split_op_extend_cases(self):
         for case, static_num_tokens in self.SPLIT_OP_CASES:
             for breakable in (False, True):
@@ -287,6 +292,7 @@ class TestFlashInferGDNBackendCorrectness(CustomTestCase):
                         head_v_dim=self.HEAD_V_DIM,
                     )
 
+    # 测试runnermodeeagleverifycases
     def test_runner_mode_eagle_verify_cases(self):
         for case, topk, spec_kind in self.EAGLE_VERIFY_CASES:
             with self.subTest(
@@ -304,6 +310,7 @@ class TestFlashInferGDNBackendCorrectness(CustomTestCase):
                     head_v_dim=self.HEAD_V_DIM,
                 )
 
+    # 测试runnermodeeagleverifycudagraphcases
     def test_runner_mode_eagle_verify_cuda_graph_cases(self):
         for case, topk, spec_kind in self.EAGLE_VERIFY_CUDA_GRAPH_CASES:
             with self.subTest(

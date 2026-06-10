@@ -1,3 +1,4 @@
+# 文件名: test_qkv_proj_with_rope.py - 带RoPE的QKV投影测试
 import unittest
 
 import torch
@@ -32,6 +33,7 @@ B = 1
 eps = 1e-6
 
 
+# 执行layernorm
 def layernorm(x, weight, variance_epsilon=1e-6, residual=None):
     orig_dtype = x.dtype
     x = x.to(torch.float32)
@@ -40,11 +42,12 @@ def layernorm(x, weight, variance_epsilon=1e-6, residual=None):
     return (x * weight).to(orig_dtype)
 
 
+# 执行rotaryemb
 def rotary_emb(q_pe, k_pe, pos, cos_sin_cache):
     orig_dtype = q_pe.dtype
-    q_pe = q_pe.float()
-    k_pe = k_pe.float()
-    cos_sin_cache = cos_sin_cache.float()
+    q_pe = q_pe.float()  # 转换为单精度
+    k_pe = k_pe.float()  # 转换为单精度
+    cos_sin_cache = cos_sin_cache.float()  # 转换为单精度
 
     query_rot = q_pe[..., :rotary_dim]
     key_rot = k_pe[..., :rotary_dim]
@@ -55,6 +58,7 @@ def rotary_emb(q_pe, k_pe, pos, cos_sin_cache):
     return query_rot.to(orig_dtype), key_rot.to(orig_dtype)
 
 
+# 执行nativetorch
 def native_torch(
     q_input,
     hidden_states,
@@ -90,6 +94,7 @@ def native_torch(
     return q_input, k_input, v_input
 
 
+# 执行nativetorchint8
 def native_torch_int8(
     q_input,
     hidden_states,
@@ -137,6 +142,7 @@ def native_torch_int8(
 
 
 class TestQKVProjWithROPE(CustomTestCase):
+    # 测试bf16qkvprojwithrope
     def test_bf16_qkv_proj_with_rope(self):
         dtype = torch.bfloat16
         hidden_states = torch.randn(B, hidden_size, dtype=dtype) / hidden_size
@@ -223,6 +229,7 @@ class TestQKVProjWithROPE(CustomTestCase):
         torch.testing.assert_close(fused_k_out, k_out)
         torch.testing.assert_close(fused_v_out, v_out)
 
+    # 测试int8qkvprojwithrope
     def test_int8_qkv_proj_with_rope(self):
         dtype = torch.bfloat16
         hidden_states = torch.randn(B, hidden_size, dtype=dtype) / hidden_size
@@ -316,6 +323,7 @@ class TestQKVProjWithROPE(CustomTestCase):
         torch.testing.assert_close(fused_k_out, k_out)
         torch.testing.assert_close(fused_v_out, v_out)
 
+    # 测试fp8qkvprojwithrope
     def test_fp8_qkv_proj_with_rope(self):
         dtype = torch.bfloat16
         hidden_states = torch.randn(B, hidden_size, dtype=dtype) / hidden_size
@@ -391,9 +399,9 @@ class TestQKVProjWithROPE(CustomTestCase):
             eps,
             False,
             True,
-            q_a_proj_weight_scale_inv.float(),
-            q_b_proj_weight_scale_inv.float(),
-            kv_a_proj_with_mqa_weight_scale_inv.float(),
+            q_a_proj_weight_scale_inv.float(),  # 转换为单精度
+            q_b_proj_weight_scale_inv.float(),  # 转换为单精度
+            kv_a_proj_with_mqa_weight_scale_inv.float(),  # 转换为单精度
             w_kc_s,
             True,
             [scale_block_size_N, scale_block_size_K],
@@ -418,8 +426,8 @@ class TestQKVProjWithROPE(CustomTestCase):
             eps,
             False,
             True,
-            fused_weight_s.float(),
-            q_b_proj_weight_scale_inv.float(),
+            fused_weight_s.float(),  # 转换为单精度
+            q_b_proj_weight_scale_inv.float(),  # 转换为单精度
             w_kc_s,
             True,
             [scale_block_size_N, scale_block_size_K],

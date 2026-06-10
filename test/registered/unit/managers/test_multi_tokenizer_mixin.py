@@ -1,3 +1,4 @@
+# 文件名: test_multi_tokenizer_mixin.py - 多分词器混入
 import unittest
 
 from sglang.test.ci.ci_register import register_cpu_ci
@@ -11,6 +12,7 @@ from sglang.srt.managers.multi_tokenizer_mixin import _handle_output_by_index
 register_cpu_ci(est_time=5, suite="base-a-test-cpu")
 
 
+# 内部方法_make_batch_str_output
 def _make_batch_str_output() -> BatchStrOutput:
     return BatchStrOutput(
         rids=["rid-0", "rid-1"],
@@ -50,15 +52,18 @@ def _make_batch_str_output() -> BatchStrOutput:
     )
 
 
+# TestMultiTokenizerMixin类
 class TestMultiTokenizerMixin(unittest.TestCase):
+
+    # TestMultiTokenizerMixin类的测试batchstroutputpreservescachedtokensdetails
     def test_batch_str_output_preserves_cached_tokens_details(self):
         output = _make_batch_str_output()
 
         single_output = _handle_output_by_index(output, 1)
 
-        self.assertEqual(single_output.rids, ["rid-1"])
-        self.assertEqual(single_output.cached_tokens, [4])
-        self.assertEqual(
+        self.assertEqual(single_output.rids, ["rid-1"])  # 断言相等
+        self.assertEqual(single_output.cached_tokens, [4])  # 断言相等
+        self.assertEqual(  # 断言相等
             single_output.cached_tokens_details,
             [{"device": 1, "host": 3}],
         )

@@ -1,3 +1,4 @@
+# 文件名: test_autoround.py - AutoRound量化测试 - 验证AutoRound量化方法下多个模型的MMLU准确性
 """
 Usage:
 python3 -m unittest test_autoround.TestAutoRound.test_mmlu
@@ -19,13 +20,16 @@ from sglang.test.test_utils import (
 
 class TestAutoRound(CustomTestCase):
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         cls.base_url = DEFAULT_URL_FOR_TEST
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         pass
 
+    # 测试mmlu
     def test_mmlu(self):
         device = "auto"
         for model in DEFAULT_AUTOROUND_MODEL_NAME_FOR_TEST:

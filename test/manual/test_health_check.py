@@ -1,3 +1,4 @@
+# 文件名: test_health_check.py - 健康检查测试 - 验证服务器健康检查端点
 import unittest
 
 from sglang.test.test_utils import (
@@ -9,6 +10,7 @@ from sglang.test.test_utils import (
 
 
 class TestHealthCheck(CustomTestCase):
+    # 测试health check
     def test_health_check(self):
         """Test that metrics endpoint returns data when enabled"""
         with self.assertRaises(TimeoutError):

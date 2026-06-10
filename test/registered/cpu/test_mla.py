@@ -1,3 +1,4 @@
+# 文件名: test_mla.py - MLA注意力测试
 import unittest
 
 import torch
@@ -13,6 +14,7 @@ torch.manual_seed(1234)
 
 
 class TestMLA(CustomTestCase):
+    # 执行runsdpaforwarddecode
     def _run_sdpa_forward_decode(
         self,
         query: torch.Tensor,
@@ -67,6 +69,7 @@ class TestMLA(CustomTestCase):
 
         return output
 
+    # 执行testgroupeddecodeattentiononce
     def _test_grouped_decode_attention_once(self, B, H_Q, H_KV, D, D_V, seq_len):
         dtype = torch.bfloat16
 
@@ -142,11 +145,12 @@ class TestMLA(CustomTestCase):
             o.flatten(), o_grouped.flatten(), dim=0
         )
         atol = rtol = precision[q.dtype]
-        self.assertGreater(cos_sim.item(), 0.99)
+        self.assertGreater(cos_sim.item(), 0.99)  # 获取标量值
         torch.testing.assert_close(o, o_grouped, atol=atol, rtol=rtol)
         torch.testing.assert_close(k_buffer, k_buffer2, atol=atol, rtol=rtol)
         torch.testing.assert_close(v_buffer, v_buffer2, atol=atol, rtol=rtol)
 
+    # 测试groupeddecodeattention
     def test_grouped_decode_attention(self):
         configs = [
             (1, 22, 1, 576, 512, 8 * 111),

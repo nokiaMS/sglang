@@ -1,3 +1,4 @@
+# 文件名: test_streaming_session_unit.py - 流式会话单元
 from types import SimpleNamespace
 
 import torch
@@ -10,15 +11,22 @@ from sglang.test.ci.ci_register import register_cpu_ci
 register_cpu_ci(est_time=12, suite="base-a-test-cpu")
 
 
+# _FakeAllocator类
 class _FakeAllocator:
+
+    # _FakeAllocator类的初始化
     def __init__(self):
         self.freed = []
 
+    # _FakeAllocator类的free
     def free(self, free_index: torch.Tensor):
         self.freed.append(free_index.clone())
 
 
+# _FakeInnerCache类
 class _FakeInnerCache:
+
+    # _FakeInnerCache类的初始化
     def __init__(self, req_to_token_pool, allocator, page_size, match_results=None):
         self.req_to_token_pool = req_to_token_pool
         self.token_to_kv_pool_allocator = allocator
@@ -26,25 +34,33 @@ class _FakeInnerCache:
         self.match_results = list(match_results or [])
         self.dec_lock_ref_calls = []
 
+    # _FakeInnerCache类的cache_finished_req
     def cache_finished_req(self, *args, **kwargs):
-        raise AssertionError("Streaming requests should not delegate to inner cache")
+        raise AssertionError("Streaming requests should not delegate to inner cache")  # 抛出异常
 
+    # _FakeInnerCache类的match_prefix
     def match_prefix(self, *args, **kwargs):
         if not self.match_results:
-            raise AssertionError("Unexpected match_prefix call")
+            raise AssertionError("Unexpected match_prefix call")  # 抛出异常
         return self.match_results.pop(0)
 
+    # _FakeInnerCache类的dec_lock_ref
     def dec_lock_ref(self, node, *args, **kwargs):
         self.dec_lock_ref_calls.append(node)
 
+    # _FakeInnerCache类的supports_mamba
     def supports_mamba(self):
         return False
 
+    # _FakeInnerCache类的sanity_check
     def sanity_check(self):
         return None
 
 
+# _FakeReq类
 class _FakeReq:
+
+    # _FakeReq类的初始化
     def __init__(
         self, session_id: str, req_pool_idx: int, committed: int, allocated: int
     ):
@@ -77,11 +93,13 @@ class _FakeReq:
         self.finished_reason = None
         self.finished_len = None
 
+    # _FakeReq类的pop_committed_kv_cache
     def pop_committed_kv_cache(self):
         assert not self.kv_committed_freed
         self.kv_committed_freed = True
         return self.kv_committed_len
 
+    # _FakeReq类的pop_overallocated_kv_cache
     def pop_overallocated_kv_cache(self):
         assert not self.kv_overallocated_freed
         self.pop_overallocated_calls += 1
@@ -89,6 +107,7 @@ class _FakeReq:
         return self.kv_committed_len, self.kv_allocated_len
 
 
+# 测试preabortdetachessessionandpreservesslot
 def test_preabort_detaches_session_and_preserves_slot():
     """Pre-aborted req (to_finish set before match_prefix) is detached from
     the session: session=None, abort_req() called. Slot stays intact."""
@@ -136,6 +155,7 @@ def test_preabort_detaches_session_and_preserves_slot():
     assert len(result.device_indices) == 0
 
 
+# 测试firstmidabortnukesephemeralslot
 def test_first_mid_abort_nukes_ephemeral_slot():
     """First-request mid-processing abort: no slot exists yet, ephemeral
     slot is created from req state and nuked via release_session."""
@@ -164,6 +184,7 @@ def test_first_mid_abort_nukes_ephemeral_slot():
     assert req.kv_overallocated_freed is True
 
 
+# 测试nthmidabortnukessessionslot
 def test_nth_mid_abort_nukes_session_slot():
     """Nth-request mid-processing abort: slot exists, restore_to_req ran.
     ALL KV is wiped (release_session). Slot is deleted. Token IDs stay

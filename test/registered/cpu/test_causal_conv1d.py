@@ -1,3 +1,4 @@
+# 文件名: test_causal_conv1d.py - 因果1D卷积测试
 import unittest
 from typing import Optional
 
@@ -21,6 +22,7 @@ torch.manual_seed(1234)
 PAD_SLOT_ID = -1
 
 
+# 执行causalconv1dref
 def causal_conv1d_ref(
     x: torch.Tensor,
     weight: torch.Tensor,
@@ -59,10 +61,11 @@ def causal_conv1d_ref(
             final_states_out.copy_(final_states)
         else:
             final_states_out = final_states
-    out = (out if activation is None else F.silu(out)).to(dtype=dtype_in)
+    out = (out if activation is None else F.silu(out)).to(dtype=dtype_in)  # 转换数据类型
     return (out, None) if not return_final_states else (out, final_states_out)
 
 
+# 执行causalconv1dupdateref
 def causal_conv1d_update_ref(
     x, conv_state, weight, bias=None, activation=None, cache_seqlens=None
 ):
@@ -108,6 +111,7 @@ class TestCausalConv1d(CustomTestCase):
         has_bias=[True, False],
         has_initial_state=[True, False],
     )
+    # 测试causalconv1d
     def test_causal_conv1d(
         self,
         batch,
@@ -119,9 +123,9 @@ class TestCausalConv1d(CustomTestCase):
         dtype=torch.bfloat16,
         prepack=True,
     ):
-        x = torch.randn(batch, seqlen, dim).to(dtype).transpose_(-1, -2)
-        weight = torch.randn(dim, width).to(dtype)
-        bias = torch.randn(dim).to(dtype) if has_bias else None
+        x = torch.randn(batch, seqlen, dim).to(dtype).transpose_(-1, -2)  # 转换数据类型
+        weight = torch.randn(dim, width).to(dtype)  # 转换数据类型
+        bias = torch.randn(dim).to(dtype) if has_bias else None  # 转换数据类型
 
         if has_initial_state:
             initial_states = torch.randn(batch, dim, width - 1, dtype=dtype)
@@ -166,6 +170,7 @@ class TestCausalConv1d(CustomTestCase):
         max_seqlen=[66],
         width=[4],
     )
+    # 测试causalconv1dvarlen
     def test_causal_conv1d_varlen(
         self,
         batch,
@@ -185,7 +190,7 @@ class TestCausalConv1d(CustomTestCase):
 
         query_start_loc = torch.cumsum(seqlens, dim=0).to(torch.int32)
 
-        seqlen = query_start_loc[-1].item()
+        seqlen = query_start_loc[-1].item()  # 获取标量值
         x = torch.randn(seqlen, dim, dtype=dtype).transpose_(-1, -2)
         weight = torch.randn(dim, width, dtype=dtype)
         bias = torch.randn(dim, dtype=dtype) if has_bias else None
@@ -248,13 +253,14 @@ class TestCausalConv1d(CustomTestCase):
         dim=[32, 64, 96],
         width=[4],
     )
+    # 测试causalconv1dupdate
     def test_causal_conv1d_update(
         self, batch, dim, width, has_bias=False, dtype=torch.bfloat16, prepack=True
     ):
-        x = torch.randn(batch, dim).to(dtype)
+        x = torch.randn(batch, dim).to(dtype)  # 转换数据类型
         conv_state = torch.randn(batch, dim, width - 1, dtype=dtype)
-        weight = torch.randn(dim, width).to(dtype)
-        bias = torch.randn(dim).to(dtype) if has_bias else None
+        weight = torch.randn(dim, width).to(dtype)  # 转换数据类型
+        bias = torch.randn(dim).to(dtype) if has_bias else None  # 转换数据类型
 
         packed_weight = causal_conv1d_weight_pack(weight) if prepack else weight
 
@@ -286,18 +292,19 @@ class TestCausalConv1d(CustomTestCase):
         dim=[96],
         width=[4],
     )
+    # 测试causalconv1dupdatewithbatchgather
     def test_causal_conv1d_update_with_batch_gather(
         self, batch, dim, width, has_bias=False, dtype=torch.bfloat16, prepack=True
     ):
         total_entries = batch + 3
 
-        x = torch.randn(batch, dim).to(dtype=dtype)
+        x = torch.randn(batch, dim).to(dtype=dtype)  # 转换数据类型
 
-        conv_state_indices = torch.randperm(total_entries)[:batch].to(dtype=torch.int32)
+        conv_state_indices = torch.randperm(total_entries)[:batch].to(dtype=torch.int32)  # 转换数据类型
         conv_state = torch.randn(total_entries, dim, width - 1, dtype=dtype)
 
-        weight = torch.randn(dim, width).to(dtype=dtype)
-        bias = torch.randn(dim).to(dtype=dtype) if has_bias else None
+        weight = torch.randn(dim, width).to(dtype=dtype)  # 转换数据类型
+        bias = torch.randn(dim).to(dtype=dtype) if has_bias else None  # 转换数据类型
         conv_state_ref = conv_state[conv_state_indices, :]
 
         packed_weight = causal_conv1d_weight_pack(weight) if prepack else weight

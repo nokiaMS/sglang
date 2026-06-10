@@ -1,3 +1,4 @@
+# 文件名: test_serving_transcription.py - 转录服务
 """Unit tests for OpenAIServingTranscription's streaming fused-autodetect path.
 
 Exercises the streaming handler: buffer deltas until the forced-prefix
@@ -31,6 +32,7 @@ from sglang.test.test_utils import CustomTestCase
 register_cpu_ci(est_time=4, suite="base-a-test-cpu")
 
 
+# 内部方法_chunk
 def _chunk(text: str, finish: str = None) -> dict:
     """Shape of what TokenizerManager.generate_request yields per step."""
     return {
@@ -41,6 +43,7 @@ def _chunk(text: str, finish: str = None) -> dict:
     }
 
 
+# _MockTokenizerManager类
 class _MockTokenizerManager:
     """Minimal mock satisfying OpenAIServingTranscription.__init__ and stream loop."""
 
@@ -58,6 +61,7 @@ class _MockTokenizerManager:
         self.tokenizer = Mock()
         self._stream_chunks = stream_chunks
 
+    # _MockTokenizerManager类的generate_request
     def generate_request(self, adapted_request, raw_request):
         chunks = self._stream_chunks
 
@@ -67,10 +71,12 @@ class _MockTokenizerManager:
 
         return gen()
 
+    # _MockTokenizerManager类的create_abort_task
     def create_abort_task(self, adapted_request):
         return None
 
 
+# 内部方法_deltas_from_sse
 def _deltas_from_sse(sse_lines: List[str]) -> List[str]:
     """Extract ``choices[0].delta.content`` strings from a list of SSE frames."""
     out = []
@@ -91,6 +97,7 @@ def _deltas_from_sse(sse_lines: List[str]) -> List[str]:
     return out
 
 
+# TestStreamingFusedAutodetect类
 class TestStreamingFusedAutodetect(CustomTestCase):
     """_generate_transcription_stream with _fused_autodetect=True."""
 
@@ -122,6 +129,7 @@ class TestStreamingFusedAutodetect(CustomTestCase):
         frames = loop.run_until_complete(drive())
         return request, frames
 
+    # TestStreamingFusedAutodetect类的测试prefixstrippedandlanguageextracted
     def test_prefix_stripped_and_language_extracted(self):
         chunks = [
             _chunk("<|en|>"),
@@ -132,21 +140,23 @@ class TestStreamingFusedAutodetect(CustomTestCase):
         ]
         request, frames = self._run_stream(chunks)
         deltas = _deltas_from_sse(frames)
-        self.assertEqual(deltas, ["Hello", " world"])
-        self.assertEqual(request.language, "en")
+        self.assertEqual(deltas, ["Hello", " world"])  # 断言相等
+        self.assertEqual(request.language, "en")  # 断言相等
         # No delta ever starts with the forced prefix or leading whitespace.
-        self.assertFalse(any("<|" in d for d in deltas))
-        self.assertFalse(deltas[0].startswith(" "))
+        self.assertFalse(any("<|" in d for d in deltas))  # 断言为假
+        self.assertFalse(deltas[0].startswith(" "))  # 断言为假
 
+    # TestStreamingFusedAutodetect类的测试nonenglishlanguageextracted
     def test_non_english_language_extracted(self):
         chunks = [
             _chunk("<|zh|><|transcribe|><|notimestamps|>你好"),
             _chunk("<|zh|><|transcribe|><|notimestamps|>你好世界", finish="stop"),
         ]
         request, frames = self._run_stream(chunks)
-        self.assertEqual(request.language, "zh")
+        self.assertEqual(request.language, "zh")  # 断言相等
         self.assertEqual(_deltas_from_sse(frames), ["你好", "世界"])
 
+    # TestStreamingFusedAutodetect类的测试fsmabortbeforesentinelemitserrorframe
     def test_fsm_abort_before_sentinel_emits_error_frame(self):
         # Sentinel never arrives; stream terminates on finish_reason. The
         # handler must surface this as a real SSE error frame so the client
@@ -157,14 +167,15 @@ class TestStreamingFusedAutodetect(CustomTestCase):
             _chunk("<|en|><|transcribe|>", finish="length"),
         ]
         request, frames = self._run_stream(chunks)
-        self.assertEqual(_deltas_from_sse(frames), [])
+        self.assertEqual(_deltas_from_sse(frames), [])  # 断言相等
         error_frames = [f for f in frames if f.startswith("data: ") and '"error"' in f]
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             error_frames, f"expected an SSE error frame, got frames={frames!r}"
         )
-        self.assertIn("language auto-detect failed", error_frames[0])
-        self.assertIsNone(request.language)
+        self.assertIn("language auto-detect failed", error_frames[0])  # 断言包含
+        self.assertIsNone(request.language)  # 断言为None
 
+    # TestStreamingFusedAutodetect类的测试nonfusedstreampassesthrough
     def test_non_fused_stream_passes_through(self):
         # When _fused_autodetect is False, no buffering or anchoring happens.
         chunks = [
@@ -172,8 +183,9 @@ class TestStreamingFusedAutodetect(CustomTestCase):
             _chunk("Hello world", finish="stop"),
         ]
         request, frames = self._run_stream(chunks, fused=False)
-        self.assertEqual(_deltas_from_sse(frames), ["Hello", " world"])
+        self.assertEqual(_deltas_from_sse(frames), ["Hello", " world"])  # 断言相等
 
+    # TestStreamingFusedAutodetect类的测试streamingtsvariantsentinelatchunkboundary
     def test_streaming_ts_variant_sentinel_at_chunk_boundary(self):
         # The <|0.00|> sentinel can land in its own chunk ahead of any
         # transcription text, and the trailing-space arrives later. The
@@ -194,14 +206,15 @@ class TestStreamingFusedAutodetect(CustomTestCase):
         ]
         request, frames = self._run_stream(chunks, ts_variant=True)
         deltas = _deltas_from_sse(frames)
-        self.assertEqual(request.language, "en")
-        self.assertFalse(any("<|" in d for d in deltas))
+        self.assertEqual(request.language, "en")  # 断言相等
+        self.assertFalse(any("<|" in d for d in deltas))  # 断言为假
         # No delta starts with a leading space (the one Whisper emits
         # between <|0.00|> and "Hello" was consumed by the defer-on-
         # whitespace path).
-        self.assertFalse(deltas[0].startswith(" "))
-        self.assertEqual("".join(deltas), "Hello World")
+        self.assertFalse(deltas[0].startswith(" "))  # 断言为假
+        self.assertEqual("".join(deltas), "Hello World")  # 断言相等
 
+    # TestStreamingFusedAutodetect类的测试streamingtimestampsvariantscrubsembeddedsegmenttokens
     def test_streaming_timestamps_variant_scrubs_embedded_segment_tokens(self):
         # Streaming + timestamp_granularities + language=None uses the fused
         # timestamps variant (<|0.00|> sentinel). Segment-boundary tokens
@@ -220,10 +233,11 @@ class TestStreamingFusedAutodetect(CustomTestCase):
         ]
         request, frames = self._run_stream(chunks, ts_variant=True)
         deltas = _deltas_from_sse(frames)
-        self.assertEqual(request.language, "en")
-        self.assertFalse(any("<|" in d for d in deltas))
-        self.assertEqual("".join(deltas), "Hello World")
+        self.assertEqual(request.language, "en")  # 断言相等
+        self.assertFalse(any("<|" in d for d in deltas))  # 断言为假
+        self.assertEqual("".join(deltas), "Hello World")  # 断言相等
 
+    # TestStreamingFusedAutodetect类的测试trailingendoftextscrubbedfromlastdelta
     def test_trailing_endoftext_scrubbed_from_last_delta(self):
         # skip_special_tokens=False means the detokenizer may emit
         # <|endoftext|> at the tail. The fused streaming path must scrub it
@@ -237,10 +251,11 @@ class TestStreamingFusedAutodetect(CustomTestCase):
         ]
         _, frames = self._run_stream(chunks)
         deltas = _deltas_from_sse(frames)
-        self.assertEqual(deltas, ["Hello", " world"])
-        self.assertFalse(any("<|" in d for d in deltas))
+        self.assertEqual(deltas, ["Hello", " world"])  # 断言相等
+        self.assertFalse(any("<|" in d for d in deltas))  # 断言为假
 
 
+# TestStreamingIncrementalOutputMode类
 class TestStreamingIncrementalOutputMode(CustomTestCase):
     """Server runs with ``incremental_streaming_output=True``.
 
@@ -279,14 +294,16 @@ class TestStreamingIncrementalOutputMode(CustomTestCase):
 
         return request, get_or_create_event_loop().run_until_complete(drive())
 
+    # TestStreamingIncrementalOutputMode类的测试incrementalnonfusedemitseachdeltaverbatim
     def test_incremental_non_fused_emits_each_delta_verbatim(self):
         # sglang.private default: each content["text"] IS the new delta, so
         # the handler should NOT slice it. Client should see exactly what
         # the detokenizer emitted.
         deltas_in = [" The", " President", ":", " Thank", " you"]
         _, frames = self._run_incremental_stream(deltas_in, fused=False)
-        self.assertEqual(_deltas_from_sse(frames), deltas_in)
+        self.assertEqual(_deltas_from_sse(frames), deltas_in)  # 断言相等
 
+    # TestStreamingIncrementalOutputMode类的测试incrementalfusedautodetectstillstripsprefix
     def test_incremental_fused_autodetect_still_strips_prefix(self):
         # Incremental + fused: the handler must accumulate to find the
         # sentinel, then emit only the post-prefix portion per chunk.
@@ -300,9 +317,9 @@ class TestStreamingIncrementalOutputMode(CustomTestCase):
         request, frames = self._run_incremental_stream(deltas_in, fused=True)
         emitted = _deltas_from_sse(frames)
         # Prefix never leaks, and concat matches the expected transcription.
-        self.assertFalse(any("<|" in d for d in emitted))
-        self.assertEqual("".join(emitted), "Hello world")
-        self.assertEqual(request.language, "en")
+        self.assertFalse(any("<|" in d for d in emitted))  # 断言为假
+        self.assertEqual("".join(emitted), "Hello world")  # 断言相等
+        self.assertEqual(request.language, "en")  # 断言相等
 
 
 if __name__ == "__main__":

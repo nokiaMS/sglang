@@ -1,3 +1,4 @@
+# 文件名: test_planner.py - 规划器测试
 import sys
 
 import pytest
@@ -30,6 +31,7 @@ register_cpu_ci(est_time=1, suite="base-b-test-cpu")
 class TestBuildTokenIndexSGLangThd:
     """Tests for SGLang thd token index building."""
 
+    # 测试singlestepprefill
     def test_single_step_prefill(self):
         """Single prefill step with two sequences."""
         side_aux = TokenAlignerGlobalAux(
@@ -59,6 +61,7 @@ class TestBuildTokenIndexSGLangThd:
         assert seq_b.positions == [0, 1]
         assert seq_b.locator.token_index_in_step == [3, 4]
 
+    # 测试multistepprefilldecode
     def test_multi_step_prefill_decode(self):
         """Prefill step followed by decode steps, sequences accumulate tokens."""
         side_aux = TokenAlignerGlobalAux(
@@ -92,6 +95,7 @@ class TestBuildTokenIndexSGLangThd:
         assert seq_b.input_ids == [40, 50, 51]
         assert seq_b.positions == [0, 1, 2]
 
+    # 测试sequenceexitandjoin
     def test_sequence_exit_and_join(self):
         """Sequence A exits, new sequence D joins with different seq_id."""
         side_aux = TokenAlignerGlobalAux(
@@ -116,6 +120,7 @@ class TestBuildTokenIndexSGLangThd:
         index = build_seqs_info(side_aux)
         assert len(index.sequences) == 2
 
+    # 测试differentseqidsproduceseparatesequences
     def test_different_seq_ids_produce_separate_sequences(self):
         """Different seq_ids at different steps → separate sequences."""
         side_aux = TokenAlignerGlobalAux(
@@ -150,6 +155,7 @@ class TestBuildTokenIndexSGLangThd:
 class TestBuildTokenIndexMegatronThd:
     """Tests for Megatron thd token index building."""
 
+    # 测试singlesteptwosequences
     def test_single_step_two_sequences(self):
         """Single step with two sequences in thd layout."""
         side_aux = TokenAlignerGlobalAux(
@@ -182,6 +188,7 @@ class TestBuildTokenIndexMegatronThd:
         assert seq1.positions == [0, 1]
         assert seq1.locator.token_index_in_step == [3, 4]
 
+    # 测试multistepaccumulation
     def test_multi_step_accumulation(self):
         """Two steps with different seq_ids produce separate sequences."""
         side_aux = TokenAlignerGlobalAux(
@@ -224,6 +231,7 @@ class TestBuildTokenIndexMegatronThd:
 class TestMatchSequences:
     """Tests for _match_sequences: for each y, find matching x."""
 
+    # 测试exactmatchsimple
     def test_exact_match_simple(self):
         """Identical input_ids on both sides → all matched."""
         matched = _match_seqs(
@@ -233,6 +241,7 @@ class TestMatchSequences:
         S = _int_to_seq_id
         assert _matched_ids(matched) == {(S(0), S(0)), (S(1), S(1))}
 
+    # 测试exactmatchdifferentorder
     def test_exact_match_different_order(self):
         """Sequences in different order still match by content."""
         matched = _match_seqs(
@@ -242,6 +251,7 @@ class TestMatchSequences:
         S = _int_to_seq_id
         assert _matched_ids(matched) == {(S(1), S(0)), (S(0), S(1))}
 
+    # 测试exactmatchdifferentseqids
     def test_exact_match_different_seq_ids(self):
         """Seq IDs don't need to correspond — matching is by content."""
         matched = _match_seqs(
@@ -251,6 +261,7 @@ class TestMatchSequences:
         S = _int_to_seq_id
         assert _matched_ids(matched) == {(S(9), S(2)), (S(5), S(7))}
 
+    # 测试nomatch
     def test_no_match(self):
         """Completely different input_ids → no matches."""
         matched = _match_seqs(
@@ -259,12 +270,14 @@ class TestMatchSequences:
         )
         assert matched == []
 
+    # 测试emptysides
     def test_empty_sides(self):
         """Empty x or y → no matches."""
         assert _match_seqs(x={}, y={0: (10,)}) == []
         assert _match_seqs(x={0: (10,)}, y={}) == []
         assert _match_seqs(x={}, y={}) == []
 
+    # 测试xhasmoresequences
     def test_x_has_more_sequences(self):
         """Extra x sequences are ignored (no y needs them)."""
         matched = _match_seqs(
@@ -274,6 +287,7 @@ class TestMatchSequences:
         S = _int_to_seq_id
         assert _matched_ids(matched) == {(S(1), S(0))}
 
+    # 测试yhasmoresequences
     def test_y_has_more_sequences(self):
         """Extra y sequences remain unmatched."""
         matched = _match_seqs(
@@ -283,6 +297,7 @@ class TestMatchSequences:
         S = _int_to_seq_id
         assert _matched_ids(matched) == {(S(0), S(0))}
 
+    # 测试onexnotreused
     def test_one_x_not_reused(self):
         """Each x can only be claimed once, even if multiple y want it."""
         matched = _match_seqs(
@@ -291,6 +306,7 @@ class TestMatchSequences:
         )
         assert len(matched) == 1
 
+    # 测试ambiguousallmatched
     def test_ambiguous_all_matched(self):
         """Multiple identical sequences on both sides → all paired (greedy 1:1)."""
         matched = _match_seqs(
@@ -304,6 +320,7 @@ class TestMatchSequences:
         assert x_ids == {S(0), S(1), S(2)}
         assert y_ids == {S(0), S(1), S(2)}
 
+    # 测试prefixxshorter
     def test_prefix_x_shorter(self):
         """x has fewer tokens (prefix of y) → prefix match."""
         matched = _match_seqs(
@@ -313,6 +330,7 @@ class TestMatchSequences:
         S = _int_to_seq_id
         assert _matched_ids(matched) == {(S(0), S(0))}
 
+    # 测试prefixyshorter
     def test_prefix_y_shorter(self):
         """y has fewer tokens (prefix of x) → prefix match."""
         matched = _match_seqs(
@@ -322,6 +340,7 @@ class TestMatchSequences:
         S = _int_to_seq_id
         assert _matched_ids(matched) == {(S(0), S(0))}
 
+    # 测试prefixpickslongest
     def test_prefix_picks_longest(self):
         """Among multiple prefix candidates, picks the one with longest overlap."""
         matched = _match_seqs(
@@ -331,6 +350,7 @@ class TestMatchSequences:
         S = _int_to_seq_id
         assert _matched_ids(matched) == {(S(1), S(0))}
 
+    # 测试exactpreferredoverprefix
     def test_exact_preferred_over_prefix(self):
         """Exact match is tried first, even if a longer prefix candidate exists."""
         matched = _match_seqs(
@@ -340,6 +360,7 @@ class TestMatchSequences:
         S = _int_to_seq_id
         assert _matched_ids(matched) == {(S(0), S(0))}
 
+    # 测试prefixfallbackafterexact
     def test_prefix_fallback_after_exact(self):
         """Exact matches consume sequences, remaining use prefix match."""
         matched = _match_seqs(
@@ -352,6 +373,7 @@ class TestMatchSequences:
         assert (S(0), S(0)) in matched_set
         assert (S(1), S(1)) in matched_set
 
+    # 测试singletokensequences
     def test_single_token_sequences(self):
         """Single-token sequences can match."""
         matched = _match_seqs(
@@ -361,6 +383,7 @@ class TestMatchSequences:
         S = _int_to_seq_id
         assert _matched_ids(matched) == {(S(0), S(0))}
 
+    # 测试nopartialoverlapwithoutprefix
     def test_no_partial_overlap_without_prefix(self):
         """Overlapping content that isn't a prefix → no match."""
         matched = _match_seqs(
@@ -373,6 +396,7 @@ class TestMatchSequences:
 class TestComputeAlignmentPlanCrossFramework:
     """Tests for alignment plan across different frameworks and layouts."""
 
+    # 测试thdvsthddifferentstepsplits
     def test_thd_vs_thd_different_step_splits(self):
         """Two thd sides with same tokens but different step distributions."""
         side_aux_a = TokenAlignerGlobalAux(
@@ -412,6 +436,7 @@ class TestComputeAlignmentPlanCrossFramework:
         plan = compute_token_aligner_plan(seqs_info_pair=Pair(x=index_a, y=index_b))
         assert len(plan.locators.x.steps) == 3
 
+    # 测试sglangvsmegatronthd
     def test_sglang_vs_megatron_thd(self):
         """SGLang multi-step thd aligned with Megatron single-step thd."""
         side_aux_a = TokenAlignerGlobalAux(
@@ -455,6 +480,7 @@ class TestComputeAlignmentPlanCrossFramework:
 
         assert len(plan.locators.x.steps) == 7
 
+    # 测试crosslayoutsglangthdvsmegatronbshd
     def test_cross_layout_sglang_thd_vs_megatron_bshd(self):
         """SGLang THD vs Megatron BSHD end-to-end alignment via planner.
 
@@ -512,11 +538,13 @@ class TestComputeAlignmentPlanCrossFramework:
 # ---------------------------------------------------------------------------
 
 
+# 执行inttoseqid
 def _int_to_seq_id(k: int) -> SeqId:
     """Convert an int key to a SeqId for test convenience."""
     return SGLangSeqId(rid=str(k))
 
 
+# 执行makeindex
 def _make_index(
     *,
     sequences: dict[int, tuple[int, ...]],
@@ -537,6 +565,7 @@ def _make_index(
     return TokenAlignerSeqsInfo(sequences=records, layout=layout)
 
 
+# 执行makeseqinfodict
 def _make_seq_info_dict(
     sequences: dict[int, tuple[int, ...]],
 ) -> dict[SeqId, TokenAlignerSeqInfo]:
@@ -555,6 +584,7 @@ def _make_seq_info_dict(
     return result
 
 
+# 执行matchseqs
 def _match_seqs(
     *,
     x: dict[int, tuple[int, ...]],
@@ -566,6 +596,7 @@ def _match_seqs(
     )
 
 
+# 执行matchedids
 def _matched_ids(matched: list[tuple[SeqId, SeqId]]) -> set[tuple[SeqId, SeqId]]:
     """Convert matched pairs list to set for order-independent comparison."""
     return set(matched)

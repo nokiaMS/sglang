@@ -1,29 +1,32 @@
 # SPDX-License-Identifier: Apache-2.0
 
-import logging
-from typing import Optional
+# Marlin工具集的FP8扩展模块，提供FP8权重在Marlin内核格式下的打包、线性层准备和MoE层准备等功能，用于在缺乏原生FP8硬件支持的GPU上通过Marlin内核实现仅权重的FP8量化压缩。
 
-import torch
+import logging  # 日志模块
+from typing import Optional  # 类型注解
 
-from sglang.srt.layers.quantization.marlin_utils import (
+import torch  # 深度学习框架
+
+from sglang.srt.layers.quantization.marlin_utils import (  # Marlin量化工具
     USE_FP32_REDUCE_DEFAULT,
     marlin_make_workspace,
     marlin_permute_bias,
     marlin_permute_scales,
     should_use_atomic_add_reduce,
 )
-from sglang.srt.layers.quantization.utils import get_scalar_types
-from sglang.srt.utils import is_cuda
-from sglang.srt.utils.custom_op import register_custom_op
+from sglang.srt.layers.quantization.utils import get_scalar_types  # 量化工具函数
+from sglang.srt.utils import is_cuda  # SGLang工具函数
+from sglang.srt.utils.custom_op import register_custom_op  # 自定义算子注册
 
 _is_cuda = is_cuda()
 if _is_cuda:
-    from sglang.jit_kernel.gptq_marlin import gptq_marlin_gemm
-    from sglang.jit_kernel.gptq_marlin_repack import gptq_marlin_repack
+    from sglang.jit_kernel.gptq_marlin import gptq_marlin_gemm  # GPTQ Marlin JIT内核
+    from sglang.jit_kernel.gptq_marlin_repack import gptq_marlin_repack  # GPTQ Marlin重打包JIT内核
 
 ScalarType, scalar_types = get_scalar_types()
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)  # 创建日志记录器
+# 将FP8指数偏置融合到缩放因子中
 
 
 def fp8_fused_exponent_bias_into_scales(scales):
@@ -37,7 +40,8 @@ def fp8_fused_exponent_bias_into_scales(scales):
     exponent_bias = 2 ** (target_exponent - 1) - 2 ** (fp8_exponent - 1)
     s = torch.ones_like(scales) * 2
     s = s**exponent_bias
-    return scales * s
+    return scales * s  # 返回结果
+# FP8 Marlin线性层的伪实现（用于torch.compile跟踪）
 
 
 def fake_apply_fp8_marlin_linear(
@@ -51,8 +55,9 @@ def fake_apply_fp8_marlin_linear(
     use_fp32_reduce: bool = USE_FP32_REDUCE_DEFAULT,
 ) -> torch.Tensor:
     out_shape = input.shape[:-1] + (size_n,)
-    fake_output = torch.empty(out_shape, dtype=input.dtype, device=input.device)
-    return fake_output
+    fake_output = torch.empty(out_shape, dtype=input.dtype, device=input.device)  # 创建空张量
+    return fake_output  # 返回结果
+# 应用FP8 Marlin线性变换
 
 
 @register_custom_op(fake_impl=fake_apply_fp8_marlin_linear)
@@ -97,13 +102,14 @@ def apply_fp8_marlin_linear(
     if bias is not None:
         output.add_(bias)
 
-    return output.reshape(out_shape)
+    return output.reshape(out_shape)  # 返回结果
+# 为Marlin内核准备FP8线性层
 
 
 def prepare_fp8_layer_for_marlin(
     layer: torch.nn.Module, size_k_first: bool = True
 ) -> None:
-    logger.warning_once(
+    logger.warning_once(  # 输出一次性警告
         "Your GPU does not have native support for FP8 computation but "
         "FP8 quantization is being used. Weight-only FP8 compression will "
         "be used leveraging the Marlin kernel. This may degrade "
@@ -126,10 +132,10 @@ def prepare_fp8_layer_for_marlin(
 
     # WEIGHT
     # Repack weights to marlin format
-    perm = torch.empty(0, dtype=torch.int, device=device)
+    perm = torch.empty(0, dtype=torch.int, device=device)  # 创建空张量
     qweight = pack_fp8_to_int32(layer.weight, size_k_first)
     if not size_k_first:
-        qweight = qweight.T.contiguous()
+        qweight = qweight.T.contiguous()  # 确保内存连续
 
     marlin_qweight = gptq_marlin_repack(
         b_q_weight=qweight,
@@ -138,7 +144,7 @@ def prepare_fp8_layer_for_marlin(
         size_n=part_size_n,
         num_bits=8,
     )
-    layer.weight = torch.nn.Parameter(marlin_qweight, requires_grad=False)
+    layer.weight = torch.nn.Parameter(marlin_qweight, requires_grad=False)  # 创建参数
 
     # WEIGHT SCALES
     # Permute scales
@@ -174,7 +180,7 @@ def prepare_fp8_layer_for_marlin(
         # (size_k // block_size[1], ceil(size_n / block_size[0]))
         #  =>(repeat)=> (size_k // block_size[1], size_n)
         if not size_k_first:
-            scales = scales.T.contiguous()
+            scales = scales.T.contiguous()  # 确保内存连续
         block_n = weight_block_size[0]
         scales = scales.repeat_interleave(block_n, 1)
         # size_n may not divisible by block_size[0]
@@ -184,18 +190,19 @@ def prepare_fp8_layer_for_marlin(
         s=scales, size_k=part_size_k, size_n=part_size_n, group_size=group_size
     )
     marlin_scales = fp8_fused_exponent_bias_into_scales(marlin_scales)
-    layer.weight_scale = torch.nn.Parameter(marlin_scales, requires_grad=False)
+    layer.weight_scale = torch.nn.Parameter(marlin_scales, requires_grad=False)  # 创建参数
 
     if hasattr(layer, "bias") and layer.bias is not None:
         assert layer.bias.shape == (part_size_n,)
         bias = marlin_permute_bias(layer.bias)
-        layer.bias = torch.nn.Parameter(bias, requires_grad=False)
+        layer.bias = torch.nn.Parameter(bias, requires_grad=False)  # 创建参数
+# 为Marlin内核准备FP8 MoE层
 
 
 def prepare_moe_fp8_layer_for_marlin(
     layer: torch.nn.Module, size_k_first: bool = True
 ) -> None:
-    logger.warning_once(
+    logger.warning_once(  # 输出一次性警告
         "Your GPU does not have native support for FP8 computation but "
         "FP8 quantization is being used. Weight-only FP8 compression will "
         "be used leveraging the Marlin kernel. This may degrade "
@@ -210,7 +217,7 @@ def prepare_moe_fp8_layer_for_marlin(
     # WORKSPACE
     device = layer.w13_weight.device
     layer.workspace = marlin_make_workspace(device, 4)
-    perm = torch.empty(0, dtype=torch.int, device=device)
+    perm = torch.empty(0, dtype=torch.int, device=device)  # 创建空张量
 
     # WEIGHT
     # Repack weights to marlin format
@@ -230,7 +237,7 @@ def prepare_moe_fp8_layer_for_marlin(
         for i in range(e):
             qweight = pack_fp8_to_int32(weight[i], size_k_first)
             if not size_k_first:
-                qweight = qweight.T.contiguous()
+                qweight = qweight.T.contiguous()  # 确保内存连续
 
             marlin_qweight = gptq_marlin_repack(
                 b_q_weight=qweight, perm=perm, size_k=size_k, size_n=size_n, num_bits=8
@@ -238,7 +245,7 @@ def prepare_moe_fp8_layer_for_marlin(
             tensor_list.append(marlin_qweight)
 
         weight = torch.cat([x.unsqueeze(0) for x in tensor_list], 0)
-        weight = torch.nn.Parameter(weight, requires_grad=False)
+        weight = torch.nn.Parameter(weight, requires_grad=False)  # 创建参数
 
         setattr(layer, name, weight)
 
@@ -290,7 +297,7 @@ def prepare_moe_fp8_layer_for_marlin(
             block_n = weight_block_size[0]
             scales = scales.repeat_interleave(block_n, 2)
             # size_n may not divisible by block_size[0]
-            scales = scales[..., :size_n].contiguous()
+            scales = scales[..., :size_n].contiguous()  # 确保内存连续
 
         for i in range(e):
             marlin_scales = marlin_permute_scales(
@@ -300,7 +307,7 @@ def prepare_moe_fp8_layer_for_marlin(
 
         scales = torch.cat([x.unsqueeze(0) for x in tensor_list], 0)
         scales = fp8_fused_exponent_bias_into_scales(scales)
-        scales = torch.nn.Parameter(scales, requires_grad=False)
+        scales = torch.nn.Parameter(scales, requires_grad=False)  # 创建参数
 
         setattr(layer, name + "_weight_scale", scales)
 
@@ -308,7 +315,7 @@ def prepare_moe_fp8_layer_for_marlin(
     # Permute bias
     for name in ["w13_bias", "w2_bias"]:
         if not hasattr(layer, name):
-            continue
+            continue  # 继续下一轮循环
         bias = getattr(layer, name).to(layer.orig_dtype)
 
         tensor_list = []
@@ -318,8 +325,9 @@ def prepare_moe_fp8_layer_for_marlin(
             tensor_list.append(marlin_permute_bias(expert_bias))
 
         bias = torch.cat([x.unsqueeze(0) for x in tensor_list], 0)
-        bias = torch.nn.Parameter(bias, requires_grad=False)
+        bias = torch.nn.Parameter(bias, requires_grad=False)  # 创建参数
         setattr(layer, name, bias)
+# 将FP8权重打包为int32格式（用于GPTQ Marlin内核）
 
 
 def pack_fp8_to_int32(
@@ -332,11 +340,12 @@ def pack_fp8_to_int32(
     assert fp8_tensor.ndim == 2
 
     fp8_tensor = fp8_tensor.T if size_k_first else fp8_tensor
-    fp8_tensor = fp8_tensor.contiguous()
+    fp8_tensor = fp8_tensor.contiguous()  # 确保内存连续
     # fp8_tensor is contiguous and have shape (N, K) now
     # with `.view(torch.int32)`, it become (N, K // 4)
     int32_tensor = fp8_tensor.view(torch.int32)
-    return int32_tensor.T.contiguous() if size_k_first else int32_tensor
+    return int32_tensor.T.contiguous() if size_k_first else int32_tensor  # 确保内存连续
+# 使用PyTorch对权重进行FP8量化并转换为Marlin格式
 
 
 def marlin_quant_fp8_torch(weight, group_size):
@@ -354,10 +363,10 @@ def marlin_quant_fp8_torch(weight, group_size):
         fp8_weight = (weight / repeated_scales).to(torch.float8_e4m3fn)
         weight_ref = fp8_weight.to(weight.dtype) * repeated_scales
 
-    packed_weight = pack_fp8_to_int32(fp8_weight, False).T.contiguous()
+    packed_weight = pack_fp8_to_int32(fp8_weight, False).T.contiguous()  # 确保内存连续
     marlin_qweight = gptq_marlin_repack(
         b_q_weight=packed_weight,
-        perm=torch.empty(0, dtype=torch.int, device=device),
+        perm=torch.empty(0, dtype=torch.int, device=device),  # 创建空张量
         size_k=size_k,
         size_n=size_n,
         num_bits=8,
@@ -369,4 +378,4 @@ def marlin_quant_fp8_torch(weight, group_size):
 
     marlin_scales = fp8_fused_exponent_bias_into_scales(marlin_scales)
 
-    return weight_ref.T, marlin_qweight, marlin_scales
+    return weight_ref.T, marlin_qweight, marlin_scales  # 返回结果

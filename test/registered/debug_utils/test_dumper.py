@@ -1,3 +1,4 @@
+# 文件名: test_dumper.py - 转储器测试
 import io
 import multiprocessing
 import os
@@ -54,6 +55,7 @@ register_amd_ci(est_time=60, suite="nightly-amd", nightly=True)
 
 
 @contextmanager
+# 执行capturestdout
 def _capture_stdout():
     captured = io.StringIO()
     old_stdout = sys.stdout
@@ -65,27 +67,33 @@ def _capture_stdout():
 
 
 class TestDumperConfig:
+    # 测试fromenvdefaultsmatchdataclassdefaults
     def test_from_env_defaults_match_dataclass_defaults(self):
         assert DumperConfig.from_env() == DumperConfig()
 
+    # 测试fromenvbool
     def test_from_env_bool(self):
         with temp_set_env(DUMPER_ENABLE="1"):
             assert DumperConfig.from_env().enable is True
         with temp_set_env(DUMPER_ENABLE="false"):
             assert DumperConfig.from_env().enable is False
 
+    # 测试fromenvstr
     def test_from_env_str(self):
         with temp_set_env(DUMPER_FILTER="layer_id=0"):
             assert DumperConfig.from_env().filter == "layer_id=0"
 
+    # 测试fromenvdir
     def test_from_env_dir(self):
         with temp_set_env(DUMPER_DIR="/my/dir"):
             assert DumperConfig.from_env().dir == "/my/dir"
 
+    # 测试fromenvint
     def test_from_env_int(self):
         with temp_set_env(DUMPER_COLLECTIVE_TIMEOUT="120"):
             assert DumperConfig.from_env().collective_timeout == 120
 
+    # 测试configureoverrides
     def test_configure_overrides(self):
         d = _make_test_dumper("/tmp")
         d.configure(enable=False)
@@ -93,6 +101,7 @@ class TestDumperConfig:
         d.configure(enable=True)
         assert d._config.enable is True
 
+    # 测试typevalidation
     def test_type_validation(self):
         with pytest.raises(TypeError, match="enable.*expected bool.*got str"):
             DumperConfig(enable="yes")
@@ -103,29 +112,35 @@ class TestDumperConfig:
         with pytest.raises(TypeError, match="filter.*expected str.*got int"):
             DumperConfig(filter=123)
 
+    # 测试configuredefaultskipswhenenvset
     def test_configure_default_skips_when_env_set(self):
         with temp_set_env(DUMPER_FILTER="from_env"):
             d = _Dumper(config=DumperConfig.from_env())
             d.configure_default(filter="from_code")
             assert d._config.filter == "from_env"
 
+    # 测试configuredefaultapplieswhennoenv
     def test_configure_default_applies_when_no_env(self):
         d = _Dumper(config=DumperConfig.from_env())
         d.configure_default(filter="from_code")
         assert d._config.filter == "from_code"
 
+    # 测试fromenvwhitespacetreatedasunset
     def test_from_env_whitespace_treated_as_unset(self):
         with temp_set_env(DUMPER_FILTER="   "):
             assert DumperConfig.from_env().filter is None
 
+    # 测试mayenabledefaultfalse
     def test_may_enable_default_false(self):
         d = _Dumper(config=DumperConfig())
         assert d.may_enable is False
 
+    # 测试mayenabletruewhenenabled
     def test_may_enable_true_when_enabled(self):
         d = _Dumper(config=DumperConfig(enable=True))
         assert d.may_enable is True
 
+    # 测试mayenabletruewhenserverportset
     def test_may_enable_true_when_server_port_set(self):
         d = _Dumper(config=DumperConfig(server_port="40000"))
         assert d.may_enable is True
@@ -135,26 +150,32 @@ class TestDumperConfig:
 
 
 class TestServerPortParsed:
+    # 测试negativereturnsnone
     def test_negative_returns_none(self):
         assert DumperConfig(server_port="-1").server_port_parsed is None
 
+    # 测试zeroreturnsnone
     def test_zero_returns_none(self):
         assert DumperConfig(server_port="0").server_port_parsed is None
 
+    # 测试positivereturnsint
     def test_positive_returns_int(self):
         result = DumperConfig(server_port="40000").server_port_parsed
         assert result == 40000
         assert isinstance(result, int)
 
+    # 测试reusereturnsstring
     def test_reuse_returns_string(self):
         assert DumperConfig(server_port="reuse").server_port_parsed == "reuse"
 
 
 class TestDefaultExpName:
+    # 测试startswithprefix
     def test_starts_with_prefix(self):
         name = _get_default_exp_name(timeout_seconds=5)
         assert name.startswith("dump_")
 
+    # 测试suffixformat
     def test_suffix_format(self):
         name = _get_default_exp_name(timeout_seconds=5)
         suffix = name[len("dump_") :]
@@ -163,51 +184,62 @@ class TestDefaultExpName:
 
 
 class TestKvPairsParsing:
+    # 测试fromkvpairsnonereturnsdefaults
     def test_from_kv_pairs_none_returns_defaults(self):
         assert DumperConfig.from_kv_pairs(None) == DumperConfig()
 
+    # 测试fromkvpairsemptyreturnsdefaults
     def test_from_kv_pairs_empty_returns_defaults(self):
         assert DumperConfig.from_kv_pairs([]) == DumperConfig()
 
+    # 测试fromkvpairsboolfield
     def test_from_kv_pairs_bool_field(self):
         cfg = DumperConfig.from_kv_pairs(["enable=true"])
         assert cfg.enable is True
         assert cfg.dir == "/tmp/dumper"
 
+    # 测试fromkvpairsboolnumeric
     def test_from_kv_pairs_bool_numeric(self):
         assert DumperConfig.from_kv_pairs(["enable=1"]).enable is True
         assert DumperConfig.from_kv_pairs(["enable=0"]).enable is False
 
+    # 测试fromkvpairsintfield
     def test_from_kv_pairs_int_field(self):
         cfg = DumperConfig.from_kv_pairs(["collective_timeout=120"])
         assert cfg.collective_timeout == 120
         assert type(cfg.collective_timeout) is int
 
+    # 测试fromkvpairsintfieldzerostaysint
     def test_from_kv_pairs_int_field_zero_stays_int(self):
         cfg = DumperConfig.from_kv_pairs(["collective_timeout=0"])
         assert cfg.collective_timeout == 0
         assert type(cfg.collective_timeout) is int
 
+    # 测试fromkvpairsstrfieldnotcoerced
     def test_from_kv_pairs_str_field_not_coerced(self):
         cfg = DumperConfig.from_kv_pairs(["server_port=0"])
         assert cfg.server_port == "0"
         assert type(cfg.server_port) is str
 
+    # 测试fromkvpairsstrfieldonestaysstr
     def test_from_kv_pairs_str_field_one_stays_str(self):
         cfg = DumperConfig.from_kv_pairs(["server_port=1"])
         assert cfg.server_port == "1"
         assert type(cfg.server_port) is str
 
+    # 测试fromkvpairsoptionalstrfield
     def test_from_kv_pairs_optional_str_field(self):
         cfg = DumperConfig.from_kv_pairs(
             ["filter=layer_id is not None and layer_id < 3"]
         )
         assert cfg.filter == "layer_id is not None and layer_id < 3"
 
+    # 测试fromkvpairsoptionalstrexpname
     def test_from_kv_pairs_optional_str_exp_name(self):
         cfg = DumperConfig.from_kv_pairs(["exp_name=my_experiment"])
         assert cfg.exp_name == "my_experiment"
 
+    # 测试fromkvpairsmultiplefields
     def test_from_kv_pairs_multiple_fields(self):
         cfg = DumperConfig.from_kv_pairs(
             [
@@ -224,36 +256,44 @@ class TestKvPairsParsing:
         assert cfg.collective_timeout == 30
         assert cfg.enable_grad is True
 
+    # 测试fromkvpairsmissingequalsraises
     def test_from_kv_pairs_missing_equals_raises(self):
         with pytest.raises(ValueError, match="missing '='"):
             DumperConfig.from_kv_pairs(["enable"])
 
+    # 测试fromkvpairsunknownkeyraises
     def test_from_kv_pairs_unknown_key_raises(self):
         with pytest.raises(ValueError, match="Unknown config key"):
             DumperConfig.from_kv_pairs(["nonexistent=true"])
 
+    # 测试kvpairstodictreturnsonlyexplicit
     def test_kv_pairs_to_dict_returns_only_explicit(self):
         d = DumperConfig._kv_pairs_to_dict(["enable=true", "dir=/x"])
         assert d == {"enable": True, "dir": "/x"}
         assert "filter" not in d
         assert "collective_timeout" not in d
 
+    # 测试kvpairstodictnonereturnsempty
     def test_kv_pairs_to_dict_none_returns_empty(self):
         assert DumperConfig._kv_pairs_to_dict(None) == {}
 
+    # 测试kvpairstodictemptyreturnsempty
     def test_kv_pairs_to_dict_empty_returns_empty(self):
         assert DumperConfig._kv_pairs_to_dict([]) == {}
 
+    # 测试fromkvpairsvaluewithequalsinvalue
     def test_from_kv_pairs_value_with_equals_in_value(self):
         cfg = DumperConfig.from_kv_pairs(["filter=name == 'foo'"])
         assert cfg.filter == "name == 'foo'"
 
+    # 测试fromkvpairstypevalidationstillworks
     def test_from_kv_pairs_type_validation_still_works(self):
         with pytest.raises(TypeError, match="collective_timeout.*expected int"):
             DumperConfig.from_kv_pairs(["collective_timeout=not_a_number"])
 
 
 class TestDumperPureFunctions:
+    # 测试gettruncatedvalue
     def test_get_truncated_value(self):
         assert get_truncated_value(None) is None
         assert get_truncated_value(42) == 42
@@ -261,12 +301,14 @@ class TestDumperPureFunctions:
         assert get_truncated_value(torch.randn(10, 10)).shape == (10, 10)
         assert get_truncated_value(torch.randn(100, 100)).shape == (5, 5)
 
+    # 测试objtodict
     def test_obj_to_dict(self):
         assert _obj_to_dict({"a": 1}) == {"a": 1}
 
         class Obj:
             x, y = 10, 20
 
+            # 执行method
             def method(self):
                 pass
 
@@ -274,6 +316,7 @@ class TestDumperPureFunctions:
         assert result["x"] == 10
         assert "method" not in result
 
+    # 测试deepcopyorclonetensor
     def test_deepcopy_or_clone_tensor(self):
         original = torch.randn(3, 3)
         cloned = _deepcopy_or_clone(original)
@@ -281,6 +324,7 @@ class TestDumperPureFunctions:
         original.fill_(999.0)
         assert not torch.equal(cloned, original)
 
+    # 测试deepcopyorclonenontensor
     def test_deepcopy_or_clone_non_tensor(self):
         original = {"a": [1, 2, 3]}
         cloned = _deepcopy_or_clone(original)
@@ -289,6 +333,7 @@ class TestDumperPureFunctions:
         original["a"].append(4)
         assert len(cloned["a"]) == 3
 
+    # 测试gettensorinfo
     def test_get_tensor_info(self):
         info = get_tensor_info(torch.randn(10, 10))
         for key in ["shape=", "dtype=", "min=", "max=", "mean="]:
@@ -299,16 +344,19 @@ class TestDumperPureFunctions:
 
 
 class TestMapTensor:
+    # 测试baretensor
     def test_bare_tensor(self):
         t = torch.randn(4)
         result = _map_tensor(t, lambda x: x * 2)
         assert torch.equal(result, t * 2)
 
+    # 测试baretensornochange
     def test_bare_tensor_no_change(self):
         t = torch.randn(4)
         result = _map_tensor(t, lambda x: x)
         assert result is t
 
+    # 测试dictwithtensorvalues
     def test_dict_with_tensor_values(self):
         t1 = torch.randn(3)
         t2 = torch.randn(5)
@@ -320,11 +368,13 @@ class TestMapTensor:
         assert result["b"] is not t2
         assert result["meta"] == "not a tensor"
 
+    # 测试dictnotensors
     def test_dict_no_tensors(self):
         value = {"a": 1, "b": "hello"}
         result = _map_tensor(value, lambda x: x.clone())
         assert result == value
 
+    # 测试nesteddict
     def test_nested_dict(self):
         inner_t = torch.randn(3)
         value = {"outer": {"inner": inner_t, "label": "ok"}, "top": torch.randn(2)}
@@ -335,12 +385,14 @@ class TestMapTensor:
         assert result is not value
         assert result["outer"] is not value["outer"]
 
+    # 测试nontensornondict
     def test_non_tensor_non_dict(self):
         result = _map_tensor(42, lambda x: x.clone())
         assert result == 42
 
 
 class TestTorchSave:
+    # 测试normal
     def test_normal(self, tmp_path):
         path = str(tmp_path / "a.pt")
         tensor = torch.randn(3, 3)
@@ -349,8 +401,10 @@ class TestTorchSave:
 
         assert torch.equal(torch.load(path, weights_only=True), tensor)
 
+    # 测试parameterfallback
     def test_parameter_fallback(self, tmp_path):
         class BadParam(torch.nn.Parameter):
+            # 执行reduceex
             def __reduce_ex__(self, protocol):
                 raise RuntimeError("not pickleable")
 
@@ -361,6 +415,7 @@ class TestTorchSave:
 
         assert torch.equal(torch.load(path, weights_only=True), param.data)
 
+    # 测试sharedstoragenotbloated
     def test_shared_storage_not_bloated(self, tmp_path):
         big = torch.randn(1000, 1000)
         view = big[0]
@@ -377,6 +432,7 @@ class TestTorchSave:
             f"{big.nelement() * big.element_size()} byte storage"
         )
 
+    # 测试silentskip
     def test_silent_skip(self, tmp_path, capsys):
         path = str(tmp_path / "c.pt")
 
@@ -389,6 +445,7 @@ class TestTorchSave:
 
 
 class TestLog:
+    # 测试logformat
     def test_log_format(self):
         with _capture_stdout() as captured:
             _log("hello")
@@ -399,12 +456,14 @@ class TestLog:
 
 
 class TestCompareTensorsQuick:
+    # 测试identical
     def test_identical(self):
         a = torch.tensor([1.0, 2.0, 3.0])
         s = _compare_tensors_quick(a, a.clone())
         assert "rel_diff=0" in s, s
         assert "max_abs=0" in s, s
 
+    # 测试diverged
     def test_diverged(self):
         a = torch.tensor([1.0, 2.0, 3.0])
         b = torch.tensor([1.0, 2.0, 4.0])  # last element differs by 1
@@ -412,10 +471,12 @@ class TestCompareTensorsQuick:
         assert "max_abs=1" in s, s
         assert "rel_diff=" in s, s
 
+    # 测试shapemismatch
     def test_shape_mismatch(self):
         s = _compare_tensors_quick(torch.zeros(3), torch.zeros(4))
         assert "shape mismatch" in s, s
 
+    # 测试dtypeunified
     def test_dtype_unified(self):
         s = _compare_tensors_quick(
             torch.zeros(3, dtype=torch.float32),
@@ -424,16 +485,19 @@ class TestCompareTensorsQuick:
         assert "rel_diff=" in s, s
         assert "max_abs=" in s, s
 
+    # 测试空输入
     def test_empty(self):
         s = _compare_tensors_quick(torch.zeros(0), torch.zeros(0))
         assert s == "empty"
 
 
 class TestCollectiveTimeout:
+    # 测试watchdogfiresontimeout
     def test_watchdog_fires_on_timeout(self):
         block_event = threading.Event()
         output = ""
 
+        # 运行withtimeout
         def run_with_timeout():
             nonlocal output
             with _capture_stdout() as captured:
@@ -458,6 +522,7 @@ class TestCollectiveTimeout:
 
 
 class TestDumperDistributed:
+    # 测试基本功能
     def test_basic(self, tmp_path):
         with temp_set_env(
             DUMPER_ENABLE="1",
@@ -466,24 +531,25 @@ class TestDumperDistributed:
             run_distributed_test(self._test_basic_func, tmpdir=str(tmp_path))
 
     @staticmethod
+    # 执行testbasicfunc
     def _test_basic_func(rank, tmpdir):
         tensor = torch.randn(10, 10, device=f"cuda:{rank}")
 
         dumper.dump("tensor_a", tensor, arg=100)
-        dumper.step()
+        dumper.step()  # 执行优化步骤
 
         dumper.set_ctx(ctx_arg=200)
         dumper.dump("tensor_b", tensor)
         dumper.set_ctx(ctx_arg=None)
-        dumper.step()
+        dumper.step()  # 执行优化步骤
 
         dumper.configure(filter="False")
         dumper.dump("tensor_skip", tensor)
         dumper.configure(filter=None)
-        dumper.step()
+        dumper.step()  # 执行优化步骤
 
         dumper.dump_dict("obj", {"a": torch.randn(3, device=f"cuda:{rank}"), "b": 42})
-        dumper.step()
+        dumper.step()  # 执行优化步骤
 
         dist.barrier()
         filenames = _get_filenames(tmpdir)
@@ -493,11 +559,13 @@ class TestDumperDistributed:
             not_exist=["tensor_skip"],
         )
 
+    # 测试collectivetimeout
     def test_collective_timeout(self):
         with temp_set_env(DUMPER_ENABLE="1"):
             run_distributed_test(self._test_collective_timeout_func)
 
     @staticmethod
+    # 执行testcollectivetimeoutfunc
     def _test_collective_timeout_func(rank):
         dumper = _Dumper(
             config=DumperConfig(
@@ -509,7 +577,7 @@ class TestDumperDistributed:
         with _capture_stdout() as captured:
             if rank != 0:
                 time.sleep(6)
-            dumper.step()
+            dumper.step()  # 执行优化步骤
 
         output = captured.getvalue()
         print(f"Rank {rank} captured output: {output!r}")
@@ -518,6 +586,7 @@ class TestDumperDistributed:
             assert "WARNING" in output, f"Expected WARNING in rank 0 output: {output}"
             assert "has not completed after 3s" in output
 
+    # 测试filecontentcorrectness
     def test_file_content_correctness(self, tmp_path):
         with temp_set_env(
             DUMPER_ENABLE="1",
@@ -526,23 +595,25 @@ class TestDumperDistributed:
             run_distributed_test(self._test_file_content_func, tmpdir=str(tmp_path))
 
     @staticmethod
+    # 执行testfilecontentfunc
     def _test_file_content_func(rank, tmpdir):
-        tensor = torch.arange(12, device=f"cuda:{rank}").reshape(3, 4).float()
+        tensor = torch.arange(12, device=f"cuda:{rank}").reshape(3, 4).float()  # 转换为单精度
 
         dumper.dump("content_check", tensor)
-        dumper.step()
+        dumper.step()  # 执行优化步骤
 
         dist.barrier()
         path = _find_dump_file(tmpdir, rank=rank, name="content_check")
         raw = _load_dump(path)
         assert isinstance(raw, dict), f"Expected dict, got {type(raw)}"
         assert "value" in raw and "meta" in raw
-        assert torch.equal(raw["value"], tensor.cpu())
+        assert torch.equal(raw["value"], tensor.cpu())  # 转移到CPU
         assert raw["meta"]["name"] == "content_check"
         assert raw["meta"]["rank"] == rank
 
 
 class TestDumperFileWriteControl:
+    # 测试filter
     def test_filter(self, tmp_path):
         with temp_set_env(
             DUMPER_ENABLE="1",
@@ -552,11 +623,12 @@ class TestDumperFileWriteControl:
             run_distributed_test(self._test_filter_func, tmpdir=str(tmp_path))
 
     @staticmethod
+    # 执行testfilterfunc
     def _test_filter_func(rank, tmpdir):
         dumper.dump("keep_this", torch.randn(5, device=f"cuda:{rank}"))
         dumper.dump("skip_this", torch.randn(5, device=f"cuda:{rank}"))
         dumper.dump("not_keep_this", torch.randn(5, device=f"cuda:{rank}"))
-        dumper.step()
+        dumper.step()  # 执行优化步骤
 
         dist.barrier()
         filenames = _get_filenames(tmpdir)
@@ -566,6 +638,7 @@ class TestDumperFileWriteControl:
             not_exist=["skip_this", "not_keep_this"],
         )
 
+    # 测试savefalse
     def test_save_false(self, tmp_path):
         with temp_set_env(
             DUMPER_ENABLE="1",
@@ -574,15 +647,17 @@ class TestDumperFileWriteControl:
             run_distributed_test(self._test_save_false_func, tmpdir=str(tmp_path))
 
     @staticmethod
+    # 执行testsavefalsefunc
     def _test_save_false_func(rank, tmpdir):
         dumper.dump("no_save_tensor", torch.randn(5, device=f"cuda:{rank}"), save=False)
-        dumper.step()
+        dumper.step()  # 执行优化步骤
 
         dist.barrier()
         assert len(_get_filenames(tmpdir)) == 0
 
 
 class TestDumpEnableFlags:
+    # 测试allenablesfalsenooutput
     def test_all_enables_false_no_output(self, tmp_path):
         d = _make_test_dumper(tmp_path, enable_value=False, enable_grad=False)
         d.dump("should_skip", torch.randn(3, 3))
@@ -590,12 +665,14 @@ class TestDumpEnableFlags:
 
 
 class TestOutputControl:
+    # 测试fileenabledbydefault
     def test_file_enabled_by_default(self, tmp_path):
         d = _make_test_dumper(tmp_path)
         d.dump("file_on", torch.randn(3, 3))
 
         _assert_files(_get_filenames(tmp_path), exist=["file_on"])
 
+    # 测试filedisabled
     def test_file_disabled(self, tmp_path, capsys):
         d = _make_test_dumper(tmp_path, enable_output_file=False)
         d.dump("file_off", torch.randn(3, 3))
@@ -603,6 +680,7 @@ class TestOutputControl:
         assert len(_get_filenames(tmp_path)) == 0
         assert "file_off" in capsys.readouterr().out
 
+    # 测试consoleenabledbydefault
     def test_console_enabled_by_default(self, tmp_path, capsys):
         d = _make_test_dumper(tmp_path)
         d.dump("console_on", torch.randn(3, 3))
@@ -611,6 +689,7 @@ class TestOutputControl:
         assert "[Dumper.Value]" in captured.out
         assert "console_on" in captured.out
 
+    # 测试consoledisabled
     def test_console_disabled(self, tmp_path, capsys):
         d = _make_test_dumper(tmp_path, enable_output_console=False)
         d.dump("console_off", torch.randn(3, 3))
@@ -618,6 +697,7 @@ class TestOutputControl:
         assert "console_off" not in capsys.readouterr().out
         _assert_files(_get_filenames(tmp_path), exist=["console_off"])
 
+    # 测试captureoutputbasic
     def test_capture_output_basic(self, tmp_path):
         d = _make_test_dumper(tmp_path)
         tensor = torch.randn(4, 4)
@@ -630,6 +710,7 @@ class TestOutputControl:
         assert torch.equal(captured["cap_basic"]["value"], tensor)
         assert captured["cap_basic"]["meta"]["name"] == "cap_basic"
 
+    # 测试captureoutputnofile
     def test_capture_output_no_file(self, tmp_path):
         d = _make_test_dumper(tmp_path)
 
@@ -639,6 +720,7 @@ class TestOutputControl:
         assert "cap_no_file" in captured
         assert len(_get_filenames(tmp_path)) == 0
 
+    # 测试captureoutputmultiple
     def test_capture_output_multiple(self, tmp_path):
         d = _make_test_dumper(tmp_path)
 
@@ -650,6 +732,7 @@ class TestOutputControl:
         assert captured["first"]["value"].shape == (2, 2)
         assert captured["second"]["value"].shape == (3, 3)
 
+    # 测试captureoutputvaluecloned
     def test_capture_output_value_cloned(self, tmp_path):
         d = _make_test_dumper(tmp_path)
         tensor = torch.zeros(3, 3)
@@ -660,6 +743,7 @@ class TestOutputControl:
         tensor.fill_(999.0)
         assert torch.equal(captured["clone_check"]["value"], torch.zeros(3, 3))
 
+    # 测试captureoutputnestedraises
     def test_capture_output_nested_raises(self, tmp_path):
         d = _make_test_dumper(tmp_path)
         with d.capture_output():
@@ -667,6 +751,7 @@ class TestOutputControl:
                 with d.capture_output():
                     pass
 
+    # 测试captureoutputrespectsfilter
     def test_capture_output_respects_filter(self, tmp_path):
         d = _make_test_dumper(tmp_path, filter="'keep' in name")
 
@@ -681,6 +766,7 @@ class TestOutputControl:
 class TestDumpDictFormat:
     """Verify that dump files use the dict output format: {"value": ..., "meta": {...}}."""
 
+    # 测试dictformatstructure
     def test_dict_format_structure(self, tmp_path):
         dumper = _make_test_dumper(tmp_path)
         tensor = torch.randn(4, 4)
@@ -700,6 +786,7 @@ class TestDumpDictFormat:
         assert "rank" in meta
         assert "dump_index" in meta
 
+    # 测试dictformatwithcontext
     def test_dict_format_with_context(self, tmp_path):
         dumper = _make_test_dumper(tmp_path)
         dumper.set_ctx(ctx_val=42)
@@ -713,6 +800,7 @@ class TestDumpDictFormat:
         assert torch.equal(raw["value"], tensor)
 
 
+# 执行maketestdumper
 def _make_test_dumper(tmp_path, **overrides) -> _Dumper:
     """Create a _Dumper for CPU testing without distributed."""
     defaults = dict(
@@ -725,10 +813,12 @@ def _make_test_dumper(tmp_path, **overrides) -> _Dumper:
     return _Dumper(config=config)
 
 
+# 执行getfilenames
 def _get_filenames(tmpdir):
     return {f.name for f in Path(tmpdir).glob("*/*.pt")}
 
 
+# 执行assertfiles
 def _assert_files(filenames, *, exist=(), not_exist=()):
     for p in exist:
         assert any(p in f for f in filenames), f"{p} not found in {filenames}"
@@ -738,11 +828,13 @@ def _assert_files(filenames, *, exist=(), not_exist=()):
         ), f"{p} should not exist in {filenames}"
 
 
+# 执行loaddump
 def _load_dump(path: Path) -> dict:
     """Load a dump file and return the raw dict (with 'value' and 'meta' keys)."""
     return torch.load(path, map_location="cpu", weights_only=False)
 
 
+# 执行finddumpfile
 def _find_dump_file(tmpdir, *, rank: int = 0, name: str) -> Path:
     matches = [
         f
@@ -756,16 +848,19 @@ def _find_dump_file(tmpdir, *, rank: int = 0, name: str) -> Path:
 
 
 class TestMaterializeValue:
+    # 测试materializevaluecallable
     def test_materialize_value_callable(self):
         tensor = torch.randn(3, 3)
         result = _materialize_value(lambda: tensor)
         assert torch.equal(result, tensor)
 
+    # 测试materializevaluepassthrough
     def test_materialize_value_passthrough(self):
         tensor = torch.randn(3, 3)
         result = _materialize_value(tensor)
         assert result is tensor
 
+    # 测试dumpwithcallablevalue
     def test_dump_with_callable_value(self, tmp_path):
         d = _make_test_dumper(tmp_path)
         tensor = torch.randn(4, 4)
@@ -778,6 +873,7 @@ class TestMaterializeValue:
 
 
 class TestSaveValue:
+    # 测试dumpoutputformat
     def test_dump_output_format(self, tmp_path):
         dumper = _make_test_dumper(tmp_path)
         tensor = torch.randn(4, 4)
@@ -792,6 +888,7 @@ class TestSaveValue:
 
 
 class TestStaticMetadata:
+    # 测试staticmetacontainsworldinfo
     def test_static_meta_contains_world_info(self):
         dumper = _make_test_dumper("/tmp")
         meta = dumper._static_meta
@@ -800,12 +897,14 @@ class TestStaticMetadata:
         assert meta["world_rank"] == 0
         assert meta["world_size"] == 1
 
+    # 测试staticmetacaching
     def test_static_meta_caching(self):
         dumper = _make_test_dumper("/tmp")
         meta1 = dumper._static_meta
         meta2 = dumper._static_meta
         assert meta1 is meta2
 
+    # 测试parallelinfogracefulfallback
     def test_parallel_info_graceful_fallback(self):
         sglang_info = _SGLangPlugin().collect_parallel_info()
         assert isinstance(sglang_info, dict)
@@ -813,6 +912,7 @@ class TestStaticMetadata:
         megatron_info = _MegatronPlugin().collect_parallel_info()
         assert isinstance(megatron_info, dict)
 
+    # 测试dumpincludesstaticmeta
     def test_dump_includes_static_meta(self, tmp_path):
         dumper = _make_test_dumper(tmp_path)
         tensor = torch.randn(2, 2)
@@ -827,24 +927,27 @@ class TestStaticMetadata:
 
 
 class TestDumpGrad:
+    # 测试dumpgradbasic
     def test_dump_grad_basic(self, tmp_path):
         d = _make_test_dumper(tmp_path, enable_grad=True)
         x = torch.randn(3, 3, requires_grad=True)
         y = (x * 2).sum()
 
         d.dump("test_tensor", x)
-        y.backward()
+        y.backward()  # 反向传播
 
         filenames = _get_filenames(tmp_path)
         assert any("name=test_tensor" in f and "grad__" not in f for f in filenames)
         _assert_files(filenames, exist=["grad__test_tensor"])
 
+    # 测试dumpgradnontensorskipped
     def test_dump_grad_non_tensor_skipped(self, tmp_path):
         d = _make_test_dumper(tmp_path, enable_grad=True)
         d.dump("not_tensor", 42)
 
         _assert_files(_get_filenames(tmp_path), not_exist=["grad__"])
 
+    # 测试dumpgradnorequiresgradskipped
     def test_dump_grad_no_requires_grad_skipped(self, tmp_path):
         d = _make_test_dumper(tmp_path, enable_grad=True)
         x = torch.randn(3, 3, requires_grad=False)
@@ -856,6 +959,7 @@ class TestDumpGrad:
             not_exist=["grad__"],
         )
 
+    # 测试dumpgradcapturesstep
     def test_dump_grad_captures_step(self, tmp_path):
         d = _make_test_dumper(tmp_path, enable_grad=True)
         d._state.step = 42
@@ -864,30 +968,32 @@ class TestDumpGrad:
 
         d.dump("id_test", x)
         d._state.step = 999
-        y.backward()
+        y.backward()  # 反向传播
 
         grad_file = _find_dump_file(tmp_path, name="grad__id_test")
         assert "step=42" in grad_file.name
 
+    # 测试dumpgradfilecontent
     def test_dump_grad_file_content(self, tmp_path):
         d = _make_test_dumper(tmp_path, enable_grad=True)
         x = torch.tensor([[1.0, 2.0], [3.0, 4.0]], requires_grad=True)
         y = (x * 3).sum()
 
         d.dump("content_check", x)
-        y.backward()
+        y.backward()  # 反向传播
 
         grad_path = _find_dump_file(tmp_path, name="grad__content_check")
         expected_grad = torch.full((2, 2), 3.0)
         assert torch.equal(_load_dump(grad_path)["value"], expected_grad)
 
+    # 测试disablevalue
     def test_disable_value(self, tmp_path):
         d = _make_test_dumper(tmp_path, enable_value=False, enable_grad=True)
         x = torch.randn(3, 3, requires_grad=True)
         y = (x * 2).sum()
 
         d.dump("fwd_disabled", x)
-        y.backward()
+        y.backward()  # 反向传播
 
         filenames = _get_filenames(tmp_path)
         assert not any(
@@ -895,13 +1001,14 @@ class TestDumpGrad:
         )
         _assert_files(filenames, exist=["grad__fwd_disabled"])
 
+    # 测试disablegrad
     def test_disable_grad(self, tmp_path):
         d = _make_test_dumper(tmp_path, enable_grad=False)
         x = torch.randn(3, 3, requires_grad=True)
         y = (x * 2).sum()
 
         d.dump("grad_disabled", x)
-        y.backward()
+        y.backward()  # 反向传播
 
         _assert_files(
             _get_filenames(tmp_path),
@@ -911,10 +1018,12 @@ class TestDumpGrad:
 
 
 class TestKvFilter:
+    # 测试formattags
     def test_format_tags(self):
         assert _format_tags({"a": 1, "b": "hello"}) == "a=1___b=hello"
         assert _format_tags({}) == ""
 
+    # 测试filtermatchesextrakwargs
     def test_filter_matches_extra_kwargs(self, tmp_path):
         d = _make_test_dumper(tmp_path, filter="layer_id == 0")
         d.dump("tensor_a", torch.randn(3), layer_id=0)
@@ -923,6 +1032,7 @@ class TestKvFilter:
         filenames = _get_filenames(tmp_path)
         _assert_files(filenames, exist=["tensor_a"], not_exist=["tensor_b"])
 
+    # 测试filtermatchesglobalctx
     def test_filter_matches_global_ctx(self, tmp_path):
         d = _make_test_dumper(tmp_path, filter="ctx_arg == 200")
         d.set_ctx(ctx_arg=200)
@@ -933,6 +1043,7 @@ class TestKvFilter:
         filenames = _get_filenames(tmp_path)
         _assert_files(filenames, exist=["tensor_a"], not_exist=["tensor_b"])
 
+    # 测试filtermatchesname
     def test_filter_matches_name(self, tmp_path):
         d = _make_test_dumper(tmp_path, filter="'keep' in name")
         d.dump("keep_this", torch.randn(3))
@@ -941,6 +1052,7 @@ class TestKvFilter:
         filenames = _get_filenames(tmp_path)
         _assert_files(filenames, exist=["keep_this"], not_exist=["skip_this"])
 
+    # 测试filterexprrange
     def test_filter_expr_range(self, tmp_path):
         d = _make_test_dumper(tmp_path, filter="layer_id is not None and layer_id < 3")
         d.dump("t0", torch.randn(3), layer_id=0)
@@ -950,6 +1062,7 @@ class TestKvFilter:
         filenames = _get_filenames(tmp_path)
         _assert_files(filenames, exist=["name=t0", "name=t1"], not_exist=["name=t5"])
 
+    # 测试filterexprwithnone
     def test_filter_expr_with_none(self, tmp_path):
         d = _make_test_dumper(tmp_path, filter="layer_id is None or layer_id < 3")
         d.dump("no_layer", torch.randn(3))
@@ -963,6 +1076,7 @@ class TestKvFilter:
             not_exist=["layer5"],
         )
 
+    # 测试filterexprwithresearch
     def test_filter_expr_with_re_search(self, tmp_path):
         d = _make_test_dumper(tmp_path, filter="search(r'attn|mlp', name)")
         d.dump("self_attn", torch.randn(3))
@@ -976,11 +1090,13 @@ class TestKvFilter:
             not_exist=["layernorm"],
         )
 
+    # 测试filterexprsyntaxerror
     def test_filter_expr_syntax_error(self, tmp_path):
         d = _make_test_dumper(tmp_path, filter="layer_id ===")
         with pytest.raises(SyntaxError):
             d.dump("tensor", torch.randn(3))
 
+    # 测试nofilterdumpsall
     def test_no_filter_dumps_all(self, tmp_path):
         d = _make_test_dumper(tmp_path)
         d.dump("a", torch.randn(3))
@@ -991,6 +1107,7 @@ class TestKvFilter:
 
 
 class TestDumpModel:
+    # 测试gradbasic
     def test_grad_basic(self, tmp_path):
         d = _make_test_dumper(
             tmp_path, enable_model_grad=True, enable_model_value=False
@@ -998,7 +1115,7 @@ class TestDumpModel:
         model = torch.nn.Linear(4, 2)
         x = torch.randn(3, 4)
         y = model(x).sum()
-        y.backward()
+        y.backward()  # 反向传播
 
         d.dump_model(model, name_prefix="model")
 
@@ -1007,6 +1124,7 @@ class TestDumpModel:
             exist=["grad__model__weight", "grad__model__bias"],
         )
 
+    # 测试valuebasic
     def test_value_basic(self, tmp_path):
         d = _make_test_dumper(
             tmp_path, enable_model_value=True, enable_model_grad=False
@@ -1020,6 +1138,7 @@ class TestDumpModel:
             exist=["model__weight"],
         )
 
+    # 测试nogradskipped
     def test_no_grad_skipped(self, tmp_path):
         d = _make_test_dumper(
             tmp_path, enable_model_grad=True, enable_model_value=False
@@ -1031,6 +1150,7 @@ class TestDumpModel:
         filenames = _get_filenames(tmp_path)
         assert len(filenames) == 0
 
+    # 测试filter
     def test_filter(self, tmp_path):
         d = _make_test_dumper(
             tmp_path,
@@ -1041,7 +1161,7 @@ class TestDumpModel:
         model = torch.nn.Linear(4, 2)
         x = torch.randn(3, 4)
         y = model(x).sum()
-        y.backward()
+        y.backward()  # 反向传播
 
         d.dump_model(model, name_prefix="model")
 
@@ -1051,6 +1171,7 @@ class TestDumpModel:
             not_exist=["model__bias", "grad__model__bias"],
         )
 
+    # 测试gradfilecontent
     def test_grad_file_content(self, tmp_path):
         d = _make_test_dumper(
             tmp_path, enable_model_grad=True, enable_model_value=False
@@ -1058,13 +1179,14 @@ class TestDumpModel:
         model = torch.nn.Linear(4, 2, bias=False)
         x = torch.ones(1, 4)
         y = model(x).sum()
-        y.backward()
+        y.backward()  # 反向传播
 
         d.dump_model(model, name_prefix="p")
 
         path = _find_dump_file(tmp_path, name="grad__p__weight")
         assert torch.equal(_load_dump(path)["value"], model.weight.grad)
 
+    # 测试disablemodelgrad
     def test_disable_model_grad(self, tmp_path):
         d = _make_test_dumper(
             tmp_path, enable_model_value=True, enable_model_grad=False
@@ -1072,13 +1194,14 @@ class TestDumpModel:
         model = torch.nn.Linear(4, 2)
         x = torch.randn(3, 4)
         y = model(x).sum()
-        y.backward()
+        y.backward()  # 反向传播
 
         d.dump_model(model, name_prefix="model")
 
         filenames = _get_filenames(tmp_path)
         assert all("grad" not in f for f in filenames)
 
+    # 测试parametersavedasparameter
     def test_parameter_saved_as_parameter(self, tmp_path):
         d = _make_test_dumper(
             tmp_path, enable_model_value=True, enable_model_grad=False
@@ -1092,8 +1215,10 @@ class TestDumpModel:
         assert isinstance(loaded["value"], torch.nn.Parameter)
         assert torch.equal(loaded["value"], model.weight)
 
+    # 测试unpicklableparameterfallsbacktodata
     def test_unpicklable_parameter_falls_back_to_data(self, tmp_path):
         class BadParam(torch.nn.Parameter):
+            # 执行reduceex
             def __reduce_ex__(self, protocol):
                 raise RuntimeError("not pickleable")
 
@@ -1111,6 +1236,7 @@ class TestDumpModel:
         assert not isinstance(loaded["value"], torch.nn.Parameter)
         assert torch.equal(loaded["value"], model.weight.data)
 
+    # 测试disablemodelvalue
     def test_disable_model_value(self, tmp_path):
         d = _make_test_dumper(
             tmp_path, enable_model_grad=True, enable_model_value=False
@@ -1118,7 +1244,7 @@ class TestDumpModel:
         model = torch.nn.Linear(4, 2, bias=False)
         x = torch.ones(1, 4)
         y = model(x).sum()
-        y.backward()
+        y.backward()  # 反向传播
 
         d.dump_model(model, name_prefix="model")
 
@@ -1127,6 +1253,7 @@ class TestDumpModel:
 
 
 class TestCleanup:
+    # 测试cleanupremovesolddumps
     def test_cleanup_removes_old_dumps(self, tmp_path):
         old_dir = tmp_path / "dump_old"
         old_dir.mkdir()
@@ -1138,6 +1265,7 @@ class TestCleanup:
         assert not old_dir.exists()
         _assert_files(_get_filenames(tmp_path), exist=["new_tensor"])
 
+    # 测试cleanupremovesexpnamedir
     def test_cleanup_removes_exp_name_dir(self, tmp_path):
         exp_name = "my_custom_exp"
         old_exp_dir = tmp_path / exp_name
@@ -1150,6 +1278,7 @@ class TestCleanup:
         assert not (tmp_path / exp_name / "old_data.pt").exists()
         _assert_files(_get_filenames(tmp_path), exist=["new_tensor"])
 
+    # 测试cleanupremovesbothdumpprefixandexpname
     def test_cleanup_removes_both_dump_prefix_and_exp_name(self, tmp_path):
         old_dump = tmp_path / "dump_old"
         old_dump.mkdir()
@@ -1167,6 +1296,7 @@ class TestCleanup:
         assert not (tmp_path / exp_name / "stale.pt").exists()
         _assert_files(_get_filenames(tmp_path), exist=["new_tensor"])
 
+    # 测试nocleanupbydefault
     def test_no_cleanup_by_default(self, tmp_path):
         old_dir = tmp_path / "dump_old"
         old_dir.mkdir()
@@ -1180,6 +1310,7 @@ class TestCleanup:
 
 
 class TestReset:
+    # 测试resetclearsstate
     def test_reset_clears_state(self, tmp_path):
         d = _make_test_dumper(tmp_path)
         d.set_ctx(layer_id=1)
@@ -1191,6 +1322,7 @@ class TestReset:
         assert d._state.step == 0
         assert d._state.global_ctx == {}
 
+    # 测试dumpworksafterreset
     def test_dump_works_after_reset(self, tmp_path):
         d = _make_test_dumper(tmp_path)
         d.dump("pre", torch.randn(3, 3))
@@ -1203,6 +1335,7 @@ class TestReset:
         post_file = _find_dump_file(tmp_path, name="post")
         assert "dump_index=1" in post_file.name
 
+    # 测试cleanuppreviousretriggersafterreset
     def test_cleanup_previous_re_triggers_after_reset(self, tmp_path):
         """Miles pattern: reset() + configure(cleanup_previous=True) should re-clean."""
         exp_alpha = "exp_alpha"
@@ -1225,6 +1358,7 @@ class TestReset:
         filenames = _get_filenames(tmp_path)
         _assert_files(filenames, exist=["phase1", "phase2"])
 
+    # 测试nocleanupwhenconfigfalse
     def test_no_cleanup_when_config_false(self, tmp_path):
         """cleanup_previous=False: handled stays False but no cleanup runs."""
         old_dir = tmp_path / "dump_old"
@@ -1237,19 +1371,20 @@ class TestReset:
         assert old_dir.exists()
         assert d._state.cleanup_previous_handled is False
 
+    # 测试multiphaseswitch
     def test_multi_phase_switch(self, tmp_path):
         """Simulate Miles multi-phase: configure → dump → reset → configure new phase → dump."""
         d = _make_test_dumper(tmp_path, cleanup_previous=True)
 
         d.configure(exp_name="fwd_only")
         d.dump("weight", torch.randn(2, 2))
-        d.step()
+        d.step()  # 执行优化步骤
         d.configure(enable=False)
 
         d.reset()
         d.configure(exp_name="fwd_bwd", enable=True, cleanup_previous=True)
         d.dump("weight", torch.randn(2, 2))
-        d.step()
+        d.step()  # 执行优化步骤
 
         fwd_only_files = list(Path(tmp_path).glob("fwd_only/*.pt"))
         fwd_bwd_files = list(Path(tmp_path).glob("fwd_bwd/*.pt"))
@@ -1258,6 +1393,7 @@ class TestReset:
         assert d._state.step == 1
         assert d._state.dump_index == 1
 
+    # 测试resetremovesnonintrusivehooks
     def test_reset_removes_non_intrusive_hooks(self, tmp_path):
         model = torch.nn.Sequential(
             torch.nn.Linear(4, 4),
@@ -1279,6 +1415,7 @@ class TestReset:
             model(x)
         assert len(captured_after) == 0
 
+    # 测试resetremovesnonintrusivehooksmultiplemodels
     def test_reset_removes_non_intrusive_hooks_multiple_models(self, tmp_path):
         model_a = torch.nn.Sequential(
             torch.nn.Linear(4, 4),
@@ -1310,13 +1447,15 @@ class TestReset:
         assert len(captured_b) == 0
 
 
+# 执行dumperworker
 def _dumper_worker(rank, http_port: int, stop_event):
     """Minimal distributed dumper worker: configure, step (triggers ZMQ setup), then wait."""
     dumper.configure(enable=False, server_port=str(http_port))
-    dumper.step()
+    dumper.step()  # 执行优化步骤
     stop_event.wait()
 
 
+# 执行waitfordumperhttp
 def _wait_for_dumper_http(url: str, timeout: float = 30) -> None:
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -1333,6 +1472,7 @@ class TestZmqPortIsolation:
 
     NUM_INSTANCES = 3
 
+    # 测试concurrentinstancesnoportconflict
     def test_concurrent_instances_no_port_conflict(self):
         ports = [
             find_available_port(40000 + i * 1000) for i in range(self.NUM_INSTANCES)
@@ -1376,6 +1516,7 @@ class TestDumperHttp:
     """Test /dumper/* HTTP control — parametrized over standalone vs sglang server."""
 
     @pytest.fixture(scope="class", params=["standalone", "sglang"])
+    # 执行dumperhttpurl
     def dumper_http_url(self, request):
         if request.param == "standalone":
             http_port = find_available_port(40000)
@@ -1395,7 +1536,7 @@ class TestDumperHttp:
                 thread.join(timeout=10)
         else:
             base_url = DEFAULT_URL_FOR_TEST
-            env = {**os.environ, "DUMPER_SERVER_PORT": "reuse"}
+            env = {**os.environ, "DUMPER_SERVER_PORT": "reuse"}  # 访问环境变量
             proc = popen_launch_server(
                 "Qwen/Qwen3-0.6B",
                 base_url,
@@ -1409,6 +1550,7 @@ class TestDumperHttp:
                 kill_process_tree(proc.pid)
 
     @staticmethod
+    # 执行post
     def _post(base_url: str, method: str, **kwargs) -> list[dict]:
         resp = requests.post(f"{base_url}/dumper/{method}", json=kwargs or None)
         resp.raise_for_status()
@@ -1417,6 +1559,7 @@ class TestDumperHttp:
         return states
 
     @staticmethod
+    # 执行assertallranks
     def _assert_all_ranks(states: list[dict], path: str, expected):
         """Assert that ``state[path]`` equals ``expected`` on every rank."""
         keys = path.split(".")
@@ -1428,12 +1571,14 @@ class TestDumperHttp:
                 val == expected
             ), f"rank {rank}: {path}={val!r}, expected {expected!r}"
 
+    # 测试configureenabletoggle
     def test_configure_enable_toggle(self, dumper_http_url: str):
         for enable in [True, False]:
             self._post(dumper_http_url, "configure", enable=enable)
             states = self._post(dumper_http_url, "get_state")
             self._assert_all_ranks(states, "config.enable", enable)
 
+    # 测试configuremultifield
     def test_configure_multi_field(self, dumper_http_url: str):
         self._post(
             dumper_http_url,
@@ -1447,12 +1592,14 @@ class TestDumperHttp:
         self._assert_all_ranks(states, "config.filter", "layer_id == 0")
         self._assert_all_ranks(states, "config.dir", "/tmp/test_http")
 
+    # 测试configureclearoptional
     def test_configure_clear_optional(self, dumper_http_url: str):
         self._post(dumper_http_url, "configure", filter="layer_id == 0")
         self._post(dumper_http_url, "configure", filter=None)
         states = self._post(dumper_http_url, "get_state")
         self._assert_all_ranks(states, "config.filter", None)
 
+    # 测试reset
     def test_reset(self, dumper_http_url: str):
         self._post(dumper_http_url, "configure", enable=True)
         self._post(dumper_http_url, "reset")
@@ -1460,6 +1607,7 @@ class TestDumperHttp:
         self._assert_all_ranks(states, "dump_index", 0)
         self._assert_all_ranks(states, "step", 0)
 
+    # 测试getstate
     def test_get_state(self, dumper_http_url: str):
         self._post(
             dumper_http_url,
@@ -1476,6 +1624,7 @@ class TestDumperHttp:
             assert "dump_index" in state
             assert "step" in state
 
+    # 测试allranksconsistent
     def test_all_ranks_consistent(self, dumper_http_url: str):
         self._post(dumper_http_url, "configure", enable=True, dir="/tmp/multi")
         states = self._post(dumper_http_url, "get_state")
@@ -1483,6 +1632,7 @@ class TestDumperHttp:
         for rank_config in configs[1:]:
             assert rank_config == configs[0], f"rank configs diverged: {configs}"
 
+    # 测试errorunknownfield
     def test_error_unknown_field(self, dumper_http_url: str):
         resp = requests.post(
             f"{dumper_http_url}/dumper/configure",
@@ -1490,6 +1640,7 @@ class TestDumperHttp:
         )
         assert resp.status_code == 400
 
+    # 测试errorunknownmethod
     def test_error_unknown_method(self, dumper_http_url: str):
         resp = requests.post(
             f"{dumper_http_url}/dumper/nonexistent",
@@ -1497,6 +1648,7 @@ class TestDumperHttp:
         )
         assert resp.status_code == 400
 
+    # 测试errorwrongtype
     def test_error_wrong_type(self, dumper_http_url: str):
         resp = requests.post(
             f"{dumper_http_url}/dumper/configure",
@@ -1506,6 +1658,7 @@ class TestDumperHttp:
 
 
 class TestRegisterForwardHookOrReplaceFn:
+    # 测试unknownmoderaises
     def test_unknown_mode_raises(self):
         module = torch.nn.Linear(4, 4)
         with pytest.raises(ValueError, match="Unknown mode"):
@@ -1521,6 +1674,7 @@ class _NonIntrusiveTestBase:
     _PREFIX = "non_intrusive__"
 
     @staticmethod
+    # 执行assertcapturedcontains
     def _assert_captured_contains(
         captured: dict, expected: list[str], prefix: str = "non_intrusive__"
     ) -> None:
@@ -1529,23 +1683,28 @@ class _NonIntrusiveTestBase:
             assert key in captured, f"missing {key}"
 
     @staticmethod
+    # 执行wrapasouter
     def _wrap_as_outer(inner_cls: type) -> torch.nn.Module:
         """Wrap an inner module class as OuterModel.model, mimicking typical model nesting."""
 
         class OuterModel(torch.nn.Module):
+            # 执行init
             def __init__(self):
                 super().__init__()
                 self.model = inner_cls()
 
+            # 前向传播
             def forward(self, *args, **kwargs):
                 return self.model(*args, **kwargs)
 
         return OuterModel()
 
     @staticmethod
+    # 执行makedumper
     def _make_dumper(tmp_path, **overrides) -> "_Dumper":
         return _make_test_dumper(tmp_path, non_intrusive_mode="all", **overrides)
 
+    # 执行run
     def _run(self, tmp_path, inner_cls, **dumper_overrides):
         d = self._make_dumper(tmp_path, **dumper_overrides)
         model = self._wrap_as_outer(inner_cls)
@@ -1559,13 +1718,16 @@ class _NonIntrusiveTestBase:
 class TestNonIntrusiveDumper(_NonIntrusiveTestBase):
     """Tests for mode='all' — hooks on every module, non_intrusive__ prefix."""
 
+    # 测试basicinputsandoutputs
     def test_basic_inputs_and_outputs(self, tmp_path):
         class Inner(torch.nn.Module):
+            # 执行init
             def __init__(self):
                 super().__init__()
                 self.linear = torch.nn.Linear(4, 4)
                 self.relu = torch.nn.ReLU()
 
+            # 前向传播
             def forward(self, x):
                 return self.relu(self.linear(x))
 
@@ -1587,19 +1749,23 @@ class TestNonIntrusiveDumper(_NonIntrusiveTestBase):
         P = self._PREFIX
         assert torch.allclose(captured[f"{P}output"]["value"], output)
 
+    # 测试inputsdumpedbeforeforward
     def test_inputs_dumped_before_forward(self, tmp_path):
         """Inputs are captured *before* forward(); in-place mutation must not affect them."""
 
         class Mutator(torch.nn.Module):
+            # 前向传播
             def forward(self, x):
                 x.fill_(999.0)
                 return x
 
         class Inner(torch.nn.Module):
+            # 执行init
             def __init__(self):
                 super().__init__()
                 self.mutator = Mutator()
 
+            # 前向传播
             def forward(self, x):
                 return self.mutator(x)
 
@@ -1624,32 +1790,39 @@ class TestNonIntrusiveDumper(_NonIntrusiveTestBase):
             dumped_output == 999.0
         ).all(), "post-hook should capture outputs after forward"
 
+    # 测试hooksallmodulelevels
     def test_hooks_all_module_levels(self, tmp_path):
         class Attention(torch.nn.Module):
+            # 执行init
             def __init__(self):
                 super().__init__()
                 self.qkv_proj = torch.nn.Linear(4, 12)
                 self.o_proj = torch.nn.Linear(4, 4)
 
+            # 前向传播
             def forward(self, x):
                 _qkv = self.qkv_proj(x)
                 return self.o_proj(x)
 
         class Layer(torch.nn.Module):
+            # 执行init
             def __init__(self):
                 super().__init__()
                 self.self_attn = Attention()
                 self.mlp = torch.nn.Linear(4, 4)
 
+            # 前向传播
             def forward(self, x):
                 x = self.self_attn(x)
                 return self.mlp(x)
 
         class Inner(torch.nn.Module):
+            # 执行init
             def __init__(self):
                 super().__init__()
                 self.layers = torch.nn.ModuleList([Layer()])
 
+            # 前向传播
             def forward(self, x):
                 for layer in self.layers:
                     x = layer(x)
@@ -1675,17 +1848,21 @@ class TestNonIntrusiveDumper(_NonIntrusiveTestBase):
         P = self._PREFIX
         assert f"{P}model.layers.output" not in captured
 
+    # 测试multitensortupleoutput
     def test_multi_tensor_tuple_output(self, tmp_path):
         class TupleModule(torch.nn.Module):
+            # 前向传播
             def forward(self, x):
                 return x, x * 2
 
         class Inner(torch.nn.Module):
+            # 执行init
             def __init__(self):
                 super().__init__()
                 self.split = TupleModule()
                 self.linear = torch.nn.Linear(4, 4)
 
+            # 前向传播
             def forward(self, x):
                 a, b = self.split(x)
                 return self.linear(a + b)
@@ -1698,16 +1875,20 @@ class TestNonIntrusiveDumper(_NonIntrusiveTestBase):
             captured["non_intrusive__model.split.output.0"]["value"], x
         )
 
+    # 测试singletensortuplecollapses
     def test_single_tensor_tuple_collapses(self, tmp_path):
         class SingleTupleModule(torch.nn.Module):
+            # 前向传播
             def forward(self, x):
                 return (x * 3,)
 
         class Inner(torch.nn.Module):
+            # 执行init
             def __init__(self):
                 super().__init__()
                 self.wrap = SingleTupleModule()
 
+            # 前向传播
             def forward(self, x):
                 return self.wrap(x)[0]
 
@@ -1716,16 +1897,20 @@ class TestNonIntrusiveDumper(_NonIntrusiveTestBase):
         assert "non_intrusive__model.wrap.output" in captured
         assert "non_intrusive__model.wrap.output.0" not in captured
 
+    # 测试multipleforwardinputs
     def test_multiple_forward_inputs(self, tmp_path):
         class TwoInputModule(torch.nn.Module):
+            # 前向传播
             def forward(self, x, mask):
                 return x * mask
 
         class Inner(torch.nn.Module):
+            # 执行init
             def __init__(self):
                 super().__init__()
                 self.mul = TwoInputModule()
 
+            # 前向传播
             def forward(self, x):
                 mask = torch.ones_like(x)
                 return self.mul(x, mask)
@@ -1735,16 +1920,20 @@ class TestNonIntrusiveDumper(_NonIntrusiveTestBase):
         assert "non_intrusive__model.mul.inputs.0" in captured
         assert "non_intrusive__model.mul.inputs.1" in captured
 
+    # 测试noneoutputonlydumpsinputs
     def test_none_output_only_dumps_inputs(self, tmp_path):
         class NoneModule(torch.nn.Module):
+            # 前向传播
             def forward(self, x):
                 return None
 
         class Inner(torch.nn.Module):
+            # 执行init
             def __init__(self):
                 super().__init__()
                 self.sink = NoneModule()
 
+            # 前向传播
             def forward(self, x):
                 self.sink(x)
                 return x
@@ -1756,16 +1945,20 @@ class TestNonIntrusiveDumper(_NonIntrusiveTestBase):
             k.startswith("non_intrusive__model.sink.output") for k in captured
         )
 
+    # 测试nontensorvaluesilentlyskipped
     def test_non_tensor_value_silently_skipped(self, tmp_path):
         class IntModule(torch.nn.Module):
+            # 前向传播
             def forward(self, x):
                 return 42
 
         class Inner(torch.nn.Module):
+            # 执行init
             def __init__(self):
                 super().__init__()
                 self.const = IntModule()
 
+            # 前向传播
             def forward(self, x):
                 self.const(x)
                 return x
@@ -1777,6 +1970,7 @@ class TestNonIntrusiveDumper(_NonIntrusiveTestBase):
             k.startswith("non_intrusive__model.const.output") for k in captured
         )
 
+    # 测试rootmodulenamenomalformeddots
     def test_root_module_name_no_malformed_dots(self, tmp_path):
         d = self._make_dumper(tmp_path)
         model = torch.nn.Linear(4, 4)
@@ -1793,13 +1987,16 @@ class TestNonIntrusiveDumper(_NonIntrusiveTestBase):
         assert "non_intrusive__output" in captured
         assert "non_intrusive__inputs.0" in captured
 
+    # 测试respectsdumperfilter
     def test_respects_dumper_filter(self, tmp_path):
         class Inner(torch.nn.Module):
+            # 执行init
             def __init__(self):
                 super().__init__()
                 self.linear = torch.nn.Linear(4, 4)
                 self.relu = torch.nn.ReLU()
 
+            # 前向传播
             def forward(self, x):
                 return self.relu(self.linear(x))
 
@@ -1811,12 +2008,15 @@ class TestNonIntrusiveDumper(_NonIntrusiveTestBase):
         assert "non_intrusive__model.relu.output" not in captured
         assert "non_intrusive__model.linear.inputs.0" not in captured
 
+    # 测试disableddumpernooutput
     def test_disabled_dumper_no_output(self, tmp_path):
         class Inner(torch.nn.Module):
+            # 执行init
             def __init__(self):
                 super().__init__()
                 self.linear = torch.nn.Linear(4, 4)
 
+            # 前向传播
             def forward(self, x):
                 return self.linear(x)
 
@@ -1832,6 +2032,7 @@ class TestNonIntrusiveDumper(_NonIntrusiveTestBase):
         assert len(captured) == 0
 
 
+# 执行makeforwardbatch
 def _make_forward_batch():
     from sglang.srt.model_executor.forward_batch_info import ForwardBatch, ForwardMode
 
@@ -1849,27 +2050,33 @@ def _make_forward_batch():
 
 class TestNonIntrusiveDumperConfigMode(_NonIntrusiveTestBase):
     @staticmethod
+    # 执行buildmodel
     def _build_model() -> torch.nn.Module:
         class SubLayer(torch.nn.Module):
+            # 执行init
             def __init__(self):
                 super().__init__()
                 self.linear = torch.nn.Linear(4, 4)
 
+            # 前向传播
             def forward(self, forward_batch):
                 return self.linear(
-                    forward_batch.input_ids.float().unsqueeze(-1).expand(-1, 4)
+                    forward_batch.input_ids.float().unsqueeze(-1).expand(-1, 4)  # 转换为单精度
                 )
 
         class Root(torch.nn.Module):
+            # 执行init
             def __init__(self):
                 super().__init__()
                 self.layer = SubLayer()
 
+            # 前向传播
             def forward(self, forward_batch):
                 return self.layer(forward_batch)
 
         return Root()
 
+    # 执行run
     def _run(self, tmp_path, mode: str) -> tuple:
         d = _make_test_dumper(tmp_path, non_intrusive_mode=mode)
         model = self._build_model()
@@ -1879,10 +2086,12 @@ class TestNonIntrusiveDumperConfigMode(_NonIntrusiveTestBase):
             model(forward_batch)
         return captured, forward_batch
 
+    # 测试offmode
     def test_off_mode(self, tmp_path):
         captured, _ = self._run(tmp_path, "off")
         assert len(captured) == 0
 
+    # 测试coremode
     def test_core_mode(self, tmp_path):
         captured, fb = self._run(tmp_path, "core")
 
@@ -1897,6 +2106,7 @@ class TestNonIntrusiveDumperConfigMode(_NonIntrusiveTestBase):
         # nothing with non_intrusive__ prefix
         assert not any(k.startswith("non_intrusive__") for k in captured)
 
+    # 测试allmode
     def test_all_mode(self, tmp_path):
         captured, fb = self._run(tmp_path, "all")
 
@@ -1928,11 +2138,13 @@ class TestNonIntrusiveDumperConfigMode(_NonIntrusiveTestBase):
 class _LayerWithNumber(torch.nn.Module):
     """Test helper: module with a ``layer_number`` attribute (Megatron style)."""
 
+    # 执行init
     def __init__(self, layer_number: int):
         super().__init__()
         self.layer_number = layer_number
         self.linear = torch.nn.Linear(4, 4)
 
+    # 前向传播
     def forward(self, x):
         return self.linear(x)
 
@@ -1940,16 +2152,19 @@ class _LayerWithNumber(torch.nn.Module):
 class TestNonIntrusiveLayerIdCtx(_NonIntrusiveTestBase):
     """Tests for automatic layer_id context injection via set_ctx."""
 
+    # 测试layeridfromlayernumber
     def test_layer_id_from_layer_number(self, tmp_path):
         """Megatron PP: layer_number (1-based global) -> layer_id = layer_number - 1."""
 
         class Inner(torch.nn.Module):
+            # 执行init
             def __init__(self):
                 super().__init__()
                 self.layers = torch.nn.ModuleList(
                     [_LayerWithNumber(10), _LayerWithNumber(11)]
                 )
 
+            # 前向传播
             def forward(self, x):
                 for layer in self.layers:
                     x = layer(x)
@@ -1968,23 +2183,28 @@ class TestNonIntrusiveLayerIdCtx(_NonIntrusiveTestBase):
         assert root_key in captured
         assert "layer_id" not in captured[root_key]["meta"]
 
+    # 测试layeridfromlayeridattr
     def test_layer_id_from_layer_id_attr(self, tmp_path):
         """SGLang style: module has layer_id attribute directly."""
 
         class Layer(torch.nn.Module):
+            # 执行init
             def __init__(self, layer_id: int):
                 super().__init__()
                 self.layer_id = layer_id
                 self.linear = torch.nn.Linear(4, 4)
 
+            # 前向传播
             def forward(self, x):
                 return self.linear(x)
 
         class Inner(torch.nn.Module):
+            # 执行init
             def __init__(self):
                 super().__init__()
                 self.layers = torch.nn.ModuleList([Layer(5)])
 
+            # 前向传播
             def forward(self, x):
                 for layer in self.layers:
                     x = layer(x)
@@ -1996,16 +2216,19 @@ class TestNonIntrusiveLayerIdCtx(_NonIntrusiveTestBase):
         assert layer_key in captured
         assert captured[layer_key]["meta"]["layer_id"] == 5
 
+    # 测试layeridfallbackfrommodulename
     def test_layer_id_fallback_from_module_name(self, tmp_path):
         """layers.N modules without layer_number/layer_id -> layer_id from module name."""
 
         class Inner(torch.nn.Module):
+            # 执行init
             def __init__(self):
                 super().__init__()
                 self.layers = torch.nn.ModuleList(
                     [torch.nn.Linear(4, 4), torch.nn.Linear(4, 4)]
                 )
 
+            # 前向传播
             def forward(self, x):
                 for layer in self.layers:
                     x = layer(x)
@@ -2026,16 +2249,19 @@ class TestNonIntrusiveLayerIdCtx(_NonIntrusiveTestBase):
             elif "layers.1" in key:
                 assert meta["layer_id"] == 1
 
+    # 测试filterbylayerid
     def test_filter_by_layer_id(self, tmp_path):
         """filter='layer_id == 0' keeps only layer 0 dumps."""
 
         class Inner(torch.nn.Module):
+            # 执行init
             def __init__(self):
                 super().__init__()
                 self.layers = torch.nn.ModuleList(
                     [_LayerWithNumber(1), _LayerWithNumber(2)]
                 )
 
+            # 前向传播
             def forward(self, x):
                 for layer in self.layers:
                     x = layer(x)
@@ -2050,11 +2276,12 @@ class TestNonIntrusiveLayerIdCtx(_NonIntrusiveTestBase):
 
 
 class TestDumperE2E:
+    # 测试stepandnonintrusivehooks
     def test_step_and_non_intrusive_hooks(self, tmp_path):
         base_url = DEFAULT_URL_FOR_TEST
         dump_dir = str(tmp_path)
         env = {
-            **os.environ,
+            **os.environ,  # 访问环境变量
             "DUMPER_SERVER_PORT": "reuse",
         }
         proc = popen_launch_server(
@@ -2167,12 +2394,15 @@ class TestDumperE2E:
 
 class TestRegisterForwardHook:
     @pytest.mark.parametrize("mode", ["hook", "replace_fn"])
+    # 测试handlesremovable
     def test_handles_removable(self, mode):
         call_log: list[str] = []
 
+        # 执行prehook
         def pre_hook(_module, _args, _kwargs):
             call_log.append("pre")
 
+        # 执行hook
         def hook(_module, _input, _output):
             call_log.append("post")
 
@@ -2202,16 +2432,20 @@ class TestRegisterForwardHook:
         assert call_log == []
 
     @pytest.mark.parametrize("mode", ["hook", "replace_fn"])
+    # 测试kwargspassedtoprehook
     def test_kwargs_passed_to_pre_hook(self, mode):
         received: list[tuple] = []
 
         class KwargsModule(torch.nn.Module):
+            # 前向传播
             def forward(self, x, *, scale=1.0):
                 return x * scale
 
+        # 执行prehook
         def pre_hook(_module, _args, _kwargs):
             received.append((_args, _kwargs))
 
+        # 执行hook
         def hook(_module, _input, _output):
             pass
 
@@ -2235,6 +2469,7 @@ class TestRegisterForwardHook:
         assert torch.equal(args[0], x)
         assert kwargs == {"scale": 2.0}
 
+    # 测试replacefnremoveassertsonrewrap
     def test_replace_fn_remove_asserts_on_rewrap(self):
         module = torch.nn.Linear(4, 4)
         handles = _register_forward_hook_or_replace_fn(
@@ -2251,12 +2486,14 @@ class TestRegisterForwardHook:
 
 
 class TestPluginCoreFields:
+    # 测试sglangcorefields
     def test_sglang_core_fields(self):
         plugin = _SGLangPlugin()
         assert plugin.core_fields() == frozenset(
             {"input_ids", "positions", "seq_lens", "req_pool_indices", "rids"}
         )
 
+    # 测试megatroncorefields
     def test_megatron_core_fields(self):
         plugin = _MegatronPlugin()
         assert plugin.core_fields() == frozenset(
@@ -2266,8 +2503,10 @@ class TestPluginCoreFields:
 
 class TestMegatronConvertValue:
     @pytest.fixture(autouse=True)
+    # 执行patchmegatron
     def _patch_megatron(self, monkeypatch):
         class FakePackedSeqParams:
+            # 执行init
             def __init__(self, **kwargs):
                 for k, v in kwargs.items():
                     setattr(self, k, v)
@@ -2278,6 +2517,7 @@ class TestMegatronConvertValue:
         )
         self._FakePackedSeqParams = FakePackedSeqParams
 
+    # 测试extractspackedseqparams
     def test_extracts_packed_seq_params(self):
         plugin = _MegatronPlugin()
         cu_q = torch.tensor([0, 3, 7])
@@ -2292,6 +2532,7 @@ class TestMegatronConvertValue:
         assert torch.equal(result["cu_seqlens_kv"], cu_kv)
         assert result["qkv_format"] == "thd"
 
+    # 测试nonpackedreturnsnone
     def test_non_packed_returns_none(self):
         plugin = _MegatronPlugin()
         assert plugin.convert_value(torch.randn(4), skip_forward_batch=False) is None
@@ -2299,8 +2540,10 @@ class TestMegatronConvertValue:
 
 
 class TestNonIntrusiveKwargsModel(_NonIntrusiveTestBase):
+    # 测试kwargscorefields
     def test_kwargs_core_fields(self, tmp_path):
         class KwargsModel(torch.nn.Module):
+            # 前向传播
             def forward(self, *, input_ids, position_ids):
                 return input_ids + position_ids
 
@@ -2318,8 +2561,10 @@ class TestNonIntrusiveKwargsModel(_NonIntrusiveTestBase):
         assert torch.equal(captured["input_ids"]["value"], ids)
         assert torch.equal(captured["position_ids"]["value"], pos)
 
+    # 测试kwargsallmode
     def test_kwargs_all_mode(self, tmp_path):
         class KwargsModel(torch.nn.Module):
+            # 前向传播
             def forward(self, *, input_ids, position_ids, custom_value):
                 return input_ids + position_ids + custom_value
 
@@ -2339,8 +2584,10 @@ class TestNonIntrusiveKwargsModel(_NonIntrusiveTestBase):
         P = self._PREFIX
         assert f"{P}inputs.custom_value" in captured
 
+    # 测试mixedargsandkwargs
     def test_mixed_args_and_kwargs(self, tmp_path):
         class MixedModel(torch.nn.Module):
+            # 前向传播
             def forward(self, x, *, input_ids):
                 return x + input_ids
 
@@ -2358,8 +2605,10 @@ class TestNonIntrusiveKwargsModel(_NonIntrusiveTestBase):
         P = self._PREFIX
         assert f"{P}inputs.0" in captured
 
+    # 测试packedseqparamscorefields
     def test_packed_seq_params_core_fields(self, tmp_path, monkeypatch):
         class FakePackedSeqParams:
+            # 执行init
             def __init__(self, **kwargs):
                 for k, v in kwargs.items():
                     setattr(self, k, v)
@@ -2370,6 +2619,7 @@ class TestNonIntrusiveKwargsModel(_NonIntrusiveTestBase):
         )
 
         class MegatronLikeModel(torch.nn.Module):
+            # 前向传播
             def forward(self, *, input_ids, packed_seq_params):
                 return input_ids
 
@@ -2397,11 +2647,12 @@ class TestNonIntrusiveKwargsModel(_NonIntrusiveTestBase):
 
 
 class TestDumperDims:
+    # 测试dimsinmetanotfilename
     def test_dims_in_meta_not_filename(self, tmp_path) -> None:
         dumper = _make_test_dumper(tmp_path)
         tensor = torch.randn(4, 8)
         dumper.dump("hidden", tensor, dims="b h(tp)")
-        dumper.step()
+        dumper.step()  # 执行优化步骤
 
         exp_dir = tmp_path / dumper._config.exp_name
         pt_files = list(exp_dir.glob("*.pt"))
@@ -2413,6 +2664,7 @@ class TestDumperDims:
         assert "dims" in data["meta"]
         assert data["meta"]["dims"] == "b h(tp)"
 
+    # 测试dimsgradoverride
     def test_dims_grad_override(self, tmp_path) -> None:
         dumper = _Dumper(
             config=DumperConfig(
@@ -2424,7 +2676,7 @@ class TestDumperDims:
 
         tensor = torch.randn(4, 8, requires_grad=True)
         dumper.dump("hidden", tensor, dims="b h(tp)", dims_grad="b h(tp:partial)")
-        dumper.step()
+        dumper.step()  # 执行优化步骤
 
         tensor.backward(torch.ones_like(tensor))
 
@@ -2442,6 +2694,7 @@ class TestDumperDims:
         grad_data = torch.load(grad_file, weights_only=False)
         assert grad_data["meta"]["dims"] == "b h(tp:partial)"
 
+    # 测试dimsgradinherits
     def test_dims_grad_inherits(self, tmp_path) -> None:
         dumper = _Dumper(
             config=DumperConfig(
@@ -2453,7 +2706,7 @@ class TestDumperDims:
 
         tensor = torch.randn(4, 8, requires_grad=True)
         dumper.dump("hidden", tensor, dims="b h(tp)")
-        dumper.step()
+        dumper.step()  # 执行优化步骤
 
         tensor.backward(torch.ones_like(tensor))
 
@@ -2464,14 +2717,17 @@ class TestDumperDims:
 
 
 class TestCtxDecorator:
+    # 测试ctxdynamiclambda
     def test_ctx_dynamic_lambda(self, tmp_path: Path) -> None:
         d = _make_test_dumper(tmp_path)
 
         class FakeLayer:
+            # 执行init
             def __init__(self, layer_id: int) -> None:
                 self.layer_id = layer_id
 
             @d.ctx(lambda self: dict(layer_id=self.layer_id))
+            # 前向传播
             def forward(self, x: torch.Tensor) -> torch.Tensor:
                 d.dump("hidden", x)
                 return x
@@ -2482,10 +2738,12 @@ class TestCtxDecorator:
         filenames = _get_filenames(tmp_path)
         _assert_files(filenames, exist=["layer_id=42"])
 
+    # 测试ctxstatickwargs
     def test_ctx_static_kwargs(self, tmp_path: Path) -> None:
         d = _make_test_dumper(tmp_path)
 
         @d.ctx(phase="decode")
+        # 执行decodestep
         def decode_step(x: torch.Tensor) -> torch.Tensor:
             d.dump("step_out", x)
             return x
@@ -2495,10 +2753,12 @@ class TestCtxDecorator:
         filenames = _get_filenames(tmp_path)
         _assert_files(filenames, exist=["phase=decode"])
 
+    # 测试ctxclearsonexception
     def test_ctx_clears_on_exception(self, tmp_path: Path) -> None:
         d = _make_test_dumper(tmp_path)
 
         @d.ctx(phase="train")
+        # 执行buggyfn
         def buggy_fn() -> None:
             raise RuntimeError("boom")
 
@@ -2507,12 +2767,14 @@ class TestCtxDecorator:
 
         assert d._state.global_ctx == {}
 
+    # 测试ctxrejectsmixedargs
     def test_ctx_rejects_mixed_args(self) -> None:
         d = _make_test_dumper("/tmp")
 
         with pytest.raises(ValueError, match="cannot mix"):
             d.ctx(lambda self: dict(a=1), phase="x")
 
+    # 测试ctxrejectsemptyargs
     def test_ctx_rejects_empty_args(self) -> None:
         d = _make_test_dumper("/tmp")
 
@@ -2521,6 +2783,7 @@ class TestCtxDecorator:
 
 
 class TestRecomputeStatus:
+    # 测试disabledbydefault
     def test_disabled_by_default(self, tmp_path: Path) -> None:
         d = _make_test_dumper(tmp_path)
         tensor = torch.randn(3, 3)
@@ -2529,6 +2792,7 @@ class TestRecomputeStatus:
         filenames = _get_filenames(tmp_path)
         _assert_files(filenames, exist=["recompute_status=disabled"])
 
+    # 测试recomputestatusinembeddedmeta
     def test_recompute_status_in_embedded_meta(self, tmp_path: Path) -> None:
         d = _make_test_dumper(tmp_path)
         tensor = torch.randn(3, 3)
@@ -2538,6 +2802,7 @@ class TestRecomputeStatus:
         raw = _load_dump(path)
         assert raw["meta"]["recompute_status"] == "disabled"
 
+    # 测试recomputestatusrecompute
     def test_recompute_status_recompute(self, tmp_path: Path, monkeypatch) -> None:
         import sglang.srt.debug_utils.dumper as dumper_mod
 
@@ -2558,6 +2823,7 @@ class TestRecomputeStatus:
         assert raw["meta"]["recompute_pseudo_rank"] == 1
         assert raw["meta"]["recompute_pseudo_size"] == 2
 
+    # 测试recomputestatusoriginal
     def test_recompute_status_original(self, tmp_path: Path, monkeypatch) -> None:
         import sglang.srt.debug_utils.dumper as dumper_mod
 
@@ -2580,6 +2846,7 @@ class TestRecomputeStatus:
         assert raw["meta"]["recompute_pseudo_rank"] == 0
         assert raw["meta"]["recompute_pseudo_size"] == 2
 
+    # 测试disablednorecomputepseudofields
     def test_disabled_no_recompute_pseudo_fields(self, tmp_path: Path) -> None:
         d = _make_test_dumper(tmp_path)
         tensor = torch.randn(3, 3)
@@ -2590,24 +2857,28 @@ class TestRecomputeStatus:
         assert "recompute_pseudo_rank" not in raw["meta"]
         assert "recompute_pseudo_size" not in raw["meta"]
 
+    # 测试gradhookhasnorecomputestatus
     def test_grad_hook_has_no_recompute_status(self, tmp_path: Path) -> None:
         d = _make_test_dumper(tmp_path, enable_grad=True)
         x = torch.randn(3, 3, requires_grad=True)
         y = (x * 2).sum()
 
         d.dump("test_tensor", x)
-        y.backward()
+        y.backward()  # 反向传播
 
         grad_files = [f for f in _get_filenames(tmp_path) if "grad__test_tensor" in f]
         assert len(grad_files) == 1
         assert "recompute_status" not in grad_files[0]
 
+    # 测试nonintrusivehookshaverecomputestatus
     def test_non_intrusive_hooks_have_recompute_status(self, tmp_path: Path) -> None:
         class Simple(torch.nn.Module):
+            # 执行init
             def __init__(self):
                 super().__init__()
                 self.linear = torch.nn.Linear(4, 4)
 
+            # 前向传播
             def forward(self, x: torch.Tensor) -> torch.Tensor:
                 return self.linear(x)
 
@@ -2624,11 +2895,13 @@ class TestRecomputeStatus:
             ), f"missing recompute_status in {key}"
             assert data["meta"]["recompute_status"] == "disabled"
 
+    # 测试detectrecomputestatusdefault
     def test_detect_recompute_status_default(self) -> None:
         assert _detect_recompute_status() == _RecomputeStatus.DISABLED
 
 
 class TestGrafterConfig:
+    # 测试fromenvparsesfilters
     def test_from_env_parses_filters(self):
         with temp_set_env(
             DUMPER_GRAFTER_B2T_FILTER="name == 'x'",
@@ -2638,6 +2911,7 @@ class TestGrafterConfig:
             assert cfg.grafter_b2t_filter == "name == 'x'"
             assert cfg.grafter_t2b_filter == "name == 'y'"
 
+    # 测试fromenvparsesintfields
     def test_from_env_parses_int_fields(self):
         with temp_set_env(
             DUMPER_GRAFTER_BASELINE_WORLD_SIZE="8",
@@ -2652,10 +2926,12 @@ class TestGrafterConfig:
             assert cfg.grafter_master_port == 29999
             assert cfg.grafter_timeout == 120
 
+    # 测试fromenvrole
     def test_from_env_role(self):
         with temp_set_env(DUMPER_GRAFTER_ROLE="baseline"):
             assert DumperConfig.from_env().grafter_role == "baseline"
 
+    # 测试fromenvenableflag
     def test_from_env_enable_flag(self):
         # enable=True requires all of role, master_address/port, world sizes,
         # and at least one filter per DumperConfig.__post_init__.
@@ -2672,6 +2948,7 @@ class TestGrafterConfig:
         with temp_set_env(DUMPER_GRAFTER_ENABLE="false"):
             assert DumperConfig.from_env().grafter_enable is False
 
+    # 测试enablewithoutrequiredfieldsraises
     def test_enable_without_required_fields_raises(self):
         with pytest.raises(AssertionError, match=r"grafter_role"):
             DumperConfig(grafter_enable=True)
@@ -2700,12 +2977,14 @@ class TestGrafterConfig:
                 grafter_target_world_size=1,
             )
 
+    # 测试envnameforgrafterfield
     def test_env_name_for_grafter_field(self):
         assert (
             DumperConfig._env_name("grafter_b2t_filter") == "DUMPER_GRAFTER_B2T_FILTER"
         )
 
 
+# 执行unitgrafterconfig
 def _unit_grafter_config(**overrides) -> DumperConfig:
     """Build a fully-valid DumperConfig for unit-test use.
 
@@ -2728,6 +3007,7 @@ def _unit_grafter_config(**overrides) -> DumperConfig:
 
 
 class TestLog:
+    # 测试logformat
     def test_log_format(self):
         with _capture_stdout() as captured:
             _log("hello")
@@ -2738,12 +3018,14 @@ class TestLog:
 
 
 class TestCompareTensorsQuick:
+    # 测试identical
     def test_identical(self):
         a = torch.tensor([1.0, 2.0, 3.0])
         s = _compare_tensors_quick(a, a.clone())
         assert "rel_diff=0" in s, s
         assert "max_abs=0" in s, s
 
+    # 测试diverged
     def test_diverged(self):
         a = torch.tensor([1.0, 2.0, 3.0])
         b = torch.tensor([1.0, 2.0, 4.0])  # last element differs by 1
@@ -2752,10 +3034,12 @@ class TestCompareTensorsQuick:
         assert "max_abs=1" in s, s
         assert "rel_diff=" in s, s
 
+    # 测试shapemismatch
     def test_shape_mismatch(self):
         s = _compare_tensors_quick(torch.zeros(3), torch.zeros(4))
         assert "shape mismatch" in s, s
 
+    # 测试dtypeunified
     def test_dtype_unified(self):
         # Different dtypes should NOT error — both are cast to fp32 internally.
         s = _compare_tensors_quick(
@@ -2765,6 +3049,7 @@ class TestCompareTensorsQuick:
         assert "rel_diff=" in s, s
         assert "max_abs=" in s, s
 
+    # 测试空输入
     def test_empty(self):
         s = _compare_tensors_quick(torch.zeros(0), torch.zeros(0))
         assert s == "empty"
@@ -2777,11 +3062,13 @@ class TestGrafterFilterMatching:
     are dummy values via _unit_grafter_config.
     """
 
+    # 测试disabledreturnssilently
     def test_disabled_returns_silently(self):
         grafter = _Grafter(config=_unit_grafter_config(grafter_enable=False))
         grafter.maybe_intercept(value=torch.zeros(2), tags={"name": "x"})
         assert grafter._pg is None  # never initialized
 
+    # 测试unmatchednontensorsilent
     def test_unmatched_non_tensor_silent(self):
         """Non-tensor + unmatched name → silent skip, no print."""
         grafter = _Grafter(config=_unit_grafter_config())
@@ -2790,6 +3077,7 @@ class TestGrafterFilterMatching:
         assert grafter._pg is None
         assert "[Grafter]" not in captured.getvalue(), captured.getvalue()
 
+    # 测试matchednontensorprintsandskips
     def test_matched_non_tensor_prints_and_skips(self):
         """Non-tensor that matches a filter → print explanation, then skip.
 
@@ -2803,6 +3091,7 @@ class TestGrafterFilterMatching:
         assert "value is not a torch.Tensor" in output, output
         assert "type=dict" in output, output
 
+    # 测试unmatchednamereturnssilently
     def test_unmatched_name_returns_silently(self):
         grafter = _Grafter(
             config=_unit_grafter_config(grafter_t2b_filter="name == 'y'")
@@ -2810,6 +3099,7 @@ class TestGrafterFilterMatching:
         grafter.maybe_intercept(value=torch.zeros(2), tags={"name": "z"})
         assert grafter._pg is None
 
+    # 测试overlapfiltersraise
     def test_overlap_filters_raise(self):
         grafter = _Grafter(
             config=_unit_grafter_config(
@@ -2823,6 +3113,7 @@ class TestGrafterFilterMatching:
         ):
             grafter.maybe_intercept(value=torch.zeros(2), tags={"name": "x"})
 
+    # 测试filterexpressionusesextratags
     def test_filter_expression_uses_extra_tags(self):
         """Filter expressions can reference any tag key, not just 'name'."""
         grafter = _Grafter(
@@ -2841,19 +3132,23 @@ class TestGrafterFilterMatching:
         grafter.maybe_intercept(value=torch.zeros(2), tags={"name": "x", "layer_id": 5})
         assert grafter._pg is None
 
+    # 测试loadfunctionbadmodule
     def test_load_function_bad_module(self):
         with pytest.raises(ModuleNotFoundError):
             _load_function("no_such_pkg.no_such_module.transform")
 
+    # 测试loadfunctionmissingattr
     def test_load_function_missing_attr(self):
         # `os.path` exists but has no `definitely_no_such_attr`.
         with pytest.raises(AttributeError):
             _load_function("os.path.definitely_no_such_attr")
 
+    # 测试loadfunctionnodottedprefix
     def test_load_function_no_dotted_prefix(self):
         with pytest.raises(ValueError, match=r"missing dotted prefix"):
             _load_function("only_one_segment")
 
+    # 测试loadfunctionnoncallableresolvesbutcallfails
     def test_load_function_non_callable_resolves_but_call_fails(self):
         """`_load_function` itself only does attribute lookup — it doesn't
         verify the result is callable. A non-callable target manifests at
@@ -2863,6 +3158,7 @@ class TestGrafterFilterMatching:
         with pytest.raises(TypeError):
             sep()
 
+    # 测试filterexpressiononlyusesnonnametag
     def test_filter_expression_only_uses_non_name_tag(self):
         """A filter that doesn't reference `name` at all is still valid; it
         should match purely on the other tag(s)."""
@@ -2876,6 +3172,7 @@ class TestGrafterFilterMatching:
         with pytest.raises(TypeError):
             grafter.maybe_intercept(value=torch.zeros(2), tags={"name": "x"})
 
+    # 测试filterexpressionunknowntagresolvestonone
     def test_filter_expression_unknown_tag_resolves_to_none(self):
         """Unknown tag keys resolve to None inside filter expressions, so
         `layer_id is None` works as an "absent" probe without raising."""
@@ -2891,6 +3188,7 @@ class TestGrafterFilterMatching:
         with pytest.raises(AssertionError, match="default torch.distributed"):
             grafter.maybe_intercept(value=torch.zeros(2), tags={"name": "x"})
 
+    # 测试filterexpressionsyntaxerrorraises
     def test_filter_expression_syntax_error_raises(self):
         """A filter string that isn't valid Python should surface as a
         SyntaxError so the misconfiguration is loud, not silent."""
@@ -2900,6 +3198,7 @@ class TestGrafterFilterMatching:
         with pytest.raises(SyntaxError):
             grafter.maybe_intercept(value=torch.zeros(2), tags={"name": "x"})
 
+    # 测试filterexpressionundefinedhelperraises
     def test_filter_expression_undefined_helper_raises(self):
         """Referencing an undefined helper inside a filter (e.g. a function
         the user expected to be in scope) should NOT be silently treated as
@@ -2915,6 +3214,7 @@ class TestGrafterFilterMatching:
         with pytest.raises(TypeError, match=r"NoneType.* not callable"):
             grafter.maybe_intercept(value=torch.zeros(2), tags={"name": "x"})
 
+    # 测试filtercanuseresearch
     def test_filter_can_use_re_search(self):
         """`re.search` is exposed inside filter expressions as `search()`."""
         grafter = _Grafter(
@@ -2932,6 +3232,7 @@ class TestGrafterFilterMatching:
         assert grafter._pg is None
 
 
+# 执行rungrafttest
 def _run_graft_test(worker_func, **kwargs):
     """Spawn one GPU-using process per role (rank 0 = baseline, rank 1 = target).
 
@@ -2967,6 +3268,7 @@ def _run_graft_test(worker_func, **kwargs):
         raise AssertionError("\n".join(errors))
 
 
+# 执行graftworkerentry
 def _graft_worker_entry(rank, role_port, worker_func, result_queue, kwargs):
     import traceback
 
@@ -2986,6 +3288,7 @@ def _graft_worker_entry(rank, role_port, worker_func, result_queue, kwargs):
         dist.destroy_process_group()
 
 
+# 执行rungrafttestsplit
 def _run_graft_test_split(worker_baseline, worker_target, **kwargs) -> dict:
     """Like `_run_graft_test`, but each role runs its OWN dedicated worker
     function (no `if rank == 0:` branching) and stdout is captured per role.
@@ -3035,6 +3338,7 @@ def _run_graft_test_split(worker_baseline, worker_target, **kwargs) -> dict:
     return outputs
 
 
+# 执行graftsplitworkerentry
 def _graft_split_worker_entry(
     global_rank, role, role_port, worker_func, result_queue, kwargs
 ):
@@ -3052,8 +3356,8 @@ def _graft_split_worker_entry(
         # code can simply call `from sglang.srt.debug_utils.dumper import dumper`
         # and get a properly-configured Grafter — exactly mirroring how
         # production code uses the global.
-        os.environ["DUMPER_GRAFTER_ENABLE"] = "1"
-        os.environ["DUMPER_GRAFTER_ROLE"] = role
+        os.environ["DUMPER_GRAFTER_ENABLE"] = "1"  # 访问环境变量
+        os.environ["DUMPER_GRAFTER_ROLE"] = role  # 访问环境变量
         import sglang.srt.debug_utils.dumper as _dumper_module
 
         _dumper_module.dumper = _dumper_module._Dumper(
@@ -3081,6 +3385,7 @@ def _graft_split_worker_entry(
     result_queue.put((role, error, captured.getvalue()))
 
 
+# 执行rungrafttestcpumulti
 def _run_graft_test_cpu_multi(
     worker_func, *, baseline_world: int, target_world: int, **kwargs
 ):
@@ -3139,6 +3444,7 @@ def _run_graft_test_cpu_multi(
         raise AssertionError("\n".join(errors))
 
 
+# 执行graftcpuworkerentry
 def _graft_cpu_worker_entry(
     role, local_rank, local_world, port, worker_func, result_queue, kwargs
 ):
@@ -3161,6 +3467,7 @@ def _graft_cpu_worker_entry(
         dist.destroy_process_group()
 
 
+# 执行makegraftertestconfig
 def _make_grafter_test_config(
     *,
     rank: int,
@@ -3196,6 +3503,7 @@ def _make_grafter_test_config(
 
 
 class TestGrafterDistributed:
+    # 测试b2tcopyroundtrip
     def test_b2t_copy_roundtrip(self):
         """Baseline (rank 0) sends 'x' to target (rank 1), target.copy_'s it."""
         graft_port = find_available_port(29600)
@@ -3204,6 +3512,7 @@ class TestGrafterDistributed:
         )
 
     @staticmethod
+    # 执行testb2tfunc
     def _test_b2t_func(rank, graft_port, group_name):
         grafter = _Grafter(
             config=_make_grafter_test_config(
@@ -3225,6 +3534,7 @@ class TestGrafterDistributed:
             if grafter._pg is not None:
                 dist.destroy_process_group(grafter._pg)
 
+    # 测试t2bcopyroundtrip
     def test_t2b_copy_roundtrip(self):
         """Target (rank 1) sends 'x' to baseline (rank 0), baseline.copy_'s it."""
         graft_port = find_available_port(29605)
@@ -3233,6 +3543,7 @@ class TestGrafterDistributed:
         )
 
     @staticmethod
+    # 执行testt2bfunc
     def _test_t2b_func(rank, graft_port, group_name):
         grafter = _Grafter(
             config=_make_grafter_test_config(
@@ -3255,6 +3566,7 @@ class TestGrafterDistributed:
             if grafter._pg is not None:
                 dist.destroy_process_group(grafter._pg)
 
+    # 测试recvwithusertransform
     def test_recv_with_user_transform(self, tmp_path: Path):
         # Write a tiny module that defines `transform(graft_input)`. The
         # worker prepends tmp_path to sys.path so import_module sees it.
@@ -3273,6 +3585,7 @@ class TestGrafterDistributed:
         )
 
     @staticmethod
+    # 执行testusertransformfunc
     def _test_user_transform_func(
         rank, graft_port, group_name, transform_dir, transform_path
     ):
@@ -3297,6 +3610,7 @@ class TestGrafterDistributed:
             if grafter._pg is not None:
                 dist.destroy_process_group(grafter._pg)
 
+    # 测试unmatchednameskipped
     def test_unmatched_name_skipped(self):
         graft_port = find_available_port(29620)
         _run_graft_test(
@@ -3306,6 +3620,7 @@ class TestGrafterDistributed:
         )
 
     @staticmethod
+    # 执行testunmatchedfunc
     def _test_unmatched_func(rank, graft_port, group_name):
         grafter = _Grafter(
             config=_make_grafter_test_config(
@@ -3321,6 +3636,7 @@ class TestGrafterDistributed:
             if grafter._pg is not None:
                 dist.destroy_process_group(grafter._pg)
 
+    # 测试defaultfallbackshapemismatchdoesnotcrash
     def test_default_fallback_shape_mismatch_does_not_crash(self):
         """When sender shape != target shape, default identity fallback raises;
         the grafter must catch it, log, and leave target unchanged."""
@@ -3332,6 +3648,7 @@ class TestGrafterDistributed:
         )
 
     @staticmethod
+    # 执行testshapemismatchfunc
     def _test_shape_mismatch_func(rank, graft_port, group_name):
         grafter = _Grafter(
             config=_make_grafter_test_config(
@@ -3358,6 +3675,7 @@ class TestGrafterDistributed:
             if grafter._pg is not None:
                 dist.destroy_process_group(grafter._pg)
 
+    # 测试usertransformexceptiondoesnotcrash
     def test_user_transform_exception_does_not_crash(self, tmp_path: Path):
         """A user transform that raises must NOT bring down the system; the
         grafter logs and skips the copy_, leaving target unchanged."""
@@ -3377,6 +3695,7 @@ class TestGrafterDistributed:
         )
 
     @staticmethod
+    # 执行testtransformthrowsfunc
     def _test_transform_throws_func(
         rank, graft_port, group_name, transform_dir, transform_path, module_name
     ):
@@ -3412,6 +3731,7 @@ class TestGrafterDistributed:
             if grafter._pg is not None:
                 dist.destroy_process_group(grafter._pg)
 
+    # 测试extrasflowtorecvtransform
     def test_extras_flow_to_recv_transform(self, tmp_path: Path):
         """Sender attaches per-call grafter_extras; recv transform reads them
         and uses them to compute the override value."""
@@ -3432,6 +3752,7 @@ class TestGrafterDistributed:
         )
 
     @staticmethod
+    # 执行testextrasfunc
     def _test_extras_func(rank, graft_port, group_name, transform_dir, transform_path):
         sys.path.insert(0, transform_dir)
         grafter = _Grafter(
@@ -3463,6 +3784,7 @@ class TestGrafterDistributed:
             if grafter._pg is not None:
                 dist.destroy_process_group(grafter._pg)
 
+    # 测试inittimeoutwarns
     def test_init_timeout_warns(self):
         graft_port = find_available_port(29630)
         _run_graft_test(
@@ -3472,6 +3794,7 @@ class TestGrafterDistributed:
         )
 
     @staticmethod
+    # 执行testinittimeoutfunc
     def _test_init_timeout_func(rank, graft_port, group_name):
         grafter = _Grafter(
             config=_make_grafter_test_config(
@@ -3498,6 +3821,7 @@ class TestGrafterDistributed:
             if grafter._pg is not None:
                 dist.destroy_process_group(grafter._pg)
 
+    # 测试extrasdefaultnoneflow
     def test_extras_default_none_flow(self):
         """When the sender omits `grafter_extras`, the recv transform sees a
         list of Nones — but len(received_extras_list) still matches n_senders."""
@@ -3509,6 +3833,7 @@ class TestGrafterDistributed:
         )
 
     @staticmethod
+    # 执行testextrasnonefunc
     def _test_extras_none_func(rank, graft_port, group_name):
         grafter = _Grafter(
             config=_make_grafter_test_config(
@@ -3533,6 +3858,7 @@ class TestGrafterDistributed:
             if grafter._pg is not None:
                 dist.destroy_process_group(grafter._pg)
 
+    # 测试groupinitiscachedacrosscalls
     def test_group_init_is_cached_across_calls(self):
         """The graft process group is initialized lazily on the first
         matched dump() and cached afterwards — subsequent dumps must reuse
@@ -3545,6 +3871,7 @@ class TestGrafterDistributed:
         )
 
     @staticmethod
+    # 执行testgroupcachefunc
     def _test_group_cache_func(rank, graft_port, group_name):
         grafter = _Grafter(
             config=_make_grafter_test_config(
@@ -3576,6 +3903,7 @@ class TestGrafterDistributed:
             if grafter._pg is not None:
                 dist.destroy_process_group(grafter._pg)
 
+    # 测试copyfailuredoesnotcrash
     def test_copy_failure_does_not_crash(self, tmp_path: Path):
         """If the user transform returns a tensor whose shape doesn't match
         target, `value.copy_(value_to_override)` raises — and that error
@@ -3598,6 +3926,7 @@ class TestGrafterDistributed:
         )
 
     @staticmethod
+    # 执行testcopyfailurefunc
     def _test_copy_failure_func(
         rank, graft_port, group_name, transform_dir, transform_path
     ):
@@ -3636,6 +3965,7 @@ class TestGrafterMultiRankCpu:
     """Coverage of asymmetric multi-rank cases via CPU/gloo (CI fleet has
     only 2 GPUs, which is too few for these cases)."""
 
+    # 测试4baseline2targetb2twithusertransform
     def test_4_baseline_2_target_b2t_with_user_transform(self, tmp_path: Path):
         """4 baseline senders -> 2 target receivers via b2t graft.
         The user transform asserts received_list has length 4 with each
@@ -3647,7 +3977,7 @@ class TestGrafterMultiRankCpu:
             "    rl = graft_input.received_list\n"
             "    assert len(rl) == 4, f'expected 4 senders, got {len(rl)}'\n"
             "    for i, t in enumerate(rl):\n"
-            "        v = float(t.flatten()[0].item())\n"
+            "        v = float(t.flatten()[0].item())\n"  # 获取标量值
             "        assert v == float(i), f'rl[{i}][0]={v}, want {float(i)}'\n"
             "    return torch.full_like(graft_input.target, 999.0)\n"
         )
@@ -3663,6 +3993,7 @@ class TestGrafterMultiRankCpu:
         )
 
     @staticmethod
+    # 执行test4b2tfunc
     def _test_4b_2t_func(
         role, local_rank, graft_port, group_name, transform_dir, transform_path
     ):
@@ -3691,6 +4022,7 @@ class TestGrafterMultiRankCpu:
             if grafter._pg is not None:
                 dist.destroy_process_group(grafter._pg)
 
+    # 测试2target4baselinet2bwithusertransform
     def test_2_target_4_baseline_t2b_with_user_transform(self, tmp_path: Path):
         """Mirror image of the b2t case: 2 target senders -> 4 baseline
         receivers via t2b graft. Confirms the (role, direction) algebra and
@@ -3702,7 +4034,7 @@ class TestGrafterMultiRankCpu:
             "    rl = graft_input.received_list\n"
             "    assert len(rl) == 2, f'expected 2 senders, got {len(rl)}'\n"
             "    for i, t in enumerate(rl):\n"
-            "        v = float(t.flatten()[0].item())\n"
+            "        v = float(t.flatten()[0].item())\n"  # 获取标量值
             "        assert v == float(i + 100), (\n"
             "            f'rl[{i}][0]={v}, want {float(i + 100)}'\n"
             "        )\n"
@@ -3720,6 +4052,7 @@ class TestGrafterMultiRankCpu:
         )
 
     @staticmethod
+    # 执行test2t4bfunc
     def _test_2t_4b_func(
         role, local_rank, graft_port, group_name, transform_dir, transform_path
     ):
@@ -3747,6 +4080,7 @@ class TestGrafterMultiRankCpu:
             if grafter._pg is not None:
                 dist.destroy_process_group(grafter._pg)
 
+    # 测试defaulttransformwithasymmetricworldlogsandskips
     def test_default_transform_with_asymmetric_world_logs_and_skips(self):
         """The default identity-by-rank fallback requires #senders == #recvs.
         With baseline=4 and target=2 and no user transform, the recv side
@@ -3762,6 +4096,7 @@ class TestGrafterMultiRankCpu:
         )
 
     @staticmethod
+    # 执行testdefaultasymfunc
     def _test_default_asym_func(role, local_rank, graft_port, group_name):
         cfg = _make_multi_rank_config(
             role=role,
@@ -3794,6 +4129,7 @@ class TestGrafterMultiRankCpu:
             if grafter._pg is not None:
                 dist.destroy_process_group(grafter._pg)
 
+    # 测试mixedshapesendersviausertransform
     def test_mixed_shape_senders_via_user_transform(self, tmp_path: Path):
         """`all_gather_object` is pickle-routed, so sender ranks may
         contribute tensors with DIFFERENT shapes. The user transform sees
@@ -3826,6 +4162,7 @@ class TestGrafterMultiRankCpu:
         )
 
     @staticmethod
+    # 执行testmixedshapefunc
     def _test_mixed_shape_func(
         role, local_rank, graft_port, group_name, transform_dir, transform_path
     ):
@@ -3856,6 +4193,7 @@ class TestGrafterMultiRankCpu:
                 dist.destroy_process_group(grafter._pg)
 
 
+# 执行makemultirankconfig
 def _make_multi_rank_config(
     *,
     role: str,
@@ -3882,6 +4220,7 @@ def _make_multi_rank_config(
     )
 
 
+# 执行e2etransform
 def _e2e_transform(graft_input):
     """User transform used by the E2E example test. Demonstrates the two
     customization hooks reviewers should learn from:
@@ -3937,6 +4276,7 @@ class TestGrafterE2eExample:
         dumper.dump("attn_output", out, grafter_extras={"scale": 0.5})  # b -> t
     """
 
+    # 测试e2ebuggyattnreplacedbybaseline
     def test_e2e_buggy_attn_replaced_by_baseline(self):
         graft_port = find_available_port(29640)
         # All non-role env is shared by both sides; we set it in the parent
@@ -3966,6 +4306,7 @@ class TestGrafterE2eExample:
         self._assert_e2e_snapshot(outputs)
 
     @staticmethod
+    # 执行asserte2esnapshot
     def _assert_e2e_snapshot(outputs: dict) -> None:
         """Snapshot of the FULL per-role log timeline.
 
@@ -4055,6 +4396,7 @@ class TestGrafterE2eExample:
         )
 
     @staticmethod
+    # 执行workerbaseline
     def _worker_baseline():
         # In production code, callers just `from sglang.srt.debug_utils.dumper
         # import dumper` and call `dumper.dump(name, value)` — the env
@@ -4084,6 +4426,7 @@ class TestGrafterE2eExample:
         )
 
     @staticmethod
+    # 执行workertarget
     def _worker_target():
         from sglang.srt.debug_utils.dumper import dumper
 

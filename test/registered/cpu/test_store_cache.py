@@ -1,3 +1,4 @@
+# 文件名: test_store_cache.py - 存储缓存测试
 import sys
 
 import pytest
@@ -17,11 +18,13 @@ DTYPES = [torch.float16, torch.bfloat16, torch.uint8]
 DTYPE_IDS = ["float16", "bfloat16", "uint8"]
 
 
+# 执行storecachecpu
 def _store_cache_cpu(k, v, k_cache, v_cache, indices):
     row_dim = k.size(1) * k.size(2)
     torch.ops.sgl_kernel.store_cache_cpu(k, v, k_cache, v_cache, indices, row_dim)
 
 
+# 执行randomtensor
 def _random_tensor(shape, dtype):
     """FP8 KV is stored as uint8; randn is not implemented for Byte."""
     if dtype == torch.uint8:
@@ -33,6 +36,7 @@ def _random_tensor(shape, dtype):
 @pytest.mark.parametrize("head_dim", [64, 128])
 @pytest.mark.parametrize("num_heads", [1, 8, 16, 32])
 @pytest.mark.parametrize("batch_size", [1, 7, 133])
+# 测试storecache
 def test_store_cache(batch_size, num_heads, head_dim, dtype):
     shape = (batch_size, num_heads, head_dim)
     cache_shape = (CACHE_SIZE, num_heads, head_dim)
@@ -57,6 +61,7 @@ def test_store_cache(batch_size, num_heads, head_dim, dtype):
 @pytest.mark.parametrize("head_dim", [64, 128])
 @pytest.mark.parametrize("num_heads", [1, 8])
 @pytest.mark.parametrize("batch_size", [11])
+# 测试storecacheint32indices
 def test_store_cache_int32_indices(batch_size, num_heads, head_dim, dtype):
     shape = (batch_size, num_heads, head_dim)
     cache_shape = (CACHE_SIZE, num_heads, head_dim)

@@ -1,3 +1,4 @@
+# 文件名: test_engine_child_pids.py - 引擎子进程PID测试
 """
 Unit tests for Engine.get_all_child_pids().
 
@@ -26,6 +27,7 @@ register_amd_ci(est_time=77, suite="stage-b-test-1-gpu-small-amd")
 
 class TestEngineChildPids(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.engine = sgl.Engine(
             model_path=DEFAULT_SMALL_MODEL_NAME_FOR_TEST,
@@ -33,9 +35,11 @@ class TestEngineChildPids(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         cls.engine.shutdown()
 
+    # 测试getallchildpidsreturnslivepids
     def test_get_all_child_pids_returns_live_pids(self):
         pids = self.engine.get_all_child_pids()
 
@@ -58,6 +62,7 @@ class TestEngineChildPids(CustomTestCase):
                 f"PID {pid} is not a child of the current process",
             )
 
+    # 测试childpidsincludescheduleranddetokenizer
     def test_child_pids_include_scheduler_and_detokenizer(self):
         pids = self.engine.get_all_child_pids()
         # dp_size=1 gives one scheduler + one detokenizer = at least 2 PIDs
@@ -67,6 +72,7 @@ class TestEngineChildPids(CustomTestCase):
             "Expected at least 2 child PIDs (scheduler + detokenizer)",
         )
 
+    # 测试childpidsnoduplicates
     def test_child_pids_no_duplicates(self):
         pids = self.engine.get_all_child_pids()
         self.assertEqual(

@@ -1,3 +1,5 @@
+# 多模态层工具：GPU张量哈希计算，使用Triton内核实现高效的
+# 基于哈希的张量指纹计算，用于多模态处理中的缓存键生成
 # Copyright 2023-2024 SGLang Team
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,17 +19,21 @@ import torch
 import triton
 import triton.language as tl
 
+# fmix32哈希常量
 FMIX32_C1 = 0x85EBCA6B
 FMIX32_C2 = 0xC2B2AE35
+# 位置哈希常量
 POS_C1 = 0x27D4EB2D
 POS_C2 = 0x165667B1
 
 
+# 32位循环左移
 @triton.jit
 def _rotl32(x, r: tl.constexpr):
     return (x << r) | (x >> (32 - r))
 
 
+# fmix32哈希函数：MurmurHash3的最终混合步骤
 @triton.jit
 def _fmix32(x, C1: tl.constexpr, C2: tl.constexpr):
     c1 = tl.full((), C1, tl.uint32)
@@ -40,6 +46,7 @@ def _fmix32(x, C1: tl.constexpr, C2: tl.constexpr):
     return x
 
 
+# 分块哈希计算内核：对输入uint32数组进行分块MurmurHash3计算
 @triton.jit
 def hash_tiles32_kernel_blocked(
     in_ptr,
@@ -63,33 +70,41 @@ def hash_tiles32_kernel_blocked(
     posA = tl.full((), POS_A, tl.uint32)
     posB = tl.full((), POS_B, tl.uint32)
 
+    # 初始化两个哈希累加器
     h1 = tl.zeros((), dtype=tl.uint32)
     h2 = tl.zeros((), dtype=tl.uint32)
 
+    # 逐块处理瓦片内的数据
     for off in tl.static_range(0, TILE, BLOCK):
         idx = base + off + tl.arange(0, BLOCK)
         m = idx < n_u32
 
+        # 使用.cg缓存修饰符避免缓存污染（可选）
         if USE_CG:
             v = tl.load(in_ptr + idx, mask=m, other=0, cache_modifier=".cg")
         else:
             v = tl.load(in_ptr + idx, mask=m, other=0)
         v = v.to(tl.uint32)
 
+        # 计算位置相关的哈希键
         iu = idx.to(tl.uint32)
         p1 = (iu * posA + s1) ^ _rotl32(iu, 15)
         p2 = (iu * posB + s2) ^ _rotl32(iu, 13)
 
+        # 应用fmix32混合
         k1 = _fmix32(v ^ p1, C1=FM_C1, C2=FM_C2)
         k2 = _fmix32(v ^ p2, C1=FM_C1, C2=FM_C2)
 
+        # 掩码无效位置
         zero32 = tl.zeros_like(k1)
         k1 = tl.where(m, k1, zero32)
         k2 = tl.where(m, k2, zero32)
 
+        # 累加哈希值
         h1 += tl.sum(k1, axis=0).to(tl.uint32)
         h2 += tl.sum(k2, axis=0).to(tl.uint32)
 
+    # 最终混合：加入字节长度并应用fmix32
     nbytes = tl.full((), n_u32 * 4, tl.uint32)
     h1 ^= nbytes
     h2 ^= nbytes
@@ -100,10 +115,12 @@ def hash_tiles32_kernel_blocked(
         else _fmix32(h2, C1=FM_C1, C2=FM_C2)
     )
 
+    # 组合两个32位哈希为64位输出
     out = (h1.to(tl.uint64) << 32) | h2.to(tl.uint64)
     tl.store(out_ptr + pid, out)
 
 
+# 树形归约内核：将多个uint64值累加为一个
 @triton.jit
 def add_tree_reduce_u64_kernel(in_ptr, out_ptr, n_elems, CHUNK: tl.constexpr):
     pid = tl.program_id(axis=0)
@@ -117,10 +134,12 @@ def add_tree_reduce_u64_kernel(in_ptr, out_ptr, n_elems, CHUNK: tl.constexpr):
     tl.store(out_ptr + pid, h)
 
 
+# 将张量视图转换为uint32字数组
 def _as_uint32_words(t: torch.Tensor) -> torch.Tensor:
     assert t.is_cuda, "Use .cuda() first"
     tb = t.contiguous().reshape(-1).view(torch.uint8)
     nbytes = tb.numel()
+    # 对齐到4字节边界
     pad = (4 - (nbytes & 3)) & 3
     if pad:
         tb_p = torch.empty(nbytes + pad, dtype=torch.uint8, device=tb.device)
@@ -130,6 +149,7 @@ def _as_uint32_words(t: torch.Tensor) -> torch.Tensor:
     return tb.view(torch.uint32)
 
 
+# SplitMix64最终混合函数
 def _final_splitmix64(x: int) -> int:
     mask = (1 << 64) - 1
     x &= mask
@@ -141,6 +161,7 @@ def _final_splitmix64(x: int) -> int:
     return x
 
 
+# GPU张量哈希：计算GPU上张量的确定性哈希值
 @torch.inference_mode()
 def gpu_tensor_hash(
     tensor: torch.Tensor,
@@ -154,11 +175,13 @@ def gpu_tensor_hash(
     use_cg: bool = True,
 ) -> int:
     assert tensor.is_cuda, "Use .cuda() first"
+    # 将张量转换为uint32字数组
     u32 = _as_uint32_words(tensor)
     n = u32.numel()
     if n == 0:
         return 0
 
+    # 第一阶段：分块哈希
     grid1 = (triton.cdiv(n, tile_words),)
     partials = torch.empty(grid1[0], dtype=torch.uint64, device=u32.device)
     hash_tiles32_kernel_blocked[grid1](
@@ -178,6 +201,7 @@ def gpu_tensor_hash(
         num_stages=num_stages,
     )
 
+    # 第二阶段：树形归约，将部分哈希合并为一个
     cur = partials
     while cur.numel() > 1:
         n_elems = cur.numel()
@@ -186,4 +210,5 @@ def gpu_tensor_hash(
         add_tree_reduce_u64_kernel[grid2](cur, nxt, n_elems, CHUNK=reduce_chunk)
         cur = nxt
 
+    # 最终SplitMix64混合
     return _final_splitmix64(int(cur.item()))

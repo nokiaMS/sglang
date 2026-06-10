@@ -1,3 +1,4 @@
+# 文件名: test_types.py - 类型定义测试
 import json
 import sys
 
@@ -25,6 +26,7 @@ register_cpu_ci(est_time=10, suite="base-a-test-cpu", nightly=True)
 register_cpu_ci(est_time=1, suite="base-b-test-cpu")
 
 
+# 执行makestats
 def _make_stats(**overrides) -> TensorStats:
     defaults: dict = dict(
         mean=0.5,
@@ -38,6 +40,7 @@ def _make_stats(**overrides) -> TensorStats:
     return TensorStats(**defaults)
 
 
+# 执行makediff
 def _make_diff(**overrides) -> DiffInfo:
     defaults = dict(
         rel_diff=1e-4,
@@ -53,6 +56,7 @@ def _make_diff(**overrides) -> DiffInfo:
     return DiffInfo(**defaults)
 
 
+# 执行maketensorinfo
 def _make_tensor_info(**overrides) -> TensorInfo:
     defaults = dict(
         shape=[4, 8],
@@ -64,10 +68,12 @@ def _make_tensor_info(**overrides) -> TensorInfo:
 
 
 class TestStrictBase:
+    # 测试rejectsextrafields
     def test_rejects_extra_fields(self):
         with pytest.raises(Exception):
             TensorStats(mean=0.0, abs_mean=0.5, std=1.0, min=-1.0, max=1.0, bogus=42)
 
+    # 测试rejectsextrafieldsondiff
     def test_rejects_extra_fields_on_diff(self):
         with pytest.raises(Exception):
             DiffInfo(
@@ -84,6 +90,7 @@ class TestStrictBase:
 
 
 class TestRecordTypes:
+    # 测试comparisonrecordinheritstensorfields
     def test_comparison_record_inherits_tensor_fields(self):
         record = ComparisonTensorRecord(
             name="hidden_states",
@@ -99,6 +106,7 @@ class TestRecordTypes:
         assert "baseline" in parsed
         assert "diff" in parsed
 
+    # 测试discriminatedunionparsing
     def test_discriminated_union_parsing(self):
         for record in [
             ConfigRecord(
@@ -128,6 +136,7 @@ class TestRecordTypes:
             assert restored == record
 
 
+# 执行makereplicatedcheck
 def _make_replicated_check(**overrides) -> ReplicatedCheckResult:
     defaults: dict = dict(
         axis="tp",
@@ -149,6 +158,7 @@ def _make_replicated_check(**overrides) -> ReplicatedCheckResult:
 
 
 class TestWarnings:
+    # 测试comparisonrecordfailedwhendiffpassedbuterrors
     def test_comparison_record_failed_when_diff_passed_but_errors(self):
         """ComparisonTensorRecord with diff.passed=True but errors → category=='failed'."""
         record = ComparisonTensorRecord(
@@ -162,6 +172,7 @@ class TestWarnings:
         )
         assert record.category == "failed"
 
+    # 测试skiprecordfailedwhenerrors
     def test_skip_record_failed_when_errors(self):
         """ComparisonSkipRecord with errors → category=='failed' instead of 'skipped'."""
         record = ComparisonSkipRecord(
@@ -171,6 +182,7 @@ class TestWarnings:
         )
         assert record.category == "failed"
 
+    # 测试replicatedchecksallpassed
     def test_replicated_checks_all_passed(self):
         """ComparisonTensorRecord with all replicated_checks passed → category=='passed'."""
         record = ComparisonTensorRecord(
@@ -184,6 +196,7 @@ class TestWarnings:
         )
         assert record.category == "passed"
 
+    # 测试replicatedchecksfailedmeansrecordfailed
     def test_replicated_checks_failed_means_record_failed(self):
         """ComparisonTensorRecord with any replicated_check.passed=False → category=='failed'."""
         record = ComparisonTensorRecord(
@@ -197,6 +210,7 @@ class TestWarnings:
         )
         assert record.category == "failed"
 
+    # 测试replicatedcheckjsonroundtrip
     def test_replicated_check_json_round_trip(self):
         """ReplicatedCheckResult survives JSON round-trip via ComparisonTensorRecord."""
         check = _make_replicated_check(
@@ -227,6 +241,7 @@ class TestWarnings:
         assert restored_check.baseline_index == 0
         assert not restored_check.passed
 
+    # 测试anylogdiscriminatedunionroundtrip
     def test_any_log_discriminated_union_round_trip(self):
         """ErrorLog and InfoLog survive JSON round-trip via a LogRecord."""
         all_errors = [

@@ -1,3 +1,4 @@
+# 文件名: test_triton.py - Triton内核测试
 import sys
 import unittest
 from pathlib import Path
@@ -163,6 +164,7 @@ class TestTritonKDABackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试projectedkdaattentioncases
     def test_projected_kda_attention_cases(self):
         for case in self.CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -191,6 +193,7 @@ class TestTritonKDABackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试layoutrobustnesscases
     def test_layout_robustness_cases(self):
         for case in self.LAYOUT_ROBUSTNESS_CASES:
             for layout in ("interleaved_pages", "non_monotonic_extend"):
@@ -199,11 +202,13 @@ class TestTritonKDABackendCorrectness(CustomTestCase):
                 with self.subTest(case=case.name, layout=layout):
                     run_kda_attention_case(self, case, loc_layout=layout)
 
+    # 测试runnermodecudagraphdecodecases
     def test_runner_mode_cuda_graph_decode_cases(self):
         for case in self.CUDA_GRAPH_CASES:
             with self.subTest(case=case.name, backend=case.backend):
                 run_kda_cuda_graph_decode_case(self, case)
 
+    # 测试runnermodeeagleverifycases
     def test_runner_mode_eagle_verify_cases(self):
         for case, topk, spec_kind, atol_override in self.EAGLE_VERIFY_CASES:
             with self.subTest(
@@ -217,6 +222,7 @@ class TestTritonKDABackendCorrectness(CustomTestCase):
                     kwargs.update(atol=atol_override, rtol=atol_override)
                 run_kda_eagle_verify_case(self, case, **kwargs)
 
+    # 测试runnermodeeagleverifycudagraphcases
     def test_runner_mode_eagle_verify_cuda_graph_cases(self):
         for case, topk in self.EAGLE_VERIFY_CUDA_GRAPH_CASES:
             with self.subTest(case=case.name, backend=case.backend, topk=topk):
@@ -269,6 +275,7 @@ class TestTritonKDABackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试runnermodeeagledraftextendcases
     def test_runner_mode_eagle_draft_extend_cases(self):
         for case, spec_kind in self.EAGLE_DRAFT_EXTEND_CASES:
             with self.subTest(
@@ -276,6 +283,7 @@ class TestTritonKDABackendCorrectness(CustomTestCase):
             ):
                 run_kda_eagle_draft_extend_case(self, case, spec_kind=spec_kind)
 
+    # 测试runnermodesplitopextendcases
     def test_runner_mode_split_op_extend_cases(self):
         for case, static_num_tokens in self.SPLIT_OP_CASES:
             for breakable in (False, True):

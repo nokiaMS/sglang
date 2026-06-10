@@ -1,3 +1,4 @@
+# 文件名: test_anthropic_vision.py - Anthropic视觉API测试 - 验证/v1/messages端点的图像输入、流式输出和多轮对话功能
 """
 Tests for Anthropic-compatible image input via the /v1/messages endpoint.
 
@@ -23,6 +24,7 @@ IMAGE_MAN_IRONING_URL = "https://raw.githubusercontent.com/sgl-project/sgl-test-
 IMAGE_SGL_LOGO_URL = "https://raw.githubusercontent.com/sgl-project/sgl-test-files/refs/heads/main/images/sgl_logo.png"
 
 
+# 获取图像base64 - 下载图像并返回base64编码
 def _fetch_image_base64(url: str) -> str:
     """Download an image and return its base64-encoded content."""
     resp = requests.get(url, timeout=30)
@@ -32,6 +34,7 @@ def _fetch_image_base64(url: str) -> str:
 
 class TestAnthropicVision(CustomTestCase):
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         cls.model = DEFAULT_SMALL_VLM_MODEL_NAME_FOR_TEST
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -52,9 +55,11 @@ class TestAnthropicVision(CustomTestCase):
         cls.image_base64 = _fetch_image_base64(IMAGE_MAN_IRONING_URL)
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 发送请求 - 向/v1/messages端点发送请求
     def _make_request(self, payload, stream=False):
         """Send a request to the /v1/messages endpoint."""
         headers = {
@@ -68,6 +73,7 @@ class TestAnthropicVision(CustomTestCase):
             stream=stream,
         )
 
+    # 解析SSE事件 - 从流式响应中解析服务器发送事件
     def _parse_sse_events(self, response):
         """Parse SSE events from a streaming response."""
         events = []
@@ -84,6 +90,7 @@ class TestAnthropicVision(CustomTestCase):
                     pass
         return events
 
+    # 验证熨衣图像内容 - 检查响应文本是否描述了熨衣图像
     def _verify_ironing_image_content(self, text):
         """Verify the response text describes the man-ironing-on-SUV image."""
         text_lower = text.lower()
@@ -108,6 +115,7 @@ class TestAnthropicVision(CustomTestCase):
 
     # ---- Base64 image tests ----
 
+    # 测试single image base64
     def test_single_image_base64(self):
         """Test sending a single base64 image in Anthropic format."""
         payload = {
@@ -159,6 +167,7 @@ class TestAnthropicVision(CustomTestCase):
             f"ID should start with 'msg_', got: {body['id']}",
         )
 
+    # 测试single image url
     def test_single_image_url(self):
         """Test sending an image via URL (converted to data URI internally)."""
         # Anthropic format uses source.type="base64", but we test the data URI path
@@ -200,6 +209,7 @@ class TestAnthropicVision(CustomTestCase):
         # Verify response describes the image content
         self._verify_ironing_image_content(text)
 
+    # 测试image with text blocks
     def test_image_with_text_blocks(self):
         """Test image combined with multiple text content blocks."""
         payload = {
@@ -244,6 +254,7 @@ class TestAnthropicVision(CustomTestCase):
 
     # ---- Streaming with image ----
 
+    # 测试image stream
     def test_image_stream(self):
         """Test streaming response with image input."""
         payload = {
@@ -304,6 +315,7 @@ class TestAnthropicVision(CustomTestCase):
 
     # ---- Multi-image tests ----
 
+    # 测试multi image
     def test_multi_image(self):
         """Test sending multiple images in a single message."""
         logo_base64 = _fetch_image_base64(IMAGE_SGL_LOGO_URL)
@@ -351,6 +363,7 @@ class TestAnthropicVision(CustomTestCase):
 
     # ---- Multi-turn with image ----
 
+    # 测试multi turn with image
     def test_multi_turn_with_image(self):
         """Test multi-turn conversation with image context."""
         # First turn: send image

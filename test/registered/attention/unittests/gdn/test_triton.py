@@ -1,3 +1,4 @@
+# 文件名: test_triton.py - Triton内核测试
 import sys
 import unittest
 from pathlib import Path
@@ -217,6 +218,7 @@ class TestTritonGDNBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试projectedgdnattentioncases
     def test_projected_gdn_attention_cases(self):
         for case in self.CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -248,6 +250,7 @@ class TestTritonGDNBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试layoutrobustnesscases
     def test_layout_robustness_cases(self):
         for case in self.LAYOUT_ROBUSTNESS_CASES:
             for layout in ("interleaved_pages", "non_monotonic_extend"):
@@ -256,11 +259,13 @@ class TestTritonGDNBackendCorrectness(CustomTestCase):
                 with self.subTest(case=case.name, layout=layout):
                     run_gdn_attention_case(self, case, loc_layout=layout)
 
+    # 测试runnermodecudagraphdecodecases
     def test_runner_mode_cuda_graph_decode_cases(self):
         for case in self.CUDA_GRAPH_CASES:
             with self.subTest(case=case.name, backend=case.backend):
                 run_gdn_cuda_graph_decode_case(self, case)
 
+    # 测试runnermodesplitopextendcases
     def test_runner_mode_split_op_extend_cases(self):
         for case, static_num_tokens in self.SPLIT_OP_CASES:
             for breakable in (False, True):
@@ -277,6 +282,7 @@ class TestTritonGDNBackendCorrectness(CustomTestCase):
                         static_num_tokens=static_num_tokens,
                     )
 
+    # 测试runnermodeeagleverifycases
     def test_runner_mode_eagle_verify_cases(self):
         for case, topk, spec_kind in self.EAGLE_VERIFY_CASES:
             with self.subTest(
@@ -287,6 +293,7 @@ class TestTritonGDNBackendCorrectness(CustomTestCase):
             ):
                 run_gdn_eagle_verify_case(self, case, topk=topk, spec_kind=spec_kind)
 
+    # 测试runnermodeeagleverifycudagraphcases
     def test_runner_mode_eagle_verify_cuda_graph_cases(self):
         for case, topk, spec_kind in self.EAGLE_VERIFY_CUDA_GRAPH_CASES:
             with self.subTest(
@@ -334,6 +341,7 @@ class TestTritonGDNBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试runnermodeeagledraftextendcases
     def test_runner_mode_eagle_draft_extend_cases(self):
         for case, spec_kind in self.EAGLE_DRAFT_EXTEND_CASES:
             with self.subTest(
@@ -346,6 +354,7 @@ class TestTritonGDNBackendCorrectness(CustomTestCase):
     # forward-output assertions can miss when the fixture happens to
     # use identical capture/replay metadata.
 
+    # 执行makedispatchspybackend
     def _make_dispatch_spy_backend(self):
         full_attn_backend = MagicMock(name="full_attn_backend")
         # `HybridLinearAttnBackend.__init__` aliases these buffer refs.
@@ -364,6 +373,7 @@ class TestTritonGDNBackendCorrectness(CustomTestCase):
         return backend, full_attn_backend, linear_attn_backend
 
     @staticmethod
+    # 执行assertfanoutforwarded
     def _assert_fanout_forwarded(method_mock, *sentinels):
         """Assert `method_mock` was called exactly once and that each sentinel
         object identity is present in the call's positional or keyword args.
@@ -380,6 +390,7 @@ class TestTritonGDNBackendCorrectness(CustomTestCase):
                     f"{method_mock._mock_name or method_mock}; call_args={call}"
                 )
 
+    # 测试hybriddispatcheagerinitforwardmetadatafanout
     def test_hybrid_dispatch_eager_init_forward_metadata_fan_out(self):
         backend, full_attn_backend, linear_attn_backend = (
             self._make_dispatch_spy_backend()
@@ -399,6 +410,7 @@ class TestTritonGDNBackendCorrectness(CustomTestCase):
             linear_attn_backend.init_forward_metadata, sentinel_forward_batch
         )
 
+    # 测试hybriddispatchreplayinitforwardmetadatafanout
     def test_hybrid_dispatch_replay_init_forward_metadata_fan_out(self):
         backend, full_attn_backend, linear_attn_backend = (
             self._make_dispatch_spy_backend()
@@ -433,6 +445,7 @@ class TestTritonGDNBackendCorrectness(CustomTestCase):
                 ForwardMode.DECODE,
             )
 
+    # 测试hybriddispatchcaptureinitforwardmetadatafanout
     def test_hybrid_dispatch_capture_init_forward_metadata_fan_out(self):
         # Capture mirrors the eager/replay loop shape; a slice mutation
         # there would silently miss without a spy.

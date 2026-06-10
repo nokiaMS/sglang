@@ -1,3 +1,4 @@
+# 文件名: test_hybrid_attn.py - 混合注意力测试
 import sys
 import unittest
 from pathlib import Path
@@ -59,6 +60,7 @@ class TestHybridAttnDenseAttentionBackendCorrectness(CustomTestCase):
         prefix_lens=(7,),
     )
 
+    # 执行buildandwrap
     def _build_and_wrap(self, case: DenseAttentionCase):
         fixture = build_dense_attention_fixture(
             self,
@@ -78,12 +80,14 @@ class TestHybridAttnDenseAttentionBackendCorrectness(CustomTestCase):
         )
         return replace_backend(fixture, wrapper)
 
+    # 测试hybridextenddispatchesprefillbackend
     def test_hybrid_extend_dispatches_prefill_backend(self):
         fixture = self._build_and_wrap(self.EXTEND_CASE)
         actual = run_dense_fixture_eager(fixture)
         expected = expected_dense_fixture_output(fixture)
         torch.testing.assert_close(actual, expected, atol=DENSE_ATOL, rtol=DENSE_RTOL)
 
+    # 测试hybriddecodedispatchesdecodebackend
     def test_hybrid_decode_dispatches_decode_backend(self):
         fixture = self._build_and_wrap(self.DECODE_CASE)
         actual = run_dense_fixture_eager(fixture)

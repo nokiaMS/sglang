@@ -1,3 +1,4 @@
+# 文件名: test_choices.py - 测试选择决策算法（词长度归一化、贪心选择、无条件似然归一化）
 import unittest
 
 import numpy as np

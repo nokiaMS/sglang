@@ -1,3 +1,4 @@
+# 文件名: test_kda_kernels.py - KDA内核测试
 import unittest
 
 import torch
@@ -25,6 +26,7 @@ register_cuda_ci(est_time=12, stage="base-b", runner_config="1-gpu-large")
     "Test requires CUDA or XPU",
 )
 class TestKDAFusedSigmoidGatingRecurrent(unittest.TestCase):
+    # 初始化设置
     def setUp(self):
         self.device = get_device()
         self.token_num = 4
@@ -92,6 +94,7 @@ class TestKDAFusedSigmoidGatingRecurrent(unittest.TestCase):
             device=self.device,
         )
 
+    # 运行fused
     def run_fused(self):
         ssm_states = self.ssm_states.clone()
         core_attn_out = fused_sigmoid_gating_delta_rule_update(
@@ -112,16 +115,17 @@ class TestKDAFusedSigmoidGatingRecurrent(unittest.TestCase):
         )
         return core_attn_out, ssm_states[self.cache_indices]
 
+    # 运行kda
     def run_kda(self):
-        b = self.beta.float().sigmoid()
+        b = self.beta.float().sigmoid()  # 转换为单精度
         # Reference gate activation using torch ops:
         #   g = -exp(A_log) * softplus(raw_g + dt_bias)
         H, K = self.local_num_heads, self.head_dim
-        raw_g = self.a.float()  # [1, T, H*K]
+        raw_g = self.a.float()  # [1, T, H*K]  # 转换为单精度
         if self.dt_bias is not None:
-            raw_g = raw_g + self.dt_bias.float()
+            raw_g = raw_g + self.dt_bias.float()  # 转换为单精度
         g = -torch.exp(
-            self.A_log.float().view(1, 1, H, 1)
+            self.A_log.float().view(1, 1, H, 1)  # 转换为单精度
         ) * torch.nn.functional.softplus(raw_g.view(1, -1, H, K))
         initial_state = self.ssm_states[self.cache_indices].clone()
         core_attn_out, last_state = fused_recurrent_kda(
@@ -136,6 +140,7 @@ class TestKDAFusedSigmoidGatingRecurrent(unittest.TestCase):
         )
         return core_attn_out, last_state
 
+    # 测试kdafusedsigmoidgatingrecurrent
     def test_kda_fused_sigmoid_gating_recurrent(self):
         core_attn_out, last_state = self.run_fused()
         core_attn_out_ref, last_state_ref = self.run_kda()
@@ -154,13 +159,14 @@ class TestKDAGateChunkCumsum(unittest.TestCase):
 
     CHUNK_SIZE = 64
 
+    # 执行refgatecumsum
     def _ref_gate_cumsum(self, raw_g, A_log, dt_bias, cu_seqlens, chunk_size):
         """Reference: torch gate activation then chunk_local_cumsum."""
         B, T, H, K = raw_g.shape
-        g = raw_g.float()
+        g = raw_g.float()  # 转换为单精度
         if dt_bias is not None:
-            g = g + dt_bias.float().view(1, 1, H, K)
-        g = -torch.exp(A_log.float().view(1, 1, H, 1)) * torch.nn.functional.softplus(g)
+            g = g + dt_bias.float().view(1, 1, H, K)  # 转换为单精度
+        g = -torch.exp(A_log.float().view(1, 1, H, 1)) * torch.nn.functional.softplus(g)  # 转换为单精度
         chunk_indices = (
             prepare_chunk_indices(cu_seqlens, chunk_size)
             if cu_seqlens is not None
@@ -170,6 +176,7 @@ class TestKDAGateChunkCumsum(unittest.TestCase):
             g, chunk_size=chunk_size, cu_seqlens=cu_seqlens, chunk_indices=chunk_indices
         )
 
+    # 执行runcase
     def _run_case(self, B, T_per_seq, H, K, use_bias, use_varlen):
         T = B * T_per_seq
         torch.manual_seed(42)
@@ -199,10 +206,11 @@ class TestKDAGateChunkCumsum(unittest.TestCase):
             raw_g, A_log, dt_bias, cu_seqlens, self.CHUNK_SIZE
         )
 
-        max_diff = (out_fused - out_ref).abs().max().item()
-        rel_diff = max_diff / (out_ref.abs().mean().item() + 1e-8)
+        max_diff = (out_fused - out_ref).abs().max().item()  # 获取标量值
+        rel_diff = max_diff / (out_ref.abs().mean().item() + 1e-8)  # 获取标量值
         return max_diff, rel_diff
 
+    # 测试varlenwithbias
     def test_varlen_with_bias(self):
         max_diff, rel_diff = self._run_case(
             B=4, T_per_seq=256, H=16, K=128, use_bias=True, use_varlen=True
@@ -211,6 +219,7 @@ class TestKDAGateChunkCumsum(unittest.TestCase):
             max_diff, 1e-3, f"max_diff={max_diff:.2e}, rel_diff={rel_diff:.2e}"
         )
 
+    # 测试varlennobias
     def test_varlen_no_bias(self):
         max_diff, rel_diff = self._run_case(
             B=4, T_per_seq=256, H=16, K=128, use_bias=False, use_varlen=True
@@ -219,6 +228,7 @@ class TestKDAGateChunkCumsum(unittest.TestCase):
             max_diff, 1e-3, f"max_diff={max_diff:.2e}, rel_diff={rel_diff:.2e}"
         )
 
+    # 测试fixedlenwithbias
     def test_fixed_len_with_bias(self):
         max_diff, rel_diff = self._run_case(
             B=4, T_per_seq=256, H=16, K=128, use_bias=True, use_varlen=False
@@ -227,6 +237,7 @@ class TestKDAGateChunkCumsum(unittest.TestCase):
             max_diff, 1e-3, f"max_diff={max_diff:.2e}, rel_diff={rel_diff:.2e}"
         )
 
+    # 测试singleseqlong
     def test_single_seq_long(self):
         max_diff, rel_diff = self._run_case(
             B=1, T_per_seq=2048, H=16, K=128, use_bias=True, use_varlen=True
@@ -235,6 +246,7 @@ class TestKDAGateChunkCumsum(unittest.TestCase):
             max_diff, 1e-3, f"max_diff={max_diff:.2e}, rel_diff={rel_diff:.2e}"
         )
 
+    # 测试smallheaddim
     def test_small_head_dim(self):
         max_diff, rel_diff = self._run_case(
             B=4, T_per_seq=128, H=8, K=64, use_bias=True, use_varlen=True
@@ -250,6 +262,7 @@ class TestKDAPackedDecode(unittest.TestCase):
     path (split + unflatten + ``fused_sigmoid_gating_delta_rule_update``)."""
 
     @staticmethod
+    # 执行makeinputs
     def _make_inputs(B, H, HV, K, V, pool_size, dtype, device, seed=42):
         torch.manual_seed(seed)
         qkv_dim = 2 * H * K + HV * V
@@ -269,6 +282,7 @@ class TestKDAPackedDecode(unittest.TestCase):
         return mixed_qkv, a, b, A_log, dt_bias, ssm_states, cache_indices
 
     @staticmethod
+    # 执行runbaseline
     def _run_baseline(
         mixed_qkv, a, b, A_log, dt_bias, ssm_states, cache_indices, H, HV, K, V
     ):
@@ -300,6 +314,7 @@ class TestKDAPackedDecode(unittest.TestCase):
         )
 
     @staticmethod
+    # 执行runpacked
     def _run_packed(
         mixed_qkv, a, b, A_log, dt_bias, ssm_states, cache_indices, HV, K, V
     ):
@@ -319,6 +334,7 @@ class TestKDAPackedDecode(unittest.TestCase):
         )
         return out.transpose(0, 1)
 
+    # 执行check
     def _check(self, B, H, HV, K, V):
         device = get_device()
         dtype = torch.bfloat16
@@ -337,31 +353,37 @@ class TestKDAPackedDecode(unittest.TestCase):
         )
 
         torch.testing.assert_close(
-            o_packed.float(), o_baseline.float(), atol=2e-2, rtol=1e-2
+            o_packed.float(), o_baseline.float(), atol=2e-2, rtol=1e-2  # 转换为单精度
         )
         torch.testing.assert_close(
-            s_packed[cache_indices].float(),
-            s_baseline[cache_indices].float(),
+            s_packed[cache_indices].float(),  # 转换为单精度
+            s_baseline[cache_indices].float(),  # 转换为单精度
             atol=2e-2,
             rtol=1e-2,
         )
 
+    # 测试b1
     def test_b1(self):
         self._check(B=1, H=16, HV=16, K=128, V=128)
 
+    # 测试b4
     def test_b4(self):
         self._check(B=4, H=16, HV=16, K=128, V=128)
 
+    # 测试b32
     def test_b32(self):
         self._check(B=32, H=16, HV=16, K=128, V=128)
 
+    # 测试b128
     def test_b128(self):
         self._check(B=128, H=16, HV=16, K=128, V=128)
 
+    # 测试asymmetricheads
     def test_asymmetric_heads(self):
         # Common KDA config with HV > H (grouped query).
         self._check(B=8, H=8, HV=16, K=128, V=128)
 
+    # 测试padslot
     def test_pad_slot(self):
         """Entries with state_idx == -1 must produce zero output and skip state writeback."""
         device = get_device()
@@ -384,9 +406,10 @@ class TestKDAPackedDecode(unittest.TestCase):
             mixed_qkv, a, b, A_log, dt_bias, s_baseline, cache_indices, H, HV, K, V
         )
         torch.testing.assert_close(
-            o_packed.float(), o_baseline.float(), atol=2e-2, rtol=1e-2
+            o_packed.float(), o_baseline.float(), atol=2e-2, rtol=1e-2  # 转换为单精度
         )
 
+    # 测试productionshapesthroughdispatcher
     def test_production_shapes_through_dispatcher(self):
         """Go through ``TritonKDAKernel.packed_decode`` with the exact tensor
         shapes the KimiDeltaAttention model produces at decode time, so the
@@ -438,11 +461,11 @@ class TestKDAPackedDecode(unittest.TestCase):
 
         # Dispatcher returns [1, B, HV, V], same layout as the baseline.
         torch.testing.assert_close(
-            out.float(), o_baseline.float(), atol=2e-2, rtol=1e-2
+            out.float(), o_baseline.float(), atol=2e-2, rtol=1e-2  # 转换为单精度
         )
         torch.testing.assert_close(
-            s_packed[cache_indices].float(),
-            s_baseline[cache_indices].float(),
+            s_packed[cache_indices].float(),  # 转换为单精度
+            s_baseline[cache_indices].float(),  # 转换为单精度
             atol=2e-2,
             rtol=1e-2,
         )

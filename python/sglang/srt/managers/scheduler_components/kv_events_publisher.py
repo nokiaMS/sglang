@@ -1,3 +1,7 @@
+# KV缓存事件发布器
+# 负责发布KV缓存相关的事件和指标，支持外部系统监控KV缓存的使用情况。
+# 通过ZMQ和EventPublisher将KV指标和缓存事件推送给订阅者。
+
 from __future__ import annotations
 
 import dataclasses
@@ -27,6 +31,8 @@ class SchedulerStats: ...  # type: ignore[no-redef]
 
 @dataclasses.dataclass
 class KvMetrics:
+    """KV缓存指标数据类，包含请求和缓存块的使用统计"""
+
     request_active_slots: int = 0
     request_total_slots: int = 0
     kv_active_blocks: int = 0
@@ -39,6 +45,8 @@ class KvMetrics:
 
 @dataclass(kw_only=True, slots=True)
 class SchedulerKvEventsPublisher:
+    """调度器KV缓存事件发布器，负责发布KV指标和缓存事件"""
+
     kv_events_config: Optional[str]
     ps: "ParallelState"
     attn_tp_rank: int
@@ -54,9 +62,11 @@ class SchedulerKvEventsPublisher:
     kv_event_publisher: Any = None
 
     def __post_init__(self) -> None:
+        """初始化时设置KV事件发布器"""
         self.init_kv_events(self.kv_events_config)
 
     def init_kv_events(self, kv_events_config: Optional[str]):
+        """初始化KV缓存事件发布功能，仅在每个attn_tp/attn_cp组的rank 0上启用"""
         self.enable_kv_cache_events = bool(
             kv_events_config and self.ps.attn_tp_rank == 0 and self.ps.attn_cp_rank == 0
         )
@@ -67,6 +77,7 @@ class SchedulerKvEventsPublisher:
             )
 
     def emit_kv_metrics(self):
+        """收集并发送KV缓存指标到指标收集器"""
         if not self.enable_kv_cache_events:
             return
 
@@ -84,10 +95,12 @@ class SchedulerKvEventsPublisher:
             self.ps.dp_rank if self.ps.dp_rank is not None else 0
         )
 
+        # 通过ZMQ发送KV指标
         if not self.send_metrics_from_scheduler.closed:
             self.send_metrics_from_scheduler.send_pyobj(kv_metrics)
 
     def publish_kv_events(self):
+        """发布KV缓存事件（如缓存命中、驱逐等）到外部订阅者"""
         if not self.enable_kv_cache_events:
             return
 

@@ -1,3 +1,4 @@
+# 文件名: bench_mxfp4_sm90_kernels.py - MXFP4 MoE内核基准测试，对比SGLang Marlin与FlashInfer Cutlass路径
 """Benchmark MXFP4 MoE kernels on H100/H200: SGLang Marlin vs FlashInfer cutlass.
 
 Compares per-call latency of:
@@ -55,6 +56,7 @@ class Shape:
     num_experts: int
     top_k: int
 
+    # 执行label
     def label(self) -> str:
         return (
             f"m={self.tokens:>4} h={self.hidden} i={self.inter} "
@@ -79,6 +81,7 @@ DEFAULT_SHAPES: List[Shape] = [
 ]
 
 
+# 生成随机MXFP4权重和缩放因子
 def _make_random_mxfp4(shape: Shape, seed: int = 0):
     g = torch.Generator(device="cuda").manual_seed(seed)
     e = shape.num_experts
@@ -122,6 +125,7 @@ def _make_random_mxfp4(shape: Shape, seed: int = 0):
     return w13, w2, w13_s, w2_s, w13_b, w2_b
 
 
+# 生成top-k路由权重和专家ID
 def _make_topk(shape: Shape, seed: int = 1):
     g = torch.Generator(device="cuda").manual_seed(seed)
     logits = torch.randn(
@@ -141,6 +145,7 @@ def _make_topk(shape: Shape, seed: int = 1):
 # ---------------------------------------------------------------------------
 
 
+# 构建FlashInfer Cutlass路径的输入
 def build_flashinfer_inputs(shape: Shape, w13, w2, w13_s, w2_s, w13_b, w2_b):
     w13_il = interleave_moe_weights_for_sm90_mixed_gemm(w13, "fp4")
     w2_il = interleave_moe_weights_for_sm90_mixed_gemm(w2, "fp4")
@@ -162,6 +167,7 @@ def build_flashinfer_inputs(shape: Shape, w13, w2, w13_s, w2_s, w13_b, w2_b):
     }
 
 
+# 创建FlashInfer Cutlass执行函数
 def make_flashinfer_runner(
     shape: Shape, prep, x, topk_w, topk_i, autotuned: bool, with_bias: bool = True
 ):
@@ -169,6 +175,7 @@ def make_flashinfer_runner(
     fc1_b = prep["w13_b"] if with_bias else None
     fc2_b = prep["w2_b"] if with_bias else None
 
+    # 内部方法：call
     def _call():
         cutlass_fused_moe(
             input=x,
@@ -210,6 +217,7 @@ def build_marlin_inputs(shape: Shape, w13, w2, w13_s, w2_s):
     device = w13.device
     perm = torch.empty(0, dtype=torch.int, device=device)
 
+    # 内部方法：repack
     def _repack(weight, size_n, size_k):
         out_list = []
         for i in range(e):
@@ -225,6 +233,7 @@ def build_marlin_inputs(shape: Shape, w13, w2, w13_s, w2_s):
             )
         return torch.stack(out_list)
 
+    # 内部方法：scales for
     def _scales_for(scales, size_n, size_k):
         out_list = []
         # Reinterpret uint8 E8M0 byte as float8_e8m0fnu, then to bf16 numerical.
@@ -252,7 +261,9 @@ def build_marlin_inputs(shape: Shape, w13, w2, w13_s, w2_s):
     }
 
 
+# 创建SGLang Marlin执行函数
 def make_marlin_runner(shape: Shape, prep, x_bf16, router_logits, topk_w, topk_i):
+    # 内部方法：call
     def _call():
         fused_marlin_moe(
             hidden_states=x_bf16,
@@ -295,6 +306,7 @@ def time_call(fn: Callable, warmup: int = 5, iters: int = 30) -> Tuple[float, fl
     return times[len(times) // 2], times[0]
 
 
+# 运行单个shape的基准测试
 def run_one_shape(shape: Shape, run_marlin: bool):
     print(f"\n=== {shape.label()} ===")
     w13, w2, w13_s, w2_s, w13_b, w2_b = _make_random_mxfp4(shape, seed=0)
@@ -346,12 +358,13 @@ def run_one_shape(shape: Shape, run_marlin: bool):
             print(f"  SGLang Marlin: SKIPPED ({type(exc).__name__}: {exc})")
 
 
+# 主函数，解析参数并运行测试
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--no-marlin", action="store_true", help="Skip Marlin path.")
     args = parser.parse_args()
 
-    if not torch.cuda.is_available():
+    if not torch.cuda.is_available():  # 检查CUDA可用性
         raise SystemExit("CUDA required.")
     cap = torch.cuda.get_device_capability()
     if cap[0] != 9:

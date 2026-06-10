@@ -1,3 +1,4 @@
+# 文件名: test_get_k_scale_triton_kernel.py - 测试获取K缩放因子的Triton内核正确性与性能
 import torch
 
 from sglang.srt.layers.attention.dsa.index_buf_accessor import (
@@ -5,6 +6,7 @@ from sglang.srt.layers.attention.dsa.index_buf_accessor import (
 )
 
 
+# PyTorch参考实现，用于验证Triton内核正确性
 def golden_torch_gen(
     seq_len_tensor: torch.Tensor,
     buffer_indexer: torch.Tensor,
@@ -51,6 +53,7 @@ def golden_torch_gen(
     return torch_k_out, torch_s_out
 
 
+# 测试Triton内核的正确性与性能
 def get_k_and_s_triton():
     index_head_dim = 128
     page_size = 64
@@ -125,10 +128,10 @@ def get_k_and_s_triton():
         page_size=page_size,
     )
 
-    torch.testing.assert_close(
+    torch.testing.assert_close(  # 验证张量结果一致
         triton_k_out, torch_k_out, rtol=0, atol=0, msg="k outputs differ!"
     )
-    torch.testing.assert_close(
+    torch.testing.assert_close(  # 验证张量结果一致
         triton_s_out, torch_s_out, rtol=0, atol=0, msg="s outputs differ!"
     )
     print("_get_k_and_s_triton_kernel test pass")
@@ -180,7 +183,7 @@ def get_k_and_s_triton():
 
 
 if __name__ == "__main__":
-    if not torch.cuda.is_available():
+    if not torch.cuda.is_available():  # 检查CUDA可用性
         print("CUDA not available. Skipping tests.")
         exit(0)
 

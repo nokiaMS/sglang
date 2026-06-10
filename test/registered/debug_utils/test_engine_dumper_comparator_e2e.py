@@ -1,3 +1,4 @@
+# 文件名: test_engine_dumper_comparator_e2e.py - 引擎转储比较器端到端测试
 """E2E test: source patcher + dumper + comparator on SGLang server.
 
 Patches Qwen3MoeDecoderLayer.forward (and related methods) to insert
@@ -175,6 +176,7 @@ patches:
 class TestSourcePatcherE2ESGLang:
     """E2E: patch Qwen3Moe forward -> dump -> compare."""
 
+    # 测试patchdumpandcompare
     def test_patch_dump_and_compare(self, tmp_path: Path) -> None:
         """TP=2 baseline vs TP=4 target."""
         _run_e2e_scenario(
@@ -182,6 +184,7 @@ class TestSourcePatcherE2ESGLang:
             target_tp=TARGET_TP,
         )
 
+    # 测试dpattention
     def test_dp_attention(self, tmp_path: Path) -> None:
         """TP=2 baseline vs TP=2+DP=2+dp-attention target.
 
@@ -219,6 +222,7 @@ class TestSourcePatcherE2ESGLang:
 # --------------------------------- helpers ---------------------------------
 
 
+# 执行rune2escenario
 def _run_e2e_scenario(
     *,
     tmp_path: Path,
@@ -274,7 +278,7 @@ def _run_e2e_scenario(
     if extra_comparator_args:
         cmd.extend(extra_comparator_args)
 
-    result: subprocess.CompletedProcess[str] = subprocess.run(
+    result: subprocess.CompletedProcess[str] = subprocess.run(  # 运行子进程
         cmd,
         capture_output=True,
         text=True,
@@ -290,6 +294,7 @@ def _run_e2e_scenario(
     )
 
 
+# 执行runserverandgenerate
 def _run_server_and_generate(
     *,
     dump_dir: Path,
@@ -300,7 +305,7 @@ def _run_server_and_generate(
 ) -> None:
     """Launch SGLang server with source patcher + dumper, send a generate request."""
     env: dict[str, str] = {
-        **os.environ,
+        **os.environ,  # 访问环境变量
         "DUMPER_SOURCE_PATCHER_CONFIG": str(config_path),
         "DUMPER_DIR": str(dump_dir),
         "DUMPER_EXP_NAME": EXP_NAME,
@@ -350,6 +355,7 @@ def _run_server_and_generate(
         kill_process_tree(proc.pid)
 
 
+# 执行verifypatchedfields
 def _verify_patched_fields(*, dump_dir: Path, field_names: list[str]) -> None:
     """Verify that patched dump fields exist as .pt files."""
     for field in field_names:
@@ -360,6 +366,7 @@ def _verify_patched_fields(*, dump_dir: Path, field_names: list[str]) -> None:
         )
 
 
+# 执行savecomparatoroutput
 def _save_comparator_output(*, stdout: str, stderr: str) -> Path:
     """Save comparator stdout+stderr to a temp file that persists for debugging."""
     fd, path_str = tempfile.mkstemp(prefix="comparator_e2e_", suffix=".log", dir="/tmp")

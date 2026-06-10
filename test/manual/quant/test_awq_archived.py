@@ -1,3 +1,4 @@
+# 文件名: test_awq_archived.py - AWQ归档测试 - 验证AWQ Marlin量化在float16精度下的MMLU准确性
 """Archived test classes split out of test/registered/quant/test_awq.py.
 
 Originally registered with `register_cuda_ci(...)`. Moved here as part of
@@ -26,6 +27,7 @@ class TestAWQMarlinFloat16(CustomTestCase):
     """
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         cls.model = "QuantTrio/Qwen3-VL-30B-A3B-Instruct-AWQ"
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -37,9 +39,11 @@ class TestAWQMarlinFloat16(CustomTestCase):
         )
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试mmlu
     def test_mmlu(self):
         args = SimpleNamespace(
             base_url=self.base_url,

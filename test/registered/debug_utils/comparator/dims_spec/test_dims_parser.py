@@ -1,3 +1,4 @@
+# 文件名: test_dims_parser.py - 多维度解析器测试
 import sys
 
 import pytest
@@ -20,10 +21,12 @@ register_cpu_ci(est_time=1, suite="base-b-test-cpu")
 
 
 class TestSingletonDimUtilFilterOut:
+    # 测试nosqueeze
     def test_no_squeeze(self) -> None:
         specs: list[DimSpec] = parse_dims("t h d").dims
         assert _SingletonDimUtil.filter_out(specs) == specs
 
+    # 测试withsqueeze
     def test_with_squeeze(self) -> None:
         specs: list[DimSpec] = parse_dims("t 1 h").dims
         filtered: list[DimSpec] = _SingletonDimUtil.filter_out(specs)
@@ -31,20 +34,24 @@ class TestSingletonDimUtilFilterOut:
         assert filtered[0].name == "t"
         assert filtered[1].name == "h"
 
+    # 测试allsqueeze
     def test_all_squeeze(self) -> None:
         specs: list[DimSpec] = parse_dims("1 1").dims
         assert _SingletonDimUtil.filter_out(specs) == []
 
 
 class TestSingletonDimUtilIsSqueeze:
+    # 测试squeeze
     def test_squeeze(self) -> None:
         assert _SingletonDimUtil.is_squeeze(DimSpec(name=SQUEEZE_DIM_NAME)) is True
 
+    # 测试nonsqueeze
     def test_non_squeeze(self) -> None:
         assert _SingletonDimUtil.is_squeeze(DimSpec(name="t")) is False
 
 
 class TestSingletonDimUtilMakeName:
+    # 测试indices
     def test_indices(self) -> None:
         assert _SingletonDimUtil.make_name(0) == "singleton0"
         assert _SingletonDimUtil.make_name(1) == "singleton1"
@@ -52,9 +59,11 @@ class TestSingletonDimUtilMakeName:
 
 
 class TestSingletonDimUtilSanitizeNames:
+    # 测试nosqueeze
     def test_no_squeeze(self) -> None:
         assert _SingletonDimUtil.sanitize_names(["t", "h", "d"]) == ["t", "h", "d"]
 
+    # 测试singlesqueeze
     def test_single_squeeze(self) -> None:
         assert _SingletonDimUtil.sanitize_names(["t", "1", "h"]) == [
             "t",
@@ -62,6 +71,7 @@ class TestSingletonDimUtilSanitizeNames:
             "h",
         ]
 
+    # 测试multiplesqueeze
     def test_multiple_squeeze(self) -> None:
         assert _SingletonDimUtil.sanitize_names(["1", "t", "1", "h"]) == [
             "singleton0",
@@ -70,11 +80,13 @@ class TestSingletonDimUtilSanitizeNames:
             "h",
         ]
 
+    # 测试空输入
     def test_empty(self) -> None:
         assert _SingletonDimUtil.sanitize_names([]) == []
 
 
 class TestParseDims:
+    # 测试multidims
     def test_multi_dims(self) -> None:
         assert parse_dims("b s h d").dims == [
             DimSpec(name="b"),
@@ -83,9 +95,11 @@ class TestParseDims:
             DimSpec(name="d"),
         ]
 
+    # 测试singledim
     def test_single_dim(self) -> None:
         assert parse_dims("t").dims == [DimSpec(name="t")]
 
+    # 测试mixedannotated
     def test_mixed_annotated(self) -> None:
         assert parse_dims("b s[cp:zigzag] h[tp] d").dims == [
             DimSpec(name="b"),
@@ -102,18 +116,22 @@ class TestParseDims:
             DimSpec(name="d"),
         ]
 
+    # 测试emptystringraises
     def test_empty_string_raises(self) -> None:
         with pytest.raises(ValueError, match="empty"):
             parse_dims("")
 
+    # 测试whitespaceonlyraises
     def test_whitespace_only_raises(self) -> None:
         with pytest.raises(ValueError, match="empty"):
             parse_dims("   ")
 
+    # 测试duplicatenameraises
     def test_duplicate_name_raises(self) -> None:
         with pytest.raises(ValueError, match="Duplicate"):
             parse_dims("h h")
 
+    # 测试withsqueezedims
     def test_with_squeeze_dims(self) -> None:
         dims: list[DimSpec] = parse_dims("t 1 h").dims
         assert len(dims) == 3
@@ -121,6 +139,7 @@ class TestParseDims:
         assert dims[1] == DimSpec(name="1")
         assert dims[2] == DimSpec(name="h")
 
+    # 测试multiplesqueezedimsnoduplicateerror
     def test_multiple_squeeze_dims_no_duplicate_error(self) -> None:
         dims: list[DimSpec] = parse_dims("t 1 h 1 d").dims
         assert len(dims) == 5
@@ -129,6 +148,7 @@ class TestParseDims:
 
 
 class TestParseDimsWithFused:
+    # 测试fusedindims
     def test_fused_in_dims(self) -> None:
         result: DimsSpec = parse_dims("t (num_heads*head_dim)[tp]")
         assert len(result.dims) == 2
@@ -136,6 +156,7 @@ class TestParseDimsWithFused:
         assert result.dims[1].is_fused
         assert result.dims[1].name == "num_heads*head_dim"
 
+    # 测试fusedandregularmixed
     def test_fused_and_regular_mixed(self) -> None:
         result: DimsSpec = parse_dims("t (num_heads*head_dim)[tp] d")
         assert len(result.dims) == 3
@@ -143,16 +164,19 @@ class TestParseDimsWithFused:
         assert result.dims[1].is_fused
         assert not result.dims[2].is_fused
 
+    # 测试fusedsubnameconflictswithregularraises
     def test_fused_sub_name_conflicts_with_regular_raises(self) -> None:
         with pytest.raises(ValueError, match="Duplicate"):
             parse_dims("t num_heads (num_heads*head_dim)")
 
+    # 测试multiplefuseddims
     def test_multiple_fused_dims(self) -> None:
         result: DimsSpec = parse_dims("(a*b) (c*d)")
         assert len(result.dims) == 2
         assert result.dims[0].is_fused
         assert result.dims[1].is_fused
 
+    # 测试crossfusedduplicatesubnameraises
     def test_cross_fused_duplicate_sub_name_raises(self) -> None:
         with pytest.raises(ValueError, match="Duplicate"):
             parse_dims("(a*b) (c*a)")
@@ -161,25 +185,31 @@ class TestParseDimsWithFused:
 class TestParseDimsWithHash:
     """parse_dims strips the ``#`` declaration section from dims."""
 
+    # 测试shapedimsunchanged
     def test_shape_dims_unchanged(self) -> None:
         assert parse_dims("b s h[tp] # dp:=moe_dp").dims == parse_dims("b s h[tp]").dims
 
+    # 测试dpgroupaliasextracted
     def test_dp_group_alias_extracted(self) -> None:
         assert parse_dims("b s h[tp] # dp:=moe_dp").dp_group_alias == "moe_dp"
 
+    # 测试nohashnoalias
     def test_no_hash_no_alias(self) -> None:
         assert parse_dims("b s h[tp]").dp_group_alias is None
 
+    # 测试whitespacearoundhash
     def test_whitespace_around_hash(self) -> None:
         assert parse_dims("t h #   dp:=foo  ").dims == parse_dims("t h").dims
         assert parse_dims("t h #   dp:=foo  ").dp_group_alias == "foo"
 
+    # 测试multipledeclarationspicksdp
     def test_multiple_declarations_picks_dp(self) -> None:
         result: DimsSpec = parse_dims("t h[tp] # dp:=moe_dp ep:replicated")
         assert result.dims == parse_dims("t h[tp]").dims
         assert result.dp_group_alias == "moe_dp"
         assert result.replicated_axes == frozenset({ParallelAxis.EP})
 
+    # 测试nodpaliastoken
     def test_no_dp_alias_token(self) -> None:
         result: DimsSpec = parse_dims("t h[tp] # ep:replicated")
         assert result.dp_group_alias is None
@@ -187,15 +217,19 @@ class TestParseDimsWithHash:
 
 
 class TestDpGroupAlias:
+    # 测试基本功能
     def test_basic(self) -> None:
         assert parse_dims("b s h[tp] # dp:=moe_dp").dp_group_alias == "moe_dp"
 
+    # 测试nohashreturnsnone
     def test_no_hash_returns_none(self) -> None:
         assert parse_dims("t h").dp_group_alias is None
 
+    # 测试nodpaliastoken
     def test_no_dp_alias_token(self) -> None:
         assert parse_dims("t h[tp] # ep:replicated").dp_group_alias is None
 
+    # 测试multipletokenspicksdp
     def test_multiple_tokens_picks_dp(self) -> None:
         assert (
             parse_dims("b s # ep:replicated dp:=custom_dp").dp_group_alias
@@ -204,58 +238,72 @@ class TestDpGroupAlias:
 
 
 class TestExplicitReplicatedAxes:
+    # 测试singlereplicated
     def test_single_replicated(self) -> None:
         result: DimsSpec = parse_dims("b s h[tp] d # ep:replicated")
         assert result.replicated_axes == frozenset({ParallelAxis.EP})
 
+    # 测试explicitshardedequivalent
     def test_explicit_sharded_equivalent(self) -> None:
         assert parse_dims("b s h[tp:sharded] d").dims == parse_dims("b s h[tp] d").dims
 
+    # 测试multiplereplicated
     def test_multiple_replicated(self) -> None:
         result: DimsSpec = parse_dims("b s h[tp] d # ep:replicated cp:replicated")
         assert result.replicated_axes == frozenset({ParallelAxis.EP, ParallelAxis.CP})
 
+    # 测试dpaliasandreplicatedcoexist
     def test_dp_alias_and_replicated_coexist(self) -> None:
         result: DimsSpec = parse_dims("b s h[tp] d # dp:=moe_dp ep:replicated")
         assert result.dp_group_alias == "moe_dp"
         assert result.replicated_axes == frozenset({ParallelAxis.EP})
 
+    # 测试nohashreplicatedempty
     def test_no_hash_replicated_empty(self) -> None:
         result: DimsSpec = parse_dims("b s h[tp] d")
         assert result.replicated_axes == frozenset()
 
+    # 测试hashwithoutreplicated
     def test_hash_without_replicated(self) -> None:
         result: DimsSpec = parse_dims("b s h[tp] d # dp:=moe_dp")
         assert result.replicated_axes == frozenset()
 
+    # 测试replicatedconflictswithshardedraises
     def test_replicated_conflicts_with_sharded_raises(self) -> None:
         with pytest.raises(ValueError, match="both sharded.*and replicated"):
             parse_dims("b s h[tp] d # tp:replicated")
 
+    # 测试unknownaxisinreplicatedraises
     def test_unknown_axis_in_replicated_raises(self) -> None:
         with pytest.raises(ValueError, match="Unknown axis"):
             parse_dims("b s h[tp] d # xyz:replicated")
 
+    # 测试duplicatereplicateddeclarationraises
     def test_duplicate_replicated_declaration_raises(self) -> None:
         with pytest.raises(ValueError, match="Duplicate replicated"):
             parse_dims("b s h d # ep:replicated ep:replicated")
 
+    # 测试unrecognizedtokenincommentraises
     def test_unrecognized_token_in_comment_raises(self) -> None:
         with pytest.raises(ValueError, match="Unrecognized token"):
             parse_dims("b s h[tp] d # ep:replicatd")
 
+    # 测试duplicatedpaliasraises
     def test_duplicate_dp_alias_raises(self) -> None:
         with pytest.raises(ValueError, match="Duplicate dp alias"):
             parse_dims("b s h d # dp:=foo dp:=bar")
 
 
 class TestResolveDimNames:
+    # 测试nosqueeze
     def test_no_squeeze(self) -> None:
         assert resolve_dim_names("t h d") == ["t", "h", "d"]
 
+    # 测试singlesqueeze
     def test_single_squeeze(self) -> None:
         assert resolve_dim_names("t 1 h") == ["t", "singleton0", "h"]
 
+    # 测试multiplesqueeze
     def test_multiple_squeeze(self) -> None:
         assert resolve_dim_names("1 t 1 h") == [
             "singleton0",
@@ -266,12 +314,14 @@ class TestResolveDimNames:
 
 
 class TestResolveDimNamesWithFused:
+    # 测试fuseddimusestripleunderscore
     def test_fused_dim_uses_triple_underscore(self) -> None:
         assert resolve_dim_names("t (num_heads*head_dim)") == [
             "t",
             "num_heads___head_dim",
         ]
 
+    # 测试fusedwithregulardims
     def test_fused_with_regular_dims(self) -> None:
         assert resolve_dim_names("t (num_heads*head_dim)[tp] d") == [
             "t",
@@ -279,14 +329,17 @@ class TestResolveDimNamesWithFused:
             "d",
         ]
 
+    # 测试threewayfused
     def test_three_way_fused(self) -> None:
         assert resolve_dim_names("(a*b*c)") == ["a___b___c"]
 
+    # 测试fusedwithsqueeze
     def test_fused_with_squeeze(self) -> None:
         assert resolve_dim_names("t 1 (a*b)") == ["t", "singleton0", "a___b"]
 
 
 class TestResolveDimNamesWithHash:
+    # 测试hashstripped
     def test_hash_stripped(self) -> None:
         assert resolve_dim_names("t h # dp:=moe_dp") == ["t", "h"]
 

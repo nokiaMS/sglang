@@ -1,3 +1,4 @@
+# 文件名: test_deepseek_v32_cp_single_node.py - DeepSeek V3.2单节点上下文并行测试
 import unittest
 from types import SimpleNamespace
 
@@ -19,6 +20,7 @@ DEEPSEEK_V32_MODEL_PATH = "deepseek-ai/DeepSeek-V3.2"
 
 class TestDeepseekV32CPInSeqSplit(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = DEEPSEEK_V32_MODEL_PATH
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -59,9 +61,11 @@ class TestDeepseekV32CPInSeqSplit(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试agsm8k
     def test_a_gsm8k(
         self,
     ):  # Append an "a" to make this test run first (alphabetically) to warm up the server
@@ -88,6 +92,7 @@ class TestDeepseekV32CPInSeqSplit(CustomTestCase):
 
 class TestDeepseekV32CPRoundRobinSplit(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = DEEPSEEK_V32_MODEL_PATH
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -125,9 +130,11 @@ class TestDeepseekV32CPRoundRobinSplit(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试agsm8k
     def test_a_gsm8k(
         self,
     ):  # Append an "a" to make this test run first (alphabetically) to warm up the server

@@ -1,3 +1,4 @@
+# 文件名: test_decode.py - 解码操作测试
 import unittest
 
 import torch
@@ -12,6 +13,7 @@ torch.manual_seed(1234)
 
 
 class TestDecodeAttention(CustomTestCase):
+    # 执行scaleddotproductattention
     def _scaled_dot_product_attention(self, Q, K, V, S, scaling, sliding_window):
         # sliding_window <= 0 means no sliding window
         # Q: [n_tokens_q, n_heads, q_mult, d_head]
@@ -44,6 +46,7 @@ class TestDecodeAttention(CustomTestCase):
         attn = torch.einsum("hmqk,khmd->qhmd", W, V)
         return attn.reshape(n_tokens_q, -1)
 
+    # 执行runsdpaforwarddecodesink
     def _run_sdpa_forward_decode_sink(
         self,
         query: torch.Tensor,
@@ -97,6 +100,7 @@ class TestDecodeAttention(CustomTestCase):
             start_q, start_kv = end_q, end_kv
         return output
 
+    # 执行runsdpaforwarddecode
     def _run_sdpa_forward_decode(
         self,
         query: torch.Tensor,
@@ -155,6 +159,7 @@ class TestDecodeAttention(CustomTestCase):
 
         return output
 
+    # 执行testgroupeddecodeattentiononce
     def _test_grouped_decode_attention_once(
         self, B, H_Q, H_KV, D, D_V, sliding_window, sink, is_cross_attn, dtype, device
     ):
@@ -261,9 +266,10 @@ class TestDecodeAttention(CustomTestCase):
         cos_sim = torch.nn.functional.cosine_similarity(
             o.flatten(), o_grouped.flatten(), dim=0
         )
-        self.assertGreater(cos_sim.item(), 0.99)
+        self.assertGreater(cos_sim.item(), 0.99)  # 获取标量值
         torch.testing.assert_close(o, o_grouped, atol=3e-2, rtol=1e-6)
 
+    # 执行testgroupeddecodeattention
     def _test_grouped_decode_attention(self, device="cuda"):
         configs = [
             (2, 16, 16, 64, 64),
@@ -303,6 +309,7 @@ class TestDecodeAttention(CustomTestCase):
                     B, H_Q, H_KV, D, D_V, None, False, True, dtype=dtype, device=device
                 )
 
+    # 测试groupeddecodeattention
     def test_grouped_decode_attention(self):
         self._test_grouped_decode_attention("cpu")
 

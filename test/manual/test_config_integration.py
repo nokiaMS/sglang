@@ -1,3 +1,4 @@
+# 文件名: test_config_integration.py - 配置文件集成测试 - 验证YAML配置文件解析、CLI参数覆盖和错误处理
 """
 Test script to verify SGLang config file integration.
 """
@@ -15,6 +16,7 @@ from sglang.srt.server_args_config_parser import ConfigArgumentMerger
 
 
 @pytest.fixture
+# merger
 def merger():
     """Fixture providing a ConfigArgumentMerger instance."""
     parser = argparse.ArgumentParser()
@@ -22,6 +24,7 @@ def merger():
     return ConfigArgumentMerger(parser)
 
 
+# 测试server args config parser
 def test_server_args_config_parser(merger):
     """Test the config parser functionality."""
     # Create a temporary config file
@@ -77,6 +80,7 @@ def test_server_args_config_parser(merger):
         os.unlink(config_file)
 
 
+# 测试server args integration
 def test_server_args_integration():
     """Test the integration with server args."""
     # Create a temporary config file
@@ -108,6 +112,7 @@ def test_server_args_integration():
         os.unlink(config_file)
 
 
+# 测试cli override
 def test_cli_override():
     """Test that CLI arguments override config file values."""
     # Create a temporary config file
@@ -142,6 +147,7 @@ def test_cli_override():
         os.unlink(config_file)
 
 
+# 测试error handling
 def test_error_handling():
     """Test error handling for invalid config files."""
     # Test non-existent config file

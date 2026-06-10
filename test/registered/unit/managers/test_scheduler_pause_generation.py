@@ -1,3 +1,4 @@
+# 文件名: test_scheduler_pause_generation.py - 调度器暂停生成
 import unittest
 from collections import deque
 from unittest.mock import MagicMock
@@ -15,7 +16,10 @@ register_cpu_ci(est_time=15, suite="base-a-test-cpu")
 register_cpu_ci(est_time=9, suite="base-b-test-cpu")
 
 
+# TestSchedulerPauseGeneration类
 class TestSchedulerPauseGeneration(unittest.TestCase):
+
+    # TestSchedulerPauseGeneration类的内部方法_new_scheduler
     def _new_scheduler(self) -> Scheduler:
         scheduler = Scheduler.__new__(Scheduler)
         scheduler._engine_paused = False
@@ -45,6 +49,7 @@ class TestSchedulerPauseGeneration(unittest.TestCase):
         )
         return scheduler
 
+    # TestSchedulerPauseGeneration类的测试inplaceonlysetsflag
     def test_inplace_only_sets_flag(self):
         """in_place pause should only set _engine_paused and return."""
         scheduler = self._new_scheduler()
@@ -58,12 +63,13 @@ class TestSchedulerPauseGeneration(unittest.TestCase):
 
         scheduler.pause_generation(PauseGenerationReqInput(mode="in_place"))
 
-        self.assertTrue(scheduler._engine_paused)
+        self.assertTrue(scheduler._engine_paused)  # 断言为真
         # All state must be preserved — no mutation
-        self.assertIs(scheduler.last_batch, original_last_batch)
-        self.assertIs(scheduler.cur_batch, original_cur_batch)
-        self.assertIs(scheduler.chunked_req, original_chunked_req)
+        self.assertIs(scheduler.last_batch, original_last_batch)  # 断言是同一对象
+        self.assertIs(scheduler.cur_batch, original_cur_batch)  # 断言是同一对象
+        self.assertIs(scheduler.chunked_req, original_chunked_req)  # 断言是同一对象
 
+    # TestSchedulerPauseGeneration类的测试inplacedoesnotdrainoverlapqueue
     def test_inplace_does_not_drain_overlap_queue(self):
         """in_place should not process the overlap result_queue."""
         scheduler = self._new_scheduler()
@@ -73,9 +79,10 @@ class TestSchedulerPauseGeneration(unittest.TestCase):
 
         scheduler.pause_generation(PauseGenerationReqInput(mode="in_place"))
 
-        self.assertTrue(scheduler._engine_paused)
-        self.assertEqual(len(scheduler.result_queue), 1)
+        self.assertTrue(scheduler._engine_paused)  # 断言为真
+        self.assertEqual(len(scheduler.result_queue), 1)  # 断言相等
 
+    # TestSchedulerPauseGeneration类的测试inplacedoesnotmergebatch
     def test_inplace_does_not_merge_batch(self):
         """in_place should not filter or merge last_batch into running_batch."""
         scheduler = self._new_scheduler()
@@ -88,6 +95,7 @@ class TestSchedulerPauseGeneration(unittest.TestCase):
         last_batch.filter_batch.assert_not_called()
         scheduler.running_batch.merge_batch.assert_not_called()
 
+    # TestSchedulerPauseGeneration类的测试abortclearsstate
     def test_abort_clears_state(self):
         """abort mode should clear last_batch and cur_batch."""
         scheduler = self._new_scheduler()
@@ -97,10 +105,11 @@ class TestSchedulerPauseGeneration(unittest.TestCase):
 
         scheduler.pause_generation(PauseGenerationReqInput(mode="abort"))
 
-        self.assertTrue(scheduler._engine_paused)
-        self.assertIsNone(scheduler.last_batch)
-        self.assertIsNone(scheduler.cur_batch)
+        self.assertTrue(scheduler._engine_paused)  # 断言为真
+        self.assertIsNone(scheduler.last_batch)  # 断言为None
+        self.assertIsNone(scheduler.cur_batch)  # 断言为None
 
+    # TestSchedulerPauseGeneration类的测试retractclearsrunningbatch
     def test_retract_clears_running_batch(self):
         """retract mode should retract all requests from running_batch."""
         scheduler = self._new_scheduler()
@@ -118,11 +127,12 @@ class TestSchedulerPauseGeneration(unittest.TestCase):
 
         scheduler.pause_generation(PauseGenerationReqInput(mode="retract"))
 
-        self.assertTrue(scheduler._engine_paused)
+        self.assertTrue(scheduler._engine_paused)  # 断言为真
         scheduler.running_batch.retract_all.assert_called_once()
-        self.assertEqual(scheduler._add_request_to_queue.call_count, 2)
-        self.assertIsNone(scheduler.chunked_req)
+        self.assertEqual(scheduler._add_request_to_queue.call_count, 2)  # 断言相等
+        self.assertIsNone(scheduler.chunked_req)  # 断言为None
 
+    # TestSchedulerPauseGeneration类的测试abortdrainsoverlapqueue
     def test_abort_drains_overlap_queue(self):
         """abort with overlap enabled should drain the result_queue."""
         scheduler = self._new_scheduler()
@@ -136,7 +146,7 @@ class TestSchedulerPauseGeneration(unittest.TestCase):
         scheduler.pause_generation(PauseGenerationReqInput(mode="abort"))
 
         scheduler.process_batch_result.assert_called_once()
-        self.assertEqual(len(scheduler.result_queue), 0)
+        self.assertEqual(len(scheduler.result_queue), 0)  # 断言相等
 
 
 if __name__ == "__main__":

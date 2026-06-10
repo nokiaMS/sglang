@@ -15,41 +15,43 @@
 # limitations under the License.
 # Adapted from https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/quantization/mxfp4.py
 
-from __future__ import annotations
+# MXFP4量化方法模块，支持静态MXFP4和动态MXFP4量化，包括FlashInfer、AITER、Triton Kernels和Marlin等多种后端实现。
 
-import os
-from dataclasses import replace
-from typing import TYPE_CHECKING, List, Optional
+from __future__ import annotations  # 启用延迟注解评估
 
-import torch
-from torch.nn.parameter import Parameter
+import os  # 操作系统模块
+from dataclasses import replace  # 数据类工具
+from typing import TYPE_CHECKING, List, Optional  # 类型注解
+
+import torch  # 深度学习框架
+from torch.nn.parameter import Parameter  # 神经网络参数
 
 # Silence the TRT-LLM cutlass autotune trace embedded inside FlashInfer's
 # cutlass_fused_moe. Its C++ logger reads TLLM_LOG_LEVEL on first kernel launch;
 # setdefault preserves any explicit user override.
 os.environ.setdefault("TLLM_LOG_LEVEL", "INFO")
 
-from sglang.srt.distributed import get_tp_group
-from sglang.srt.distributed.device_communicators.pynccl_allocator import (
+from sglang.srt.distributed import get_tp_group  # 分布式通信
+from sglang.srt.distributed.device_communicators.pynccl_allocator import (  # NCCL分配器
     use_symmetric_memory,
 )
-from sglang.srt.layers.amx_utils import (
+from sglang.srt.layers.amx_utils import (  # AMX工具函数
     CPUQuantMethod,
     _amx_process_weight_after_loading,
 )
-from sglang.srt.layers.dp_attention import is_allocation_symmetric
-from sglang.srt.layers.moe import MoeRunner, MoeRunnerBackend, MoeRunnerConfig
-from sglang.srt.layers.moe.moe_runner.marlin import MarlinMoeQuantInfo
-from sglang.srt.layers.moe.moe_runner.triton import TritonMoeQuantInfo
-from sglang.srt.layers.moe.utils import get_moe_a2a_backend, get_moe_runner_backend
-from sglang.srt.layers.quantization.base_config import (
+from sglang.srt.layers.dp_attention import is_allocation_symmetric  # DP注意力工具
+from sglang.srt.layers.moe import MoeRunner, MoeRunnerBackend, MoeRunnerConfig  # MoE混合专家模块
+from sglang.srt.layers.moe.moe_runner.marlin import MarlinMoeQuantInfo  # MoE混合专家模块
+from sglang.srt.layers.moe.moe_runner.triton import TritonMoeQuantInfo  # MoE混合专家模块
+from sglang.srt.layers.moe.utils import get_moe_a2a_backend, get_moe_runner_backend  # MoE混合专家模块
+from sglang.srt.layers.quantization.base_config import (  # 量化基础配置
     FusedMoEMethodBase,
     QuantizationConfig,
     QuantizeMethodBase,
 )
-from sglang.srt.layers.quantization.utils import is_layer_skipped
-from sglang.srt.server_args import get_global_server_args
-from sglang.srt.utils import (
+from sglang.srt.layers.quantization.utils import is_layer_skipped  # 量化工具函数
+from sglang.srt.server_args import get_global_server_args  # 服务器参数
+from sglang.srt.utils import (  # SGLang工具函数
     cpu_has_amx_support,
     is_cpu,
     is_flashinfer_available,
@@ -65,26 +67,26 @@ from sglang.srt.utils import (
     set_weight_attrs,
     use_intel_amx_backend,
 )
-from sglang.srt.utils.common import get_bool_env_var
-from sglang.srt.utils.custom_op import register_custom_op
+from sglang.srt.utils.common import get_bool_env_var  # SGLang工具函数
+from sglang.srt.utils.custom_op import register_custom_op  # 自定义算子注册
 
 has_triton_kernels = is_triton_kernels_available()
 
 
 if is_flashinfer_available():
-    from flashinfer import (
+    from flashinfer import (  # FlashInfer库
         mxfp8_quantize,
         nvfp4_block_scale_interleave,
         trtllm_fp4_block_scale_moe,
     )
-    from flashinfer.fused_moe.core import (
+    from flashinfer.fused_moe.core import (  # FlashInfer融合MoE核心
         get_w2_permute_indices_with_cache,
     )
 
     # SM90 mixed-input helpers landed in FlashInfer #3084 (post-0.6.10). Older
     # versions don't ship them; gate at import so unrelated code paths still load.
     try:
-        from flashinfer.fused_moe import (
+        from flashinfer.fused_moe import (  # FlashInfer库
             interleave_moe_scales_for_sm90_mixed_gemm,
             interleave_moe_weights_for_sm90_mixed_gemm,
         )
@@ -101,6 +103,7 @@ _flashinfer_mxfp4_permute_indices_cache: dict[torch.Size, torch.Tensor] = {}
 _flashinfer_mxfp4_permute_indices_device_cache: dict[
     tuple[tuple[int, ...], int, int, str, int], torch.Tensor
 ] = {}
+# 获取FlashInfer MXFP4设备排列索引
 
 
 def _get_flashinfer_mxfp4_device_permute_indices(
@@ -134,11 +137,11 @@ def _get_flashinfer_mxfp4_device_permute_indices(
             cached_device_indices
         )
 
-    return cached_device_indices
+    return cached_device_indices  # 返回结果
 
 
 if TYPE_CHECKING:
-    from sglang.srt.layers.moe.token_dispatcher import (
+    from sglang.srt.layers.moe.token_dispatcher import (  # MoE混合专家模块
         CombineInput,
         StandardDispatchOutput,
     )
@@ -153,14 +156,15 @@ _sm120_mxfp4_min_warps_patched = False
 if _is_hip:
     # import aiter
     try:
-        from aiter.ops.shuffle import (
+        from aiter.ops.shuffle import (  # AITER洗牌操作
             shuffle_scale,
             shuffle_weight,
         )
-        from aiter.ops.triton.quant import dynamic_mxfp4_quant
-        from aiter.utility.fp4_utils import e8m0_shuffle
+        from aiter.ops.triton.quant import dynamic_mxfp4_quant  # AITER Triton量化
+        from aiter.utility.fp4_utils import e8m0_shuffle  # AITER FP4工具
     except ImportError as err:
         dynamic_mxfp4_quant = e8m0_shuffle = err
+# 修补SM120 MXFP4最小warps数限制
 
 
 def _patch_sm120_mxfp4_min_warps():
@@ -170,9 +174,9 @@ def _patch_sm120_mxfp4_min_warps():
 
     import inspect
 
-    from triton_kernels.matmul_ogs_details.opt_flags_details import opt_flags_nvidia
-    from triton_kernels.tensor import get_layout
-    from triton_kernels.tensor_details.layout import StridedLayout
+    from triton_kernels.matmul_ogs_details.opt_flags_details import opt_flags_nvidia  # Triton矩阵乘法
+    from triton_kernels.tensor import get_layout  # Triton张量
+    from triton_kernels.tensor_details.layout import StridedLayout  # Triton张量
 
     compute_num_warps = opt_flags_nvidia.compute_num_warps
     params = inspect.signature(compute_num_warps).parameters
@@ -180,6 +184,7 @@ def _patch_sm120_mxfp4_min_warps():
     if "is_persistent" in params and not getattr(
         compute_num_warps, "_sglang_sm120_mxfp4_patch", False
     ):
+        # SM120 MXFP4的自定义num_warps计算
 
         def _compute_num_warps_sm120_mxfp4(
             block_m, block_n, is_persistent, precision_config
@@ -197,27 +202,27 @@ def _patch_sm120_mxfp4_min_warps():
                     or isinstance(weight_scale_layout, StridedLayout)
                 )
             ):
-                return max(selected_num_warps, 4)
-            return selected_num_warps
+                return max(selected_num_warps, 4)  # 返回结果
+            return selected_num_warps  # 返回结果
 
         _compute_num_warps_sm120_mxfp4._sglang_sm120_mxfp4_patch = True
         opt_flags_nvidia.compute_num_warps = _compute_num_warps_sm120_mxfp4
 
     _sm120_mxfp4_min_warps_patched = True
+# MXFP4权重重排，用于OAI MXFP4内核
 
 
 def _swizzle_mxfp4(quant_tensor, scale, num_warps):
     """weight swizzle for mxfp4 moe, used for OAI mxfp4 kernel"""
-    import triton_kernels.matmul_ogs_details.opt_flags as opt_flags
-    from triton_kernels.numerics import InFlexData
-    from triton_kernels.tensor import FP4, convert_layout, wrap_torch_tensor
-    from triton_kernels.tensor_details import layout
+    from triton_kernels.numerics import InFlexData  # Triton数值类型
+    from triton_kernels.tensor import FP4, convert_layout, wrap_torch_tensor  # 深度学习框架
+    from triton_kernels.tensor_details import layout  # Triton张量
 
     if is_sm120_supported():
         # SM120 desktop Blackwell does not support the persistent/TMA MXFP4 path.
         # This MXFP4 path uses StridedLayout and the non-persistent kernel.
         _patch_sm120_mxfp4_min_warps()
-        from triton_kernels.tensor_details.layout import StridedLayout
+        from triton_kernels.tensor_details.layout import StridedLayout  # Triton张量
 
         value_layout = StridedLayout
         value_layout_opts = {}
@@ -255,15 +260,17 @@ def _swizzle_mxfp4(quant_tensor, scale, num_warps):
         wrap_torch_tensor(quant_tensor, dtype=FP4), value_layout, **value_layout_opts
     )
     scale = convert_layout(wrap_torch_tensor(scale), scale_layout, **scale_layout_opts)
-    return quant_tensor, InFlexData(), scale
+    return quant_tensor, InFlexData(), scale  # 返回结果
+# MXFP4反量化的伪实现（用于编译跟踪）
 
 
 def _dequant_mxfp4_fake(
     x: torch.Tensor, scale: torch.Tensor, float_dtype: torch.dtype
 ) -> torch.Tensor:
-    return torch.empty(
+    return torch.empty(  # 创建空张量
         (*x.shape[:-1], x.shape[-1] * 2), dtype=float_dtype, device=x.device
     )
+# MXFP4反量化
 
 
 @register_custom_op(fake_impl=_dequant_mxfp4_fake)
@@ -271,15 +278,16 @@ def dequant_mxfp4(
     x: torch.Tensor, scale: torch.Tensor, float_dtype: torch.dtype
 ) -> torch.Tensor:
     try:
-        from quark.torch.kernel import mx
+        from quark.torch.kernel import mx  # 深度学习框架
     except ImportError as err:
-        raise ImportError(
+        raise ImportError(  # 抛出导入错误
             "The package `amd-quark` is required to use "
             "MX-FP4 models. Please install it with `pip install "
             "amd-quark`."
         ) from err
 
-    return mx.dq_mxfp4(x, scale, float_dtype)
+    return mx.dq_mxfp4(x, scale, float_dtype)  # 返回结果
+# MXFP4量化-反量化
 
 
 @register_custom_op(out_shape="x")
@@ -287,27 +295,30 @@ def quant_dequant_mxfp4(
     x: torch.Tensor, scale_calculation_mode: str = "even"
 ) -> torch.Tensor:
     try:
-        from quark.torch.kernel import mx
+        from quark.torch.kernel import mx  # 深度学习框架
     except ImportError as err:
-        raise ImportError(
+        raise ImportError(  # 抛出导入错误
             "The package `amd-quark` is required to use "
             "MX-FP4 models. Please install it with `pip install "
             "amd-quark`."
         ) from err
 
-    return mx.qdq_mxfp4(x, scale_calculation_mode)
+    return mx.qdq_mxfp4(x, scale_calculation_mode)  # 返回结果
 
 
+# MXFP4量化配置类
 class Mxfp4Config(QuantizationConfig):
+    # 初始化方法
 
     def __init__(
         self,
         ignored_layers: Optional[list[str]] = None,
         is_checkpoint_mxfp4_serialized: bool = False,
     ):
-        super().__init__()
+        super().__init__()  # 调用父类初始化
         self.is_checkpoint_mxfp4_serialized = is_checkpoint_mxfp4_serialized
         self.ignored_layers = ignored_layers
+    # 从配置字典创建实例
 
     @classmethod
     def from_config(cls, config):
@@ -317,44 +328,50 @@ class Mxfp4Config(QuantizationConfig):
 
         if _is_hip:
             if mxfp_supported():
-                return cls(
+                return cls(  # 返回结果
                     is_checkpoint_mxfp4_serialized=is_checkpoint_mxfp4_serialized
                 )
             else:
 
                 platform = torch.cuda.get_device_properties(0).gcnArchName
-                raise ValueError(
+                raise ValueError(  # 抛出值错误
                     f"Current platform {platform} not support mxfp4 computation"
                 )
 
-        return cls(is_checkpoint_mxfp4_serialized=is_checkpoint_mxfp4_serialized)
+        return cls(is_checkpoint_mxfp4_serialized=is_checkpoint_mxfp4_serialized)  # 返回结果
+    # 获取最低硬件能力要求
 
     @classmethod
     def get_min_capability(cls) -> int:
-        return 80
+        return 80  # 返回结果
+    # 获取量化方法名称
 
     @classmethod
     def get_name(cls) -> str:
-        return "mxfp4"
+        return "mxfp4"  # 返回结果
+    # 获取支持的激活数据类型
 
     @classmethod
     def get_supported_act_dtypes(cls) -> list[torch.dtype]:
-        return [torch.bfloat16, torch.float16]
+        return [torch.bfloat16, torch.float16]  # 返回结果
+    # 获取配置文件名列表
 
     @classmethod
     def get_config_filenames(cls) -> list[str]:
-        return []
+        return []  # 返回结果
+    # 判断是否为静态配置
 
     def is_static_cfg(self):
-        return self.is_checkpoint_mxfp4_serialized
+        return self.is_checkpoint_mxfp4_serialized  # 返回结果
+    # 获取量化方法
 
     def get_quant_method(
         self, layer: torch.nn.Module, prefix: str
     ) -> Optional["QuantizeMethodBase"]:
 
-        from sglang.srt.layers.linear import LinearBase
-        from sglang.srt.layers.moe.fused_moe_triton import FusedMoE
-        from sglang.srt.layers.quantization.unquant import UnquantizedLinearMethod
+        from sglang.srt.layers.linear import LinearBase  # 线性层
+        from sglang.srt.layers.moe.fused_moe_triton import FusedMoE  # MoE混合专家模块
+        from sglang.srt.layers.quantization.unquant import UnquantizedLinearMethod  # 未量化方法
 
         if isinstance(layer, LinearBase):
             if self.ignored_layers and is_layer_skipped(
@@ -362,30 +379,33 @@ class Mxfp4Config(QuantizationConfig):
                 ignored_layers=self.ignored_layers,
                 fused_mapping=self.packed_modules_mapping,
             ):
-                return UnquantizedLinearMethod()
+                return UnquantizedLinearMethod()  # 返回结果
             elif _is_hip:
-                return UnquantizedLinearMethod()
+                return UnquantizedLinearMethod()  # 返回结果
         elif isinstance(layer, FusedMoE):
             if self.is_checkpoint_mxfp4_serialized:
-                return Mxfp4MoEMethod(prefix=prefix)
+                return Mxfp4MoEMethod(prefix=prefix)  # 返回结果
             else:
-                return Mxfp4DynamicQuantMoEMethod()
+                return Mxfp4DynamicQuantMoEMethod()  # 返回结果
         else:
             if self.is_checkpoint_mxfp4_serialized:
-                raise NotImplementedError("Mxfp4 attention layer is not implemented")
-        return None
+                raise NotImplementedError("Mxfp4 attention layer is not implemented")  # 抛出未实现错误
+        return None  # 返回None
+    # 获取缩放激活名称列表
 
     def get_scaled_act_names(self) -> List[str]:
-        return []
+        return []  # 返回结果
 
 
+# MXFP4静态量化MoE方法
 class Mxfp4MoEMethod(FusedMoEMethodBase):
+    # 初始化方法
 
     def __init__(
         self,
         prefix: str,
     ):
-        super().__init__()
+        super().__init__()  # 调用父类初始化
 
         self.prefix = prefix
         self.topk_indices_dtype = None
@@ -407,7 +427,7 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
                 self._fi_kernel = "trtllm_sm100"
             elif is_sm90_supported():
                 if not _FI_HAS_SM90_CUTLASS_MXFP4:
-                    raise RuntimeError(
+                    raise RuntimeError(  # 抛出运行时错误
                         "moe_runner_backend=flashinfer_mxfp4 on SM90 requires the "
                         "interleave_moe_{weights,scales}_for_sm90_mixed_gemm helpers "
                         "from FlashInfer PR #3084 (>= 0.6.11). Upgrade flashinfer-python "
@@ -415,9 +435,10 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
                     )
                 self._fi_kernel = "cutlass_sm90"
             else:
-                raise NotImplementedError(
+                raise NotImplementedError(  # 抛出未实现错误
                     "moe_runner_backend=flashinfer_mxfp4 requires SM90 or SM100."
                 )
+    # 创建并注册量化权重参数
 
     def create_weights(
         self,
@@ -490,86 +511,87 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
 
         self.hidden_size = hidden_size
         # Fused gate_up_proj (column parallel)
-        w13_weight = torch.nn.Parameter(
-            torch.zeros(
+        w13_weight = torch.nn.Parameter(  # 创建参数
+            torch.zeros(  # 创建零张量
                 layer.num_local_experts,
                 2 * intermediate_size_per_partition_after_pad,
                 hidden_size // 2,
                 dtype=weight_dtype,
             ),
-            requires_grad=False,
+            requires_grad=False,  # 不可训练
         )
-        layer.register_parameter("w13_weight", w13_weight)
+        layer.register_parameter("w13_weight", w13_weight)  # 注册层参数
         set_weight_attrs(w13_weight, extra_weight_attrs)
 
-        w13_weight_scale = torch.nn.Parameter(
-            torch.zeros(
+        w13_weight_scale = torch.nn.Parameter(  # 创建参数
+            torch.zeros(  # 创建零张量
                 layer.num_local_experts,
                 2 * intermediate_size_per_partition_after_pad,
                 hidden_size // mxfp4_block,
                 dtype=scale_dtype,
             ),
-            requires_grad=False,
+            requires_grad=False,  # 不可训练
         )
-        layer.register_parameter("w13_weight_scale", w13_weight_scale)
+        layer.register_parameter("w13_weight_scale", w13_weight_scale)  # 注册层参数
         set_weight_attrs(w13_weight_scale, extra_weight_attrs)
 
-        w13_weight_bias = torch.nn.Parameter(
-            torch.zeros(
+        w13_weight_bias = torch.nn.Parameter(  # 创建参数
+            torch.zeros(  # 创建零张量
                 layer.num_local_experts,
                 2 * intermediate_size_per_partition_after_pad,
                 dtype=torch.bfloat16,
             ),
-            requires_grad=False,
+            requires_grad=False,  # 不可训练
         )
-        layer.register_parameter("w13_weight_bias", w13_weight_bias)
+        layer.register_parameter("w13_weight_bias", w13_weight_bias)  # 注册层参数
         set_weight_attrs(w13_weight_bias, extra_weight_attrs)
 
         # down_proj (row parallel)
-        w2_weight = torch.nn.Parameter(
-            torch.zeros(
+        w2_weight = torch.nn.Parameter(  # 创建参数
+            torch.zeros(  # 创建零张量
                 layer.num_local_experts,
                 hidden_size,
                 intermediate_size_per_partition_after_pad // 2,
                 dtype=weight_dtype,
             ),
-            requires_grad=False,
+            requires_grad=False,  # 不可训练
         )
-        layer.register_parameter("w2_weight", w2_weight)
+        layer.register_parameter("w2_weight", w2_weight)  # 注册层参数
         set_weight_attrs(w2_weight, extra_weight_attrs)
 
-        w2_weight_scale = torch.nn.Parameter(
-            torch.zeros(
+        w2_weight_scale = torch.nn.Parameter(  # 创建参数
+            torch.zeros(  # 创建零张量
                 layer.num_local_experts,
                 hidden_size,
                 intermediate_size_per_partition_after_pad // mxfp4_block,
                 dtype=scale_dtype,
             ),
-            requires_grad=False,
+            requires_grad=False,  # 不可训练
         )
-        layer.register_parameter("w2_weight_scale", w2_weight_scale)
+        layer.register_parameter("w2_weight_scale", w2_weight_scale)  # 注册层参数
         set_weight_attrs(w2_weight_scale, extra_weight_attrs)
 
-        w2_weight_bias = torch.nn.Parameter(
-            torch.zeros(layer.num_local_experts, hidden_size, dtype=torch.bfloat16),
-            requires_grad=False,
+        w2_weight_bias = torch.nn.Parameter(  # 创建参数
+            torch.zeros(layer.num_local_experts, hidden_size, dtype=torch.bfloat16),  # 创建零张量
+            requires_grad=False,  # 不可训练
         )
-        layer.register_parameter("w2_weight_bias", w2_weight_bias)
+        layer.register_parameter("w2_weight_bias", w2_weight_bias)  # 注册层参数
         set_weight_attrs(w2_weight_bias, extra_weight_attrs)
+    # 权重加载后的后处理
 
     def process_weights_after_loading(self, layer):
         if self.use_marlin:
-            from sglang.srt.layers.quantization.marlin_utils import (
+            from sglang.srt.layers.quantization.marlin_utils import (  # Marlin量化工具
                 check_moe_marlin_supports_layer,
             )
-            from sglang.srt.layers.quantization.marlin_utils_fp4 import (
+            from sglang.srt.layers.quantization.marlin_utils_fp4 import (  # Marlin量化工具
                 prepare_moe_mxfp4_layer_for_marlin,
             )
 
             if not is_sm90_supported():
-                raise RuntimeError("MXFP4 Marlin requires Hopper/SM90 or above.")
+                raise RuntimeError("MXFP4 Marlin requires Hopper/SM90 or above.")  # 抛出运行时错误
             if not check_moe_marlin_supports_layer(layer, 32):
-                raise RuntimeError(
+                raise RuntimeError(  # 抛出运行时错误
                     "Current MXFP4 MoE layer is not supported by Marlin."
                 )
 
@@ -584,15 +606,15 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
             # TODO: these values are hardcoded for now, we need to get them from the model
             layer.gemm1_alpha = Parameter(
                 torch.tensor([1.702] * self.num_experts, dtype=torch.float32).cuda(),
-                requires_grad=False,
+                requires_grad=False,  # 不可训练
             )
             layer.gemm1_beta = Parameter(
                 torch.tensor([1.0] * self.num_experts, dtype=torch.float32).cuda(),
-                requires_grad=False,
+                requires_grad=False,  # 不可训练
             )
             layer.gemm1_clamp_limit = Parameter(
                 torch.tensor([7.0] * self.num_experts, dtype=torch.float32).cuda(),
-                requires_grad=False,
+                requires_grad=False,  # 不可训练
             )
             sf_block_size = 32  # mxfp4 block size
 
@@ -644,6 +666,7 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
 
             # Swap w1 and w3 as the definition of
             # swiglu is different in the trtllm-gen
+            # 交换每两行数据
             def swap_every_two_rows(x, axis=-1):
                 shape = x.shape
                 if axis < 0:
@@ -658,7 +681,7 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
                 x = x.reshape(*new_shape)
                 x = x.flip(axis + 1)
                 new_shape = list(shape)
-                return x.reshape(*new_shape)
+                return x.reshape(*new_shape)  # 返回结果
 
             w13_weight_scale = swap_every_two_rows(w13_weight_scale, -2)
             w13_weight = swap_every_two_rows(w13_weight, -2)
@@ -704,37 +727,37 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
                 gemm1_weights_mxfp4_shuffled.append(
                     w13_weight[i]
                     .view(torch.uint8)[w13_weight_permute_indices]
-                    .contiguous()
+                    .contiguous()  # 确保内存连续
                 )
 
                 gemm1_scales_mxfp4_shuffled.append(
                     nvfp4_block_scale_interleave(
                         w13_weight_scale[i]
                         .view(torch.uint8)[w13_scale_permute_indices]
-                        .contiguous()
+                        .contiguous()  # 确保内存连续
                     )
                 )
 
                 gemm1_bias_shuffled.append(
-                    w13_bias[i].reshape(-1, 1)[w13_bias_permute_indices].contiguous()
+                    w13_bias[i].reshape(-1, 1)[w13_bias_permute_indices].contiguous()  # 确保内存连续
                 )
 
                 gemm2_weights_mxfp4_shuffled.append(
                     w2_weight[i]
                     .view(torch.uint8)[w2_weight_permute_indices]
-                    .contiguous()
+                    .contiguous()  # 确保内存连续
                 )
 
                 gemm2_scales_mxfp4_shuffled.append(
                     nvfp4_block_scale_interleave(
                         w2_weight_scale[i]
                         .view(torch.uint8)[w2_scale_permute_indices]
-                        .contiguous()
+                        .contiguous()  # 确保内存连续
                     )
                 )
 
                 gemm2_bias_shuffled.append(
-                    w2_bias[i].reshape(-1, 1)[w2_bias_permute_indices].contiguous()
+                    w2_bias[i].reshape(-1, 1)[w2_bias_permute_indices].contiguous()  # 确保内存连续
                 )
 
             w13_weight = torch.stack(gemm1_weights_mxfp4_shuffled)
@@ -759,17 +782,17 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
                 .view(torch.float8_e4m3fn)
             )
 
-            layer.w13_weight = Parameter(w13_weight, requires_grad=False)
-            layer.w13_weight_scale = Parameter(w13_weight_scale, requires_grad=False)
-            layer.w2_weight = Parameter(w2_weight, requires_grad=False)
-            layer.w2_weight_scale = Parameter(w2_weight_scale, requires_grad=False)
+            layer.w13_weight = Parameter(w13_weight, requires_grad=False)  # 不可训练
+            layer.w13_weight_scale = Parameter(w13_weight_scale, requires_grad=False)  # 不可训练
+            layer.w2_weight = Parameter(w2_weight, requires_grad=False)  # 不可训练
+            layer.w2_weight_scale = Parameter(w2_weight_scale, requires_grad=False)  # 不可训练
             layer.w13_weight_bias = Parameter(
                 torch.stack(gemm1_bias_shuffled).reshape(self.num_experts, -1),
-                requires_grad=False,
+                requires_grad=False,  # 不可训练
             )
             layer.w2_weight_bias = Parameter(
                 torch.stack(gemm2_bias_shuffled).reshape(self.num_experts, -1),
-                requires_grad=False,
+                requires_grad=False,  # 不可训练
             )
             return
         if _use_aiter:
@@ -792,19 +815,19 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
                 layer.w13_weight.data.view(torch.uint8)
                 .view(e, n // 2, 2, k)
                 .permute(0, 2, 1, 3)
-                .contiguous()
+                .contiguous()  # 确保内存连续
                 .view(e, n, k)
             )
             layer.w13_weight_scale.data = (
                 layer.w13_weight_scale.data.view(e, n // 2, 2, -1)
                 .permute(0, 2, 1, 3)
-                .contiguous()
+                .contiguous()  # 确保内存连续
                 .view(e, n, -1)
             )
             layer.w13_weight_bias.data = (
                 layer.w13_weight_bias.data.view(-1, n // 2, 2)
                 .permute(0, 2, 1)
-                .contiguous()
+                .contiguous()  # 确保内存连续
                 .view(-1, n)
             )
 
@@ -835,11 +858,11 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
                 gate_up=False,
             )
 
-            layer.w13_weight_scale = torch.nn.Parameter(
-                shuffled_w13_scale, requires_grad=False
+            layer.w13_weight_scale = torch.nn.Parameter(  # 创建参数
+                shuffled_w13_scale, requires_grad=False  # 不可训练
             )
-            layer.w2_weight_scale = torch.nn.Parameter(
-                shuffled_w2_scale, requires_grad=False
+            layer.w2_weight_scale = torch.nn.Parameter(  # 创建参数
+                shuffled_w2_scale, requires_grad=False  # 不可训练
             )
 
             # Tell aiter.fused_moe these weights are already preshuffled so it
@@ -854,13 +877,13 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
 
         if self.use_triton_kernels:
 
-            from triton_kernels.matmul_ogs import FlexCtx, PrecisionConfig
+            from triton_kernels.matmul_ogs import FlexCtx, PrecisionConfig  # Triton矩阵乘法
 
             w13_weight_bias = layer.w13_weight_bias.to(torch.float32)
             w2_weight_bias = layer.w2_weight_bias.to(torch.float32)
 
-            layer.w13_weight_bias = Parameter(w13_weight_bias, requires_grad=False)
-            layer.w2_weight_bias = Parameter(w2_weight_bias, requires_grad=False)
+            layer.w13_weight_bias = Parameter(w13_weight_bias, requires_grad=False)  # 不可训练
+            layer.w2_weight_bias = Parameter(w2_weight_bias, requires_grad=False)  # 不可训练
 
             num_warps = 8
 
@@ -892,22 +915,22 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
                     layer.w2_weight_scale
                 )
                 layer.w13_weight_scale = Parameter(
-                    packed_w13_weight_scale, requires_grad=False
+                    packed_w13_weight_scale, requires_grad=False  # 不可训练
                 )
                 layer.w2_weight_scale = Parameter(
-                    packed_w2_weight_scale, requires_grad=False
+                    packed_w2_weight_scale, requires_grad=False  # 不可训练
                 )
                 if hasattr(layer, "w13_weight_bias"):
                     layer.w13_weight_bias = Parameter(
-                        layer.w13_weight_bias.float(), requires_grad=False
+                        layer.w13_weight_bias.float(), requires_grad=False  # 不可训练
                     )
                 if hasattr(layer, "w2_weight_bias"):
                     layer.w2_weight_bias = Parameter(
-                        layer.w2_weight_bias.float(), requires_grad=False
+                        layer.w2_weight_bias.float(), requires_grad=False  # 不可训练
                     )
             return
         else:
-            from triton_kernels.numerics_details.mxfp import upcast_from_mxfp
+            from triton_kernels.numerics_details.mxfp import upcast_from_mxfp  # Triton数值类型
 
             w13_weight = upcast_from_mxfp(
                 layer.w13_weight,
@@ -925,9 +948,10 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
             del layer.w2_weight
             del layer.w13_weight_scale
             del layer.w2_weight_scale
-            layer.w13_weight = Parameter(w13_weight.data, requires_grad=False)
-            layer.w2_weight = Parameter(w2_weight.data, requires_grad=False)
+            layer.w13_weight = Parameter(w13_weight.data, requires_grad=False)  # 不可训练
+            layer.w2_weight = Parameter(w2_weight.data, requires_grad=False)  # 不可训练
         torch.cuda.empty_cache()
+    # 为SM90 CUTLASS路径处理MXFP4权重
 
     def _process_weights_for_sm90_cutlass(self, layer):
         """De-interleave + pad + halving-swap + byte-interleave MXFP4 weights
@@ -967,20 +991,21 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
         # Even rows of HF = gate, odd rows = up. After splitting we pad each
         # half along its row dim (N) from N_un to N_pad with zeros, and along
         # its last dim (K) from K_un (or K_un / sf_block_size) to K_pad.
+        # 堆叠w13的up和gate行为半分割格式
 
         def _stack_up_gate_w13(unpadded_w13, last_pad, last_un):
             # unpadded_w13: [E, 2*N_un, last_un]
             # Returns: [E, 2*N_pad, last_pad] in [up_padded; gate_padded] order.
             gate_rows = unpadded_w13[:, 0::2, :]  # [E, N_un, last_un]
             up_rows = unpadded_w13[:, 1::2, :]  # [E, N_un, last_un]
-            out = torch.zeros(
+            out = torch.zeros(  # 创建零张量
                 E, 2 * N_pad, last_pad, dtype=unpadded_w13.dtype, device=device
             )
             # First half: up (with row + col padding zeros).
             out[:, :N_un, :last_un] = up_rows
             # Second half: gate.
             out[:, N_pad : N_pad + N_un, :last_un] = gate_rows
-            return out
+            return out  # 返回结果
 
         w13_padded = _stack_up_gate_w13(
             layer.w13_weight.data.view(torch.uint8), K_pad // 2, K_un // 2
@@ -993,14 +1018,15 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
         # Bias: same de-interleave on dim=-1.
         w13_bias_gate = layer.w13_weight_bias.data[:, 0::2]  # [E, N_un]
         w13_bias_up = layer.w13_weight_bias.data[:, 1::2]  # [E, N_un]
-        w13_bias_padded = torch.zeros(E, 2 * N_pad, dtype=bias_dtype, device=device)
+        w13_bias_padded = torch.zeros(E, 2 * N_pad, dtype=bias_dtype, device=device)  # 创建零张量
         w13_bias_padded[:, :N_un] = w13_bias_up
         w13_bias_padded[:, N_pad : N_pad + N_un] = w13_bias_gate
+        # 填充w2权重为3D张量
 
         def _pad_w2_3d(unpadded, last_pad, last_un):
-            out = torch.zeros(E, K_pad, last_pad, dtype=unpadded.dtype, device=device)
+            out = torch.zeros(E, K_pad, last_pad, dtype=unpadded.dtype, device=device)  # 创建零张量
             out[:, :K_un, :last_un] = unpadded[:, :K_un, :]
-            return out
+            return out  # 返回结果
 
         # ---- w2 (no halving, just pad to [E, K_pad, N_pad/2]) ----------------
         w2_padded = _pad_w2_3d(
@@ -1011,21 +1037,21 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
             N_pad // sf_block_size,
             N_un // sf_block_size,
         )
-        w2_bias_padded = torch.zeros(E, K_pad, dtype=bias_dtype, device=device)
+        w2_bias_padded = torch.zeros(E, K_pad, dtype=bias_dtype, device=device)  # 创建零张量
         w2_bias_padded[:, :K_un] = layer.w2_weight_bias.data
 
         # ---- Per-expert SwiGLU scalars (GPT-OSS defaults) ------------------
         layer.swiglu_alpha = Parameter(
             torch.full((E,), 1.702, dtype=torch.float32, device=device),
-            requires_grad=False,
+            requires_grad=False,  # 不可训练
         )
         layer.swiglu_beta = Parameter(
             torch.full((E,), 1.0, dtype=torch.float32, device=device),
-            requires_grad=False,
+            requires_grad=False,  # 不可训练
         )
         layer.swiglu_limit = Parameter(
             torch.full((E,), 7.0, dtype=torch.float32, device=device),
-            requires_grad=False,
+            requires_grad=False,  # 不可训练
         )
 
         # ---- FlashInfer SM90 byte / scale interleave -----------------------
@@ -1033,28 +1059,29 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
         # via torch.zeros + slice assignment), so we feed them straight in.
         layer.w13_weight = Parameter(
             interleave_moe_weights_for_sm90_mixed_gemm(w13_padded, "fp4"),
-            requires_grad=False,
+            requires_grad=False,  # 不可训练
         )
         layer.w2_weight = Parameter(
             interleave_moe_weights_for_sm90_mixed_gemm(w2_padded, "fp4"),
-            requires_grad=False,
+            requires_grad=False,  # 不可训练
         )
         layer.w13_weight_scale = Parameter(
             interleave_moe_scales_for_sm90_mixed_gemm(
                 w13_scale_padded, group_size=sf_block_size
             ),
-            requires_grad=False,
+            requires_grad=False,  # 不可训练
         )
         layer.w2_weight_scale = Parameter(
             interleave_moe_scales_for_sm90_mixed_gemm(
                 w2_scale_padded, group_size=sf_block_size
             ),
-            requires_grad=False,
+            requires_grad=False,  # 不可训练
         )
-        layer.w13_weight_bias = Parameter(w13_bias_padded, requires_grad=False)
-        layer.w2_weight_bias = Parameter(w2_bias_padded, requires_grad=False)
+        layer.w13_weight_bias = Parameter(w13_bias_padded, requires_grad=False)  # 不可训练
+        layer.w2_weight_bias = Parameter(w2_bias_padded, requires_grad=False)  # 不可训练
 
         torch.cuda.empty_cache()
+    # 创建MoE运行器
 
     def create_moe_runner(
         self, layer: torch.nn.Module, moe_runner_config: MoeRunnerConfig
@@ -1087,20 +1114,21 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
         ):
             # Register the fused func at runner construction so the FusedOpPool
             # lookup at `MoeRunner.__init__` finds it.
-            import sglang.srt.layers.moe.moe_runner.flashinfer_mxfp4  # noqa: F401
+            import sglang.srt.layers.moe.moe_runner.flashinfer_mxfp4  # noqa: F401  # MoE混合专家模块
 
             self.runner = MoeRunner(moe_runner_backend, moe_runner_config)
         else:
             # Legacy bypass path (e.g. SM100 trtllm-gen under flashinfer_mxfp4)
             # routes through `apply` without a MoeRunner. TODO(cwan): migrate.
-            pass
+            pass  # 空操作
+    # 应用SM90 CUTLASS MXFP4 MoE变换
 
     def _apply_sm90_cutlass(self, layer, dispatch_output):
         """SM90 (Hopper) MXFP4 x BF16 MoE via FlashInfer's cutlass mixed-input
         path (PR #3084). Routed through the unified ``MoeRunner`` -- this
         helper only builds the quant_info; the actual kernel call lives in
         :mod:`sglang.srt.layers.moe.moe_runner.flashinfer_mxfp4`."""
-        from sglang.srt.layers.moe.moe_runner.flashinfer_mxfp4 import (
+        from sglang.srt.layers.moe.moe_runner.flashinfer_mxfp4 import (  # MoE混合专家模块
             FlashInferMxfp4CutlassMoeQuantInfo,
         )
 
@@ -1120,7 +1148,8 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
             moe_ep_rank=layer.moe_ep_rank,
             padded_hidden=self._padded_hidden,
         )
-        return self.runner.run(dispatch_output, quant_info)
+        return self.runner.run(dispatch_output, quant_info)  # 返回结果
+    # 应用量化变换
 
     def apply(
         self,
@@ -1128,13 +1157,13 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
         dispatch_output: StandardDispatchOutput,
     ) -> CombineInput:
 
-        from sglang.srt.layers.moe.token_dispatcher import StandardCombineInput
-        from sglang.srt.layers.moe.topk import TopKOutputChecker
+        from sglang.srt.layers.moe.token_dispatcher import StandardCombineInput  # MoE混合专家模块
+        from sglang.srt.layers.moe.topk import TopKOutputChecker  # MoE混合专家模块
 
         x = dispatch_output.hidden_states
         topk_output = dispatch_output.topk_output
         if use_intel_amx_backend(layer):
-            from sglang.srt.layers.moe.topk import apply_topk_weights_cpu
+            from sglang.srt.layers.moe.topk import apply_topk_weights_cpu  # MoE混合专家模块
 
             topk_weights, topk_ids, _ = dispatch_output.topk_output
             x, topk_weights = apply_topk_weights_cpu(
@@ -1146,7 +1175,7 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
                 layer.w2_weight,
                 topk_weights,
                 topk_ids,
-                False,  # inplace See [Note] inplace should be False in fused_experts.
+                False,  # inplace See [Note] inplace should be False in fused_experts.  # 参见[Note] fused_experts中inplace应为False
                 CPUQuantMethod.MXFP4,
                 layer.w13_weight_scale,  # w1_scale
                 layer.w2_weight_scale,  # w2_scale
@@ -1159,7 +1188,7 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
                 layer.moe_runner_config.gemm1_clamp_limit,
                 True,  # is_vnni
             )
-            return StandardCombineInput(hidden_states=output)
+            return StandardCombineInput(hidden_states=output)  # 返回结果
 
         if self.use_marlin:
             assert TopKOutputChecker.format_is_standard(topk_output)
@@ -1173,10 +1202,10 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
                 weight_bits=4,
                 is_k_full=True,
             )
-            return self.runner.run(dispatch_output, quant_info)
+            return self.runner.run(dispatch_output, quant_info)  # 返回结果
 
         if self._fi_kernel == "cutlass_sm90":
-            return self._apply_sm90_cutlass(layer, dispatch_output)
+            return self._apply_sm90_cutlass(layer, dispatch_output)  # 返回结果
         if self.use_flashinfer:
             # When bf16 mode is enabled, we don't need to quantize the input,
             # TRT-LLM automatically handles quantization in the kernel implementation and pipelines it with GEMM operations,
@@ -1189,7 +1218,7 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
 
                 # May be fused later if this code branch is frequently needed
                 if self.hidden_size != origin_hidden_states_dim:
-                    x_quant = torch.nn.functional.pad(
+                    x_quant = torch.nn.functional.pad(  # 填充张量
                         x_quant,
                         (0, self.hidden_size - origin_hidden_states_dim),
                         mode="constant",
@@ -1199,7 +1228,7 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
                 x_quant, x_scale = mxfp8_quantize(x, False, alignment=self.hidden_size)
                 x_scale = x_scale.view(torch.float8_e4m3fn).reshape(*x.shape[:-1], -1)
             else:
-                raise NotImplementedError()
+                raise NotImplementedError()  # 抛出未实现错误
 
             assert x_quant.shape[-1] == self.hidden_size
             assert TopKOutputChecker.format_is_bypassed(topk_output)
@@ -1212,7 +1241,7 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
             ):
                 num_tokens = x_quant.shape[0]
                 hidden_size = origin_hidden_states_dim
-                symm_output = torch.empty(
+                symm_output = torch.empty(  # 创建空张量
                     num_tokens, hidden_size, dtype=torch.bfloat16, device=x_quant.device
                 )
             trtllm_gen_output = trtllm_fp4_block_scale_moe(
@@ -1245,9 +1274,9 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
                 tune_max_num_tokens=next_power_of_2(x_quant.shape[0]),
                 output=symm_output,
             )[0]
-            return StandardCombineInput(hidden_states=trtllm_gen_output)
+            return StandardCombineInput(hidden_states=trtllm_gen_output)  # 返回结果
         if _use_aiter:
-            from sglang.srt.layers.moe.moe_runner.aiter import (
+            from sglang.srt.layers.moe.moe_runner.aiter import (  # MoE混合专家模块
                 AiterMoeQuantInfo,
                 AiterQuantType,
             )
@@ -1266,7 +1295,7 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
                 w13_weight.is_shuffled = True
                 w2_weight.is_shuffled = True
 
-            x_padded = torch.nn.functional.pad(
+            x_padded = torch.nn.functional.pad(  # 填充张量
                 x, (0, self.hidden_pad), mode="constant", value=0.0
             )
             quant_info = AiterMoeQuantInfo(
@@ -1283,13 +1312,13 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
                 intermediate_pad=self.intermediate_pad,
                 swiglu_limit=self.moe_runner_config.swiglu_limit or 0.0,
             )
-            return self.runner.run(
+            return self.runner.run(  # 返回结果
                 dispatch_output._replace(hidden_states=x_padded), quant_info
             )
 
         backend = self.runner.runner_backend
         if backend.is_triton_kernels():
-            from sglang.srt.layers.moe.moe_runner.triton_kernels import (
+            from sglang.srt.layers.moe.moe_runner.triton_kernels import (  # MoE混合专家模块
                 TritonKernelsQuantInfo,
             )
 
@@ -1319,10 +1348,12 @@ class Mxfp4MoEMethod(FusedMoEMethodBase):
                 b13=getattr(layer, "w13_weight_bias", None),
                 b2=getattr(layer, "w2_weight_bias", None),
             )
-        return self.runner.run(dispatch_output, quant_info)
+        return self.runner.run(dispatch_output, quant_info)  # 返回结果
 
 
+# MXFP4动态量化MoE方法
 class Mxfp4DynamicQuantMoEMethod(FusedMoEMethodBase):
+    # 创建并注册量化权重参数
     def create_weights(
         self,
         layer: torch.nn.Module,
@@ -1333,43 +1364,43 @@ class Mxfp4DynamicQuantMoEMethod(FusedMoEMethodBase):
         **extra_weight_attrs,
     ):
 
-        from sglang.srt.layers.moe.fused_moe_triton import FusedMoeWeightScaleSupported
+        from sglang.srt.layers.moe.fused_moe_triton import FusedMoeWeightScaleSupported  # MoE混合专家模块
 
-        w13_weight = torch.nn.Parameter(
-            torch.empty(
+        w13_weight = torch.nn.Parameter(  # 创建参数
+            torch.empty(  # 创建空张量
                 num_experts,
                 2 * intermediate_size_per_partition,
                 hidden_size,
                 dtype=params_dtype,
             ),
-            requires_grad=False,
+            requires_grad=False,  # 不可训练
         )
-        w2_weight = torch.nn.Parameter(
-            torch.empty(
+        w2_weight = torch.nn.Parameter(  # 创建参数
+            torch.empty(  # 创建空张量
                 num_experts,
                 hidden_size,
                 intermediate_size_per_partition,
                 dtype=params_dtype,
             ),
-            requires_grad=False,
+            requires_grad=False,  # 不可训练
         )
 
-        layer.register_parameter("w13_weight", w13_weight)
+        layer.register_parameter("w13_weight", w13_weight)  # 注册层参数
         set_weight_attrs(w13_weight, extra_weight_attrs)
 
-        layer.register_parameter("w2_weight", w2_weight)
+        layer.register_parameter("w2_weight", w2_weight)  # 注册层参数
         set_weight_attrs(w2_weight, extra_weight_attrs)
 
         # Allocate 2 scales for w1 and w3 respectively.
         # They will be combined to a single scale after weight loading.
-        w13_weight_scale = torch.nn.Parameter(
-            torch.ones(num_experts, 2, dtype=torch.float32), requires_grad=False
+        w13_weight_scale = torch.nn.Parameter(  # 创建参数
+            torch.ones(num_experts, 2, dtype=torch.float32), requires_grad=False  # 不可训练
         )
-        w2_weight_scale = torch.nn.Parameter(
-            torch.ones(num_experts, dtype=torch.float32), requires_grad=False
+        w2_weight_scale = torch.nn.Parameter(  # 创建参数
+            torch.ones(num_experts, dtype=torch.float32), requires_grad=False  # 不可训练
         )
-        layer.register_parameter("w13_weight_scale", w13_weight_scale)
-        layer.register_parameter("w2_weight_scale", w2_weight_scale)
+        layer.register_parameter("w13_weight_scale", w13_weight_scale)  # 注册层参数
+        layer.register_parameter("w2_weight_scale", w2_weight_scale)  # 注册层参数
 
         # Add the quantization method used (per tensor/grouped/channel)
         # to ensure the weight scales are loaded in properly
@@ -1379,6 +1410,7 @@ class Mxfp4DynamicQuantMoEMethod(FusedMoEMethodBase):
 
         layer.w13_input_scale = None
         layer.w2_input_scale = None
+    # 对权重进行MXFP4动态量化
 
     def mxfp4_quantize(self, w):
         w_shape = w.shape
@@ -1396,7 +1428,8 @@ class Mxfp4DynamicQuantMoEMethod(FusedMoEMethodBase):
 
         mx_scales = e8m0_shuffle(mx_scales)
 
-        return w, mx_scales
+        return w, mx_scales  # 返回结果
+    # 权重加载后的后处理
 
     def process_weights_after_loading(self, layer: torch.nn.Module) -> None:
         w13, w13_mx_scales = self.mxfp4_quantize(layer.w13_weight.data)
@@ -1405,16 +1438,17 @@ class Mxfp4DynamicQuantMoEMethod(FusedMoEMethodBase):
         # Pre-shuffle weight
         is_shuffled = _is_shuffle_moe_mxfp4
         if is_shuffled:
-            w13 = shuffle_weight(w13.contiguous(), (16, 16))
-            w2 = shuffle_weight(w2.contiguous(), (16, 16))
+            w13 = shuffle_weight(w13.contiguous(), (16, 16))  # 确保内存连续
+            w2 = shuffle_weight(w2.contiguous(), (16, 16))  # 确保内存连续
 
-        layer.w13_weight = torch.nn.Parameter(w13, requires_grad=False)
+        layer.w13_weight = torch.nn.Parameter(w13, requires_grad=False)  # 创建参数
         layer.w13_weight.is_shuffled = is_shuffled
-        layer.w13_weight_scale = torch.nn.Parameter(w13_mx_scales, requires_grad=False)
+        layer.w13_weight_scale = torch.nn.Parameter(w13_mx_scales, requires_grad=False)  # 创建参数
 
-        layer.w2_weight = torch.nn.Parameter(w2, requires_grad=False)
+        layer.w2_weight = torch.nn.Parameter(w2, requires_grad=False)  # 创建参数
         layer.w2_weight.is_shuffled = is_shuffled
-        layer.w2_weight_scale = torch.nn.Parameter(w2_mx_scales, requires_grad=False)
+        layer.w2_weight_scale = torch.nn.Parameter(w2_mx_scales, requires_grad=False)  # 创建参数
+    # 创建MoE运行器
 
     def create_moe_runner(
         self, layer: torch.nn.Module, moe_runner_config: MoeRunnerConfig
@@ -1428,14 +1462,15 @@ class Mxfp4DynamicQuantMoEMethod(FusedMoEMethodBase):
             self.runner = MoeRunner(moe_runner_backend, moe_runner_config)
         else:
             # TODO(cwan): refactor other backends
-            pass
+            pass  # 空操作
+    # 应用量化变换
 
     def apply(
         self,
         layer: torch.nn.Module,
         dispatch_output: StandardDispatchOutput,
     ) -> CombineInput:
-        from sglang.srt.layers.moe.moe_runner.aiter import (
+        from sglang.srt.layers.moe.moe_runner.aiter import (  # MoE混合专家模块
             AiterMoeQuantInfo,
             AiterQuantType,
         )
@@ -1459,4 +1494,4 @@ class Mxfp4DynamicQuantMoEMethod(FusedMoEMethodBase):
             w2_scale=layer.w2_weight_scale,
             expert_mask=layer.dispatcher.expert_mask_gpu,
         )
-        return self.runner.run(dispatch_output, quant_info)
+        return self.runner.run(dispatch_output, quant_info)  # 返回结果

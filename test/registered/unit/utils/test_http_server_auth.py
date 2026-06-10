@@ -1,3 +1,4 @@
+# 文件名: test_http_server_auth.py - HTTP服务器认证
 """
 Unit tests for HTTP server admin auth.
 
@@ -14,7 +15,10 @@ register_cpu_ci(est_time=6, suite="base-a-test-cpu")
 register_cpu_ci(est_time=7, suite="base-b-test-cpu")
 
 
+# TestHttpServerAdminAuth类
 class TestHttpServerAdminAuth(unittest.TestCase):
+
+    # TestHttpServerAdminAuth类的内部方法_decide
     def _decide(
         self,
         *,
@@ -34,10 +38,11 @@ class TestHttpServerAdminAuth(unittest.TestCase):
             auth_level=auth_level,
         )
 
+    # TestHttpServerAdminAuth类的测试nokeysconfigured
     def test_no_keys_configured(self):
         # No keys configured -> NORMAL + ADMIN_OPTIONAL are open (legacy),
         # but ADMIN_FORCE must be rejected (403) explicitly.
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             self._decide(
                 method="GET",
                 path="/v1/models",
@@ -47,7 +52,7 @@ class TestHttpServerAdminAuth(unittest.TestCase):
                 auth_level=AuthLevel.NORMAL,
             ).allowed
         )
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             self._decide(
                 method="POST",
                 path="/admin_optional_demo",
@@ -66,12 +71,13 @@ class TestHttpServerAdminAuth(unittest.TestCase):
             admin_api_key=None,
             auth_level=AuthLevel.ADMIN_FORCE,
         )
-        self.assertFalse(d.allowed)
-        self.assertEqual(d.error_status_code, 403)
+        self.assertFalse(d.allowed)  # 断言为假
+        self.assertEqual(d.error_status_code, 403)  # 断言相等
 
+    # TestHttpServerAdminAuth类的测试apikeyonly
     def test_api_key_only(self):
         # api_key configured -> NORMAL requires api_key (legacy).
-        self.assertFalse(
+        self.assertFalse(  # 断言为假
             self._decide(
                 method="GET",
                 path="/v1/models",
@@ -81,7 +87,7 @@ class TestHttpServerAdminAuth(unittest.TestCase):
                 auth_level=AuthLevel.NORMAL,
             ).allowed
         )
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             self._decide(
                 method="GET",
                 path="/v1/models",
@@ -93,7 +99,7 @@ class TestHttpServerAdminAuth(unittest.TestCase):
         )
 
         # ADMIN_OPTIONAL requires api_key when only api_key is configured.
-        self.assertFalse(
+        self.assertFalse(  # 断言为假
             self._decide(
                 method="POST",
                 path="/admin_optional_demo",
@@ -103,7 +109,7 @@ class TestHttpServerAdminAuth(unittest.TestCase):
                 auth_level=AuthLevel.ADMIN_OPTIONAL,
             ).allowed
         )
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             self._decide(
                 method="POST",
                 path="/admin_optional_demo",
@@ -123,14 +129,15 @@ class TestHttpServerAdminAuth(unittest.TestCase):
             admin_api_key=None,
             auth_level=AuthLevel.ADMIN_FORCE,
         )
-        self.assertFalse(d.allowed)
-        self.assertEqual(d.error_status_code, 403)
+        self.assertFalse(d.allowed)  # 断言为假
+        self.assertEqual(d.error_status_code, 403)  # 断言相等
 
+    # TestHttpServerAdminAuth类的测试adminapikeyonly
     def test_admin_api_key_only(self):
         # admin_api_key only:
         # - normal endpoints open
         # - optional/force endpoints require admin_api_key
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             self._decide(
                 method="GET",
                 path="/v1/models",
@@ -140,7 +147,7 @@ class TestHttpServerAdminAuth(unittest.TestCase):
                 auth_level=AuthLevel.NORMAL,
             ).allowed
         )
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             self._decide(
                 method="GET",
                 path="/v1/models",
@@ -152,7 +159,7 @@ class TestHttpServerAdminAuth(unittest.TestCase):
         )
 
         # Optional endpoints require admin_api_key when admin_api_key is configured.
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             self._decide(
                 method="POST",
                 path="/admin_optional_demo",
@@ -162,7 +169,7 @@ class TestHttpServerAdminAuth(unittest.TestCase):
                 auth_level=AuthLevel.ADMIN_OPTIONAL,
             ).allowed
         )
-        self.assertFalse(
+        self.assertFalse(  # 断言为假
             self._decide(
                 method="POST",
                 path="/admin_optional_demo",
@@ -181,14 +188,15 @@ class TestHttpServerAdminAuth(unittest.TestCase):
             admin_api_key="admin",
             auth_level=AuthLevel.ADMIN_FORCE,
         )
-        self.assertTrue(d.allowed)
+        self.assertTrue(d.allowed)  # 断言为真
 
+    # TestHttpServerAdminAuth类的测试withbothapikeys
     def test_with_both_api_keys(self):
         # both api_key and admin_api_key configured:
         # - normal endpoints require api_key
         # - optional endpoints require admin_api_key (api_key is NOT accepted)
         # - force endpoints require admin_api_key
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             self._decide(
                 method="GET",
                 path="/v1/models",
@@ -198,7 +206,7 @@ class TestHttpServerAdminAuth(unittest.TestCase):
                 auth_level=AuthLevel.NORMAL,
             ).allowed
         )
-        self.assertFalse(
+        self.assertFalse(  # 断言为假
             self._decide(
                 method="GET",
                 path="/v1/models",
@@ -209,7 +217,7 @@ class TestHttpServerAdminAuth(unittest.TestCase):
             ).allowed
         )
         # Optional endpoints must require admin_api_key when both keys are configured.
-        self.assertFalse(
+        self.assertFalse(  # 断言为假
             self._decide(
                 method="POST",
                 path="/admin_optional_demo",
@@ -219,7 +227,7 @@ class TestHttpServerAdminAuth(unittest.TestCase):
                 auth_level=AuthLevel.ADMIN_OPTIONAL,
             ).allowed
         )
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             self._decide(
                 method="POST",
                 path="/admin_optional_demo",
@@ -229,7 +237,7 @@ class TestHttpServerAdminAuth(unittest.TestCase):
                 auth_level=AuthLevel.ADMIN_OPTIONAL,
             ).allowed
         )
-        self.assertFalse(
+        self.assertFalse(  # 断言为假
             self._decide(
                 method="POST",
                 path="/admin_force_demo",
@@ -239,7 +247,7 @@ class TestHttpServerAdminAuth(unittest.TestCase):
                 auth_level=AuthLevel.ADMIN_FORCE,
             ).allowed
         )
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             self._decide(
                 method="POST",
                 path="/admin_force_demo",
@@ -250,9 +258,10 @@ class TestHttpServerAdminAuth(unittest.TestCase):
             ).allowed
         )
 
+    # TestHttpServerAdminAuth类的测试optionsisalwaysallowed
     def test_options_is_always_allowed(self):
         # CORS preflight should never be blocked.
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             self._decide(
                 method="OPTIONS",
                 path="/v1/models",
@@ -263,6 +272,7 @@ class TestHttpServerAdminAuth(unittest.TestCase):
             ).allowed
         )
 
+    # TestHttpServerAdminAuth类的测试healthandmetricsarealwaysallowed
     def test_health_and_metrics_are_always_allowed(self):
         # Health/metrics endpoints are always public by design, regardless of auth level / keys.
         combos = [
@@ -280,7 +290,7 @@ class TestHttpServerAdminAuth(unittest.TestCase):
         ]
         for keys in combos:
             for path in paths_allowed:
-                self.assertTrue(
+                self.assertTrue(  # 断言为真
                     self._decide(
                         method="GET",
                         path=path,

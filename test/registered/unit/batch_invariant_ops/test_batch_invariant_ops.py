@@ -1,3 +1,4 @@
+# 文件名: test_batch_invariant_ops.py - 批次不变操作
 # Adapted from https://github.com/thinking-machines-lab/batch_invariant_ops/blob/main/test_batch_invariance.py
 import math
 import unittest
@@ -22,15 +23,21 @@ with set_batch_invariant_mode(True):
     pass
 
 
+# TestBatchInvariantOps类
 class TestBatchInvariantOps(CustomTestCase):
     @classmethod
+
+    # TestBatchInvariantOps类的测试类初始化设置
     def setUpClass(cls):
         batch_invariant_ops._ENABLE_MM_COMPARISON_TEST = True
 
     @classmethod
+
+    # TestBatchInvariantOps类的测试类清理
     def tearDownClass(cls):
         batch_invariant_ops._ENABLE_MM_COMPARISON_TEST = False
 
+    # TestBatchInvariantOps类的内部方法_test_batch_invariance
     def _test_batch_invariance(self, M, K, N, dtype):
         """
         Test that matrix operations produce identical results for:
@@ -54,6 +61,7 @@ class TestBatchInvariantOps(CustomTestCase):
         diff = (out1 - out2).abs().max()
         return diff.item()
 
+    # TestBatchInvariantOps类的内部方法_run_multiple_iterations
     def _run_multiple_iterations(self, iters, M, K, N, dtype):
         """Run multiple iterations and collect diff statistics"""
         difflist = []
@@ -62,6 +70,7 @@ class TestBatchInvariantOps(CustomTestCase):
             difflist.append(diff)
         return difflist
 
+    # TestBatchInvariantOps类的内部方法_assert_batch_invariant_results
     def _assert_batch_invariant_results(self, difflist, dtype, test_name):
         """
         Assert that in batch-invariant mode:
@@ -74,33 +83,34 @@ class TestBatchInvariantOps(CustomTestCase):
         diff_range = max_diff - min_diff
 
         # Check for NaN values
-        self.assertFalse(
+        self.assertFalse(  # 断言为假
             math.isnan(max_diff), f"{test_name}: max_diff is NaN for {dtype}"
         )
-        self.assertFalse(
+        self.assertFalse(  # 断言为假
             math.isnan(min_diff), f"{test_name}: min_diff is NaN for {dtype}"
         )
-        self.assertFalse(
+        self.assertFalse(  # 断言为假
             math.isnan(diff_range), f"{test_name}: diff_range is NaN for {dtype}"
         )
 
         # Check that all diffs are exactly 0
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             max_diff,
             0.0,
             f"{test_name}: max_diff must be 0 in batch-invariant mode, got {max_diff} for {dtype}",
         )
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             min_diff,
             0.0,
             f"{test_name}: min_diff must be 0 in batch-invariant mode, got {min_diff} for {dtype}",
         )
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             diff_range,
             0.0,
             f"{test_name}: diff_range must be 0 in batch-invariant mode, got {diff_range} for {dtype}",
         )
 
+    # TestBatchInvariantOps类的测试smallmatrices
     def test_small_matrices(self):
         """Test batch invariance with small matrix sizes"""
         test_cases = [
@@ -120,6 +130,7 @@ class TestBatchInvariantOps(CustomTestCase):
                             )
                             self._assert_batch_invariant_results(difflist, dtype, name)
 
+    # TestBatchInvariantOps类的测试mediummatrices
     def test_medium_matrices(self):
         """Test batch invariance with medium matrix sizes"""
         test_cases = [
@@ -139,6 +150,7 @@ class TestBatchInvariantOps(CustomTestCase):
                             )
                             self._assert_batch_invariant_results(difflist, dtype, name)
 
+    # TestBatchInvariantOps类的测试largematrices
     def test_large_matrices(self):
         """Test batch invariance with large matrix sizes"""
         test_cases = [
@@ -158,6 +170,7 @@ class TestBatchInvariantOps(CustomTestCase):
                             )
                             self._assert_batch_invariant_results(difflist, dtype, name)
 
+    # TestBatchInvariantOps类的测试withoutbatchinvariantmode
     def test_without_batch_invariant_mode(self):
         """
         Test that without batch-invariant mode, results may differ.
@@ -173,6 +186,7 @@ class TestBatchInvariantOps(CustomTestCase):
             )
             print(f"Without batch-invariant mode, we get diffs: {difflist}")
 
+    # TestBatchInvariantOps类的内部方法_test_bmm_batch_invariance
     def _test_bmm_batch_invariance(self, B, M, K, N, dtype):
         """
         Test that BMM operations produce identical results for:
@@ -194,6 +208,7 @@ class TestBatchInvariantOps(CustomTestCase):
         diff = (out1 - out2).abs().max()
         return diff.item()
 
+    # TestBatchInvariantOps类的内部方法_run_bmm_multiple_iterations
     def _run_bmm_multiple_iterations(self, iters, B, M, K, N, dtype):
         """Run multiple BMM iterations and collect diff statistics"""
         difflist = []
@@ -202,6 +217,7 @@ class TestBatchInvariantOps(CustomTestCase):
             difflist.append(diff)
         return difflist
 
+    # TestBatchInvariantOps类的测试bmmsmallmatrices
     def test_bmm_small_matrices(self):
         """Test BMM batch invariance with small matrix sizes"""
         test_cases = [
@@ -221,6 +237,7 @@ class TestBatchInvariantOps(CustomTestCase):
                             )
                             self._assert_batch_invariant_results(difflist, dtype, name)
 
+    # TestBatchInvariantOps类的测试bmmmediummatrices
     def test_bmm_medium_matrices(self):
         """Test BMM batch invariance with medium matrix sizes"""
         test_cases = [
@@ -240,6 +257,7 @@ class TestBatchInvariantOps(CustomTestCase):
                             )
                             self._assert_batch_invariant_results(difflist, dtype, name)
 
+    # TestBatchInvariantOps类的测试bmmlargematrices
     def test_bmm_large_matrices(self):
         """Test BMM batch invariance with large matrix sizes"""
         test_cases = [

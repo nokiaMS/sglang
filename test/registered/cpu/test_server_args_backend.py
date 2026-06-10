@@ -1,3 +1,4 @@
+# 文件名: test_server_args_backend.py - 服务器参数后端测试
 import json
 import os
 import tempfile
@@ -11,6 +12,7 @@ register_cpu_ci(est_time=10, suite="base-b-test-cpu")
 
 
 class TestServerArgsCPUBackend(unittest.TestCase):
+    # 执行makeserverargs
     def _make_server_args(self, attention_backend=None):
         server_args = ServerArgs.__new__(ServerArgs)
         server_args.device = "cpu"
@@ -19,6 +21,7 @@ class TestServerArgsCPUBackend(unittest.TestCase):
         return server_args
 
     @patch("sglang.srt.server_args.is_host_cpu_arm64", return_value=True)
+    # 测试armcpudefaultstotorchnative
     def test_arm_cpu_defaults_to_torch_native(self, _mock_is_arm64):
         server_args = self._make_server_args()
 
@@ -28,6 +31,7 @@ class TestServerArgsCPUBackend(unittest.TestCase):
         self.assertEqual(server_args.sampling_backend, "pytorch")
 
     @patch("sglang.srt.server_args.is_host_cpu_arm64", return_value=False)
+    # 测试x86cpudefaultstointelamx
     def test_x86_cpu_defaults_to_intel_amx(self, _mock_is_arm64):
         server_args = self._make_server_args()
 
@@ -38,6 +42,7 @@ class TestServerArgsCPUBackend(unittest.TestCase):
 
 
 class TestServerArgsIBDeviceValidation(unittest.TestCase):
+    # 执行validateibdevices
     def _validate_ib_devices(self, device_str, available_devices=None):
         server_args = ServerArgs.__new__(ServerArgs)
         available_devices = available_devices or [
@@ -64,12 +69,14 @@ class TestServerArgsIBDeviceValidation(unittest.TestCase):
         ):
             return ServerArgs._validate_ib_devices(server_args, device_str)
 
+    # 测试validateibdevicesacceptscommaseparated
     def test_validate_ib_devices_accepts_comma_separated(self):
         self.assertEqual(
             self._validate_ib_devices("mlx5_0, mlx5_1"),
             "mlx5_0,mlx5_1",
         )
 
+    # 测试validateibdevicesacceptsjsonobject
     def test_validate_ib_devices_accepts_json_object(self):
         result = self._validate_ib_devices(
             '{"0": "mlx5_0, mlx5_1", "1": "mlx5_2, mlx5_3"}'
@@ -79,6 +86,7 @@ class TestServerArgsIBDeviceValidation(unittest.TestCase):
             {"0": "mlx5_0,mlx5_1", "1": "mlx5_2,mlx5_3"},
         )
 
+    # 测试validateibdevicesacceptsjsonfile
     def test_validate_ib_devices_accepts_json_file(self):
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as file:
             json.dump({"0": "mlx5_0, mlx5_1", "1": "mlx5_2"}, file)

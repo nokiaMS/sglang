@@ -1,3 +1,4 @@
+# 文件名: test_preset.py - 预设配置测试
 import pytest
 
 from sglang.srt.debug_utils.comparator.preset import PRESETS, expand_preset
@@ -10,6 +11,7 @@ register_cpu_ci(est_time=1, suite="base-b-test-cpu")
 class TestExpandPreset:
     """Test preset expansion logic."""
 
+    # 测试explicitpreset
     def test_explicit_preset(self):
         """--preset sglang_megatron expands into its argv."""
         argv = [
@@ -27,18 +29,21 @@ class TestExpandPreset:
         assert "--baseline-path" in result
         assert "--diff-threshold" in result
 
+    # 测试defaultpresetapplied
     def test_default_preset_applied(self):
         """No --preset and no --grouping-skip-keys triggers default preset."""
         argv = ["--baseline-path", "/a"]
         result = expand_preset(argv, presets=PRESETS)
         assert "--grouping-skip-keys" in result
 
+    # 测试explicitskipkeyspreventsdefault
     def test_explicit_skip_keys_prevents_default(self):
         """Explicit --grouping-skip-keys prevents default preset injection."""
         argv = ["--grouping-skip-keys", "rank", "--baseline-path", "/a"]
         result = expand_preset(argv, presets=PRESETS)
         assert result == argv
 
+    # 测试unknownpresetraises
     def test_unknown_preset_raises(self):
         """Unknown preset name raises ValueError."""
         with pytest.raises(ValueError, match="Unknown value for --preset"):

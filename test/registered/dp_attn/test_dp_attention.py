@@ -1,3 +1,4 @@
+# 文件名: test_dp_attention.py - 数据并行注意力测试
 import unittest
 
 import requests
@@ -34,6 +35,7 @@ class TestDPAttentionDP2TP2(
     gsm8k_accuracy_thres = 0.6
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = DEFAULT_MODEL_NAME_FOR_TEST_MLA
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -59,6 +61,7 @@ class TestDPAttentionDP2TP2(
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
         cls._env_override.__exit__(None, None, None)
@@ -71,6 +74,7 @@ class TestDPAttentionMixedChunk(
     gsm8k_accuracy_thres = 0.6
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = DEFAULT_MLA_MODEL_NAME_FOR_TEST
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -92,6 +96,7 @@ class TestDPAttentionMixedChunk(
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
@@ -103,6 +108,7 @@ class TestDPRetract(
     RegexConstrainedMixin,
 ):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = DEFAULT_MLA_MODEL_NAME_FOR_TEST
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -127,9 +133,11 @@ class TestDPRetract(
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试radixattention
     def test_radix_attention(self):
         with envs.SGLANG_TEST_RETRACT.override(True):
             run_radix_attention_test(self.base_url)
@@ -138,6 +146,7 @@ class TestDPRetract(
 
 class TestDPAttentionDP2TP2VLM(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = "moonshotai/Kimi-VL-A3B-Instruct"
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -157,9 +166,11 @@ class TestDPAttentionDP2TP2VLM(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试vlmgenerate
     def test_vlm_generate(self):
         chat_template = get_chat_template_by_model_path(self.model)
         prompt = f"{chat_template.image_token}What is in this image?"

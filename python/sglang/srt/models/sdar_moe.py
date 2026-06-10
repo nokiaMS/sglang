@@ -1,93 +1,99 @@
+# SDAR MoE 模型推理实现文件
+# 本文件实现了SDAR MoE（块扩散/dLLM风格）混合专家因果语言模型
+# 结合了SDAR的非因果注意力和MoE专家混合机制
+# 支持DeepEP/FuseEP专家并行、权重共享和RL训练模式
+
 # coding=utf-8
 """
 SGLang SDARMoeModelLM (block diffusion / dLLM-style forward) with MoE MLP.
 """
 
-import logging
-from typing import Iterable, Optional, Tuple, Union
+import logging  # 导入日志模块
+from typing import Iterable, Optional, Tuple, Union  # 导入类型提示
 
-import torch
-from torch import nn
-from transformers import PretrainedConfig
+import torch  # 导入PyTorch
+from torch import nn  # 导入神经网络模块
+from transformers import PretrainedConfig  # 导入预训练配置
 
-from sglang.srt.distributed import (
+from sglang.srt.distributed import (  # 导入分布式
     get_moe_expert_parallel_world_size,
     get_pp_group,
     get_tensor_model_parallel_world_size,
     tensor_model_parallel_all_reduce,
 )
-from sglang.srt.eplb.expert_distribution import get_global_expert_distribution_recorder
-from sglang.srt.eplb.expert_location import ModelConfigForExpertLocation
-from sglang.srt.eplb.expert_location_dispatch import ExpertLocationDispatchInfo
-from sglang.srt.layers.communicator import LayerCommunicator, LayerScatterModes
-from sglang.srt.layers.dp_attention import (
+from sglang.srt.eplb.expert_distribution import get_global_expert_distribution_recorder  # 专家分布记录器
+from sglang.srt.eplb.expert_location import ModelConfigForExpertLocation  # 专家位置配置
+from sglang.srt.eplb.expert_location_dispatch import ExpertLocationDispatchInfo  # 专家位置调度
+from sglang.srt.layers.communicator import LayerCommunicator, LayerScatterModes  # 层通信器
+from sglang.srt.layers.dp_attention import (  # DP注意力
     get_attention_tp_rank,
     get_attention_tp_size,
     is_dp_attention_enabled,
 )
-from sglang.srt.layers.layernorm import RMSNorm
-from sglang.srt.layers.linear import (
+from sglang.srt.layers.layernorm import RMSNorm  # RMS归一化
+from sglang.srt.layers.linear import (  # 线性层
     QKVParallelLinear,
     ReplicatedLinear,
     RowParallelLinear,
 )
-from sglang.srt.layers.logits_processor import LogitsProcessor
-from sglang.srt.layers.moe import (
+from sglang.srt.layers.logits_processor import LogitsProcessor  # 逻辑处理器
+from sglang.srt.layers.moe import (  # MoE模块
     get_moe_a2a_backend,
     should_skip_post_experts_all_reduce,
 )
-from sglang.srt.layers.moe.ep_moe.layer import get_moe_impl_class
-from sglang.srt.layers.moe.fused_moe_triton.layer import FusedMoE
-from sglang.srt.layers.moe.topk import TopK
-from sglang.srt.layers.moe.utils import (
+from sglang.srt.layers.moe.ep_moe.layer import get_moe_impl_class  # MoE实现类
+from sglang.srt.layers.moe.fused_moe_triton.layer import FusedMoE  # 融合MoE
+from sglang.srt.layers.moe.topk import TopK  # TopK路由
+from sglang.srt.layers.moe.utils import (  # MoE工具
     RoutingMethodType,
     filter_moe_weight_param_global_expert,
 )
-from sglang.srt.layers.quantization.base_config import QuantizationConfig
-from sglang.srt.layers.radix_attention import AttentionType, RadixAttention
-from sglang.srt.layers.rotary_embedding import get_rope
-from sglang.srt.layers.utils import PPMissingLayer, get_layer_id
-from sglang.srt.layers.vocab_parallel_embedding import (
+from sglang.srt.layers.quantization.base_config import QuantizationConfig  # 量化配置
+from sglang.srt.layers.radix_attention import AttentionType, RadixAttention  # 基数注意力
+from sglang.srt.layers.rotary_embedding import get_rope  # 旋转位置编码
+from sglang.srt.layers.utils import PPMissingLayer, get_layer_id  # 工具
+from sglang.srt.layers.vocab_parallel_embedding import (  # 词表并行嵌入
     ParallelLMHead,
     VocabParallelEmbedding,
 )
-from sglang.srt.model_executor.forward_batch_info import ForwardBatch, PPProxyTensors
-from sglang.srt.model_loader.weight_utils import (
+from sglang.srt.model_executor.forward_batch_info import ForwardBatch, PPProxyTensors  # 前向批次
+from sglang.srt.model_loader.weight_utils import (  # 权重工具
     default_weight_loader,
     maybe_remap_kv_scale_name,
 )
-from sglang.srt.models.utils import (
+from sglang.srt.models.utils import (  # 模型工具
     apply_qk_norm,
     create_fused_set_kv_buffer_arg,
     enable_fused_set_kv_buffer,
 )
-from sglang.srt.server_args import get_global_server_args
-from sglang.srt.utils import LazyValue, add_prefix, is_cuda, make_layers
+from sglang.srt.server_args import get_global_server_args  # 服务器参数
+from sglang.srt.utils import LazyValue, add_prefix, is_cuda, make_layers  # 工具函数
 
-logger = logging.getLogger(__name__)
-_is_cuda = is_cuda()
+logger = logging.getLogger(__name__)  # 创建日志记录器
+_is_cuda = is_cuda()  # 是否CUDA
 
 
 class SDARMoeSparseMoeBlock(nn.Module):
-    """
-    Qwen3MoE-style sparse MoE block:
+    """Qwen3MoE-style sparse MoE block:
       - gate: ReplicatedLinear(hidden, num_experts)
       - topk routing: TopK
       - experts: get_moe_impl_class(quant_config)(...)
     """
+    """Qwen3MoE风格稀疏MoE块，支持普通和DeepEP模式"""
 
     def __init__(
         self,
-        layer_id: int,
-        config: PretrainedConfig,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        layer_id: int,  # 层ID
+        config: PretrainedConfig,  # 模型配置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
     ):
+        """初始化稀疏MoE块"""
         super().__init__()
         self.layer_id = layer_id
         self.tp_size = get_tensor_model_parallel_world_size()
 
-        if self.tp_size > config.num_experts:
+        if self.tp_size > config.num_experts:  # TP不能超过专家数
             raise ValueError(
                 f"Tensor parallel size {self.tp_size} > num_experts {config.num_experts}."
             )
@@ -120,7 +126,7 @@ class SDARMoeSparseMoeBlock(nn.Module):
         )
 
         # Deepep / FuseEP support
-        if get_moe_a2a_backend().is_deepep():
+        if get_moe_a2a_backend().is_deepep():  # DeepEP支持
             self.ep_size = get_moe_expert_parallel_world_size()
             self.num_experts = (
                 config.num_experts + get_global_server_args().ep_num_redundant_experts
@@ -129,11 +135,12 @@ class SDARMoeSparseMoeBlock(nn.Module):
 
     def forward(
         self,
-        hidden_states: torch.Tensor,
-        forward_batch: Optional[ForwardBatch] = None,
-        should_allreduce_fusion: bool = False,
-        use_reduce_scatter: bool = False,
+        hidden_states: torch.Tensor,  # 隐藏状态
+        forward_batch: Optional[ForwardBatch] = None,  # 前向批次
+        should_allreduce_fusion: bool = False,  # 是否融合全归约
+        use_reduce_scatter: bool = False,  # 是否使用reduce-scatter
     ) -> torch.Tensor:
+        """MoE前向传播，选择普通或DeepEP模式"""
         if (
             not get_moe_a2a_backend().is_deepep()
             and not get_moe_a2a_backend().is_ascend_fuseep()
@@ -149,27 +156,29 @@ class SDARMoeSparseMoeBlock(nn.Module):
 
     def forward_normal(
         self,
-        hidden_states: torch.Tensor,
-        should_allreduce_fusion: bool = False,
-        use_reduce_scatter: bool = False,
+        hidden_states: torch.Tensor,  # 隐藏状态
+        should_allreduce_fusion: bool = False,  # 是否融合全归约
+        use_reduce_scatter: bool = False,  # 是否使用reduce-scatter
     ) -> torch.Tensor:
+        """普通MoE前向传播"""
         num_tokens, hidden_dim = hidden_states.shape
         hidden_states = hidden_states.view(-1, hidden_dim)
 
-        router_logits, _ = self.gate(hidden_states)  # (T, E)
+        router_logits, _ = self.gate(hidden_states)  # (T, E)  路由logits
         topk_output = self.topk(hidden_states, router_logits)
-        out = self.experts(hidden_states, topk_output)  # (T, H)
+        out = self.experts(hidden_states, topk_output)  # (T, H)  专家输出
 
         if self.tp_size > 1 and not should_skip_post_experts_all_reduce(
             is_tp_path=True,
             use_reduce_scatter=use_reduce_scatter,
             should_allreduce_fusion=should_allreduce_fusion,
         ):
-            out = tensor_model_parallel_all_reduce(out)
+            out = tensor_model_parallel_all_reduce(out)  # TP全归约
 
         return out.view(num_tokens, hidden_dim)
 
     def forward_deepep(self, hidden_states: torch.Tensor, forward_batch: ForwardBatch):
+        """DeepEP模式MoE前向传播"""
         if hidden_states.shape[0] > 0:
             router_logits, _ = self.gate(hidden_states)
             topk_output = self.topk(
@@ -187,6 +196,7 @@ class SDARMoeSparseMoeBlock(nn.Module):
         return out
 
     def get_moe_weights(self):
+        """获取MoE专家权重"""
         return [
             p.data
             for name, p in self.experts.named_parameters()
@@ -198,15 +208,17 @@ class SDARMoeSparseMoeBlock(nn.Module):
 
 
 class SDARMoeAttention(nn.Module):
+    """SDAR MoE注意力模块，使用ENCODER_ONLY类型"""
     def __init__(
         self,
-        config: PretrainedConfig,
-        layer_id: int,
-        quant_config: Optional[QuantizationConfig] = None,
-        reduce_results: bool = True,
-        prefix: str = "",
-        alt_stream: Optional[torch.cuda.Stream] = None,
+        config: PretrainedConfig,  # 模型配置
+        layer_id: int,  # 层ID
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        reduce_results: bool = True,  # 是否归约结果
+        prefix: str = "",  # 前缀
+        alt_stream: Optional[torch.cuda.Stream] = None,  # 替代CUDA流
     ):
+        """初始化MoE注意力"""
         super().__init__()
         self.layer_id = layer_id
         self.hidden_size = config.hidden_size
@@ -252,8 +264,8 @@ class SDARMoeAttention(nn.Module):
             prefix=add_prefix("o_proj", prefix),
         )
 
-        self.q_norm = RMSNorm(self.head_dim, eps=config.rms_norm_eps)
-        self.k_norm = RMSNorm(self.head_dim, eps=config.rms_norm_eps)
+        self.q_norm = RMSNorm(self.head_dim, eps=config.rms_norm_eps)  # Q归一化
+        self.k_norm = RMSNorm(self.head_dim, eps=config.rms_norm_eps)  # K归一化
 
         rope_theta = getattr(config, "rope_theta", 10000.0)
         rope_scaling = getattr(config, "rope_scaling", None)
@@ -273,18 +285,19 @@ class SDARMoeAttention(nn.Module):
             self.scale,
             num_kv_heads=self.num_kv_heads,
             layer_id=layer_id,
-            attn_type=AttentionType.ENCODER_ONLY,
+            attn_type=AttentionType.ENCODER_ONLY,  # 编码器注意力
             prefix=add_prefix("attn", prefix),
         )
         self.alt_stream = alt_stream
 
     def forward(
         self,
-        positions: torch.Tensor,
-        hidden_states: torch.Tensor,
-        forward_batch: ForwardBatch,
+        positions: torch.Tensor,  # 位置
+        hidden_states: torch.Tensor,  # 隐藏状态
+        forward_batch: ForwardBatch,  # 前向批次
     ) -> torch.Tensor:
-        if get_global_server_args().rl_on_policy_target is not None:
+        """MoE注意力前向传播"""
+        if get_global_server_args().rl_on_policy_target is not None:  # RL模式
             hidden_states = hidden_states.bfloat16()
 
         qkv, _ = self.qkv_proj(hidden_states)
@@ -312,7 +325,7 @@ class SDARMoeAttention(nn.Module):
             ),
         )
 
-        if get_global_server_args().rl_on_policy_target is not None:
+        if get_global_server_args().rl_on_policy_target is not None:  # RL精度转换
             q = q.to(torch.bfloat16)
             k = k.to(torch.bfloat16)
 
@@ -328,14 +341,16 @@ class SDARMoeAttention(nn.Module):
 
 
 class SDARMoeBlock(nn.Module):
+    """SDAR MoE解码块，包含注意力和稀疏MoE"""
     def __init__(
         self,
-        config: PretrainedConfig,
-        layer_id: int,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
-        alt_stream: Optional[torch.cuda.Stream] = None,
+        config: PretrainedConfig,  # 模型配置
+        layer_id: int,  # 层ID
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
+        alt_stream: Optional[torch.cuda.Stream] = None,  # 替代CUDA流
     ):
+        """初始化MoE块"""
         super().__init__()
         self.config = config
         self.hidden_size = config.hidden_size
@@ -392,12 +407,12 @@ class SDARMoeBlock(nn.Module):
 
     def forward(
         self,
-        positions: torch.Tensor,
-        hidden_states: torch.Tensor,
-        forward_batch: ForwardBatch,
-        residual: Optional[torch.Tensor],
+        positions: torch.Tensor,  # 位置
+        hidden_states: torch.Tensor,  # 隐藏状态
+        forward_batch: ForwardBatch,  # 前向批次
+        residual: Optional[torch.Tensor],  # 残差
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-
+        """MoE块前向传播"""
         hidden_states, residual = self.layer_communicator.prepare_attn(
             hidden_states, residual, forward_batch
         )
@@ -440,13 +455,15 @@ class SDARMoeBlock(nn.Module):
 
 
 class SDARMoeModel(nn.Module):
+    """SDAR MoE模型"""
     def __init__(
         self,
-        config: PretrainedConfig,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
-        alt_stream: Optional[torch.cuda.Stream] = None,
+        config: PretrainedConfig,  # 模型配置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
+        alt_stream: Optional[torch.cuda.Stream] = None,  # 替代CUDA流
     ):
+        """初始化SDAR MoE模型"""
         super().__init__()
         self.config = config
         self.vocab_size = config.vocab_size
@@ -495,12 +512,13 @@ class SDARMoeModel(nn.Module):
 
     def forward(
         self,
-        input_ids: torch.Tensor,
-        positions: torch.Tensor,
-        forward_batch: ForwardBatch,
-        input_embeds: torch.Tensor = None,
-        pp_proxy_tensors: Optional[PPProxyTensors] = None,
+        input_ids: torch.Tensor,  # 输入ID
+        positions: torch.Tensor,  # 位置
+        forward_batch: ForwardBatch,  # 前向批次
+        input_embeds: torch.Tensor = None,  # 输入嵌入
+        pp_proxy_tensors: Optional[PPProxyTensors] = None,  # PP代理张量
     ) -> Union[torch.Tensor, PPProxyTensors]:
+        """SDAR MoE模型前向传播"""
         if self.pp_group.is_first_rank:
             hidden_states = (
                 self.embed_tokens(input_ids) if input_embeds is None else input_embeds
@@ -529,14 +547,16 @@ class SDARMoeModel(nn.Module):
 
 
 class SDARMoeForCausalLM(nn.Module):
+    """SDAR MoE因果语言模型"""
     fall_back_to_pt_during_load = False
 
     def __init__(
         self,
-        config: PretrainedConfig,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        config: PretrainedConfig,  # 模型配置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
     ):
+        """初始化SDAR MoE因果语言模型"""
         super().__init__()
         self.pp_group = get_pp_group()
         assert self.pp_group.world_size == 1, (
@@ -563,7 +583,7 @@ class SDARMoeForCausalLM(nn.Module):
                 and getattr(config, "tie_word_embeddings", False)
                 and tp_size == 1
             ):
-                self.lm_head = self.model.embed_tokens
+                self.lm_head = self.model.embed_tokens  # 权重共享
             else:
                 self.lm_head = ParallelLMHead(
                     config.vocab_size,
@@ -579,21 +599,24 @@ class SDARMoeForCausalLM(nn.Module):
 
     @property
     def start_layer(self):
+        """起始层"""
         return self.model.start_layer
 
     @property
     def end_layer(self):
+        """结束层"""
         return self.model.end_layer
 
     @torch.no_grad()
     def forward(
         self,
-        input_ids: torch.Tensor,
-        positions: torch.Tensor,
-        forward_batch: ForwardBatch,
-        input_embeds: Optional[torch.Tensor] = None,
-        pp_proxy_tensors: Optional[PPProxyTensors] = None,
+        input_ids: torch.Tensor,  # 输入ID
+        positions: torch.Tensor,  # 位置
+        forward_batch: ForwardBatch,  # 前向批次
+        input_embeds: Optional[torch.Tensor] = None,  # 输入嵌入
+        pp_proxy_tensors: Optional[PPProxyTensors] = None,  # PP代理张量
     ) -> torch.Tensor:
+        """SDAR MoE因果语言模型前向传播"""
         hidden_states = self.model(
             input_ids=input_ids,
             positions=positions,
@@ -608,6 +631,7 @@ class SDARMoeForCausalLM(nn.Module):
         return hidden_states
 
     def load_weights(self, weights: Iterable[Tuple[str, torch.Tensor]]):
+        """加载模型权重"""
         stacked_params_mapping = [
             ("qkv_proj", "q_proj", "q"),
             ("qkv_proj", "k_proj", "k"),
@@ -734,6 +758,7 @@ class SDARMoeForCausalLM(nn.Module):
 
     @classmethod
     def get_model_config_for_expert_location(cls, config):
+        """获取专家位置配置"""
         return ModelConfigForExpertLocation(
             num_layers=config.num_hidden_layers,
             num_logical_experts=config.num_experts,
@@ -741,4 +766,4 @@ class SDARMoeForCausalLM(nn.Module):
         )
 
 
-EntryClass = SDARMoeForCausalLM
+EntryClass = SDARMoeForCausalLM  # 模型注册入口类

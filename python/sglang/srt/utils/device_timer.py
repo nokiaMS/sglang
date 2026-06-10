@@ -1,3 +1,4 @@
+# 设备计时器模块，提供基于CUDA事件的GPU计时功能，用于测量GPU操作耗时和空闲间隔
 from collections import deque
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -6,6 +7,7 @@ from typing import Callable, Deque, Dict, List, Optional
 import torch
 
 
+# 设备计时器，基于CUDA事件测量GPU操作的执行耗时
 class DeviceTimer:
     def __init__(self, reporter: Callable):
         self._intervals: Deque[_TimingInterval] = deque()
@@ -35,6 +37,7 @@ class DeviceTimer:
                 reporter(t=elapsed, **interval.metadata)
 
 
+# 间隔计时器，测量连续GPU操作之间的空闲间隔时间
 class GapTimer(DeviceTimer):
     """Measures GPU idle gaps between consecutive uses of a stream.
 
@@ -64,6 +67,7 @@ class GapTimer(DeviceTimer):
         self._pending = None
 
 
+# 计时间隔内部数据结构，记录一次CUDA计时的起止事件和元数据
 @dataclass
 class _TimingInterval:
     start_event: torch.cuda.Event

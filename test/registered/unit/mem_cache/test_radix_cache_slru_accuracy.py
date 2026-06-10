@@ -1,3 +1,4 @@
+# 文件名: test_radix_cache_slru_accuracy.py - 基数缓存SLRU精度
 import unittest
 from array import array
 
@@ -23,8 +24,10 @@ register_amd_ci(est_time=8, suite="stage-b-test-1-gpu-small-amd")
 register_cpu_ci(est_time=8, suite="base-b-test-cpu")
 
 
+# TestSLRUAccuracy类
 class TestSLRUAccuracy(unittest.TestCase):
 
+    # TestSLRUAccuracy类的测试初始化设置
     def setUp(self):
         """Setup minimal memory pools for testing"""
         torch.set_default_device(None)
@@ -65,6 +68,7 @@ class TestSLRUAccuracy(unittest.TestCase):
 
         self.cache = RadixCache(params)
 
+    # TestSLRUAccuracy类的测试evictionmechanism
     def test_eviction_mechanism(self):
         """Test that SLRU eviction mechanism works correctly"""
 
@@ -118,14 +122,14 @@ class TestSLRUAccuracy(unittest.TestCase):
         )
 
         # Verify the frequent key is still present in cache after evictions
-        self.assertIsNotNone(
+        self.assertIsNotNone(  # 断言不为None
             frequent_match_result,
             "Frequently accessed key should still be in cache after evictions",
         )
 
         # Check if the tensor is empty, which indicates the key was not found (evicted)
         is_frequent_key_present = frequent_match_result.device_indices.numel() > 0
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             is_frequent_key_present,
             "Frequently accessed key should still be in cache after evictions",
         )
@@ -135,7 +139,7 @@ class TestSLRUAccuracy(unittest.TestCase):
         is_first_low_freq_key_present = (
             first_low_freq_match_result.device_indices.numel() > 0
         )
-        self.assertFalse(
+        self.assertFalse(  # 断言为假
             is_first_low_freq_key_present,
             "First inserted low-frequency key should be evicted after evictions",
         )

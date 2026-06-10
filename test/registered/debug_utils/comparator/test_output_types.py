@@ -1,3 +1,4 @@
+# 文件名: test_output_types.py - 输出类型测试
 import sys
 from io import StringIO
 
@@ -58,6 +59,7 @@ from sglang.test.ci.ci_register import register_cpu_ci
 register_cpu_ci(est_time=10, suite="base-a-test-cpu", nightly=True)
 
 
+# 执行renderrich
 def _render_rich(renderable: object) -> str:
     buf: StringIO = StringIO()
     Console(file=buf, force_terminal=False, width=120).print(renderable)
@@ -69,6 +71,7 @@ def _render_rich(renderable: object) -> str:
 # ---------------------------------------------------------------------------
 
 
+# 测试splitlogsmixedlist
 def test_split_logs_mixed_list() -> None:
     """_split_logs correctly partitions a mixed list of ErrorLog and InfoLog."""
     errors, infos = _split_logs(
@@ -85,6 +88,7 @@ def test_split_logs_mixed_list() -> None:
     assert infos[0].message == "info"
 
 
+# 测试logrecordtotextformat
 def test_log_record_to_text_format() -> None:
     """LogRecord.to_text() renders errors with ✗ and infos with ℹ markers."""
     record = LogRecord(
@@ -97,18 +101,22 @@ def test_log_record_to_text_format() -> None:
 
 
 class TestLogRecord:
+    # 测试formatbodyreturnsempty
     def test_format_body_returns_empty(self) -> None:
         record: LogRecord = LogRecord()
         assert record._format_body() == ""
 
+    # 测试formatrichbodyreturnsempty
     def test_format_rich_body_returns_empty(self) -> None:
         record: LogRecord = LogRecord()
         assert record._format_rich_body() == ""
 
+    # 测试totextemptynologs
     def test_to_text_empty_no_logs(self) -> None:
         record: LogRecord = LogRecord()
         assert record.to_text() == ""
 
+    # 测试totextwitherrorsandinfos
     def test_to_text_with_errors_and_infos(self) -> None:
         record: LogRecord = LogRecord(
             errors=[ErrorLog(category="a", message="bad thing")],
@@ -124,10 +132,12 @@ class TestLogRecord:
 
 
 class TestConfigRecord:
+    # 测试formatbody
     def test_format_body(self) -> None:
         record: ConfigRecord = ConfigRecord(config={"a": 1, "b": "two"})
         assert record._format_body() == "Config: {'a': 1, 'b': 'two'}"
 
+    # 测试formatrichbody
     def test_format_rich_body(self) -> None:
         record: ConfigRecord = ConfigRecord(config={"threshold": 0.001, "mode": "fast"})
         body = record._format_rich_body()
@@ -145,6 +155,7 @@ class TestConfigRecord:
             "────────────────────────────────────────────────╯"
         )
 
+    # 测试totextwitherrors
     def test_to_text_with_errors(self) -> None:
         record: ConfigRecord = ConfigRecord(
             config={"x": 1},
@@ -161,6 +172,7 @@ class TestConfigRecord:
 
 
 class TestComparisonSkipRecord:
+    # 测试formatbodynostep
     def test_format_body_no_step(self) -> None:
         record: ComparisonSkipRecord = ComparisonSkipRecord(
             name="layer.weight",
@@ -168,6 +180,7 @@ class TestComparisonSkipRecord:
         )
         assert record._format_body() == "Skip: layer.weight (zero-dim tensor)"
 
+    # 测试formatbodywithstep
     def test_format_body_with_step(self) -> None:
         record: ComparisonSkipRecord = ComparisonSkipRecord(
             name="layer.weight",
@@ -176,6 +189,7 @@ class TestComparisonSkipRecord:
         )
         assert record._format_body() == "Skip: layer.weight (step=3) (scalar)"
 
+    # 测试formatrichbody
     def test_format_rich_body(self) -> None:
         record: ComparisonSkipRecord = ComparisonSkipRecord(
             name="attn.qkv",
@@ -184,6 +198,7 @@ class TestComparisonSkipRecord:
         body: str = record._format_rich_body()
         assert body == "[dim]⊘ attn.qkv ── skipped (no baseline)[/]"
 
+    # 测试categoryskipped
     def test_category_skipped(self) -> None:
         record: ComparisonSkipRecord = ComparisonSkipRecord(
             name="x",
@@ -191,6 +206,7 @@ class TestComparisonSkipRecord:
         )
         assert record.category == "skipped"
 
+    # 测试categoryfailed
     def test_category_failed(self) -> None:
         record: ComparisonSkipRecord = ComparisonSkipRecord(
             name="x",
@@ -199,6 +215,7 @@ class TestComparisonSkipRecord:
         )
         assert record.category == "failed"
 
+    # 测试formatbodywithavailableside
     def test_format_body_with_available_side(self) -> None:
         record: ComparisonSkipRecord = ComparisonSkipRecord(
             name="layer.weight",
@@ -217,6 +234,7 @@ class TestComparisonSkipRecord:
         assert "mean=0.5000" in body
         assert "sample: tensor([0.1, 0.2, ...])" in body
 
+    # 测试formatrichbodywithavailableside
     def test_format_rich_body_with_available_side(self) -> None:
         record: ComparisonSkipRecord = ComparisonSkipRecord(
             name="attn.qkv",
@@ -244,6 +262,7 @@ class TestComparisonSkipRecord:
         assert "tensor(" in body
         assert_rich_tags_balanced(body)
 
+    # 测试formatrichbodyminimalhidesavailableside
     def test_format_rich_body_minimal_hides_available_side(self) -> None:
         record: ComparisonSkipRecord = ComparisonSkipRecord(
             name="x",
@@ -263,6 +282,7 @@ class TestComparisonSkipRecord:
 
 
 class TestComparisonNonTensorRecord:
+    # 测试formatbodyequal
     def test_format_body_equal(self) -> None:
         record: ComparisonNonTensorRecord = ComparisonNonTensorRecord(
             name="config.lr",
@@ -274,6 +294,7 @@ class TestComparisonNonTensorRecord:
         )
         assert record._format_body() == "NonTensor: config.lr = 0.001 (float) [equal]"
 
+    # 测试formatbodynotequal
     def test_format_body_not_equal(self) -> None:
         record: ComparisonNonTensorRecord = ComparisonNonTensorRecord(
             name="config.lr",
@@ -289,6 +310,7 @@ class TestComparisonNonTensorRecord:
             "  target   = 0.01 (float)"
         )
 
+    # 测试formatrichbodyequal
     def test_format_rich_body_equal(self) -> None:
         record: ComparisonNonTensorRecord = ComparisonNonTensorRecord(
             name="config.lr",
@@ -300,6 +322,7 @@ class TestComparisonNonTensorRecord:
         )
         assert record._format_rich_body() == ("═ config.lr = 0.001 (float) [green]✓[/]")
 
+    # 测试formatrichbodynotequal
     def test_format_rich_body_not_equal(self) -> None:
         record: ComparisonNonTensorRecord = ComparisonNonTensorRecord(
             name="config.lr",
@@ -315,6 +338,7 @@ class TestComparisonNonTensorRecord:
             "  target   = 0.01 (float)"
         )
 
+    # 测试withstep
     def test_with_step(self) -> None:
         record: ComparisonNonTensorRecord = ComparisonNonTensorRecord(
             name="bias",
@@ -327,6 +351,7 @@ class TestComparisonNonTensorRecord:
         )
         assert "(step=5)" in record._format_body()
 
+    # 测试category
     def test_category(self) -> None:
         passed: ComparisonNonTensorRecord = ComparisonNonTensorRecord(
             name="x",
@@ -354,6 +379,7 @@ class TestComparisonNonTensorRecord:
 
 
 class TestSummaryRecord:
+    # 测试formatbody
     def test_format_body(self) -> None:
         record: SummaryRecord = SummaryRecord(
             total=10,
@@ -365,6 +391,7 @@ class TestSummaryRecord:
             "Summary: 7 passed, 2 failed, 1 skipped (total 10)"
         )
 
+    # 测试formatrichbody
     def test_format_rich_body(self) -> None:
         record: SummaryRecord = SummaryRecord(
             total=10,
@@ -385,6 +412,7 @@ class TestSummaryRecord:
             "────────────────────────────────────────────────╯"
         )
 
+    # 测试validationerror
     def test_validation_error(self) -> None:
         with pytest.raises(ValueError, match="total=5 !="):
             SummaryRecord(total=5, passed=1, failed=1, skipped=1)
@@ -396,6 +424,7 @@ class TestSummaryRecord:
 
 
 class TestComparisonTensorRecordFormatBody:
+    # 测试基本功能
     def test_basic(self) -> None:
         record: ComparisonTensorRecord = ComparisonTensorRecord(
             name="hidden",
@@ -425,6 +454,7 @@ class TestComparisonTensorRecordFormatBody:
             "[abs_diff] p1=0.0001 p5=0.0001 p50=0.0002 p95=0.0004 p99=0.0005"
         )
 
+    # 测试withreplicatedchecks
     def test_with_replicated_checks(self) -> None:
         from sglang.srt.debug_utils.comparator.output_types import ReplicatedCheckResult
 
@@ -472,6 +502,7 @@ class TestComparisonTensorRecordFormatBody:
             "rel_diff=1.000000e-06 max_abs_diff=1.000000e-05 mean_abs_diff=1.000000e-06"
         )
 
+    # 测试withalignerplan
     def test_with_aligner_plan(self) -> None:
         plan: AlignerPlan = AlignerPlan(
             per_step_plans=Pair(x=[], y=[]),
@@ -515,6 +546,7 @@ class TestComparisonTensorRecordFormatBody:
             "  target: (no steps)"
         )
 
+    # 测试withstep
     def test_with_step(self) -> None:
         record: ComparisonTensorRecord = ComparisonTensorRecord(
             name="hidden",
@@ -552,6 +584,7 @@ class TestComparisonTensorRecordFormatBody:
 # ---------------------------------------------------------------------------
 
 
+# 执行wrapplan
 def _wrap_plan(plan: AlignerPlan) -> TracedAlignerPlan:
     """Wrap an AlignerPlan into a TracedAlignerPlan with no snapshots."""
     baseline_traced_steps: list[TracedStepPlan] = [
@@ -580,6 +613,7 @@ def _wrap_plan(plan: AlignerPlan) -> TracedAlignerPlan:
 
 
 class TestFormatAlignerPlan:
+    # 测试passthrough
     def test_passthrough(self) -> None:
         plan: AlignerPlan = AlignerPlan(
             per_step_plans=Pair(x=[], y=[]),
@@ -590,6 +624,7 @@ class TestFormatAlignerPlan:
             "Aligner Plan:\n" "  baseline: (no steps)\n" "  target: (no steps)"
         )
 
+    # 测试unsharder
     def test_unsharder(self) -> None:
         unsharder: UnsharderPlan = UnsharderPlan(
             axis=ParallelAxis.TP,
@@ -614,6 +649,7 @@ class TestFormatAlignerPlan:
             "  target: [step=0: unsharder(tp)]"
         )
 
+    # 测试reorderer
     def test_reorderer(self) -> None:
         reorderer: ReordererPlan = ReordererPlan(
             params=ZigzagToNaturalParams(dim_name="s", cp_size=2),
@@ -636,6 +672,7 @@ class TestFormatAlignerPlan:
             "  target: [step=0: reorderer(zigzag_to_natural)]"
         )
 
+    # 测试multistep
     def test_multi_step(self) -> None:
         unsharder: UnsharderPlan = UnsharderPlan(
             axis=ParallelAxis.TP,
@@ -666,6 +703,7 @@ class TestFormatAlignerPlan:
             "  target: [step=0: unsharder(tp); step=1: reorderer(zigzag_to_natural)]"
         )
 
+    # 测试withtokenaligner
     def test_with_token_aligner(self) -> None:
         ta_plan: TokenAlignerPlan = TokenAlignerPlan(
             locators=Pair(
@@ -687,6 +725,7 @@ class TestFormatAlignerPlan:
             "  token_aligner: 3 tokens aligned"
         )
 
+    # 测试withaxisaligner
     def test_with_axis_aligner(self) -> None:
         aa_plan: AxisAlignerPlan = AxisAlignerPlan(
             pattern=Pair(x="b s d -> s b d", y=None),
@@ -711,12 +750,14 @@ class TestFormatAlignerPlan:
 
 
 class TestOutputRecordLogAttachment:
+    # 测试totextnologs
     def test_to_text_no_logs(self) -> None:
         record: ConfigRecord = ConfigRecord(config={"a": 1})
         text: str = record.to_text()
 
         assert text == "Config: {'a': 1}"
 
+    # 测试totexterrorsonly
     def test_to_text_errors_only(self) -> None:
         record: ConfigRecord = ConfigRecord(
             config={"a": 1},
@@ -726,6 +767,7 @@ class TestOutputRecordLogAttachment:
 
         assert text == "Config: {'a': 1}\n  ✗ err1"
 
+    # 测试totextinfosonly
     def test_to_text_infos_only(self) -> None:
         record: ConfigRecord = ConfigRecord(
             config={"a": 1},
@@ -735,6 +777,7 @@ class TestOutputRecordLogAttachment:
 
         assert text == "Config: {'a': 1}\n  ℹ note1"
 
+    # 测试totextmixed
     def test_to_text_mixed(self) -> None:
         record: ConfigRecord = ConfigRecord(
             config={"a": 1},
@@ -745,6 +788,7 @@ class TestOutputRecordLogAttachment:
 
         assert text == "Config: {'a': 1}\n  ✗ err1\n  ℹ note1"
 
+    # 测试torichstringbody
     def test_to_rich_string_body(self) -> None:
         record: ComparisonSkipRecord = ComparisonSkipRecord(
             name="x",
@@ -756,6 +800,7 @@ class TestOutputRecordLogAttachment:
         assert isinstance(body, str)
         assert body == "[dim]⊘ x ── skipped (r)[/]\n  [red]✗ oops[/]\n"
 
+    # 测试torichgroupbody
     def test_to_rich_group_body(self) -> None:
         record: ConfigRecord = ConfigRecord(
             config={"a": 1},

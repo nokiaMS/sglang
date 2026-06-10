@@ -1,3 +1,4 @@
+# 文件名: test_mamba_state_scatter_triton.py - Mamba状态散射Triton
 from sglang.test.ci.ci_register import register_cuda_ci
 
 register_cuda_ci(est_time=7, stage="base-b", runner_config="1-gpu-small")
@@ -18,6 +19,7 @@ except Exception as e:  # pragma: no cover
     _FUSED_IMPORT_ERROR = e
 
 
+# 内部方法_dtype_from_str
 def _dtype_from_str(name: str) -> torch.dtype:
     mapping = {
         "bfloat16": torch.bfloat16,
@@ -25,12 +27,13 @@ def _dtype_from_str(name: str) -> torch.dtype:
         "float32": torch.float32,
     }
     if name not in mapping:
-        raise ValueError(
+        raise ValueError(  # 抛出异常
             f"Unsupported dtype string {name!r}. Supported: {sorted(mapping.keys())}"
         )
     return mapping[name]
 
 
+# 内部方法_ref_scatter
 def _ref_scatter(dst, src, dst_indices, src_indices, step_indices):
     """Reference implementation using PyTorch advanced indexing."""
     # dst: [L, C, E]
@@ -38,6 +41,7 @@ def _ref_scatter(dst, src, dst_indices, src_indices, step_indices):
     dst[:, dst_indices] = src[:, src_indices, step_indices].to(dst.dtype, copy=False)
 
 
+# 内部方法_ref_update_like
 def _ref_update_like(
     ssm_states,
     intermediate_ssm,
@@ -103,6 +107,7 @@ def _ref_update_like(
         )
 
 
+# 内部方法_fused_update_like
 def _fused_update_like(
     ssm_states,
     intermediate_ssm,
@@ -145,6 +150,7 @@ def _fused_update_like(
         )
 
 
+# 内部方法_time_cuda_ms
 def _time_cuda_ms(fn, iters=50, warmup=10):
     """Measure average CUDA time (ms) using CUDA events."""
     for _ in range(warmup):
@@ -161,8 +167,11 @@ def _time_cuda_ms(fn, iters=50, warmup=10):
     return start.elapsed_time(end) / iters
 
 
+# TestMambaStateScatterCorrectness类
 class TestMambaStateScatterCorrectness(unittest.TestCase):
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA is required for this test.")
+
+    # TestMambaStateScatterCorrectness类的测试fusedmatchesreference
     def test_fused_matches_reference(self):
         """Test that fused_mamba_state_scatter_with_mask matches the reference."""
         if fused_mamba_state_scatter_with_mask is None:
@@ -242,8 +251,11 @@ class TestMambaStateScatterCorrectness(unittest.TestCase):
         torch.testing.assert_close(conv_fused, conv_ref)
 
 
+# TestMambaStateScatterPerf类
 class TestMambaStateScatterPerf(unittest.TestCase):
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA is required for this test.")
+
+    # TestMambaStateScatterPerf类的测试perfreportoldvsfused
     def test_perf_report_old_vs_fused(self):
         """Optional microbenchmark comparing baseline vs fused kernel.
 
@@ -307,6 +319,7 @@ class TestMambaStateScatterPerf(unittest.TestCase):
             track_invalid = torch.rand((B,), device=device) >= track_ratio
             mamba_steps_to_track[track_invalid] = -1
 
+        # ref_fn
         def ref_fn():
             _ref_update_like(
                 ssm_states,
@@ -319,6 +332,7 @@ class TestMambaStateScatterPerf(unittest.TestCase):
                 mamba_steps_to_track=mamba_steps_to_track,
             )
 
+        # fused_fn
         def fused_fn():
             _fused_update_like(
                 ssm_states,

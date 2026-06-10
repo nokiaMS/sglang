@@ -1,3 +1,4 @@
+# 文件名: test_planner.py - 规划器测试
 import sys
 from typing import Any, Optional
 
@@ -29,6 +30,7 @@ register_cpu_ci(est_time=15, suite="base-a-test-cpu", nightly=True)
 register_cpu_ci(est_time=1, suite="base-b-test-cpu")
 
 
+# 执行makemeta
 def _make_meta(
     *,
     step: int = 0,
@@ -55,16 +57,19 @@ def _make_meta(
 
 
 class TestComputePerStepSubPlans:
+    # 测试emptymetas
     def test_empty_metas(self) -> None:
         result: list[AlignerPerStepSubPlan] = compute_per_step_sub_plans(metas=[])
         assert result == []
 
+    # 测试singlemeta
     def test_single_meta(self) -> None:
         result: list[AlignerPerStepSubPlan] = compute_per_step_sub_plans(
             metas=[_make_meta(dims="b h[tp]", tp_size=2)]
         )
         assert result == []
 
+    # 测试dimsnone
     def test_dims_none(self) -> None:
         result: list[AlignerPerStepSubPlan] = compute_per_step_sub_plans(
             metas=[
@@ -74,6 +79,7 @@ class TestComputePerStepSubPlans:
         )
         assert result == []
 
+    # 测试tpshardedreturnsunsharderplan
     def test_tp_sharded_returns_unsharder_plan(self) -> None:
         result: list[AlignerPerStepSubPlan] = compute_per_step_sub_plans(
             metas=[
@@ -87,6 +93,7 @@ class TestComputePerStepSubPlans:
         ]
         assert len(unsharder_plans) >= 1
 
+    # 测试zigzagreturnsbothplans
     def test_zigzag_returns_both_plans(self) -> None:
         result: list[AlignerPerStepSubPlan] = compute_per_step_sub_plans(
             metas=[
@@ -105,6 +112,7 @@ class TestComputePerStepSubPlans:
 
 
 class TestComputePerStepPlans:
+    # 测试groupsbystep
     def test_groups_by_step(self) -> None:
         metas: list[dict[str, Any]] = [
             _make_meta(step=0, tp_rank=0, tp_size=2),
@@ -119,6 +127,7 @@ class TestComputePerStepPlans:
         assert result[1].step == 1
         assert result[1].input_object_indices == [2]
 
+    # 测试sortedbystep
     def test_sorted_by_step(self) -> None:
         metas: list[dict[str, Any]] = [
             _make_meta(step=2),
@@ -130,6 +139,7 @@ class TestComputePerStepPlans:
         steps: list[int] = [p.step for p in result]
         assert steps == [0, 1, 2]
 
+    # 测试singlemetaperstepemptysubplans
     def test_single_meta_per_step_empty_sub_plans(self) -> None:
         metas: list[dict[str, Any]] = [
             _make_meta(step=0),
@@ -142,6 +152,7 @@ class TestComputePerStepPlans:
 
 
 class TestComputeAlignerPlan:
+    # 测试wrapsbothsides
     def test_wraps_both_sides(self) -> None:
         metas_x: list[dict[str, Any]] = [_make_meta(step=0)]
         metas_y: list[dict[str, Any]] = [_make_meta(step=0)]
@@ -156,6 +167,7 @@ class TestComputeAlignerPlan:
         assert len(plan.per_step_plans.y) == 1
         assert plan.token_aligner_plan is None
 
+    # 测试preservestokenalignerplan
     def test_preserves_token_aligner_plan(self) -> None:
         from sglang.srt.debug_utils.comparator.aligner.token_aligner.smart.types import (
             TokenAlignerPlan,
@@ -181,6 +193,7 @@ class TestComputeAlignerPlan:
 
 
 class TestComputePerStepSubPlansThd:
+    # 测试thdzigzagreturnsthdplans
     def test_thd_zigzag_returns_thd_plans(self) -> None:
         """t[cp:zigzag] h[tp] generates THD-typed unsharder + reorderer plans."""
         thd_global_seq_lens: list[int] = [100, 64, 92]
@@ -245,6 +258,7 @@ class TestComputePerStepSubPlansDpFiltered:
     so DP axes already handled by the upstream DP filter don't cause validation errors.
     """
 
+    # 测试dp2tp2doesnotraise
     def test_dp2_tp2_does_not_raise(self) -> None:
         """DP2 + TP2, dims='t h[tp]' → should not raise despite DP being active."""
         result: list[AlignerPerStepSubPlan] = compute_per_step_sub_plans(
@@ -269,6 +283,7 @@ class TestComputePerStepSubPlansDpFiltered:
         assert len(unsharder_plans) == 1
         assert unsharder_plans[0].axis.value == "tp"
 
+    # 测试dp2onlynoshardingdoesnotraise
     def test_dp2_only_no_sharding_does_not_raise(self) -> None:
         """DP2 only, dims='t h' → should not raise, no plans produced."""
         result: list[AlignerPerStepSubPlan] = compute_per_step_sub_plans(
@@ -285,6 +300,7 @@ class TestComputePerStepSubPlansDpFiltered:
         )
         assert result == []
 
+    # 测试dpaliaspassescorrectfilteredaxis
     def test_dp_alias_passes_correct_filtered_axis(self) -> None:
         """dims with '# dp:=moe_dp', metas have moe_dp → should not raise."""
         result: list[AlignerPerStepSubPlan] = compute_per_step_sub_plans(
@@ -309,6 +325,7 @@ class TestComputePerStepSubPlansDpFiltered:
         assert len(unsharder_plans) == 1
         assert unsharder_plans[0].axis.value == "tp"
 
+    # 测试dp2tp2cp2doesnotraise
     def test_dp2_tp2_cp2_does_not_raise(self) -> None:
         """DP2 + TP2 + CP2, dims='s[cp] h[tp]' → should not raise."""
         metas = []

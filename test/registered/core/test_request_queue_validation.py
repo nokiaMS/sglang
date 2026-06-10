@@ -1,3 +1,4 @@
+# 文件名: test_request_queue_validation.py - 请求队列验证测试
 import asyncio
 import os
 import re
@@ -23,6 +24,7 @@ register_amd_ci(est_time=70, suite="stage-b-test-1-gpu-small-amd")
 
 class TestMaxQueuedRequests(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = DEFAULT_SMALL_MODEL_NAME_FOR_TEST
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -47,6 +49,7 @@ class TestMaxQueuedRequests(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
         cls.stdout.close()
@@ -54,6 +57,7 @@ class TestMaxQueuedRequests(CustomTestCase):
         os.remove(STDOUT_FILENAME)
         os.remove(STDERR_FILENAME)
 
+    # 测试maxqueuedrequestsvalidationwithserialrequests
     def test_max_queued_requests_validation_with_serial_requests(self):
         """Verify request is not throttled when the max concurrency is 1."""
         status_codes = send_generate_requests(
@@ -64,6 +68,7 @@ class TestMaxQueuedRequests(CustomTestCase):
         for status_code in status_codes:
             assert status_code == 200  # request shouldn't be throttled
 
+    # 测试maxqueuedrequestsvalidationwithconcurrentrequests
     def test_max_queued_requests_validation_with_concurrent_requests(self):
         """Verify request throttling with concurrent requests."""
         status_codes = asyncio.run(
@@ -74,6 +79,7 @@ class TestMaxQueuedRequests(CustomTestCase):
         # expected_status_codes = [200, 200, 503, 503, 503, 503, 503, 503, 503, 503]
         # self.assertEqual(status_codes, expected_status_codes)
 
+    # 测试maxrunningrequestsandmaxqueuedrequestvalidation
     def test_max_running_requests_and_max_queued_request_validation(self):
         """Verify running request and queued request numbers based on server logs."""
         rr_pattern = re.compile(r"#running-req:\s*(\d+)")

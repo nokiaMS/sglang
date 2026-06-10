@@ -1,3 +1,4 @@
+# 文件名: test_display.py - 显示模块测试
 import sys
 from io import StringIO
 from pathlib import Path
@@ -24,12 +25,14 @@ from sglang.test.ci.ci_register import register_cpu_ci
 register_cpu_ci(est_time=10, suite="base-a-test-cpu", nightly=True)
 
 
+# 执行renderrich
 def _render_rich(renderable: object) -> str:
     buf: StringIO = StringIO()
     Console(file=buf, force_terminal=False, width=120).print(renderable)
     return buf.getvalue().rstrip("\n")
 
 
+# 执行savedumpfile
 def _save_dump_file(
     directory: Path,
     *,
@@ -45,6 +48,7 @@ def _save_dump_file(
     return filename
 
 
+# 执行makedf
 def _make_df(rows: list[dict]) -> pl.DataFrame:
     df = pl.DataFrame(rows)
     df = df.with_columns(
@@ -56,6 +60,7 @@ def _make_df(rows: list[dict]) -> pl.DataFrame:
 
 
 class TestRenderPolarsAsText:
+    # 测试renderstable
     def test_renders_table(self) -> None:
         df = pl.DataFrame({"col_a": [1, 2], "col_b": ["x", "y"]})
         text: str = _render_polars_as_text(df, title="test table")
@@ -64,6 +69,7 @@ class TestRenderPolarsAsText:
         assert "col_a" in text
         assert "col_b" in text
 
+    # 测试rendersemptydataframe
     def test_renders_empty_dataframe(self) -> None:
         df = pl.DataFrame({"a": [], "b": []})
         text: str = _render_polars_as_text(df, title="empty")
@@ -71,6 +77,7 @@ class TestRenderPolarsAsText:
 
 
 class TestCollectRankInfo:
+    # 测试collectsrankinfo
     def test_collects_rank_info(self, tmp_path: Path) -> None:
         sglang_info = {
             "tp_rank": 0,
@@ -107,6 +114,7 @@ class TestCollectRankInfo:
         assert rows[0]["tp"] == "0/2"
         assert rows[0]["pp"] == "0/1"
 
+    # 测试returnsnonewhennoinputids
     def test_returns_none_when_no_input_ids(self, tmp_path: Path) -> None:
         df = _make_df(
             [
@@ -122,6 +130,7 @@ class TestCollectRankInfo:
         result = _collect_rank_info(df, dump_dir=tmp_path)
         assert result is None
 
+    # 测试deduplicatesranks
     def test_deduplicates_ranks(self, tmp_path: Path) -> None:
         meta = {"sglang_parallel_info": {"tp_rank": 0, "tp_size": 1}}
         f1: str = _save_dump_file(
@@ -168,6 +177,7 @@ class TestCollectRankInfo:
 
 
 class TestCollectInputIdsAndPositions:
+    # 测试collectsidsandpositions
     def test_collects_ids_and_positions(self, tmp_path: Path) -> None:
         f_ids: str = _save_dump_file(
             tmp_path,
@@ -216,6 +226,7 @@ class TestCollectInputIdsAndPositions:
         assert "10" in rows[0]["input_ids"]
         assert "0" in rows[0]["positions"]
 
+    # 测试returnsnonewhenempty
     def test_returns_none_when_empty(self, tmp_path: Path) -> None:
         df = _make_df(
             [
@@ -231,6 +242,7 @@ class TestCollectInputIdsAndPositions:
         result = _collect_input_ids_and_positions(df, dump_dir=tmp_path)
         assert result is None
 
+    # 测试withmocktokenizer
     def test_with_mock_tokenizer(self, tmp_path: Path) -> None:
         f_ids: str = _save_dump_file(
             tmp_path,
@@ -254,6 +266,7 @@ class TestCollectInputIdsAndPositions:
         )
 
         class _MockTokenizer:
+            # 执行decode
             def decode(self, ids: list[int], skip_special_tokens: bool = False) -> str:
                 return f"decoded:{ids}"
 
@@ -267,6 +280,7 @@ class TestCollectInputIdsAndPositions:
 
 
 class TestRankInfoRecordSnapshot:
+    # 测试totextsnapshot
     def test_to_text_snapshot(self) -> None:
         record = RankInfoRecord(
             label="baseline",
@@ -285,6 +299,7 @@ class TestRankInfoRecordSnapshot:
         assert "1/2" in text
         assert "0/1" in text
 
+    # 测试torichsnapshot
     def test_to_rich_snapshot(self) -> None:
         from rich.table import Table
 
@@ -303,6 +318,7 @@ class TestRankInfoRecordSnapshot:
         assert "0/2" in rendered
         assert "1/2" in rendered
 
+    # 测试jsonroundtrip
     def test_json_roundtrip(self) -> None:
         record = RankInfoRecord(
             label="target",
@@ -316,6 +332,7 @@ class TestRankInfoRecordSnapshot:
 
 
 class TestInputIdsRecordSnapshot:
+    # 测试totextsnapshot
     def test_to_text_snapshot(self) -> None:
         record = InputIdsRecord(
             label="target",
@@ -337,6 +354,7 @@ class TestInputIdsRecordSnapshot:
         assert "10, 20, 30" in text
         assert "0, 1, 2" in text
 
+    # 测试torichsnapshot
     def test_to_rich_snapshot(self) -> None:
         from rich.table import Table
 
@@ -360,6 +378,7 @@ class TestInputIdsRecordSnapshot:
         assert "10, 20, 30" in rendered
         assert "0, 1, 2" in rendered
 
+    # 测试jsonroundtrip
     def test_json_roundtrip(self) -> None:
         record = InputIdsRecord(
             label="baseline",
@@ -380,6 +399,7 @@ class TestInputIdsRecordSnapshot:
         assert '"label":"baseline"' in json_str
         assert '"decoded_text"' in json_str
 
+    # 测试totextwithdecoded
     def test_to_text_with_decoded(self) -> None:
         record = InputIdsRecord(
             label="test",
@@ -401,6 +421,7 @@ class TestInputIdsRecordSnapshot:
 
 
 class TestExtractParallelInfo:
+    # 测试extractsranksizepairs
     def test_extracts_rank_size_pairs(self) -> None:
         info: dict = {
             "tp_rank": 1,
@@ -414,6 +435,7 @@ class TestExtractParallelInfo:
         assert row_data["tp"] == "1/4"
         assert row_data["pp"] == "0/2"
 
+    # 测试skipserrorinfo
     def test_skips_error_info(self) -> None:
         row_data: dict = {}
         _extract_parallel_info(
@@ -421,11 +443,13 @@ class TestExtractParallelInfo:
         )
         assert row_data == {}
 
+    # 测试skipsemptyinfo
     def test_skips_empty_info(self) -> None:
         row_data: dict = {}
         _extract_parallel_info(row_data=row_data, info={})
         assert row_data == {}
 
+    # 测试ignoresrankwithoutsize
     def test_ignores_rank_without_size(self) -> None:
         row_data: dict = {}
         _extract_parallel_info(row_data=row_data, info={"tp_rank": 0})
@@ -433,12 +457,14 @@ class TestExtractParallelInfo:
 
 
 class TestRenderPolarsAsRichTable:
+    # 测试basicdataframerenderstable
     def test_basic_dataframe_renders_table(self) -> None:
         df = pl.DataFrame({"a": [1, 2], "b": ["x", "y"]})
         table = _render_polars_as_rich_table(df)
         assert len(table.columns) == 2
         assert table.row_count == 2
 
+    # 测试emptydataframereturnstablewithnorows
     def test_empty_dataframe_returns_table_with_no_rows(self) -> None:
         df = pl.DataFrame(
             {"a": pl.Series([], dtype=pl.Int64), "b": pl.Series([], dtype=pl.Utf8)}
@@ -447,22 +473,26 @@ class TestRenderPolarsAsRichTable:
         assert len(table.columns) == 2
         assert table.row_count == 0
 
+    # 测试titlepassedtotable
     def test_title_passed_to_table(self) -> None:
         df = pl.DataFrame({"a": [1]})
         table = _render_polars_as_rich_table(df, title="My Title")
         assert table.title == "My Title"
 
+    # 测试notitledefaultstonone
     def test_no_title_defaults_to_none(self) -> None:
         df = pl.DataFrame({"x": [1]})
         table = _render_polars_as_rich_table(df)
         assert table.title is None
 
+    # 测试columnnamesmatchdataframe
     def test_column_names_match_dataframe(self) -> None:
         df = pl.DataFrame({"alpha": [1], "beta": [2], "gamma": [3]})
         table = _render_polars_as_rich_table(df)
         column_headers: list[str] = [col.header for col in table.columns]
         assert column_headers == ["alpha", "beta", "gamma"]
 
+    # 测试valuesconvertedtostrings
     def test_values_converted_to_strings(self) -> None:
         """Numeric and None values should be stringified in the rendered output."""
         df = pl.DataFrame({"num": [42], "text": ["hello"]})
@@ -471,18 +501,21 @@ class TestRenderPolarsAsRichTable:
         assert "42" in rendered
         assert "hello" in rendered
 
+    # 测试singlecolumndataframe
     def test_single_column_dataframe(self) -> None:
         df = pl.DataFrame({"only_col": [10, 20, 30]})
         table = _render_polars_as_rich_table(df)
         assert len(table.columns) == 1
         assert table.row_count == 3
 
+    # 测试manyrowsallpresent
     def test_many_rows_all_present(self) -> None:
         """All rows from the dataframe appear in the rich table."""
         df = pl.DataFrame({"val": list(range(50))})
         table = _render_polars_as_rich_table(df)
         assert table.row_count == 50
 
+    # 测试nullvaluesrenderedasstring
     def test_null_values_rendered_as_string(self) -> None:
         """Null values should be converted to their string representation."""
         df = pl.DataFrame({"a": [1, None, 3]})

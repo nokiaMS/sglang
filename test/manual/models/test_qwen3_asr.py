@@ -1,3 +1,4 @@
+# 文件名: test_qwen3_asr.py - 测试Qwen3-ASR语音识别模型的HTTP与WebSocket接口
 """
 Test Qwen3-ASR model support in SGLang.
 
@@ -93,12 +94,14 @@ EXPECTED_TRANSCRIPTS = {
 }
 
 
+# 将文本标准化用于词错误率计算
 def _normalize_for_wer(text: str) -> list:
     text = text.lower()
     text = re.sub(r"[^\w\s\u0900-\u097f\u4e00-\u9fff]+", " ", text)
     return text.split()
 
 
+# 计算词错误率(WER)
 def _wer(hypothesis: str, reference: str) -> float:
     hyp = _normalize_for_wer(hypothesis)
     ref = _normalize_for_wer(reference)
@@ -127,13 +130,14 @@ def download_audio(url, local_path):
     if os.path.exists(local_path):
         with open(local_path, "rb") as f:
             return f.read()
-    resp = requests.get(url, timeout=60)
+    resp = requests.get(url, timeout=60)  # 发送GET请求
     resp.raise_for_status()
     with open(local_path, "wb") as f:
         f.write(resp.content)
     return resp.content
 
 
+# 将音频字节转换为16位PCM格式
 def _pcm16_from_audio_bytes(audio_bytes, target_sr=16000):
     data, sr = sf.read(io.BytesIO(audio_bytes), dtype="float32")
     if len(data.shape) > 1:
@@ -147,6 +151,7 @@ def _pcm16_from_audio_bytes(audio_bytes, target_sr=16000):
     return pcm, sr
 
 
+# 异步流式WebSocket转录
 async def _stream_websocket_async(
     websocket_url, pcm_bytes, sample_rate, language=None, realtime=False
 ):
@@ -193,6 +198,7 @@ async def _stream_websocket_async(
         deltas = []
         completed_msg = {}
 
+        # 执行receive_loop
         async def receive_loop():
             async for raw in websocket:
                 resp = json.loads(raw)
@@ -257,10 +263,11 @@ class TestQwen3ASRTranscription(CustomTestCase):
     """Test Qwen3-ASR via HTTP /v1/audio/transcriptions and OpenAI Realtime WebSocket /v1/realtime."""
 
     @classmethod
+    # 类级别初始化，启动服务器或设置测试环境
     def setUpClass(cls):
         cls.model = MODEL
         cls.base_url = DEFAULT_URL_FOR_TEST
-        cls.process = popen_launch_server(
+        cls.process = popen_launch_server(  # 启动推理服务器
             cls.model,
             cls.base_url,
             timeout=DEFAULT_TIMEOUT_FOR_SERVER_LAUNCH,
@@ -272,8 +279,9 @@ class TestQwen3ASRTranscription(CustomTestCase):
         )
 
     @classmethod
+    # 类级别清理，关闭服务器或清理资源
     def tearDownClass(cls):
-        kill_process_tree(cls.process.pid)
+        kill_process_tree(cls.process.pid)  # 终止服务器进程
 
     def _transcribe(self, audio_url, local_path, language=None):
         """Send an HTTP transcription request."""
@@ -281,29 +289,29 @@ class TestQwen3ASRTranscription(CustomTestCase):
         data = {"model": "qwen3-asr"}
         if language:
             data["language"] = language
-        response = requests.post(
+        response = requests.post(  # 发送POST请求
             self.base_url + "/v1/audio/transcriptions",
             files={"file": ("audio.wav", io.BytesIO(audio_bytes), "audio/wav")},
             data=data,
             timeout=120,
         )
-        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.status_code, 200, response.text)  # 断言值相等
         return response.json()
 
     def test_english_transcription(self):
         """Test English audio transcription."""
         result = self._transcribe(TEST_AUDIO_EN_URL, TEST_AUDIO_EN_LOCAL)
-        self.assertIn("text", result)
+        self.assertIn("text", result)  # 断言值包含在集合中
         text = result["text"]
-        self.assertTrue(len(text) > 0, "Transcription should not be empty")
+        self.assertTrue(len(text) > 0, "Transcription should not be empty")  # 断言条件为真
         print(f"[EN Transcription] {text}")
 
     def test_chinese_transcription(self):
         """Test Chinese audio transcription."""
         result = self._transcribe(TEST_AUDIO_ZH_URL, TEST_AUDIO_ZH_LOCAL)
-        self.assertIn("text", result)
+        self.assertIn("text", result)  # 断言值包含在集合中
         text = result["text"]
-        self.assertTrue(len(text) > 0, "Transcription should not be empty")
+        self.assertTrue(len(text) > 0, "Transcription should not be empty")  # 断言条件为真
         print(f"[ZH Transcription] {text}")
 
     def test_multiple_requests_consistency(self):
@@ -314,19 +322,21 @@ class TestQwen3ASRTranscription(CustomTestCase):
             results.append(result["text"])
 
         for i in range(1, len(results)):
-            self.assertEqual(
+            self.assertEqual(  # 断言值相等
                 results[0],
                 results[i],
                 f"Request {i+1} differs from first request",
             )
         print(f"[Consistency] All 3 requests match: {results[0][:80]}...")
 
+    # 构建WebSocket URL
     def _websocket_url(self):
         return (
             self.base_url.replace("http://", "ws://").replace("https://", "wss://")
             + "/v1/realtime"
         )
 
+    # 同步执行WebSocket流式转录
     def _stream_websocket(
         self,
         audio_url,
@@ -343,13 +353,14 @@ class TestQwen3ASRTranscription(CustomTestCase):
             )
         )
 
+    # 断言转录结果与参考文本的WER在阈值内
     def _assert_close_to_ref(
         self, hypothesis: str, ref_key: str, max_wer: float = 0.15
     ):
         # 15% tolerates chunked-streaming artifacts without hiding regressions.
         reference = EXPECTED_TRANSCRIPTS[ref_key]
         wer = _wer(hypothesis, reference)
-        self.assertLessEqual(
+        self.assertLessEqual(  # 断言值小于等于阈值
             wer,
             max_wer,
             f"WER {wer:.3f} > {max_wer} for {ref_key!r}\n"
@@ -357,16 +368,18 @@ class TestQwen3ASRTranscription(CustomTestCase):
         )
 
     @unittest.skipUnless(HAS_WEBSOCKETS, "websockets package not installed")
+    # 测试english websocket streaming功能
     def test_english_websocket_streaming(self):
         result = self._stream_websocket(TEST_AUDIO_EN_URL, TEST_AUDIO_EN_LOCAL)
         self._assert_close_to_ref(result["text"], "en")
-        self.assertGreater(len(result["deltas"]), 0)
+        self.assertGreater(len(result["deltas"]), 0)  # 断言精度大于阈值
         print(
             f"[EN WS] final={result['text']} "
             f"({len(result['deltas'])} deltas, {result['duration_sec']}s)"
         )
 
     @unittest.skipUnless(HAS_WEBSOCKETS, "websockets package not installed")
+    # 测试chinese websocket streaming功能
     def test_chinese_websocket_streaming(self):
         result = self._stream_websocket(
             TEST_AUDIO_ZH_URL, TEST_AUDIO_ZH_LOCAL, language="zh"
@@ -378,19 +391,21 @@ class TestQwen3ASRTranscription(CustomTestCase):
         )
 
     @unittest.skipUnless(HAS_WEBSOCKETS, "websockets package not installed")
+    # 测试websocket streaming realtime功能
     def test_websocket_streaming_realtime(self):
         # Pace appends at wall-clock so multiple deltas land before commit.
         result = self._stream_websocket(
             TEST_AUDIO_EN_URL, TEST_AUDIO_EN_LOCAL, realtime=True
         )
         self._assert_close_to_ref(result["text"], "en")
-        self.assertGreaterEqual(len(result["deltas"]), 2, result["deltas"])
+        self.assertGreaterEqual(len(result["deltas"]), 2, result["deltas"])  # 断言精度大于等于阈值
         print(
             f"[Realtime WS] final={result['text']} "
             f"({len(result['deltas'])} deltas, {result['duration_sec']}s)"
         )
 
     @unittest.skipUnless(HAS_WEBSOCKETS, "websockets package not installed")
+    # 测试mlk speech websocket streaming功能
     def test_mlk_speech_websocket_streaming(self):
         # FLAC 22050 Hz — exercises client-side resample to 16 kHz.
         result = self._stream_websocket(TEST_AUDIO_MLK_URL, TEST_AUDIO_MLK_LOCAL)
@@ -401,12 +416,14 @@ class TestQwen3ASRTranscription(CustomTestCase):
         )
 
     @unittest.skipUnless(HAS_WEBSOCKETS, "websockets package not installed")
+    # 测试websocket concurrent sessions功能
     def test_websocket_concurrent_sessions(self):
         # Verify state isolation: 3 concurrent sessions on identical audio
         # must yield identical finals + 3 distinct session ids.
         audio_bytes = download_audio(TEST_AUDIO_EN_URL, TEST_AUDIO_EN_LOCAL)
         pcm, sr = _pcm16_from_audio_bytes(audio_bytes)
 
+        # 执行run_n_concurrent
         async def run_n_concurrent(n):
             return await asyncio.gather(
                 *[
@@ -418,17 +435,18 @@ class TestQwen3ASRTranscription(CustomTestCase):
         results = asyncio.run(run_n_concurrent(3))
 
         session_ids = {r["session_id"] for r in results}
-        self.assertEqual(len(session_ids), 3)
+        self.assertEqual(len(session_ids), 3)  # 断言值相等
         for r in results:
-            self.assertTrue(len(r["text"]) > 0)
+            self.assertTrue(len(r["text"]) > 0)  # 断言条件为真
         finals = [r["text"] for r in results]
-        self.assertEqual(len(set(finals)), 1, f"finals diverged: {finals}")
+        self.assertEqual(len(set(finals)), 1, f"finals diverged: {finals}")  # 断言值相等
         print(
             f"[Concurrent x3 WS] all finals match: {finals[0]} "
             f"(session_ids={sorted(session_ids)})"
         )
 
     @unittest.skipUnless(HAS_WEBSOCKETS, "websockets package not installed")
+    # 测试spanish websocket streaming功能
     def test_spanish_websocket_streaming(self):
         # FLAC 48 kHz PCM_24 — keep native rate so server-side resample runs.
         result = self._stream_websocket(
@@ -444,6 +462,7 @@ class TestQwen3ASRTranscription(CustomTestCase):
         )
 
     @unittest.skipUnless(HAS_WEBSOCKETS, "websockets package not installed")
+    # 测试websocket short clip功能
     def test_websocket_short_clip(self):
         # 3s clip exercises the mid-chunk tail flush at commit.
         audio_bytes = download_audio(TEST_AUDIO_MP3_URL, TEST_AUDIO_MP3_LOCAL)
@@ -459,6 +478,7 @@ class TestQwen3ASRTranscription(CustomTestCase):
         )
 
     @unittest.skipUnless(HAS_WEBSOCKETS, "websockets package not installed")
+    # 测试websocket chunk boundary flush功能
     def test_websocket_chunk_boundary_flush(self):
         # Exact 4s = 2 × chunk_size_sec to hit the exact-boundary tail-flush
         # path at commit. EN clip (not mp3) because mp3 starts with silence.
@@ -470,18 +490,20 @@ class TestQwen3ASRTranscription(CustomTestCase):
         result = asyncio.run(
             _stream_websocket_async(self._websocket_url(), boundary_pcm, sr)
         )
-        self.assertTrue(len(result["text"]) > 0, result)
+        self.assertTrue(len(result["text"]) > 0, result)  # 断言条件为真
         print(
             f"[Chunk boundary WS] final={result['text']} "
             f"({len(result['deltas'])} deltas, {result['duration_sec']}s)"
         )
 
     @unittest.skipUnless(HAS_WEBSOCKETS, "websockets package not installed")
+    # 测试websocket rejects unsupported sample rate功能
     def test_websocket_rejects_unsupported_sample_rate(self):
+        # 执行run
         async def run():
             async with websockets.connect(self._websocket_url()) as ws:
                 created = json.loads(await ws.recv())
-                self.assertEqual(created.get("type"), "session.created", created)
+                self.assertEqual(created.get("type"), "session.created", created)  # 断言值相等
                 await ws.send(
                     json.dumps(
                         {
@@ -504,10 +526,10 @@ class TestQwen3ASRTranscription(CustomTestCase):
                     )
                 )
                 evt = json.loads(await ws.recv())
-                self.assertEqual(evt.get("type"), "error", evt)
+                self.assertEqual(evt.get("type"), "error", evt)  # 断言值相等
                 err = evt.get("error", {})
-                self.assertEqual(err.get("code"), "invalid_value", err)
-                self.assertEqual(
+                self.assertEqual(err.get("code"), "invalid_value", err)  # 断言值相等
+                self.assertEqual(  # 断言值相等
                     err.get("param"), "session.audio.input.format.rate", err
                 )
 
@@ -515,13 +537,14 @@ class TestQwen3ASRTranscription(CustomTestCase):
         print("[Unsupported rate WS] 22050 rejected with invalid_value")
 
     @unittest.skipUnless(HAS_WEBSOCKETS, "websockets package not installed")
+    # 测试websocket rejects non dict transcription功能
     def test_websocket_rejects_non_dict_transcription(self):
         # Use a valid nested format so Pydantic surfaces the transcription
         # error rather than the format error first.
         async def run():
             async with websockets.connect(self._websocket_url()) as ws:
                 created = json.loads(await ws.recv())
-                self.assertEqual(created.get("type"), "session.created", created)
+                self.assertEqual(created.get("type"), "session.created", created)  # 断言值相等
                 await ws.send(
                     json.dumps(
                         {
@@ -544,10 +567,10 @@ class TestQwen3ASRTranscription(CustomTestCase):
                     )
                 )
                 evt = json.loads(await ws.recv())
-                self.assertEqual(evt.get("type"), "error", evt)
+                self.assertEqual(evt.get("type"), "error", evt)  # 断言值相等
                 err = evt.get("error", {})
-                self.assertEqual(err.get("code"), "invalid_value", err)
-                self.assertEqual(
+                self.assertEqual(err.get("code"), "invalid_value", err)  # 断言值相等
+                self.assertEqual(  # 断言值相等
                     err.get("param"), "session.audio.input.transcription", err
                 )
 
@@ -555,6 +578,7 @@ class TestQwen3ASRTranscription(CustomTestCase):
         print("[Non-dict transcription WS] string rejected with invalid_value")
 
     @unittest.skipUnless(HAS_WEBSOCKETS, "websockets package not installed")
+    # 测试websocket two commits propagates previous item id功能
     def test_websocket_two_commits_propagates_previous_item_id(self):
         # Two commits in one session must (a) emit `previous_item_id: null` on
         # the first committed event, (b) emit `previous_item_id` equal to the
@@ -595,10 +619,11 @@ class TestQwen3ASRTranscription(CustomTestCase):
                 ):
                     raise RuntimeError(f"unexpected event: {evt!r}")
 
+        # 执行run
         async def run():
             async with websockets.connect(self._websocket_url()) as ws:
                 created = json.loads(await ws.recv())
-                self.assertEqual(created.get("type"), "session.created", created)
+                self.assertEqual(created.get("type"), "session.created", created)  # 断言值相等
                 await ws.send(
                     json.dumps(
                         {
@@ -630,17 +655,17 @@ class TestQwen3ASRTranscription(CustomTestCase):
                     f"first commit's previous_item_id must be JSON null, got {committed_1!r}",
                 )
                 first_item_id = committed_1["item_id"]
-                self.assertTrue(len(transcript_1) > 0, transcript_1)
+                self.assertTrue(len(transcript_1) > 0, transcript_1)  # 断言条件为真
 
                 committed_2, transcript_2 = await run_one_cycle(ws, pcm_kungfu, sr)
-                self.assertEqual(
+                self.assertEqual(  # 断言值相等
                     committed_2["previous_item_id"],
                     first_item_id,
                     f"second commit's previous_item_id must equal first item_id; "
                     f"got prev={committed_2['previous_item_id']!r} "
                     f"vs first={first_item_id!r}",
                 )
-                self.assertNotEqual(
+                self.assertNotEqual(  # 断言值不相等
                     committed_2["item_id"],
                     first_item_id,
                     "item_ids must be distinct across commits",
@@ -648,7 +673,7 @@ class TestQwen3ASRTranscription(CustomTestCase):
                 # State reset: second transcript must reflect only the second
                 # audio, not leak from the first.
                 wer = _wer(transcript_2, EXPECTED_TRANSCRIPTS["mp3"])
-                self.assertLess(
+                self.assertLess(  # 断言值小于阈值
                     wer,
                     0.15,
                     f"second transcript leaked first audio's content; "

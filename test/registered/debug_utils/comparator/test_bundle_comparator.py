@@ -1,3 +1,4 @@
+# 文件名: test_bundle_comparator.py - 束比较器测试
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -18,6 +19,7 @@ from sglang.test.ci.ci_register import register_cpu_ci
 register_cpu_ci(est_time=15, suite="base-a-test-cpu", nightly=True)
 
 
+# 执行savetensor
 def _save_tensor(
     dump_path: Path,
     *,
@@ -32,6 +34,7 @@ def _save_tensor(
 
 
 class TestLoadAllValues:
+    # 测试allsuccess
     def test_all_success(self, tmp_path: Path) -> None:
         """All files load successfully — no warnings emitted."""
         fn0: str = _save_tensor(tmp_path, name="a", rank=0)
@@ -48,6 +51,7 @@ class TestLoadAllValues:
         assert len(result) == 2
         assert len(warnings) == 0
 
+    # 测试onecorruptedemitswarning
     def test_one_corrupted_emits_warning(self, tmp_path: Path) -> None:
         """One corrupted file is filtered out and emits a load_failed warning."""
         fn_good: str = _save_tensor(tmp_path, name="a", rank=0)
@@ -71,6 +75,7 @@ class TestLoadAllValues:
         assert warnings[0].category == "load_failed"
         assert fn_bad in warnings[0].message
 
+    # 测试allcorruptedemitswarningsreturnsempty
     def test_all_corrupted_emits_warnings_returns_empty(self, tmp_path: Path) -> None:
         """All files corrupted — returns empty list and emits one warning per file."""
         fn0: str = "step=0___rank=0___dump_index=0___name=a.pt"
@@ -91,6 +96,7 @@ class TestLoadAllValues:
         assert all(w.category == "load_failed" for w in warnings)
 
 
+# 执行tensoritem
 def _tensor_item(value: torch.Tensor, rank: int = 0) -> ValueWithMeta:
     return ValueWithMeta(
         value=value,
@@ -105,6 +111,7 @@ def _tensor_item(value: torch.Tensor, rank: int = 0) -> ValueWithMeta:
 
 
 class TestBuildSkipFromOneEmptySide:
+    # 测试baselineemptysetsreasonandside
     def test_baseline_empty_sets_reason_and_side(self) -> None:
         """Empty baseline → reason='baseline_load_failed', available_side='target'."""
         item = _tensor_item(torch.randn(2, 3))
@@ -116,6 +123,7 @@ class TestBuildSkipFromOneEmptySide:
         assert record.available_side == "target"
         assert record.available_tensor_info is not None
 
+    # 测试targetemptysetsreasonandside
     def test_target_empty_sets_reason_and_side(self) -> None:
         """Empty target → reason='target_load_failed', available_side='baseline'."""
         item = _tensor_item(torch.randn(2, 3))
@@ -127,6 +135,7 @@ class TestBuildSkipFromOneEmptySide:
         assert record.available_side == "baseline"
         assert record.available_tensor_info is not None
 
+    # 测试notensoritemsreturnsminimalskip
     def test_no_tensor_items_returns_minimal_skip(self) -> None:
         """All items are non-tensor → skip record with no tensor info."""
         non_tensor_item = ValueWithMeta(value="not_a_tensor", meta={"rank": 0})
@@ -138,6 +147,7 @@ class TestBuildSkipFromOneEmptySide:
         assert record.available_tensor_info is None
         assert record.available_bundle_info is None
 
+    # 测试withtensoritemspopulatesinfo
     def test_with_tensor_items_populates_info(self) -> None:
         """Tensor items present → tensor_info and bundle_info are populated."""
         item = _tensor_item(torch.randn(2, 3))
@@ -150,6 +160,7 @@ class TestBuildSkipFromOneEmptySide:
         assert record.available_bundle_info is not None
         assert record.available_bundle_info.num_files >= 1
 
+    # 测试multipletensoritemsusesfirstforinfo
     def test_multiple_tensor_items_uses_first_for_info(self) -> None:
         """When multiple tensor items exist, tensor_info comes from the first."""
         item1 = _tensor_item(torch.randn(2, 3), rank=0)
@@ -163,6 +174,7 @@ class TestBuildSkipFromOneEmptySide:
         assert record.available_bundle_info is not None
         assert record.available_bundle_info.num_files == 2
 
+    # 测试mixedtensorandnontensorfiltersnontensor
     def test_mixed_tensor_and_non_tensor_filters_non_tensor(self) -> None:
         """Non-tensor items are filtered; tensor_info comes from tensor items only."""
         non_tensor = ValueWithMeta(value="string_value", meta={"rank": 0})
@@ -176,6 +188,7 @@ class TestBuildSkipFromOneEmptySide:
         assert record.available_bundle_info is not None
         assert record.available_bundle_info.num_files == 1
 
+    # 测试tensorinfoincludessample
     def test_tensor_info_includes_sample(self) -> None:
         """Tensor info should include a sample string for skip records."""
         item = _tensor_item(torch.tensor([1.0, 2.0, 3.0]))
@@ -186,6 +199,7 @@ class TestBuildSkipFromOneEmptySide:
         assert record.available_tensor_info is not None
         assert record.available_tensor_info.sample is not None
 
+    # 测试namepreservedinrecord
     def test_name_preserved_in_record(self) -> None:
         """The tensor name is preserved in the skip record."""
         item = _tensor_item(torch.randn(2, 3))
@@ -195,6 +209,7 @@ class TestBuildSkipFromOneEmptySide:
         )
         assert record.name == "my_layer.weight"
 
+    # 测试bundleinfohasdimsfrommeta
     def test_bundle_info_has_dims_from_meta(self) -> None:
         """Bundle info dims field should come from the meta."""
         item = _tensor_item(torch.randn(2, 3))

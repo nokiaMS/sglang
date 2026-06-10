@@ -1,3 +1,4 @@
+# 文件名: test_mm_hashes.py - 多模态哈希
 """Tests for caller-supplied mm_hashes plumbing.
 
 Verifies the contract that:
@@ -29,7 +30,10 @@ register_cuda_ci(est_time=2, stage="base-b", runner_config="1-gpu-small")
 register_amd_ci(est_time=2, suite="stage-b-test-1-gpu-small-amd")
 
 
+# TestMmHashesContract类
 class TestMmHashesContract(CustomTestCase):
+
+    # TestMmHashesContract类的测试generatereqinputacceptsmmhashes
     def test_generate_req_input_accepts_mm_hashes(self):
         """GenerateReqInput exposes mm_hashes as an optional field."""
         req = GenerateReqInput(
@@ -37,13 +41,15 @@ class TestMmHashesContract(CustomTestCase):
             image_data=["http://example.com/img.png"],
             mm_hashes=["deadbeefcafe1234"],
         )
-        self.assertEqual(req.mm_hashes, ["deadbeefcafe1234"])
+        self.assertEqual(req.mm_hashes, ["deadbeefcafe1234"])  # 断言相等
 
+    # TestMmHashesContract类的测试generatereqinputdefaultsmmhashestonone
     def test_generate_req_input_defaults_mm_hashes_to_none(self):
         """Absent mm_hashes preserves existing (None) behavior."""
         req = GenerateReqInput(text="hi")
-        self.assertIsNone(req.mm_hashes)
+        self.assertIsNone(req.mm_hashes)  # 断言为None
 
+    # TestMmHashesContract类的测试setpadvaluehonorspresethash
     def test_set_pad_value_honors_preset_hash(self):
         """set_pad_value() must use a pre-set hash without recomputing."""
         item = MultimodalDataItem(modality=Modality.IMAGE, hash=0xDEADBEEF)
@@ -56,9 +62,10 @@ class TestMmHashesContract(CustomTestCase):
             ),
         ):
             item.set_pad_value()
-        self.assertEqual(item.hash, 0xDEADBEEF)
-        self.assertEqual(item.pad_value, _compute_pad_value(0xDEADBEEF))
+        self.assertEqual(item.hash, 0xDEADBEEF)  # 断言相等
+        self.assertEqual(item.pad_value, _compute_pad_value(0xDEADBEEF))  # 断言相等
 
+    # TestMmHashesContract类的测试setpadvalueisdeterministicacrossitems
     def test_set_pad_value_is_deterministic_across_items(self):
         """Two items with the same preset hash must derive the same pad_value."""
         a = MultimodalDataItem(modality=Modality.IMAGE, hash=0x123456789ABCDEF0)
@@ -66,16 +73,17 @@ class TestMmHashesContract(CustomTestCase):
         # No feature payload — set_pad_value uses the preset hash.
         a.set_pad_value()
         b.set_pad_value()
-        self.assertEqual(a.pad_value, b.pad_value)
-        self.assertEqual(a.hash, b.hash)
+        self.assertEqual(a.pad_value, b.pad_value)  # 断言相等
+        self.assertEqual(a.hash, b.hash)  # 断言相等
 
+    # TestMmHashesContract类的测试setpadvaluedistinguishesdifferentpresethashes
     def test_set_pad_value_distinguishes_different_preset_hashes(self):
         """Distinct preset hashes must produce distinct pad_values."""
         a = MultimodalDataItem(modality=Modality.IMAGE, hash=0xAAAA)
         b = MultimodalDataItem(modality=Modality.IMAGE, hash=0xBBBB)
         a.set_pad_value()
         b.set_pad_value()
-        self.assertNotEqual(a.pad_value, b.pad_value)
+        self.assertNotEqual(a.pad_value, b.pad_value)  # 断言不相等
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+# 文件名: test_glm_46_fp8.py - GLM-4 6B FP8测试 - 验证GLM-4 6B FP8量化模型的推理功能
 import unittest
 
 from sglang.test.accuracy_test_runner import AccuracyTestParams
@@ -17,6 +18,7 @@ class TestGLM46FP8(unittest.TestCase):
     - Accuracy test (using run_eval with mgsm_en)
     """
 
+    # 测试glm 46 fp8 all variants
     def test_glm_46_fp8_all_variants(self):
         """Run performance and accuracy for GLM-4.6-FP8."""
         base_args = [

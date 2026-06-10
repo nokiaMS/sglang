@@ -1,3 +1,4 @@
+# 文件名: test_aux_plugins.py - 辅助插件测试
 import sys
 
 import pytest
@@ -26,6 +27,7 @@ _megatron_plugin = _MegatronPlugin()
 class TestNormalizeSGLang:
     """Tests for SGLang aux tensor normalization."""
 
+    # 测试withrids
     def test_with_rids(self):
         """SGLang tensors with rids produce string seq_ids."""
         step_data: dict = {
@@ -44,6 +46,7 @@ class TestNormalizeSGLang:
         assert result.seq_lens == [3]
         assert result.seq_ids == [SGLangSeqId(rid="A")]
 
+    # 测试ridsnonefallback
     def test_rids_none_fallback(self):
         """Missing rids results in (step, index) fallback seq_ids."""
         step_data: dict = {
@@ -57,6 +60,7 @@ class TestNormalizeSGLang:
         )
         assert result.seq_ids == [PositionalSeqId(step=3, seq_index=0)]
 
+    # 测试multipleseqswithrids
     def test_multiple_seqs_with_rids(self):
         """Multiple sequences with rids."""
         step_data: dict = {
@@ -75,6 +79,7 @@ class TestNormalizeSGLang:
 class TestNormalizeMegatron:
     """Tests for Megatron aux tensor normalization."""
 
+    # 测试cuseqlenstoseqlens
     def test_cu_seqlens_to_seq_lens(self):
         """cu_seqlens_q is converted to seq_lens via differencing."""
         step_data: dict = {
@@ -88,6 +93,7 @@ class TestNormalizeMegatron:
 
         assert result.seq_lens == [3, 2]
 
+    # 测试positionsinferredthd
     def test_positions_inferred_thd(self):
         """Positions inferred from seq_lens in thd layout."""
         step_data: dict = {
@@ -101,6 +107,7 @@ class TestNormalizeMegatron:
 
         assert result.positions == [0, 1, 2, 0, 1]
 
+    # 测试positionidspassthrough
     def test_position_ids_passthrough(self):
         """Explicit position_ids used directly instead of inference."""
         step_data: dict = {
@@ -115,6 +122,7 @@ class TestNormalizeMegatron:
 
         assert result.positions == [5, 6, 7, 8, 9]
 
+    # 测试seqidsarestepindextuples
     def test_seq_ids_are_step_index_tuples(self):
         """Megatron seq_ids are (step, seq_index) tuples."""
         step_data: dict = {
@@ -134,6 +142,7 @@ class TestNormalizeMegatron:
 class TestDetectLayoutMegatron:
     """Tests for Megatron layout detection."""
 
+    # 测试detectlayoutbshdviaqkvformat
     def test_detect_layout_bshd_via_qkv_format(self):
         """qkv_format containing 'bshd' → layout 'bshd'."""
         raw: dict[int, dict[str, object]] = {
@@ -141,6 +150,7 @@ class TestDetectLayoutMegatron:
         }
         assert _megatron_plugin.detect_layout(raw) == TokenLayout.BS
 
+    # 测试detectlayoutbshdviandim
     def test_detect_layout_bshd_via_ndim(self):
         """2D input_ids → layout BS."""
         raw: dict[int, dict[str, object]] = {
@@ -148,6 +158,7 @@ class TestDetectLayoutMegatron:
         }
         assert _megatron_plugin.detect_layout(raw) == TokenLayout.BS
 
+    # 测试detectlayoutthdviaqkvformat
     def test_detect_layout_thd_via_qkv_format(self):
         """qkv_format 'thd' → layout T."""
         raw: dict[int, dict[str, object]] = {
@@ -159,6 +170,7 @@ class TestDetectLayoutMegatron:
 class TestNormalizeMegatronBSHD:
     """Tests for Megatron BSHD normalization."""
 
+    # 测试basicbshd
     def test_basic_bshd(self):
         """2D input_ids [2,4] → flat [8], seq_lens=[4,4], positions=[0,1,2,3,0,1,2,3]."""
         step_data: dict = {
@@ -177,6 +189,7 @@ class TestNormalizeMegatronBSHD:
             PositionalSeqId(step=0, seq_index=1),
         ]
 
+    # 测试bshdwithcuseqlens
     def test_bshd_with_cu_seqlens(self):
         """BSHD with cu_seqlens_q → uses cu_seqlens for seq_lens."""
         step_data: dict = {
@@ -190,6 +203,7 @@ class TestNormalizeMegatronBSHD:
 
         assert result.seq_lens == [3, 5]
 
+    # 测试bshdwithpositionids
     def test_bshd_with_position_ids(self):
         """BSHD with 2D position_ids → flattened positions."""
         step_data: dict = {
@@ -207,6 +221,7 @@ class TestNormalizeMegatronBSHD:
 class TestInferPositions:
     """Tests for position inference helper."""
 
+    # 测试thdmultiplesequences
     def test_thd_multiple_sequences(self):
         """thd: positions reset to 0 for each sequence."""
         result = _infer_positions(
@@ -218,26 +233,31 @@ class TestInferPositions:
 class TestInferCpShardedDims:
     """Tests for infer_cp_sharded_dims on each plugin."""
 
+    # 测试megatroninfer1d
     def test_megatron_infer_1d(self) -> None:
         """Megatron 1D → 't[cp:zigzag]'."""
         result: str = _megatron_plugin.infer_cp_sharded_dims(name="input_ids", ndim=1)
         assert result == "t[cp:zigzag]"
 
+    # 测试megatroninfer2d
     def test_megatron_infer_2d(self) -> None:
         """Megatron 2D → 'b s[cp:zigzag]'."""
         result: str = _megatron_plugin.infer_cp_sharded_dims(name="input_ids", ndim=2)
         assert result == "b s[cp:zigzag]"
 
+    # 测试sglanginfer1d
     def test_sglang_infer_1d(self) -> None:
         """SGLang 1D → 't[cp:zigzag]'."""
         result: str = _sglang_plugin.infer_cp_sharded_dims(name="input_ids", ndim=1)
         assert result == "t[cp:zigzag]"
 
+    # 测试megatroninfer3draises
     def test_megatron_infer_3d_raises(self) -> None:
         """Megatron 3D raises ValueError."""
         with pytest.raises(ValueError, match="cannot infer dims"):
             _megatron_plugin.infer_cp_sharded_dims(name="input_ids", ndim=3)
 
+    # 测试sglanginfer2draises
     def test_sglang_infer_2d_raises(self) -> None:
         """SGLang 2D raises ValueError."""
         with pytest.raises(ValueError, match="cannot infer dims"):

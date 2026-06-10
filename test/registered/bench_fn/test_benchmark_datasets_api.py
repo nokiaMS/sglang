@@ -1,3 +1,4 @@
+# 文件名: test_benchmark_datasets_api.py - 数据集API基准测试
 import asyncio
 import json
 import pickle
@@ -40,13 +41,16 @@ register_cpu_ci(est_time=7, suite="base-b-test-cpu")
 
 
 class _DummyTokenTensor:
+    # 执行init
     def __init__(self, value: int):
         self.value = value
 
+    # 执行numel
     def numel(self) -> int:
         return self.value
 
 
+# 创建lightweighttokenizer
 def create_lightweight_tokenizer() -> PreTrainedTokenizerFast:
     """Create a local lightweight tokenizer for CPU-only dataset tests."""
     vocab = {"[UNK]": 0, "[PAD]": 1, "[BOS]": 2, "[EOS]": 3}
@@ -79,10 +83,12 @@ def create_lightweight_tokenizer() -> PreTrainedTokenizerFast:
 
 
 class DummyProcessor:
+    # 执行init
     def __init__(self, tokenizer: PreTrainedTokenizerFast):
         self.tokenizer = tokenizer
         self.image_token_id = None
 
+    # 执行applychattemplate
     def apply_chat_template(self, messages, add_generation_prompt=True, tokenize=False):
         return self.tokenizer.apply_chat_template(
             messages,
@@ -91,6 +97,7 @@ class DummyProcessor:
             return_dict=False,
         )
 
+    # 执行call
     def __call__(self, text, images=None, padding=False, return_tensors="pt"):
         text_len = len(self.tokenizer.encode(text[0]))
         image_tokens = 4 * len(images) if images else 0
@@ -98,21 +105,26 @@ class DummyProcessor:
 
 
 class _FakeMMMUDataset:
+    # 执行init
     def __init__(self, records):
         self.records = records
 
+    # 执行len
     def __len__(self):
         return len(self.records)
 
+    # 执行select
     def select(self, indices):
         if isinstance(indices, range):
             indices = list(indices)
         return _FakeMMMUDataset([self.records[i] for i in indices])
 
+    # 执行iter
     def __iter__(self):
         return iter(self.records)
 
 
+# 执行makeargs
 def make_args(**overrides):
     args = {
         "dataset_name": "sharegpt",
@@ -154,6 +166,7 @@ def make_args(**overrides):
 
 
 class TestBenchmarkDatasetsAPI(unittest.TestCase):
+    # 初始化设置
     def setUp(self):
         self.tokenizer = create_lightweight_tokenizer()
         self.processor = DummyProcessor(self.tokenizer)
@@ -170,10 +183,12 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
         )
         self._home_patch.start()
 
+    # 清理操作
     def tearDown(self):
         self._home_patch.stop()
         self.tmpdir.cleanup()
 
+    # 执行writesharegptjson
     def _write_sharegpt_json(self):
         data = [
             {
@@ -200,6 +215,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
             json.dump(data, f)
         return str(path)
 
+    # 执行writecustomjsonl
     def _write_custom_jsonl(self):
         rows = [
             {
@@ -221,6 +237,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
                 f.write(json.dumps(row) + "\n")
         return str(path)
 
+    # 执行writeopenaijsonl
     def _write_openai_jsonl(self):
         rows = [
             {
@@ -240,6 +257,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
                 f.write(json.dumps(row) + "\n")
         return str(path)
 
+    # 执行writespeedbenchjsonl
     def _write_speed_bench_jsonl(self):
         rows = [
             {
@@ -273,6 +291,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
                 f.write(json.dumps(row) + "\n")
         return str(path)
 
+    # 执行writemooncakejsonl
     def _write_mooncake_jsonl(self):
         rows = [
             {"timestamp": 1000, "hash_ids": [1, 2], "output_length": 5},
@@ -284,6 +303,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
                 f.write(json.dumps(row) + "\n")
         return str(path)
 
+    # 执行collectmooncakerows
     async def _collect_mooncake_rows(self, records):
         out = []
         async for row in get_mooncake_request_over_time(
@@ -295,6 +315,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
             out.append(row)
         return out
 
+    # 测试sharegptsampler
     def test_sharegpt_sampler(self):
         dataset_path = self._write_sharegpt_json()
         rows = sample_sharegpt_requests(
@@ -305,6 +326,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
         self.assertEqual(len(rows), 2)
         self.assertTrue(all(isinstance(row, DatasetRow) for row in rows))
 
+    # 测试randomsampler
     def test_random_sampler(self):
         dataset_path = self._write_sharegpt_json()
         rows_text = sample_random_requests(
@@ -330,6 +352,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
         self.assertTrue(all(isinstance(row, DatasetRow) for row in rows_text))
         self.assertTrue(all(isinstance(row.prompt, list) for row in rows_ids))
 
+    # 测试customsampler
     def test_custom_sampler(self):
         dataset_path = self._write_custom_jsonl()
         rows = sample_custom_requests(
@@ -340,6 +363,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
         self.assertEqual(len(rows), 2)
         self.assertTrue(all(isinstance(row, DatasetRow) for row in rows))
 
+    # 测试openaisampler
     def test_openai_sampler(self):
         dataset_path = self._write_openai_jsonl()
         rows = sample_openai_requests(
@@ -351,6 +375,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
         self.assertIn("temperature", rows[0].extra_request_body)
         self.assertIn("tools", rows[1].extra_request_body)
 
+    # 测试generatedsharedprefixsampler
     def test_generated_shared_prefix_sampler(self):
         args = make_args(gsp_num_groups=2, gsp_prompts_per_group=2)
         rows = sample_generated_shared_prefix_requests(
@@ -366,6 +391,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
         self.assertEqual(len(rows), 4)
         self.assertTrue(all(isinstance(row, DatasetRow) for row in rows))
 
+    # 测试imagesampler
     def test_image_sampler(self):
         rows = sample_image_requests(
             num_requests=2,
@@ -384,6 +410,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
         self.assertTrue(all(isinstance(row, DatasetRow) for row in rows))
         self.assertTrue(all(row.image_data for row in rows))
 
+    # 测试mmmusampler
     def test_mmmu_sampler(self):
         fake_records = [
             {"image_1": Image.new("RGB", (4, 4), color="white"), "question": "q1"},
@@ -404,6 +431,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
         self.assertEqual(len(rows), 2)
         self.assertTrue(all(isinstance(row, DatasetRow) for row in rows))
 
+    # 测试mooncakescheduler
     def test_mooncake_scheduler(self):
         records = [
             {"timestamp": 1000, "hash_ids": [1], "output_length": 5},
@@ -413,6 +441,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
         self.assertEqual(len(rows), 2)
         self.assertTrue(all(isinstance(row, DatasetRow) for row in rows))
 
+    # 测试speedbenchsampler
     def test_speed_bench_sampler(self):
         dataset_path = self._write_speed_bench_jsonl()
         args = make_args(
@@ -429,6 +458,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
         self.assertTrue(all(row.output_len == 512 for row in rows))
         self.assertTrue(all(row.prompt_len > 0 for row in rows))
 
+    # 测试speedbenchcategoryfilter
     def test_speed_bench_category_filter(self):
         dataset_path = self._write_speed_bench_jsonl()
         args = make_args(
@@ -445,6 +475,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
         self.assertEqual(len(rows), 2)
         self.assertTrue(all(isinstance(row, DatasetRow) for row in rows))
 
+    # 测试speedbenchoutputlenoverride
     def test_speed_bench_output_len_override(self):
         dataset_path = self._write_speed_bench_jsonl()
         args = make_args(
@@ -460,6 +491,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
         self.assertEqual(len(rows), 2)
         self.assertTrue(all(row.output_len == 128 for row in rows))
 
+    # 测试speedbenchemptycategoryraises
     def test_speed_bench_empty_category_raises(self):
         dataset_path = self._write_speed_bench_jsonl()
         args = make_args(
@@ -474,6 +506,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
         with self.assertRaises(ValueError):
             dataset.load(self.tokenizer)
 
+    # 测试speedbenchnopathraises
     def test_speed_bench_no_path_raises(self):
         args = make_args(
             dataset_name="speed-bench",
@@ -485,6 +518,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
         with self.assertRaises(ValueError):
             SpeedBenchDataset.from_args(args)
 
+    # 测试datasetmappinganddispatch
     def test_dataset_mapping_and_dispatch(self):
         expected = {
             "sharegpt",
@@ -571,6 +605,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
         self.assertEqual(len(speed_bench_rows), 2)
         self.assertTrue(all(isinstance(row, DatasetRow) for row in speed_bench_rows))
 
+    # 测试getdatasetunknowndataset
     def test_get_dataset_unknown_dataset(self):
         args = make_args(dataset_name="not-a-dataset")
         with self.assertRaises(ValueError):
@@ -580,6 +615,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
     # Generated-shared-prefix Zipf sampling
     # ------------------------------------------------------------------
 
+    # 执行rungsp
     def _run_gsp(
         self,
         *,
@@ -622,9 +658,11 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
         )
 
     @staticmethod
+    # 执行rowfields
     def _row_fields(rows):
         return [(r.prompt, r.prompt_len, r.output_len, r.routing_key) for r in rows]
 
+    # 测试gspuniformdefaultunchanged
     def test_gsp_uniform_default_unchanged(self):
         # Uniform mode returns the documented number of rows and is
         # bit-reproducible under fixed seeding of the global RNGs.
@@ -637,6 +675,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
         self.assertEqual(len(rows_a), 3 * 4)
         self.assertEqual(self._row_fields(rows_a), self._row_fields(rows_b))
 
+    # 测试gspuniformcachepathformatunchanged
     def test_gsp_uniform_cache_path_format_unchanged(self):
         # The uniform-mode cache filename keeps its existing
         # gen_shared_prefix_<seed>_<N>_<P>_<sysL>_<qL>_<outL>_<TokenizerCls>.pkl
@@ -656,6 +695,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
         self.assertTrue(path.name.endswith(".pkl"))
         self.assertEqual(path.parent, Path.home() / ".cache" / "sglang" / "benchmark")
 
+    # 测试zipfgroupprobshelper
     def test_zipf_group_probs_helper(self):
         # Rank-based probability vector: weight(rank) = 1 / rank ** alpha,
         # normalized to sum to 1, with rank starting at 1.
@@ -676,6 +716,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
             atol=1e-3,
         )
 
+    # 测试zipfgroupprobsnotloraskewedformula
     def test_zipf_group_probs_not_lora_skewed_formula(self):
         # The helper must NOT use the LoRA `skewed` alpha**-i exponential
         # formula; for alpha=1.5, N=4 the two formulas differ noticeably.
@@ -687,6 +728,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
             "Zipf helper must use rank-based 1/rank**alpha, not LoRA alpha**-i",
         )
 
+    # 测试zipfreproduciblewithseed
     def test_zipf_reproducible_with_seed(self):
         # Same seed + same args -> identical rows, including order, under
         # both the in-order and shuffled paths.
@@ -703,6 +745,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
         rows_d = self._run_gsp(ordered=False, **kwargs)
         self.assertEqual(self._row_fields(rows_c), self._row_fields(rows_d))
 
+    # 测试zipfdifferentseedsdiffer
     def test_zipf_different_seeds_differ(self):
         # Different seeds -> at least one differing slot under Zipf sampling.
         base = dict(mode="zipf", alpha=1.7, num_groups=4, prompts_per_group=10)
@@ -711,6 +754,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
         self.assertEqual(len(rows_a), len(rows_b))
         self.assertNotEqual(self._row_fields(rows_a), self._row_fields(rows_b))
 
+    # 测试zipfdoesnotperturbglobalrandomstate
     def test_zipf_does_not_perturb_global_random_state(self):
         # The Zipf branch must consume zero draws from the global random /
         # numpy.random state. Therefore the per-slot generated questions and
@@ -740,6 +784,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
         # seed.
         delim = "\n\n"
 
+        # 执行questionof
         def question_of(prompt):
             return prompt.split(delim, 1)[1]
 
@@ -749,6 +794,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
 
         # The set of system prompts (which the gen_prompt path generates) must
         # also match between modes (set equality, since Zipf reuses prefixes).
+        # 执行systemof
         def system_of(prompt):
             return prompt.split(delim, 1)[0]
 
@@ -757,6 +803,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
             set(system_of(r.prompt) for r in zipf_rows),
         )
 
+    # 测试zipfdeterministicpergroupcounts
     def test_zipf_deterministic_per_group_counts(self):
         # The per-group counts are deterministic and pinned for a known
         # (num_groups, prompts_per_group, alpha, seed) tuple. Any drift in
@@ -783,6 +830,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
         # Independent skew sanity check: rank-1 (hottest) > rank-N (coldest).
         self.assertGreater(per_group[0], per_group[3])
 
+    # 测试zipfusesdistinctcachefromuniform
     def test_zipf_uses_distinct_cache_from_uniform(self):
         # The on-disk cache key includes group_distribution and zipf_alpha,
         # so uniform mode, zipf alpha=1.0, and zipf alpha=2.0 each get their
@@ -866,6 +914,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
             reloaded = self._run_gsp(mode="zipf", alpha=1.5, **common)
             self.assertEqual(reloaded, zipf_sentinel)
 
+    # 测试zipftotalrowsanduniqueprompts
     def test_zipf_total_rows_and_unique_prompts(self):
         # Total returned row count under Zipf equals num_groups *
         # prompts_per_group (identical to uniform mode) and every prompt
@@ -881,6 +930,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
         self.assertEqual(len(rows), 4 * 10)
         self.assertEqual(len({r.prompt for r in rows}), len(rows))
 
+    # 测试zipforderedpreservesgenerationorder
     def test_zipf_ordered_preserves_generation_order(self):
         # With ordered=True, output preserves the sampled order and matches
         # an independently re-derived group sequence from default_rng(seed).
@@ -905,6 +955,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
         ).tolist()
         self.assertEqual(observed_groups, expected_groups)
 
+    # 测试zipfshufflepathmatchesuniformshuffle
     def test_zipf_shuffle_path_matches_uniform_shuffle(self):
         # When ordered=False, both modes go through random.shuffle on a list
         # of equal length, so the same global RNG seed yields the same
@@ -928,6 +979,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
     # CLI / from_args validation
     # ------------------------------------------------------------------
 
+    # 测试fromargsrejectsinvaliddistributionandalpha
     def test_from_args_rejects_invalid_distribution_and_alpha(self):
         # Defensive validation in from_args protects in-process callers
         # that build a Namespace by hand and bypass the argparse boundary
@@ -948,11 +1000,12 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
             with self.assertRaises(ValueError, msg=f"case={case}"):
                 GeneratedSharedPrefixDataset.from_args(args)
 
+    # 测试benchservinghelpandinvalidchoiceargparse
     def test_bench_serving_help_and_invalid_choice_argparse(self):
         # Subprocess-driven coverage of the live CLI: --help advertises both
         # flags with the rank-based Zipf formula and the alpha constraint,
         # and argparse rejects an unknown distribution choice.
-        help_res = subprocess.run(
+        help_res = subprocess.run(  # 运行子进程
             [sys.executable, "-m", "sglang.bench_serving", "--help"],
             capture_output=True,
             text=True,
@@ -969,7 +1022,7 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
         self.assertIn("finite float", out)
 
         # Argparse rejects unknown distribution choice.
-        bad_choice_res = subprocess.run(
+        bad_choice_res = subprocess.run(  # 运行子进程
             [
                 sys.executable,
                 "-m",
@@ -986,11 +1039,12 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
         self.assertNotEqual(bad_choice_res.returncode, 0)
         self.assertIn("invalid choice", (bad_choice_res.stderr + bad_choice_res.stdout))
 
+    # 测试benchservingclirejectszipfwithoutalphabeforeserver
     def test_bench_serving_cli_rejects_zipf_without_alpha_before_server(self):
         # Malformed CLI combinations (zipf with no alpha) must fail at
         # argparse time so users see the GSP-flag error directly, not a
         # downstream connection or model-fetch failure.
-        res = subprocess.run(
+        res = subprocess.run(  # 运行子进程
             [
                 sys.executable,
                 "-m",
@@ -1022,10 +1076,11 @@ class TestBenchmarkDatasetsAPI(unittest.TestCase):
         ]:
             self.assertNotIn(forbidden, stderr)
 
+    # 测试benchservingclirejectsuniformwithalphabeforeserver
     def test_bench_serving_cli_rejects_uniform_with_alpha_before_server(self):
         # The complementary malformation: uniform distribution with an
         # explicit alpha value. Must also fail at argparse time.
-        res = subprocess.run(
+        res = subprocess.run(  # 运行子进程
             [
                 sys.executable,
                 "-m",

@@ -1,3 +1,4 @@
+# 文件名: test_act_quant_triton.py - 测试激活量化Triton内核与TileLang实现的精度对比
 """
 Unit tests comparing TileLang and Triton implementations of activation quantization.
 Tests both accuracy and performance.
@@ -13,6 +14,7 @@ from sglang.srt.layers.attention.dsa.tilelang_kernel import act_quant
 from sglang.srt.layers.attention.dsa.triton_kernel import act_quant as act_quant_triton
 
 
+# 对内核函数进行基准测试，返回平均延迟和输出
 def benchmark_kernel(
     fn,
     x: torch.Tensor,
@@ -93,6 +95,7 @@ def benchmark_kernel(
     return avg_time_ms, y_cap, s_cap
 
 
+# 检查参考输出与测试输出之间的精度差异
 def check_accuracy(
     y_ref: torch.Tensor,
     s_ref: torch.Tensor,
@@ -130,8 +133,8 @@ def check_accuracy(
     s_mean_diff = s_diff.mean().item()
 
     # Check relative and absolute tolerance
-    y_close = torch.allclose(y_ref_float, y_test_float, rtol=rtol, atol=atol)
-    s_close = torch.allclose(s_ref, s_test, rtol=rtol, atol=atol)
+    y_close = torch.allclose(y_ref_float, y_test_float, rtol=rtol, atol=atol)  # 验证张量近似相等
+    s_close = torch.allclose(s_ref, s_test, rtol=rtol, atol=atol)  # 验证张量近似相等
 
     # Compute percentage of matching elements
     y_match_pct = (y_ref_float == y_test_float).float().mean().item() * 100
@@ -151,7 +154,7 @@ def check_accuracy(
     return passed, metrics
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")  # 检查CUDA可用性
 def test_act_quant_comprehensive_benchmark(scale_fmt=None):
     """Comprehensive benchmark across multiple sizes with CUDA graphs."""
     device = torch.device("cuda")
@@ -176,7 +179,7 @@ def test_act_quant_comprehensive_benchmark(scale_fmt=None):
     print("-" * 100)
 
     for shape in shapes:
-        torch.manual_seed(42)
+        torch.manual_seed(42)  # 设置随机种子
         x = torch.randn(shape, dtype=dtype, device=device)
 
         try:
@@ -225,7 +228,7 @@ def test_act_quant_comprehensive_benchmark(scale_fmt=None):
     print("-" * 100)
 
     for shape in shapes:
-        torch.manual_seed(42)
+        torch.manual_seed(42)  # 设置随机种子
         x = torch.randn(shape, dtype=dtype, device=device)
 
         try:
@@ -267,7 +270,7 @@ def test_act_quant_comprehensive_benchmark(scale_fmt=None):
 
 if __name__ == "__main__":
     # Run comprehensive benchmark
-    if torch.cuda.is_available():
+    if torch.cuda.is_available():  # 检查CUDA可用性
         print("\n" + "=" * 80)
         print("Running Comprehensive Benchmark with scale_fmt=None")
         print("=" * 80)

@@ -1,3 +1,4 @@
+# 文件名: test_executor.py - 执行器测试
 from __future__ import annotations
 
 import sys
@@ -33,6 +34,7 @@ register_cpu_ci(est_time=15, suite="base-a-test-cpu", nightly=True)
 register_cpu_ci(est_time=1, suite="base-b-test-cpu")
 
 
+# 执行named
 def _named(tensor: torch.Tensor, names: list[str]) -> torch.Tensor:
     return apply_dim_names(tensor, names)
 
@@ -40,6 +42,7 @@ def _named(tensor: torch.Tensor, names: list[str]) -> torch.Tensor:
 class TestExecuteAlignment:
     """Tests for token alignment execution."""
 
+    # 测试thdvsthdidentity
     def test_thd_vs_thd_identity(self):
         """Two identical thd sides produce element-wise equal aligned tensors."""
         torch.manual_seed(42)
@@ -76,6 +79,7 @@ class TestExecuteAlignment:
         assert torch.equal(aligned.x, aligned.y)
         assert aligned.x.shape[0] == len(plan.locators.x.steps)
 
+    # 测试zeromatchedtokens
     def test_zero_matched_tokens(self):
         """Empty TokenAlignerPlan (no matched tokens) returns shape[0]==0 without crash."""
         torch.manual_seed(42)
@@ -102,6 +106,7 @@ class TestExecuteAlignment:
 class TestTokenDim:
     """Tests for non-zero token_dim support."""
 
+    # 执行makesimpleplan
     def _make_simple_plan(self, *, num_tokens: int) -> TokenAlignerPlan:
         locator = TokenLocator(
             steps=[0] * num_tokens,
@@ -112,6 +117,7 @@ class TestTokenDim:
             layouts=Pair(x=TokenLayout.T, y=TokenLayout.T),
         )
 
+    # 测试tokendimnonzero
     def test_token_dim_nonzero(self) -> None:
         """tensor shape [3, 5, 8], token_dim=1 -> token dim stays at dim 1."""
         torch.manual_seed(42)
@@ -132,6 +138,7 @@ class TestTokenDim:
                 aligned.x.select(dim=1, index=i), plain.select(dim=1, index=i)
             )
 
+    # 测试tokendimlast
     def test_token_dim_last(self) -> None:
         """tensor shape [3, 8, 5], token_dim=2 -> token dim stays at dim 2."""
         torch.manual_seed(42)
@@ -151,6 +158,7 @@ class TestTokenDim:
                 aligned.x.select(dim=2, index=i), plain.select(dim=2, index=i)
             )
 
+    # 测试tokendimzero
     def test_token_dim_zero(self) -> None:
         """token_dim=0 selects along first dimension (standard t-h-d layout)."""
         torch.manual_seed(42)
@@ -168,6 +176,7 @@ class TestTokenDim:
         for i in range(5):
             assert torch.equal(aligned.x[i], plain.select(dim=0, index=i))
 
+    # 测试zeromatchedtokensnonzerotokendim
     def test_zero_matched_tokens_nonzero_token_dim(self) -> None:
         """Empty plan with token_dim=1 produces correct empty shape."""
         torch.manual_seed(42)
@@ -192,6 +201,7 @@ class TestTokenDim:
         assert aligned.x.shape == (3, 0, 8)
         assert aligned.y.shape == (3, 0, 8)
 
+    # 测试highranktensor
     def test_high_rank_tensor(self) -> None:
         """tensor shape [2, 3, 5, 4, 8] (a b t c d), token_dim=2 -> stays at dim 2."""
         torch.manual_seed(42)
@@ -217,6 +227,7 @@ class TestTokenDim:
 class TestBSHDExecutor:
     """BSHD tensor collapse: B+S dims -> flat token dim for alignment."""
 
+    # 测试bshdstandardbsatfront
     def test_bshd_standard_bs_at_front(self):
         """Standard "b s h d": B=dim0, S=dim1. [2, 3, 4, 5] -> collapse -> [6, 4, 5]."""
         torch.manual_seed(42)
@@ -243,6 +254,7 @@ class TestBSHDExecutor:
         assert torch.equal(aligned.x[1], flat[3])
         assert torch.equal(aligned.x[2], flat[5])
 
+    # 测试bshd3dbsatfront
     def test_bshd_3d_bs_at_front(self):
         """Minimal 3D "b s h": B=dim0, S=dim1. [2, 3, 4] -> collapse -> [6, 4]."""
         torch.manual_seed(42)
@@ -270,6 +282,7 @@ class TestBSHDExecutor:
         assert torch.equal(aligned.x[2], flat[3])
         assert torch.equal(aligned.x[3], flat[5])
 
+    # 测试bshdbsnotatfront
     def test_bshd_bs_not_at_front(self):
         """Non-leading "h b s d": B=dim1, S=dim2. [4, 2, 3, 5] -> collapse -> [4, 6, 5]."""
         torch.manual_seed(42)
@@ -298,6 +311,7 @@ class TestBSHDExecutor:
                 flat.select(dim=1, index=flat_idx),
             )
 
+    # 测试bshdexpertbeforebs
     def test_bshd_expert_before_bs(self):
         """Expert dim before B: "e b s h d". [2, 3, 4, 5, 6] -> collapse -> [2, 12, 5, 6]."""
         torch.manual_seed(42)
@@ -328,6 +342,7 @@ class TestBSHDExecutor:
                 flat.select(dim=1, index=flat_idx),
             )
 
+    # 测试bshdbsatend
     def test_bshd_bs_at_end(self):
         """B and S at end: "h d b s". [4, 5, 2, 3] -> collapse -> [4, 5, 6]."""
         torch.manual_seed(42)
@@ -356,6 +371,7 @@ class TestBSHDExecutor:
                 flat.select(dim=2, index=flat_idx),
             )
 
+    # 测试crosslayoutthdvsbshd
     def test_cross_layout_thd_vs_bshd(self):
         """Cross-layout: x=THD [6, 8], y=BSHD [2, 3, 8] -> y collapse -> [6, 8]."""
         torch.manual_seed(42)
@@ -383,6 +399,7 @@ class TestBSHDExecutor:
         assert torch.equal(aligned.y[0], flat_bshd[0])
         assert torch.equal(aligned.y[2], flat_bshd[5])
 
+    # 测试bshdreversedsborder
     def test_bshd_reversed_sb_order(self):
         """Reversed "s b h": S=dim0, B=dim1. Collapse is batch-major: (b s)."""
         torch.manual_seed(42)
@@ -412,6 +429,7 @@ class TestBSHDExecutor:
         assert torch.equal(aligned.x[1], flat[2])
         assert torch.equal(aligned.x[2], flat[5])
 
+    # 测试bshdemptyplanbsnotatfront
     def test_bshd_empty_plan_bs_not_at_front(self):
         """Empty plan with non-leading B,S: "h b s d". [4, 2, 3, 5] -> collapse -> [4, 0, 5]."""
         plan = TokenAlignerPlan(
@@ -433,6 +451,7 @@ class TestBSHDExecutor:
         assert aligned.x.shape == (4, 0, 5)
         assert aligned.y.shape == (4, 0, 5)
 
+    # 测试bshdemptyplanbsatfront
     def test_bshd_empty_plan_bs_at_front(self):
         """Empty plan with standard BSHD: "b s h". [2, 3, 4] -> collapse -> [0, 4]."""
         plan = TokenAlignerPlan(

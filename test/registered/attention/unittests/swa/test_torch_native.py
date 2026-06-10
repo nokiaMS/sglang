@@ -1,3 +1,4 @@
+# 文件名: test_torch_native.py - PyTorch原生实现测试
 import sys
 import unittest
 from pathlib import Path
@@ -89,11 +90,13 @@ class TestTorchNativeSWAAttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试projectedswaattentioncases
     def test_projected_swa_attention_cases(self):
         for case in self.CASES:
             with self.subTest(case=case.name, backend=case.backend):
                 run_dense_attention_case(self, case)
 
+    # 测试runnermodeeagercases
     def test_runner_mode_eager_cases(self):
         for case in self.RUNNER_EAGER_CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -126,6 +129,7 @@ class TestTorchNativeSWAAttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试layoutrobustnesscases
     def test_layout_robustness_cases(self):
         for case in self.LAYOUT_ROBUSTNESS_CASES:
             for layout in ("interleaved_pages", "non_monotonic_extend"):

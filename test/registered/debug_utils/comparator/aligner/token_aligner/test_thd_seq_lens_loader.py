@@ -1,3 +1,4 @@
+# 文件名: test_thd_seq_lens_loader.py - THD序列长度加载器测试
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -17,6 +18,7 @@ from sglang.test.ci.ci_register import register_cpu_ci
 register_cpu_ci(est_time=15, suite="base-a-test-cpu", nightly=True)
 
 
+# 执行savept
 def _save_pt(
     dump_path: Path,
     *,
@@ -32,6 +34,7 @@ def _save_pt(
     return filename
 
 
+# 执行makedffromfilenames
 def _make_df_from_filenames(filenames: list[str]) -> pl.DataFrame:
     rows: list[dict] = []
     for fn in filenames:
@@ -55,6 +58,7 @@ def _make_df_from_filenames(filenames: list[str]) -> pl.DataFrame:
 class TestLoadThdSeqLensOnly:
     """Tests for load_thd_seq_lens_only."""
 
+    # 测试returnsnonewhennoplugin
     def test_returns_none_when_no_plugin(self, tmp_path: Path) -> None:
         """No recognized plugin → returns None."""
         fn: str = _save_pt(
@@ -66,11 +70,13 @@ class TestLoadThdSeqLensOnly:
 
         assert result is None
 
+    # 测试returnsnonewhennocpshardednames
     def test_returns_none_when_no_cp_sharded_names(self, tmp_path: Path) -> None:
         """Plugin detected but cp_sharded_names is empty → returns None."""
 
         class _NoCpPlugin(_SGLangPlugin):
             @property
+            # 执行cpshardednames
             def cp_sharded_names(self) -> frozenset[str]:
                 return frozenset()
 
@@ -92,6 +98,7 @@ class TestLoadThdSeqLensOnly:
 
         assert result is None
 
+    # 测试sglangextractsseqlens
     def test_sglang_extracts_seq_lens(self, tmp_path: Path) -> None:
         """SGLang format: seq_lens tensor present → extracts per-seq lengths."""
         fn: str = _save_pt(
@@ -109,6 +116,7 @@ class TestLoadThdSeqLensOnly:
         assert result is not None
         assert result == {0: [3, 5]}
 
+    # 测试megatronextractsfromcuseqlens
     def test_megatron_extracts_from_cu_seqlens(self, tmp_path: Path) -> None:
         """Megatron format: cu_seqlens_q tensor → derives seq_lens via diff."""
         fn: str = _save_pt(
@@ -126,6 +134,7 @@ class TestLoadThdSeqLensOnly:
         assert result is not None
         assert result == {0: [3, 5]}
 
+    # 测试multistep
     def test_multi_step(self, tmp_path: Path) -> None:
         """Two steps with different seq_lens → returns both in result dict."""
         fn0: str = _save_pt(
@@ -151,6 +160,7 @@ class TestLoadThdSeqLensOnly:
         assert result is not None
         assert result == {0: [3, 5], 1: [10, 20, 30]}
 
+    # 测试returnsnonewhenseqlensmissing
     def test_returns_none_when_seq_lens_missing(self, tmp_path: Path) -> None:
         """Plugin with cp_sharded_names but no seq_lens/cu_seqlens_q tensor → None."""
         fn: str = _save_pt(

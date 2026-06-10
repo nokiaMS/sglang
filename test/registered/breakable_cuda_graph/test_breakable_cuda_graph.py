@@ -1,3 +1,4 @@
+# 文件名: test_breakable_cuda_graph.py - 可中断CUDA图测试
 """Tests for the breakable CUDA graph (BCG) runner.
 
 Two test classes:
@@ -26,12 +27,14 @@ from sglang.test.test_utils import (
 register_cuda_ci(est_time=79, stage="base-b", runner_config="1-gpu-large")
 
 
+# 执行skipifnocuda
 def _skip_if_no_cuda(test_func):
     return unittest.skipUnless(torch.cuda.is_available(), "CUDA not available")(
         test_func
     )
 
 
+# 执行skipifnocudabindings
 def _skip_if_no_cuda_bindings(test_func):
     try:
         from cuda.bindings import runtime as rt  # noqa: F401
@@ -45,6 +48,7 @@ class TestBreakableCUDAGraphBasic(CustomTestCase):
     """Test basic breakable CUDA graph capture and replay."""
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         if not torch.cuda.is_available():
             raise unittest.SkipTest("CUDA not available")
@@ -64,6 +68,7 @@ class TestBreakableCUDAGraphBasic(CustomTestCase):
         cls.eager_on_graph = staticmethod(eager_on_graph)
         cls.device = torch.device("cuda:0")
 
+    # 测试nobreakcapturereplay
     def test_no_break_capture_replay(self):
         """Capture and replay without any graph breaks should work like normal CUDA graph."""
         x = torch.zeros(4, device=self.device)
@@ -77,9 +82,10 @@ class TestBreakableCUDAGraphBasic(CustomTestCase):
         # Replay with new input
         x.fill_(5.0)
         graph.replay()
-        torch.cuda.synchronize()
+        torch.cuda.synchronize()  # 同步CUDA操作
         self.assertTrue(torch.allclose(y, torch.full((4,), 6.0, device=self.device)))
 
+    # 测试singlebreak
     def test_single_break(self):
         """A single graph break should split capture into two segments."""
         x = torch.zeros(4, device=self.device)
@@ -87,6 +93,7 @@ class TestBreakableCUDAGraphBasic(CustomTestCase):
         y = torch.zeros(4, device=self.device)
 
         @self.eager_on_graph(enable=True)
+        # 执行eagerop
         def eager_op(src):
             return src * 2.0
 
@@ -100,20 +107,23 @@ class TestBreakableCUDAGraphBasic(CustomTestCase):
         # Replay with new input
         x.fill_(10.0)
         graph.replay()
-        torch.cuda.synchronize()
+        torch.cuda.synchronize()  # 同步CUDA操作
         # x=10 -> intermediate=11 -> eager: 11*2=22 -> y=22+3=25
         self.assertTrue(torch.allclose(y, torch.full((4,), 25.0, device=self.device)))
 
+    # 测试multiplebreaks
     def test_multiple_breaks(self):
         """Multiple graph breaks should produce correct chained results."""
         x = torch.zeros(4, device=self.device)
         y = torch.zeros(4, device=self.device)
 
         @self.eager_on_graph(enable=True)
+        # 执行addone
         def add_one(src):
             return src + 1.0
 
         @self.eager_on_graph(enable=True)
+        # 执行double
         def double(src):
             return src * 2.0
 
@@ -129,13 +139,15 @@ class TestBreakableCUDAGraphBasic(CustomTestCase):
         # Replay: x=5 -> +1=6 -> add_one=7 -> +1=8 -> double=16
         x.fill_(5.0)
         graph.replay()
-        torch.cuda.synchronize()
+        torch.cuda.synchronize()  # 同步CUDA操作
         self.assertTrue(torch.allclose(y, torch.full((4,), 16.0, device=self.device)))
 
+    # 测试eagerongraphdisabled
     def test_eager_on_graph_disabled(self):
         """@eager_on_graph(enable=False) should be a no-op passthrough."""
 
         @self.eager_on_graph(enable=False)
+        # 执行myfn
         def my_fn(x):
             return x + 1.0
 
@@ -146,10 +158,12 @@ class TestBreakableCUDAGraphBasic(CustomTestCase):
             torch.allclose(result, torch.tensor([2.0, 3.0], device=self.device))
         )
 
+    # 测试eagerongraphoutsidecapture
     def test_eager_on_graph_outside_capture(self):
         """@eager_on_graph called outside capture should run the function directly."""
 
         @self.eager_on_graph(enable=True)
+        # 执行myfn
         def my_fn(x):
             return x + 1.0
 
@@ -159,12 +173,14 @@ class TestBreakableCUDAGraphBasic(CustomTestCase):
             torch.allclose(result, torch.tensor([2.0, 3.0], device=self.device))
         )
 
+    # 测试replayupdatesoutput
     def test_replay_updates_output(self):
         """Replay should produce different results when input buffers change."""
         x = torch.zeros(4, device=self.device)
         y = torch.zeros(4, device=self.device)
 
         @self.eager_on_graph(enable=True)
+        # 执行scale
         def scale(src):
             return src * 3.0
 
@@ -177,13 +193,13 @@ class TestBreakableCUDAGraphBasic(CustomTestCase):
 
         # First replay: x=0 -> 0+1=1 -> 1*3=3
         graph.replay()
-        torch.cuda.synchronize()
+        torch.cuda.synchronize()  # 同步CUDA操作
         self.assertTrue(torch.allclose(y, torch.full((4,), 3.0, device=self.device)))
 
         # Second replay: x=10 -> 10+1=11 -> 11*3=33
         x.fill_(10.0)
         graph.replay()
-        torch.cuda.synchronize()
+        torch.cuda.synchronize()  # 同步CUDA操作
         self.assertTrue(torch.allclose(y, torch.full((4,), 33.0, device=self.device)))
 
 
@@ -191,6 +207,7 @@ class TestCopyOutput(CustomTestCase):
     """Test the _copy_output helper for structured output writeback."""
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         if not torch.cuda.is_available():
             raise unittest.SkipTest("CUDA not available")
@@ -206,6 +223,7 @@ class TestCopyOutput(CustomTestCase):
         cls._copy_output = staticmethod(_copy_output)
         cls.device = torch.device("cuda:0")
 
+    # 测试tensorcopy
     def test_tensor_copy(self):
         dst = torch.zeros(4, device=self.device)
         src = torch.ones(4, device=self.device) * 5.0
@@ -213,6 +231,7 @@ class TestCopyOutput(CustomTestCase):
         self.assertIs(result, dst)
         self.assertTrue(torch.allclose(dst, src))
 
+    # 测试dictcopy
     def test_dict_copy(self):
         dst = {
             "a": torch.zeros(4, device=self.device),
@@ -229,8 +248,10 @@ class TestCopyOutput(CustomTestCase):
             torch.allclose(dst["b"], torch.ones(4, device=self.device) * 2.0)
         )
 
+    # 测试objectcopy
     def test_object_copy(self):
         class FakeOutput:
+            # 执行init
             def __init__(self, t, label):
                 self.tensor = t
                 self.label = label
@@ -244,6 +265,7 @@ class TestCopyOutput(CustomTestCase):
         )
         self.assertEqual(dst.label, "new")
 
+    # 测试nontensorfallback
     def test_non_tensor_fallback(self):
         result = self._copy_output(42, 99)
         self.assertEqual(result, 99)
@@ -253,6 +275,7 @@ class TestBreakGraphHelper(CustomTestCase):
     """Test the break_graph() convenience function."""
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         if not torch.cuda.is_available():
             raise unittest.SkipTest("CUDA not available")
@@ -272,6 +295,7 @@ class TestBreakGraphHelper(CustomTestCase):
         cls.break_graph = staticmethod(break_graph)
         cls.device = torch.device("cuda:0")
 
+    # 测试breakgraphinsertssegment
     def test_break_graph_inserts_segment(self):
         """break_graph() should insert a graph break even though it does nothing."""
         x = torch.zeros(4, device=self.device)
@@ -286,7 +310,7 @@ class TestBreakGraphHelper(CustomTestCase):
 
         x.fill_(10.0)
         graph.replay()
-        torch.cuda.synchronize()
+        torch.cuda.synchronize()  # 同步CUDA操作
         # x=10 -> +1=11 -> break -> +2=13
         self.assertTrue(torch.allclose(y, torch.full((4,), 13.0, device=self.device)))
 
@@ -295,6 +319,7 @@ class TestBreakableCudaGraph(CustomTestCase):
     """Integration: Qwen3-8B with --enable-breakable-cuda-graph on mgsm_en."""
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = "Qwen/Qwen3-8B"
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -308,9 +333,11 @@ class TestBreakableCudaGraph(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8kaccuracy
     def test_gsm8k_accuracy(self):
         args = SimpleNamespace(
             base_url=self.base_url,

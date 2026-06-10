@@ -1,3 +1,4 @@
+# 文件名: test_deterministic.py - 确定性测试
 """
 Usage:
 cd test/srt
@@ -24,6 +25,7 @@ register_amd_ci(est_time=278, suite="stage-b-test-1-gpu-small-amd")
 class TestFlashinferDeterministic(TestDeterministicBase):
     # Test with flashinfer attention backend
     @classmethod
+    # 获取serverargs
     def get_server_args(cls):
         args = COMMON_SERVER_ARGS
         args.extend(
@@ -39,6 +41,7 @@ class TestFlashinferDeterministic(TestDeterministicBase):
 class TestFa3Deterministic(TestDeterministicBase):
     # Test with fa3 attention backend
     @classmethod
+    # 获取serverargs
     def get_server_args(cls):
         args = COMMON_SERVER_ARGS
         args.extend(
@@ -53,6 +56,7 @@ class TestFa3Deterministic(TestDeterministicBase):
 class TestTritonDeterministic(TestDeterministicBase):
     # Test with triton attention backend
     @classmethod
+    # 获取serverargs
     def get_server_args(cls):
         args = COMMON_SERVER_ARGS
         args.extend(

@@ -1,3 +1,4 @@
+# 文件名: test_eagle_worker_v2_topk1_fastpath.py - Eagle Worker V2 TopK1快速路径
 """Equivalence tests for the EagleDraftWorker topk=1 chain fast path.
 
 For topk=1 the draft tree degenerates to a chain, so `draft_forward` skips the
@@ -22,6 +23,7 @@ register_cuda_ci(est_time=20, suite="base-b-test-1-gpu-small")
 DEVICE = get_device()
 
 
+# 内部方法_make_chain_lists
 def _make_chain_lists(num_steps: int, bs: int):
     """Build the (score, token, parents) lists a topk=1 chain produces.
 
@@ -44,6 +46,7 @@ def _make_chain_lists(num_steps: int, bs: int):
     return score_list, token_list, parents_list
 
 
+# 内部方法_make_worker
 def _make_worker(num_steps: int, num_draft_tokens: int):
     worker = object.__new__(EagleDraftWorker)
     worker.topk = 1
@@ -54,7 +57,10 @@ def _make_worker(num_steps: int, num_draft_tokens: int):
     return worker
 
 
+# TestEagleWorkerV2Topk1FastPath类
 class TestEagleWorkerV2Topk1FastPath(CustomTestCase):
+
+    # TestEagleWorkerV2Topk1FastPath类的测试fastpathmatchesslowpath
     def test_fast_path_matches_slow_path(self):
         bs = 3
         for num_steps in (1, 2, 3, 4):
@@ -72,21 +78,22 @@ class TestEagleWorkerV2Topk1FastPath(CustomTestCase):
                 fast_index = worker._topk1_score_indices_prealloc[:bs]
                 fast_tokens = torch.cat(token_list, dim=1)
 
-                self.assertEqual(fast_parent.shape, ref_parent.shape)
-                self.assertEqual(fast_parent.tolist(), ref_parent.long().tolist())
-                self.assertEqual(fast_index.tolist(), ref_index.long().tolist())
-                self.assertEqual(fast_tokens.tolist(), ref_tokens.tolist())
+                self.assertEqual(fast_parent.shape, ref_parent.shape)  # 断言相等
+                self.assertEqual(fast_parent.tolist(), ref_parent.long().tolist())  # 断言相等
+                self.assertEqual(fast_index.tolist(), ref_index.long().tolist())  # 断言相等
+                self.assertEqual(fast_tokens.tolist(), ref_tokens.tolist())  # 断言相等
 
                 # The kernel reads these via data_ptr() as contiguous int64.
-                self.assertEqual(fast_parent.dtype, torch.long)
-                self.assertEqual(fast_index.dtype, torch.long)
-                self.assertTrue(fast_parent.is_contiguous())
-                self.assertTrue(fast_index.is_contiguous())
+                self.assertEqual(fast_parent.dtype, torch.long)  # 断言相等
+                self.assertEqual(fast_index.dtype, torch.long)  # 断言相等
+                self.assertTrue(fast_parent.is_contiguous())  # 断言为真
+                self.assertTrue(fast_index.is_contiguous())  # 断言为真
 
+    # TestEagleWorkerV2Topk1FastPath类的测试assertoninconsistentstepsanddrafttokens
     def test_assert_on_inconsistent_steps_and_draft_tokens(self):
         # num_draft_tokens must equal num_steps + 1 for topk=1.
         worker = _make_worker(num_steps=3, num_draft_tokens=3)
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(AssertionError):  # 断言抛出异常
             worker._rebuild_topk1_chain_buffers()
 
 

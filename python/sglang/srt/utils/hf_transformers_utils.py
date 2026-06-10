@@ -1,3 +1,4 @@
+# 向后兼容的垫片模块——所有代码已迁移到sglang.srt.utils.hf_transformers
 # Copyright 2023-2024 SGLang Team
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,5 +14,5 @@
 # ==============================================================================
 """Backward-compatible shim — all code has moved to sglang.srt.utils.hf_transformers."""
 
-from sglang.srt.utils.hf_transformers import *  # noqa: F401, F403
-from sglang.srt.utils.hf_transformers import __all__  # noqa: F401
+from sglang.srt.utils.hf_transformers import *  # noqa: F401, F403  # 从新模块重新导出所有公共API
+from sglang.srt.utils.hf_transformers import __all__  # noqa: F401  # 重新导出__all__列表

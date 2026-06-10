@@ -1,3 +1,4 @@
+# 文件名: test_intel_amx_attention_backend_c.py - Intel AMX注意力后端C测试
 """
 For intel_amx attention backend w8a8 tests
 Usage:
@@ -30,6 +31,7 @@ class TestIntelAMXAttnBackendQuant(CustomTestCase):
         ],
         min_throughput=100,
     )
+    # 测试latencyw8a8defaultmodel
     def test_latency_w8a8_default_model(self):
         return DEFAULT_MODEL_NAME_FOR_TEST_W8A8
 
@@ -48,6 +50,7 @@ class TestIntelAMXAttnBackendQuant(CustomTestCase):
         ],
         min_throughput=100,
     )
+    # 测试latencyw8a8moemodel
     def test_latency_w8a8_moe_model(self):
         return DEFAULT_MODEL_NAME_FOR_TEST_W8A8_WITH_MOE
 

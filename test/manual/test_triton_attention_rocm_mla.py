@@ -1,3 +1,4 @@
+# 文件名: test_triton_attention_rocm_mla.py - Triton MLA注意力ROCm测试 - 验证ROCm平台上MLA解码注意力的RoPE融合内核正确性
 import random
 import unittest
 
@@ -15,6 +16,7 @@ from sglang.test.test_utils import CustomTestCase
 
 class TestTritonAttentionMLA(CustomTestCase):
 
+    # 设置所有随机种子 - 设置Python和PyTorch的随机种子以确保可重复性
     def _set_all_seeds(self, seed):
         """Set all random seeds for reproducibility."""
         random.seed(seed)
@@ -24,10 +26,12 @@ class TestTritonAttentionMLA(CustomTestCase):
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
+    # setUp
     def setUp(self):
         # Set seeds before each test method
         self._set_all_seeds(42)
 
+    # 预处理KV缓存 - 将KV缓存分解为k_input和v_input
     def preprocess_kv_cache(self, kv_cache, kv_lora_rank):
         latent_cache = kv_cache
         v_input = latent_cache[..., :kv_lora_rank]
@@ -37,6 +41,7 @@ class TestTritonAttentionMLA(CustomTestCase):
 
         return k_input, v_input
 
+    # 输入辅助函数 - 生成MLA解码注意力测试所需的输入张量
     def input_helper(
         self,
         B,
@@ -78,6 +83,7 @@ class TestTritonAttentionMLA(CustomTestCase):
 
         return kv_indptr, kv_indices, q, kv_cache, attn_logits, rotary_emb, positions
 
+    # 参考前向计算 - 使用分组解码注意力进行MLA前向计算的参考实现
     def ref_compute_full_fwd(
         self,
         q,
@@ -138,6 +144,7 @@ class TestTritonAttentionMLA(CustomTestCase):
 
         return attn_logits, o, k_pe_t.squeeze()
 
+    # 测试ROCm融合MLA内核 - 比较ROCm MLA解码注意力与参考实现
     def _test_rocm_fused_mla_kernel(
         self,
         B,
@@ -221,6 +228,7 @@ class TestTritonAttentionMLA(CustomTestCase):
         torch.testing.assert_close(ref_logits, tri_logits, atol=1e-2, rtol=1e-2)
         torch.testing.assert_close(ref_o, tri_o, atol=1e-2, rtol=1e-2)
 
+    # 测试grouped rocm fused mla
     def test_grouped_rocm_fused_mla(self):
         configs = [
             (1, 128, 2048, 512, 64, 64),

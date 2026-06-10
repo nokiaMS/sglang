@@ -1,3 +1,4 @@
+# 文件名: test_basic_sanity_eagle3.py - Eagle3基本健全性测试
 """Stage-a basic sanity with EAGLE3 spec decoding enabled. Mirrors
 test_basic_sanity.py with the spec-decoding path active."""
 
@@ -45,6 +46,7 @@ class TestBasicSanityEagle3(
     gsm8k_accuracy_thres = 0.74
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.base_url = DEFAULT_URL_FOR_TEST
         cls.process = popen_launch_server(
@@ -80,6 +82,7 @@ class TestBasicSanityEagle3(
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 

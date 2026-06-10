@@ -1,3 +1,4 @@
+# 文件名: test_qwen3.py - 测试Qwen3模型的融合QKV+Z+BA分割和重塑拼接算子
 import unittest
 
 import torch
@@ -11,6 +12,7 @@ torch.manual_seed(1234)
 def fix_query_key_value_ordering_reshape_cat(
     mixed_qkvz, mixed_ba, num_k_heads, num_v_heads, attn_tp_size, head_k_dim, head_v_dim
 ):
+    # 修复查询/键/值排序：通过reshape和cat分离Q、K、V、Z、B、A
     new_tensor_shape_qkvz = mixed_qkvz.size()[:-1] + (
         num_k_heads // attn_tp_size,
         (
@@ -64,16 +66,18 @@ def fix_query_key_value_ordering_reshape_cat_contiguous(
 ):
     """
     Derives `query`, `key` and `value` tensors from `mixed_qkvzba`.
+    从混合的QKV+Z+BA张量中分离出query、key、value、z、b、a
     """
     k_tp = key_dim // attn_tp_size
     v_tp = value_dim // attn_tp_size
     nv_tp = num_v_heads // attn_tp_size
 
-    # Directly split, no head group reshape
+    # Directly split, no head group reshape 直接分割，无需头组重塑
     query, key, value, z = mixed_qkvz.split([k_tp, k_tp, v_tp, v_tp], dim=-1)
     b, a = mixed_ba.split([nv_tp, nv_tp], dim=-1)
 
     # value / z reshape to (seq, num_v_heads/tp, head_v_dim)
+    # value/z重塑为(seq, num_v_heads/tp, head_v_dim)形状
     value = value.reshape(value.size(0), -1, head_v_dim)
     z = z.reshape(z.size(0), -1, head_v_dim)
     query, key, value = map(lambda x: x.reshape(x.shape[0], -1), (query, key, value))
@@ -83,6 +87,7 @@ def fix_query_key_value_ordering_reshape_cat_contiguous(
 
 class TestQwen3(CustomTestCase):
     def test_fused_qkvzba_split_reshape_cat(self):
+        # 测试融合QKV+Z+BA分割重塑拼接的正确性
         mixed_qkvz = torch.rand(1024, 12288, dtype=torch.bfloat16)
         mixed_ba = torch.rand(1024, 64, dtype=torch.bfloat16)
         head_k_dim = 128
@@ -111,6 +116,7 @@ class TestQwen3(CustomTestCase):
         torch.testing.assert_close(a, a_ref, atol=atol, rtol=rtol)
 
     def test_fused_qkvzba_split_reshape_cat_contiguous(self):
+        # 测试连续内存版本的融合QKV+Z+BA分割重塑拼接
         mixed_qkvz = torch.rand(1, 12288, dtype=torch.bfloat16)
         mixed_ba = torch.rand(1, 64, dtype=torch.bfloat16)
         head_k_dim = 128

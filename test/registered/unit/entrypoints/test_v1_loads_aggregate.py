@@ -1,3 +1,4 @@
+# 文件名: test_v1_loads_aggregate.py - V1负载聚合
 """Unit tests for /v1/loads load snapshot response behavior."""
 
 import asyncio
@@ -30,6 +31,7 @@ maybe_stub_sgl_kernel()
 register_cpu_ci(est_time=10, suite="base-a-test-cpu")
 
 
+# 内部方法_temp_path
 def _temp_path() -> str:
     fd, path = tempfile.mkstemp()
     os.close(fd)
@@ -37,7 +39,10 @@ def _temp_path() -> str:
     return path
 
 
+# _FakeTokenizerManager类
 class _FakeTokenizerManager(TokenizerControlMixin):
+
+    # _FakeTokenizerManager类的初始化
     def __init__(self, reader, dp_size: int):
         self.load_snapshot_reader = reader
         self.server_args = SimpleNamespace(
@@ -46,13 +51,16 @@ class _FakeTokenizerManager(TokenizerControlMixin):
             nnodes=1,
         )
 
+    # _FakeTokenizerManager类的auto_create_handle_loop
     def auto_create_handle_loop(self):
         pass
 
 
+# _FakeHttpTokenizerManager类
 class _FakeHttpTokenizerManager:
     metrics_collector = None
 
+    # _FakeHttpTokenizerManager类的初始化
     def __init__(self, loads):
         self.loads = loads
 
@@ -65,7 +73,10 @@ class _FakeHttpTokenizerManager:
         return results
 
 
+# TestLoadsResponse类
 class TestLoadsResponse(CustomTestCase):
+
+    # TestLoadsResponse类的测试responseomitsserversideaggregateandredundantfields
     def test_response_omits_server_side_aggregate_and_redundant_fields(self):
         manager = _FakeHttpTokenizerManager(
             [
@@ -80,15 +91,18 @@ class TestLoadsResponse(CustomTestCase):
 
         response = asyncio.run(get_loads(tokenizer_manager=manager))
 
-        self.assertNotIn("dp_rank_count", response)
-        self.assertNotIn("aggregate", response)
-        self.assertEqual(len(response["loads"]), 1)
-        self.assertNotIn("num_total_reqs", response["loads"][0])
-        self.assertEqual(response["loads"][0]["num_running_reqs"], 3)
-        self.assertEqual(response["loads"][0]["num_waiting_reqs"], 2)
+        self.assertNotIn("dp_rank_count", response)  # 断言不包含
+        self.assertNotIn("aggregate", response)  # 断言不包含
+        self.assertEqual(len(response["loads"]), 1)  # 断言相等
+        self.assertNotIn("num_total_reqs", response["loads"][0])  # 断言不包含
+        self.assertEqual(response["loads"][0]["num_running_reqs"], 3)  # 断言相等
+        self.assertEqual(response["loads"][0]["num_waiting_reqs"], 2)  # 断言相等
 
 
+# TestGetLoads类
 class TestGetLoads(CustomTestCase):
+
+    # TestGetLoads类的测试loadsnapshotwireformatismsgpackslots
     def test_load_snapshot_wire_format_is_msgpack_slots(self):
         path = _temp_path()
         writer = ShmLoadSnapshotWriter(path, dp_size=2, dp_rank=1)
@@ -105,12 +119,12 @@ class TestGetLoads(CustomTestCase):
             with open(path, "rb") as f:
                 data = f.read()
 
-            self.assertEqual(len(data), HEADER_STRUCT.size + 2 * SLOT_SIZE)
+            self.assertEqual(len(data), HEADER_STRUCT.size + 2 * SLOT_SIZE)  # 断言相等
             magic, version, dp_size, slot_size = HEADER_STRUCT.unpack_from(data, 0)
-            self.assertEqual(magic, MAGIC)
-            self.assertEqual(version, VERSION)
-            self.assertEqual(dp_size, 2)
-            self.assertEqual(slot_size, SLOT_SIZE)
+            self.assertEqual(magic, MAGIC)  # 断言相等
+            self.assertEqual(version, VERSION)  # 断言相等
+            self.assertEqual(dp_size, 2)  # 断言相等
+            self.assertEqual(slot_size, SLOT_SIZE)  # 断言相等
 
             offset = slot_offset(1, slot_size)
             (payload_len,) = SLOT_LEN_STRUCT.unpack_from(data, offset)
@@ -118,23 +132,24 @@ class TestGetLoads(CustomTestCase):
             payload = data[payload_start : payload_start + payload_len]
             decoded = msgspec.msgpack.decode(payload)
 
-            self.assertEqual(decoded["dp_rank"], 1)
-            self.assertEqual(decoded["num_running_reqs"], 3)
-            self.assertEqual(decoded["num_waiting_reqs"], 2)
-            self.assertEqual(decoded["token_usage"], 0.25)
+            self.assertEqual(decoded["dp_rank"], 1)  # 断言相等
+            self.assertEqual(decoded["num_running_reqs"], 3)  # 断言相等
+            self.assertEqual(decoded["num_waiting_reqs"], 2)  # 断言相等
+            self.assertEqual(decoded["token_usage"], 0.25)  # 断言相等
         finally:
             writer.close()
             if os.path.exists(path):
                 os.unlink(path)
 
+    # TestGetLoads类的测试readssnapshotandfilterssections
     def test_reads_snapshot_and_filters_sections(self):
         path = _temp_path()
         writer = ShmLoadSnapshotWriter(path, dp_size=1, dp_rank=0)
         reader = ShmLoadSnapshotReader(path, dp_size=1)
         try:
             initial_load = reader.read(0)
-            self.assertIsNotNone(initial_load)
-            self.assertEqual(initial_load.num_total_tokens, 0)
+            self.assertIsNotNone(initial_load)  # 断言不为None
+            self.assertEqual(initial_load.num_total_tokens, 0)  # 断言相等
 
             writer.write(
                 LoadSnapshot(
@@ -164,17 +179,17 @@ class TestGetLoads(CustomTestCase):
             manager = _FakeTokenizerManager(reader, dp_size=1)
             loads = asyncio.run(manager.get_loads(include=["core"], dp_rank=0))
 
-            self.assertEqual(len(loads), 1)
-            self.assertEqual(loads[0].num_total_tokens, 256)
+            self.assertEqual(len(loads), 1)  # 断言相等
+            self.assertEqual(loads[0].num_total_tokens, 256)  # 断言相等
 
             d = loads[0].to_dict({"core"})
-            self.assertNotIn("disaggregation", d)
-            self.assertNotIn("queues", d)
+            self.assertNotIn("disaggregation", d)  # 断言不包含
+            self.assertNotIn("queues", d)  # 断言不包含
 
             loads_all = asyncio.run(manager.get_loads(include=["all"], dp_rank=0))
             d_all = loads_all[0].to_dict()
-            self.assertIn("disaggregation", d_all)
-            self.assertIn("queues", d_all)
+            self.assertIn("disaggregation", d_all)  # 断言包含
+            self.assertIn("queues", d_all)  # 断言包含
         finally:
             reader.close()
             writer.close()

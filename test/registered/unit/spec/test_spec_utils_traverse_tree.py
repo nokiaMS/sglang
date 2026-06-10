@@ -1,3 +1,4 @@
+# 文件名: test_spec_utils_traverse_tree.py - 推测解码工具遍历树
 """Regression test for spec_utils.traverse_tree calling xgrammar with tensors.
 
 xgrammar 0.2.0 tightened its FFI binding and rejects 0-d tensors where Python
@@ -17,7 +18,10 @@ from sglang.test.ci.ci_register import register_cpu_ci
 register_cpu_ci(est_time=4, suite="base-a-test-cpu")
 
 
+# TestTraverseTreePassesIntsToGrammar类
 class TestTraverseTreePassesIntsToGrammar(unittest.TestCase):
+
+    # TestTraverseTreePassesIntsToGrammar类的内部方法_record_grammar
     def _record_grammar(self):
         """A grammar mock that records every call argument and rejects torch tensors."""
         grammar = MagicMock()
@@ -25,14 +29,16 @@ class TestTraverseTreePassesIntsToGrammar(unittest.TestCase):
         accept_calls = []
         fill_calls = []
 
+        # record_accept
         def record_accept(token):
             if isinstance(token, torch.Tensor):
-                raise TypeError(f"accept_token got torch.Tensor: {token!r}")
+                raise TypeError(f"accept_token got torch.Tensor: {token!r}")  # 抛出异常
             accept_calls.append(token)
 
+        # record_fill
         def record_fill(bitmask, idx):
             if isinstance(idx, torch.Tensor):
-                raise TypeError(f"fill_vocab_mask got torch.Tensor idx: {idx!r}")
+                raise TypeError(f"fill_vocab_mask got torch.Tensor idx: {idx!r}")  # 抛出异常
             fill_calls.append(idx)
 
         grammar.accept_token.side_effect = record_accept
@@ -40,6 +46,7 @@ class TestTraverseTreePassesIntsToGrammar(unittest.TestCase):
         grammar.rollback.return_value = None
         return grammar, accept_calls, fill_calls
 
+    # TestTraverseTreePassesIntsToGrammar类的测试branchingtreepassesints
     def test_branching_tree_passes_ints(self):
         # Binary tree exercises both child recursion and sibling recursion:
         #   0 ─┬─ 1
@@ -59,8 +66,8 @@ class TestTraverseTreePassesIntsToGrammar(unittest.TestCase):
             bitmask,
         )
 
-        self.assertEqual(set(accept_calls), {11, 22, 33})
-        self.assertEqual(set(fill_calls), {0, 1, 2, 3})
+        self.assertEqual(set(accept_calls), {11, 22, 33})  # 断言相等
+        self.assertEqual(set(fill_calls), {0, 1, 2, 3})  # 断言相等
         for token in accept_calls:
             self.assertIsInstance(token, int)
         for idx in fill_calls:

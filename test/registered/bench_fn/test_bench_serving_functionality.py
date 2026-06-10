@@ -1,3 +1,4 @@
+# 文件名: test_bench_serving_functionality.py - 服务功能基准测试
 import json
 import tempfile
 import threading
@@ -27,6 +28,7 @@ NUM_CONVERSATIONS, NUM_TURNS = 4, 3
 
 
 class TestBenchServingFunctionality(CustomTestCase):
+    # 测试gspmultiturn
     def test_gsp_multi_turn(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             process = popen_launch_server(
@@ -71,6 +73,7 @@ class TestBenchServingFunctionality(CustomTestCase):
             finally:
                 kill_process_tree(process.pid)
 
+    # 执行verifymultiturnlogs
     def _verify_multi_turn_logs(self, content: str):
         reqs = []
         for line in content.splitlines():
@@ -106,6 +109,7 @@ class TestBenchServingFunctionality(CustomTestCase):
 
 
 class TestBenchServingCustomHeaders(CustomTestCase):
+    # 测试parsecustomheaders
     def test_parse_custom_headers(self):
         headers = parse_custom_headers(["MyHeader=MY_VALUE", "Another=value=hello"])
         self.assertEqual(headers, {"MyHeader": "MY_VALUE", "Another": "value=hello"})
@@ -117,12 +121,14 @@ class TestBenchServingCustomHeaders(CustomTestCase):
         self.assertEqual(headers, {})
 
     # TODO: Using well-implemented mock server, e.g. the on in sgl-router
+    # 测试customheaderssenttoserver
     def test_custom_headers_sent_to_server(self):
         import queue
 
         received_requests = queue.Queue()
 
         class HeaderEchoHandler(BaseHTTPRequestHandler):
+            # 执行handle
             def _handle(self):
                 received_requests.put(
                     {

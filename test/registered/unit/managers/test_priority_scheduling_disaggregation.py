@@ -1,3 +1,4 @@
+# 文件名: test_priority_scheduling_disaggregation.py - 优先级调度解聚
 import sys
 import unittest
 from types import SimpleNamespace
@@ -17,7 +18,10 @@ from sglang.test.ci.ci_register import register_cuda_ci
 register_cuda_ci(est_time=5, stage="base-b", runner_config="1-gpu-small")
 
 
+# TestDisaggregationPriorityQueueing类
 class TestDisaggregationPriorityQueueing(unittest.TestCase):
+
+    # TestDisaggregationPriorityQueueing类的内部方法_new_scheduler
     def _new_scheduler(self, disaggregation_mode: DisaggregationMode) -> Scheduler:
         scheduler = Scheduler.__new__(Scheduler)
         scheduler.disaggregation_mode = disaggregation_mode
@@ -33,6 +37,7 @@ class TestDisaggregationPriorityQueueing(unittest.TestCase):
         scheduler.ipc_channels = MagicMock()
         return scheduler
 
+    # TestDisaggregationPriorityQueueing类的内部方法_new_req
     def _new_req(self, priority=None):
         req = MagicMock()
         req.priority = priority
@@ -41,28 +46,31 @@ class TestDisaggregationPriorityQueueing(unittest.TestCase):
         req.time_stats.trace_ctx = MagicMock()
         return req
 
+    # TestDisaggregationPriorityQueueing类的测试prefillmodeassignsdefaultprioritybeforebootstrapqueue
     def test_prefill_mode_assigns_default_priority_before_bootstrap_queue(self):
         scheduler = self._new_scheduler(DisaggregationMode.PREFILL)
         req = self._new_req(priority=None)
 
         scheduler._add_request_to_queue(req)
 
-        self.assertEqual(req.priority, -sys.maxsize - 1)
+        self.assertEqual(req.priority, -sys.maxsize - 1)  # 断言相等
         scheduler.disagg_prefill_bootstrap_queue.add.assert_called_once_with(req, 8)
         req.time_stats.set_prefill_bootstrap_queue_entry_time.assert_called_once()
 
+    # TestDisaggregationPriorityQueueing类的测试decodemodeassignsdefaultprioritybeforepreallocqueue
     def test_decode_mode_assigns_default_priority_before_prealloc_queue(self):
         scheduler = self._new_scheduler(DisaggregationMode.DECODE)
         req = self._new_req(priority=None)
 
         scheduler._add_request_to_queue(req)
 
-        self.assertEqual(req.priority, -sys.maxsize - 1)
+        self.assertEqual(req.priority, -sys.maxsize - 1)  # 断言相等
         scheduler.disagg_decode_prealloc_queue.add.assert_called_once_with(
             req, is_retracted=False
         )
         req.time_stats.set_decode_prealloc_queue_entry_time.assert_called_once()
 
+    # TestDisaggregationPriorityQueueing类的测试prioritydisabledabortvalidationappliestodecodemode
     def test_priority_disabled_abort_validation_applies_to_decode_mode(self):
         scheduler = self._new_scheduler(DisaggregationMode.DECODE)
         scheduler.enable_priority_scheduling = False
@@ -76,7 +84,10 @@ class TestDisaggregationPriorityQueueing(unittest.TestCase):
         req.time_stats.trace_ctx.abort.assert_called_once()
 
 
+# TestDecodePreallocQueuePriority类
 class TestDecodePreallocQueuePriority(unittest.TestCase):
+
+    # TestDecodePreallocQueuePriority类的内部方法_new_decode_req
     def _new_decode_req(self, rid: str, priority: int, *, failed: bool = False):
         req = SimpleNamespace(
             rid=rid,
@@ -97,6 +108,7 @@ class TestDecodePreallocQueuePriority(unittest.TestCase):
             metadata_buffer_index=-1,
         )
 
+    # TestDecodePreallocQueuePriority类的内部方法_new_queue
     def _new_queue(self, decode_reqs, *, low_priority_values_first: bool = False):
         queue = DecodePreallocQueue.__new__(DecodePreallocQueue)
         queue.queue = list(decode_reqs)
@@ -142,6 +154,7 @@ class TestDecodePreallocQueuePriority(unittest.TestCase):
         queue.scheduler = scheduler
         return queue
 
+    # TestDecodePreallocQueuePriority类的测试preallocqueuescheduleshigherpriorityvaluesfirstbydefault
     def test_prealloc_queue_schedules_higher_priority_values_first_by_default(self):
         reqs = [
             self._new_decode_req("low", 1),
@@ -153,7 +166,7 @@ class TestDecodePreallocQueuePriority(unittest.TestCase):
         with patch("sglang.srt.disaggregation.decode.CLIP_MAX_NEW_TOKEN", 4096):
             preallocated, failed = queue.pop_preallocated()
 
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             [decode_req.req.rid for decode_req in preallocated],
             [
                 "high",
@@ -161,8 +174,9 @@ class TestDecodePreallocQueuePriority(unittest.TestCase):
                 "low",
             ],
         )
-        self.assertEqual(failed, [])
+        self.assertEqual(failed, [])  # 断言相等
 
+    # TestDecodePreallocQueuePriority类的测试preallocqueuecanschedulelowerpriorityvaluesfirst
     def test_prealloc_queue_can_schedule_lower_priority_values_first(self):
         reqs = [
             self._new_decode_req("mid", 5),
@@ -174,7 +188,7 @@ class TestDecodePreallocQueuePriority(unittest.TestCase):
         with patch("sglang.srt.disaggregation.decode.CLIP_MAX_NEW_TOKEN", 4096):
             preallocated, failed = queue.pop_preallocated()
 
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             [decode_req.req.rid for decode_req in preallocated],
             [
                 "low",
@@ -182,8 +196,9 @@ class TestDecodePreallocQueuePriority(unittest.TestCase):
                 "high",
             ],
         )
-        self.assertEqual(failed, [])
+        self.assertEqual(failed, [])  # 断言相等
 
+    # TestDecodePreallocQueuePriority类的测试failedrequestindicesstayvalidafterprioritysort
     def test_failed_request_indices_stay_valid_after_priority_sort(self):
         failed_low = self._new_decode_req("failed-low", 1, failed=True)
         healthy_high = self._new_decode_req("healthy-high", 10)
@@ -192,17 +207,20 @@ class TestDecodePreallocQueuePriority(unittest.TestCase):
         with patch("sglang.srt.disaggregation.decode.CLIP_MAX_NEW_TOKEN", 4096):
             preallocated, failed = queue.pop_preallocated()
 
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             [decode_req.req.rid for decode_req in preallocated], ["healthy-high"]
         )
-        self.assertEqual([decode_req.req.rid for decode_req in failed], ["failed-low"])
-        self.assertEqual(queue.queue, [])
+        self.assertEqual([decode_req.req.rid for decode_req in failed], ["failed-low"])  # 断言相等
+        self.assertEqual(queue.queue, [])  # 断言相等
         queue.scheduler.output_streamer.stream_output.assert_called_once_with(
             [failed_low.req], failed_low.req.return_logprob
         )
 
 
+# TestDecodePrebuiltPriority类
 class TestDecodePrebuiltPriority(unittest.TestCase):
+
+    # TestDecodePrebuiltPriority类的测试waitingqueueissortedbeforeprebuiltselection
     def test_waiting_queue_is_sorted_before_prebuilt_selection(self):
         scheduler = Scheduler.__new__(Scheduler)
         scheduler.grammar_manager = MagicMock()
@@ -237,13 +255,13 @@ class TestDecodePrebuiltPriority(unittest.TestCase):
         ) as init_new:
             ret = SchedulerDisaggregationDecodeMixin.get_new_prebuilt_batch(scheduler)
 
-        self.assertIs(ret, new_batch)
+        self.assertIs(ret, new_batch)  # 断言是同一对象
         scheduler.policy.calc_priority.assert_called_once_with(
             original_waiting_queue, scheduler.running_batch
         )
         selected_reqs = init_new.call_args.args[0]
-        self.assertEqual([req.rid for req in selected_reqs], ["high"])
-        self.assertEqual([req.rid for req in scheduler.waiting_queue], ["low"])
+        self.assertEqual([req.rid for req in selected_reqs], ["high"])  # 断言相等
+        self.assertEqual([req.rid for req in scheduler.waiting_queue], ["low"])  # 断言相等
 
 
 if __name__ == "__main__":

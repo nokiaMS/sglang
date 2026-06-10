@@ -1,3 +1,4 @@
+# 文件名: test_triton.py - Triton内核测试
 import sys
 import unittest
 from pathlib import Path
@@ -250,6 +251,7 @@ class TestTritonSWAAttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试projectedswaattentioncases
     def test_projected_swa_attention_cases(self):
         for case in self.CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -284,6 +286,7 @@ class TestTritonSWAAttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试layoutrobustnesscases
     def test_layout_robustness_cases(self):
         for case in self.LAYOUT_ROBUSTNESS_CASES:
             for layout in ("interleaved_pages", "non_monotonic_extend"):
@@ -292,11 +295,13 @@ class TestTritonSWAAttentionBackendCorrectness(CustomTestCase):
                 with self.subTest(case=case.name, layout=layout):
                     run_dense_attention_case(self, case, loc_layout=layout)
 
+    # 测试runnermodecudagraphdecodecases
     def test_runner_mode_cuda_graph_decode_cases(self):
         for case in self.CUDA_GRAPH_CASES:
             with self.subTest(case=case.name, backend=case.backend):
                 run_dense_cuda_graph_decode_case(self, case)
 
+    # 测试runnermodesplitopextendcases
     def test_runner_mode_split_op_extend_cases(self):
         for case, static_num_tokens in self.SPLIT_OP_CASES:
             for breakable in (False, True):
@@ -313,6 +318,7 @@ class TestTritonSWAAttentionBackendCorrectness(CustomTestCase):
                         static_num_tokens=static_num_tokens,
                     )
 
+    # 测试runnermodespecverifycases
     def test_runner_mode_spec_verify_cases(self):
         for case, topk, spec_kind in self.SPEC_VERIFY_CASES:
             with self.subTest(
@@ -323,6 +329,7 @@ class TestTritonSWAAttentionBackendCorrectness(CustomTestCase):
             ):
                 run_dense_spec_verify_case(self, case, topk=topk, spec_kind=spec_kind)
 
+    # 测试runnermodespecverifycudagraphcases
     def test_runner_mode_spec_verify_cuda_graph_cases(self):
         for case, topk, spec_kind in self.SPEC_VERIFY_CUDA_GRAPH_CASES:
             with self.subTest(

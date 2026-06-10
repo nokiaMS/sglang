@@ -1,3 +1,4 @@
+# 文件名: test_disaggregation_hybrid_attention.py - 混合注意力分离式部署测试
 import unittest
 from types import SimpleNamespace
 
@@ -18,6 +19,7 @@ register_cuda_ci(est_time=310, stage="extra-b", runner_config="8-gpu-h200")
 @unittest.skipIf(is_in_ci(), "Temporarily disable the flaky test.")
 class TestDisaggregationHybridAttentionGDN(PDDisaggregationServerBase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
         cls.model = "Qwen/Qwen3-Next-80B-A3B-Instruct"
@@ -33,6 +35,7 @@ class TestDisaggregationHybridAttentionGDN(PDDisaggregationServerBase):
         cls.launch_lb()
 
     @classmethod
+    # 执行startprefill
     def start_prefill(cls):
         prefill_args = [
             "--trust-remote-code",
@@ -52,6 +55,7 @@ class TestDisaggregationHybridAttentionGDN(PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 执行startdecode
     def start_decode(cls):
         decode_args = [
             "--trust-remote-code",
@@ -72,6 +76,7 @@ class TestDisaggregationHybridAttentionGDN(PDDisaggregationServerBase):
             other_args=decode_args,
         )
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -90,6 +95,7 @@ class TestDisaggregationHybridAttentionGDN(PDDisaggregationServerBase):
 
 class TestDisaggregationHybridAttentionGDNExtraBuffer(PDDisaggregationServerBase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
         cls.model = "Qwen/Qwen3-Next-80B-A3B-Instruct"
@@ -105,6 +111,7 @@ class TestDisaggregationHybridAttentionGDNExtraBuffer(PDDisaggregationServerBase
         cls.launch_lb()
 
     @classmethod
+    # 执行startprefill
     def start_prefill(cls):
         prefill_args = [
             "--trust-remote-code",
@@ -126,6 +133,7 @@ class TestDisaggregationHybridAttentionGDNExtraBuffer(PDDisaggregationServerBase
         )
 
     @classmethod
+    # 执行startdecode
     def start_decode(cls):
         decode_args = [
             "--trust-remote-code",
@@ -148,6 +156,7 @@ class TestDisaggregationHybridAttentionGDNExtraBuffer(PDDisaggregationServerBase
             other_args=decode_args,
         )
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -169,6 +178,7 @@ class TestDisaggregationHybridAttentionGDNDPDecode(PDDisaggregationServerBase):
     """Test with prefill tp=2 and decode tp=2/dp=2 with dp-attention enabled."""
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
         cls.model = "Qwen/Qwen3-Next-80B-A3B-Instruct"
@@ -184,6 +194,7 @@ class TestDisaggregationHybridAttentionGDNDPDecode(PDDisaggregationServerBase):
         cls.launch_lb()
 
     @classmethod
+    # 执行startprefill
     def start_prefill(cls):
         prefill_args = [
             "--trust-remote-code",
@@ -203,6 +214,7 @@ class TestDisaggregationHybridAttentionGDNDPDecode(PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 执行startdecode
     def start_decode(cls):
         decode_args = [
             "--trust-remote-code",
@@ -227,6 +239,7 @@ class TestDisaggregationHybridAttentionGDNDPDecode(PDDisaggregationServerBase):
             other_args=decode_args,
         )
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -246,6 +259,7 @@ class TestDisaggregationHybridAttentionGDNDPDecode(PDDisaggregationServerBase):
 
 class TestDisaggregationHybridAttentionMamba(PDDisaggregationServerBase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
         cls.model = "nvidia/NVIDIA-Nemotron-Nano-9B-v2"
@@ -261,6 +275,7 @@ class TestDisaggregationHybridAttentionMamba(PDDisaggregationServerBase):
         cls.launch_lb()
 
     @classmethod
+    # 执行startprefill
     def start_prefill(cls):
         prefill_args = [
             "--trust-remote-code",
@@ -280,6 +295,7 @@ class TestDisaggregationHybridAttentionMamba(PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 执行startdecode
     def start_decode(cls):
         decode_args = [
             "--trust-remote-code",
@@ -300,6 +316,7 @@ class TestDisaggregationHybridAttentionMamba(PDDisaggregationServerBase):
             other_args=decode_args,
         )
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -318,6 +335,7 @@ class TestDisaggregationHybridAttentionMamba(PDDisaggregationServerBase):
 
 class TestDisaggregationHybridAttentionMambaExtraBuffer(PDDisaggregationServerBase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
         cls.model = "nvidia/NVIDIA-Nemotron-Nano-9B-v2"
@@ -333,6 +351,7 @@ class TestDisaggregationHybridAttentionMambaExtraBuffer(PDDisaggregationServerBa
         cls.launch_lb()
 
     @classmethod
+    # 执行startprefill
     def start_prefill(cls):
         prefill_args = [
             "--trust-remote-code",
@@ -354,6 +373,7 @@ class TestDisaggregationHybridAttentionMambaExtraBuffer(PDDisaggregationServerBa
         )
 
     @classmethod
+    # 执行startdecode
     def start_decode(cls):
         decode_args = [
             "--trust-remote-code",
@@ -376,6 +396,7 @@ class TestDisaggregationHybridAttentionMambaExtraBuffer(PDDisaggregationServerBa
             other_args=decode_args,
         )
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,

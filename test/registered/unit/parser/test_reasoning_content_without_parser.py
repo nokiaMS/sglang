@@ -1,3 +1,4 @@
+# 文件名: test_reasoning_content_without_parser.py - 无解析器的推理内容
 import unittest
 
 from sglang.srt.parser.reasoning_parser import ReasoningParser
@@ -16,6 +17,7 @@ THINK_OUTPUT_QWEN3 = (
 )
 
 
+# TestReasoningContentWithoutParser类
 class TestReasoningContentWithoutParser(CustomTestCase):
     """Test the code path: when no reasoning parser is configured, reasoning
     content should never be separated, even if the model output contains
@@ -38,10 +40,11 @@ class TestReasoningContentWithoutParser(CustomTestCase):
             parser = ReasoningParser(reasoning_parser)
             reasoning_text, text = parser.parse_non_stream(text)
 
-        self.assertIsNone(reasoning_text)
-        self.assertIn("<think>", text)
-        self.assertIn("The answer is 4.", text)
+        self.assertIsNone(reasoning_text)  # 断言为None
+        self.assertIn("<think>", text)  # 断言包含
+        self.assertIn("The answer is 4.", text)  # 断言包含
 
+    # TestReasoningContentWithoutParser类的测试withparserseparatesreasoning
     def test_with_parser_separates_reasoning(self):
         """With a parser, reasoning content is correctly separated."""
         for parser_name, output in [
@@ -52,11 +55,12 @@ class TestReasoningContentWithoutParser(CustomTestCase):
                 parser = ReasoningParser(parser_name, stream_reasoning=False)
                 reasoning_text, text = parser.parse_non_stream(output)
 
-                self.assertIsNotNone(reasoning_text)
-                self.assertGreater(len(reasoning_text), 0)
-                self.assertNotIn("<think>", reasoning_text)
-                self.assertIn("The answer is 4.", text)
+                self.assertIsNotNone(reasoning_text)  # 断言不为None
+                self.assertGreater(len(reasoning_text), 0)  # 断言大于
+                self.assertNotIn("<think>", reasoning_text)  # 断言不包含
+                self.assertIn("The answer is 4.", text)  # 断言包含
 
+    # TestReasoningContentWithoutParser类的测试noparserstreamingpassthrough
     def test_no_parser_streaming_passthrough(self):
         """Without a parser, streaming chunks pass through without reasoning separation."""
         reasoning_parser = None
@@ -73,8 +77,8 @@ class TestReasoningContentWithoutParser(CustomTestCase):
                 reasoning_text_seen = True
             all_text += delta
 
-        self.assertFalse(reasoning_text_seen)
-        self.assertIn("<think>", all_text)
+        self.assertFalse(reasoning_text_seen)  # 断言为假
+        self.assertIn("<think>", all_text)  # 断言包含
 
 
 if __name__ == "__main__":

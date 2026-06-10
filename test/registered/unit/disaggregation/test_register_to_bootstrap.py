@@ -1,3 +1,4 @@
+# 文件名: test_register_to_bootstrap.py - 注册到引导服务器
 """Unit tests for srt/disaggregation/common/conn — register_to_bootstrap retry logic."""
 
 from sglang.test.ci.ci_register import register_cpu_ci
@@ -10,11 +11,14 @@ from unittest.mock import MagicMock, call, patch
 from sglang.test.test_utils import CustomTestCase
 
 
+# TestRegisterToBootstrap类
 class TestRegisterToBootstrap(CustomTestCase):
     """Tests for CommonKVManager.register_to_bootstrap retry/backoff behavior."""
 
     @patch("sglang.srt.disaggregation.common.conn.time")
     @patch("sglang.srt.disaggregation.common.conn.requests.put")
+
+    # TestRegisterToBootstrap类的测试succeedsonfirstattempt
     def test_succeeds_on_first_attempt(self, mock_put, mock_time):
         mock_time.monotonic.return_value = 0.0
         mock_response = MagicMock()
@@ -29,6 +33,8 @@ class TestRegisterToBootstrap(CustomTestCase):
 
     @patch("sglang.srt.disaggregation.common.conn.time")
     @patch("sglang.srt.disaggregation.common.conn.requests.put")
+
+    # TestRegisterToBootstrap类的测试succeedsafterretries
     def test_succeeds_after_retries(self, mock_put, mock_time):
         mock_time.monotonic.return_value = 0.0
         fail_resp = MagicMock()
@@ -40,11 +46,13 @@ class TestRegisterToBootstrap(CustomTestCase):
         mgr = self._make_manager()
         mgr.register_to_bootstrap()
 
-        self.assertEqual(mock_put.call_count, 3)
-        self.assertEqual(mock_time.sleep.call_count, 2)
+        self.assertEqual(mock_put.call_count, 3)  # 断言相等
+        self.assertEqual(mock_time.sleep.call_count, 2)  # 断言相等
 
     @patch("sglang.srt.disaggregation.common.conn.time")
     @patch("sglang.srt.disaggregation.common.conn.requests.put")
+
+    # TestRegisterToBootstrap类的测试allretriesexhausted
     def test_all_retries_exhausted(self, mock_put, mock_time):
         mock_time.monotonic.return_value = 0.0
         fail_resp = MagicMock()
@@ -54,12 +62,14 @@ class TestRegisterToBootstrap(CustomTestCase):
         mgr = self._make_manager()
         mgr.register_to_bootstrap()
 
-        self.assertEqual(mock_put.call_count, 5)
+        self.assertEqual(mock_put.call_count, 5)  # 断言相等
         # Sleep is only called between attempts, not after the final failure
-        self.assertEqual(mock_time.sleep.call_count, 4)
+        self.assertEqual(mock_time.sleep.call_count, 4)  # 断言相等
 
     @patch("sglang.srt.disaggregation.common.conn.time")
     @patch("sglang.srt.disaggregation.common.conn.requests.put")
+
+    # TestRegisterToBootstrap类的测试exceptionwithnestedcause
     def test_exception_with_nested_cause(self, mock_put, mock_time):
         mock_time.monotonic.return_value = 0.0
 
@@ -76,10 +86,12 @@ class TestRegisterToBootstrap(CustomTestCase):
         mgr = self._make_manager()
         mgr.register_to_bootstrap()
 
-        self.assertEqual(mock_put.call_count, 2)
+        self.assertEqual(mock_put.call_count, 2)  # 断言相等
 
     @patch("sglang.srt.disaggregation.common.conn.time")
     @patch("sglang.srt.disaggregation.common.conn.requests.put")
+
+    # TestRegisterToBootstrap类的测试exceptionwithnocause
     def test_exception_with_no_cause(self, mock_put, mock_time):
         mock_time.monotonic.return_value = 0.0
 
@@ -93,10 +105,12 @@ class TestRegisterToBootstrap(CustomTestCase):
         mgr = self._make_manager()
         mgr.register_to_bootstrap()
 
-        self.assertEqual(mock_put.call_count, 2)
+        self.assertEqual(mock_put.call_count, 2)  # 断言相等
 
     @patch("sglang.srt.disaggregation.common.conn.time")
     @patch("sglang.srt.disaggregation.common.conn.requests.put")
+
+    # TestRegisterToBootstrap类的测试backoffdelayexponential
     def test_backoff_delay_exponential(self, mock_put, mock_time):
         mock_time.monotonic.return_value = 0.0
         fail_resp = MagicMock()
@@ -110,10 +124,12 @@ class TestRegisterToBootstrap(CustomTestCase):
         # delay = min(1.0 * 2^attempt, 30.0) * 0.75
         # Sleep happens only between attempts (attempt 0..3), not after the final failure
         expected_calls = [call(0.75), call(1.5), call(3.0), call(6.0)]
-        self.assertEqual(mock_time.sleep.call_args_list, expected_calls)
+        self.assertEqual(mock_time.sleep.call_args_list, expected_calls)  # 断言相等
 
     @patch("sglang.srt.disaggregation.common.conn.time")
     @patch("sglang.srt.disaggregation.common.conn.requests.put")
+
+    # TestRegisterToBootstrap类的测试jitterneverexceedsmaxdelay
     def test_jitter_never_exceeds_max_delay(self, mock_put, mock_time):
         """Guard against operator-precedence regressions in the jitter factor.
 
@@ -134,11 +150,13 @@ class TestRegisterToBootstrap(CustomTestCase):
         max_delay = 30.0
         for sleep_call in mock_time.sleep.call_args_list:
             actual_delay = sleep_call[0][0]
-            self.assertLess(actual_delay, max_delay)
+            self.assertLess(actual_delay, max_delay)  # 断言小于
             self.assertGreaterEqual(actual_delay, 0.75)
 
     @patch("sglang.srt.disaggregation.common.conn.time")
     @patch("sglang.srt.disaggregation.common.conn.requests.put")
+
+    # TestRegisterToBootstrap类的测试payloadcontainsrequiredfields
     def test_payload_contains_required_fields(self, mock_put, mock_time):
         mock_time.monotonic.return_value = 0.0
         success_resp = MagicMock()
@@ -167,10 +185,12 @@ class TestRegisterToBootstrap(CustomTestCase):
             "kv_cache_dtype",
         ]
         for field in required_fields:
-            self.assertIn(field, payload)
+            self.assertIn(field, payload)  # 断言包含
 
     @patch("sglang.srt.disaggregation.common.conn.time")
     @patch("sglang.srt.disaggregation.common.conn.requests.put")
+
+    # TestRegisterToBootstrap类的测试urlwithdistinitaddr
     def test_url_with_dist_init_addr(self, mock_put, mock_time):
         mock_time.monotonic.return_value = 0.0
         success_resp = MagicMock()
@@ -181,8 +201,9 @@ class TestRegisterToBootstrap(CustomTestCase):
         mgr.register_to_bootstrap()
 
         url_used = mock_put.call_args[0][0]
-        self.assertIn("10.0.0.1", url_used)
+        self.assertIn("10.0.0.1", url_used)  # 断言包含
 
+    # TestRegisterToBootstrap类的内部方法_make_manager
     def _make_manager(self, dist_init_addr=None):
         """Create a lightweight mock manager that has the attributes needed
         by register_to_bootstrap, without going through CommonKVManager.__init__

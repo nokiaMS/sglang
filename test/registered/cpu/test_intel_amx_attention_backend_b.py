@@ -1,3 +1,4 @@
+# 文件名: test_intel_amx_attention_backend_b.py - Intel AMX注意力后端B测试
 """
 For intel_amx attention backend FP8 tests
 Usage:
@@ -23,6 +24,7 @@ class TestIntelAMXAttnBackendQuant(CustomTestCase):
         extra_args=["--batch-size", "4", "--mem-fraction-static", "0.1"],
         min_throughput=150,
     )
+    # 测试latencyfp8qwen
     def test_latency_fp8_qwen(self):
         return DEFAULT_MODEL_NAME_FOR_TEST_QWEN_FP8
 
@@ -30,6 +32,7 @@ class TestIntelAMXAttnBackendQuant(CustomTestCase):
         extra_args=["--batch-size", "4", "--mem-fraction-static", "0.1"],
         min_throughput=50,
     )
+    # 测试latencyfp8moemodel
     def test_latency_fp8_moe_model(self):
         return DEFAULT_MODEL_NAME_FOR_TEST_FP8_WITH_MOE
 

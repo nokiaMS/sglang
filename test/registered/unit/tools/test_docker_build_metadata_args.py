@@ -1,3 +1,4 @@
+# 文件名: test_docker_build_metadata_args.py - Docker构建元数据参数
 import importlib.util
 import json
 import subprocess
@@ -11,6 +12,7 @@ DOCKERFILE_PATH = REPO_ROOT / "docker" / "Dockerfile"
 WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "_docker-build-and-publish.yml"
 
 
+# 内部方法_load_module
 def _load_module(name, path):
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
@@ -22,11 +24,15 @@ register_cpu_ci = _load_module("ci_register", CI_REGISTER_PATH).register_cpu_ci
 register_cpu_ci(est_time=0, suite="base-a-test-cpu")
 
 
+# TestDockerBuildMetadataArgs类
 class TestDockerBuildMetadataArgs(unittest.TestCase):
     @classmethod
+
+    # TestDockerBuildMetadataArgs类的测试类初始化设置
     def setUpClass(cls):
         cls.helper = _load_module("docker_build_metadata_args", HELPER_PATH)
 
+    # TestDockerBuildMetadataArgs类的run_helper
     def run_helper(
         self,
         *,
@@ -64,9 +70,12 @@ class TestDockerBuildMetadataArgs(unittest.TestCase):
         return result.stdout.splitlines()
 
     @staticmethod
+
+    # TestDockerBuildMetadataArgs类的option_values
     def option_values(args: list[str], option: str) -> list[str]:
         return [args[i + 1] for i, arg in enumerate(args[:-1]) if arg == option]
 
+    # TestDockerBuildMetadataArgs类的build_args
     def build_args(self, args: list[str]) -> dict[str, str]:
         values = {}
         for value in self.option_values(args, "--build-arg"):
@@ -74,6 +83,7 @@ class TestDockerBuildMetadataArgs(unittest.TestCase):
             values[key] = arg_value
         return values
 
+    # TestDockerBuildMetadataArgs类的测试releasemetadataprefersversionedtag
     def test_release_metadata_prefers_versioned_tag(self):
         args = self.run_helper(
             cuda="cu129",
@@ -83,7 +93,7 @@ class TestDockerBuildMetadataArgs(unittest.TestCase):
             ],
         )
 
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             self.build_args(args),
             {
                 "SGLANG_BUILD_COMMIT": "abcdef1234567890",
@@ -94,6 +104,7 @@ class TestDockerBuildMetadataArgs(unittest.TestCase):
             },
         )
 
+    # TestDockerBuildMetadataArgs类的测试runtimemetadatausescustomrepoandruntimetag
     def test_runtime_metadata_uses_custom_repo_and_runtime_tag(self):
         args = self.run_helper(
             cuda="cu130",
@@ -107,11 +118,12 @@ class TestDockerBuildMetadataArgs(unittest.TestCase):
             ],
         )
 
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             self.build_args(args)["SGLANG_IMAGE_TAG"],
             "lmsysorg/sglang-staging:v0.6.0-cu130-runtime",
         )
 
+    # TestDockerBuildMetadataArgs类的测试devnightlymetadataprefersuniquetagfromcheckedoutcommit
     def test_dev_nightly_metadata_prefers_unique_tag_from_checked_out_commit(self):
         args = self.run_helper(
             cuda="cu129",
@@ -126,15 +138,16 @@ class TestDockerBuildMetadataArgs(unittest.TestCase):
             ],
         )
 
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             self.build_args(args)["SGLANG_IMAGE_TAG"],
             "lmsysorg/sglang:nightly-dev-20260429-12345678",
         )
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             self.build_args(args)["SGLANG_BUILD_COMMIT"],
             "1234567890abcdef",
         )
 
+    # TestDockerBuildMetadataArgs类的测试customdevtagistreatedasspecific
     def test_custom_dev_tag_is_treated_as_specific(self):
         args = self.run_helper(
             cuda="cu130",
@@ -145,11 +158,12 @@ class TestDockerBuildMetadataArgs(unittest.TestCase):
             ],
         )
 
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             self.build_args(args)["SGLANG_IMAGE_TAG"],
             "lmsysorg/sglang:dev-cu13-my-test",
         )
 
+    # TestDockerBuildMetadataArgs类的测试missingcudaentryfails
     def test_missing_cuda_entry_fails(self):
         with self.assertRaisesRegex(ValueError, "cu130"):
             self.helper.select_tag(
@@ -160,6 +174,7 @@ class TestDockerBuildMetadataArgs(unittest.TestCase):
                 "abcdef12",
             )
 
+    # TestDockerBuildMetadataArgs类的测试finaldockerfilestagesembedmetadatacontract
     def test_final_dockerfile_stages_embed_metadata_contract(self):
         dockerfile = DOCKERFILE_PATH.read_text()
         framework_stage = dockerfile.split("FROM framework AS framework_final", 1)[
@@ -187,15 +202,16 @@ class TestDockerBuildMetadataArgs(unittest.TestCase):
                 'ai.sglang.build.url="${SGLANG_BUILD_URL}"',
                 'ai.sglang.image.tag="${SGLANG_IMAGE_TAG}"',
             ):
-                self.assertIn(expected, stage)
+                self.assertIn(expected, stage)  # 断言包含
 
+    # TestDockerBuildMetadataArgs类的测试shareddockerworkflowusescheckedoutcommit
     def test_shared_docker_workflow_uses_checked_out_commit(self):
         workflow = WORKFLOW_PATH.read_text()
 
-        self.assertIn("git rev-parse HEAD", workflow)
-        self.assertIn("scripts/ci/utils/docker_build_metadata_args.py", workflow)
-        self.assertIn("mapfile -t METADATA_ARGS", workflow)
-        self.assertIn('"${METADATA_ARGS[@]}"', workflow)
+        self.assertIn("git rev-parse HEAD", workflow)  # 断言包含
+        self.assertIn("scripts/ci/utils/docker_build_metadata_args.py", workflow)  # 断言包含
+        self.assertIn("mapfile -t METADATA_ARGS", workflow)  # 断言包含
+        self.assertIn('"${METADATA_ARGS[@]}"', workflow)  # 断言包含
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+# 文件名: test_text_models_perf.py - 夜间测试：文本模型性能基准
 import unittest
 
 from sglang.test.nightly_utils import NightlyBenchmarkRunner
@@ -13,6 +14,7 @@ PROFILE_DIR = "performance_profiles_text_models"
 
 class TestNightlyTextModelsPerformance(unittest.TestCase):
     @classmethod
+    # 类级别初始化，启动服务器或设置测试环境
     def setUpClass(cls):
         cls.models = []
         # TODO: replace with DEFAULT_MODEL_NAME_FOR_NIGHTLY_EVAL_TP1 or other model lists
@@ -31,6 +33,7 @@ class TestNightlyTextModelsPerformance(unittest.TestCase):
         cls.runner = NightlyBenchmarkRunner(PROFILE_DIR, cls.__name__, cls.base_url)
         cls.runner.setup_profile_directory()
 
+    # 测试bench one batch功能
     def test_bench_one_batch(self):
         all_model_succeed = True
 

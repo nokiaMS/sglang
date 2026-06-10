@@ -1,3 +1,4 @@
+# 文件名: test_deepseek_v3_fp4_cutlass_moe.py - DeepSeek V3 FP4 CUTLASS MoE测试
 import unittest
 from types import SimpleNamespace
 
@@ -20,6 +21,7 @@ SERVER_LAUNCH_TIMEOUT = 1000
 
 class TestDeepseekV3FP4CutlassMoE(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = FULL_DEEPSEEK_V3_FP4_MODEL_PATH
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -45,9 +47,11 @@ class TestDeepseekV3FP4CutlassMoE(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试agsm8k
     def test_a_gsm8k(
         self,
     ):  # Append an "a" to make this test run first (alphabetically) to warm up the server

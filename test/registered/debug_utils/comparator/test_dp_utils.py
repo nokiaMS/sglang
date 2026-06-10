@@ -1,3 +1,4 @@
+# 文件名: test_dp_utils.py - 数据并行工具测试
 import sys
 
 import pytest
@@ -15,6 +16,7 @@ from sglang.test.ci.ci_register import register_cpu_ci
 register_cpu_ci(est_time=15, suite="base-a-test-cpu", nightly=True)
 
 
+# 执行makesglangmeta
 def _make_sglang_meta(
     *, tp_rank: int = 0, tp_size: int = 1, dp_rank: int = 0, dp_size: int = 1
 ) -> dict:
@@ -28,6 +30,7 @@ def _make_sglang_meta(
     }
 
 
+# 执行makemegatronmeta
 def _make_megatron_meta(
     *, tp_rank: int = 0, tp_size: int = 1, dp_rank: int = 0, dp_size: int = 1
 ) -> dict:
@@ -41,6 +44,7 @@ def _make_megatron_meta(
     }
 
 
+# 执行makeitem
 def _make_item(value: object, meta: dict) -> ValueWithMeta:
     return ValueWithMeta(value=value, meta=meta)
 
@@ -51,17 +55,21 @@ def _make_item(value: object, meta: dict) -> ValueWithMeta:
 
 
 class TestExtractDpInfo:
+    # 测试sglangdp
     def test_sglang_dp(self) -> None:
         meta: dict = _make_sglang_meta(dp_rank=1, dp_size=4)
         assert _extract_dp_info(meta, dp_axis=ParallelAxis.DP) == (1, 4)
 
+    # 测试megatrondp
     def test_megatron_dp(self) -> None:
         meta: dict = _make_megatron_meta(dp_rank=2, dp_size=8)
         assert _extract_dp_info(meta, dp_axis=ParallelAxis.DP) == (2, 8)
 
+    # 测试noparallelinfo
     def test_no_parallel_info(self) -> None:
         assert _extract_dp_info({}, dp_axis=ParallelAxis.DP) is None
 
+    # 测试nodpfields
     def test_no_dp_fields(self) -> None:
         meta: dict = {"sglang_parallel_info": {"tp_rank": 0, "tp_size": 2}}
         assert _extract_dp_info(meta, dp_axis=ParallelAxis.DP) is None
@@ -73,18 +81,22 @@ class TestExtractDpInfo:
 
 
 class TestGroupHasData:
+    # 测试nonemptytensor
     def test_non_empty_tensor(self) -> None:
         item: ValueWithMeta = _make_item(value=torch.tensor([1, 2, 3]), meta={})
         assert _group_has_data([item]) is True
 
+    # 测试emptytensor
     def test_empty_tensor(self) -> None:
         item: ValueWithMeta = _make_item(value=torch.tensor([]), meta={})
         assert _group_has_data([item]) is False
 
+    # 测试nontensorvalue
     def test_non_tensor_value(self) -> None:
         item: ValueWithMeta = _make_item(value="hello", meta={})
         assert _group_has_data([item]) is False
 
+    # 测试emptygroup
     def test_empty_group(self) -> None:
         assert _group_has_data([]) is False
 
@@ -95,6 +107,7 @@ class TestGroupHasData:
 
 
 class TestFilterToNonEmptyDpRank:
+    # 测试dpsize1returnsunchanged
     def test_dp_size_1_returns_unchanged(self) -> None:
         items: list[ValueWithMeta] = [
             _make_item(
@@ -107,6 +120,7 @@ class TestFilterToNonEmptyDpRank:
         )
         assert result is items
 
+    # 测试noparallelinforeturnsunchanged
     def test_no_parallel_info_returns_unchanged(self) -> None:
         items: list[ValueWithMeta] = [
             _make_item(value=torch.tensor([1.0]), meta={}),
@@ -116,12 +130,14 @@ class TestFilterToNonEmptyDpRank:
         )
         assert result is items
 
+    # 测试emptylistreturnsempty
     def test_empty_list_returns_empty(self) -> None:
         result: list[ValueWithMeta] = filter_to_non_empty_dp_rank(
             [], dp_axis=ParallelAxis.DP
         )
         assert result == []
 
+    # 测试dp2allnontensorreturnsunchanged
     def test_dp2_all_non_tensor_returns_unchanged(self) -> None:
         """DP=2 with non-tensor values: skip filtering, return unchanged."""
         items: list[ValueWithMeta] = [
@@ -141,6 +157,7 @@ class TestFilterToNonEmptyDpRank:
 
         assert result is items
 
+    # 测试dp2oneemptyonenonemptysglang
     def test_dp2_one_empty_one_nonempty_sglang(self) -> None:
         """DP=2, rank 0 has data, rank 1 has empty tensor."""
         items: list[ValueWithMeta] = [
@@ -161,6 +178,7 @@ class TestFilterToNonEmptyDpRank:
         assert len(result) == 1
         assert torch.equal(result[0].value, torch.tensor([1.0, 2.0]))
 
+    # 测试dp2oneemptyonenonemptymegatron
     def test_dp2_one_empty_one_nonempty_megatron(self) -> None:
         """DP=2 megatron, rank 1 has data, rank 0 has empty tensor."""
         items: list[ValueWithMeta] = [
@@ -181,6 +199,7 @@ class TestFilterToNonEmptyDpRank:
         assert len(result) == 1
         assert torch.equal(result[0].value, torch.tensor([3.0, 4.0]))
 
+    # 测试dp2bothnonemptyraises
     def test_dp2_both_nonempty_raises(self) -> None:
         """DP=2, both ranks have data: assertion error."""
         items: list[ValueWithMeta] = [
@@ -199,6 +218,7 @@ class TestFilterToNonEmptyDpRank:
         ):
             filter_to_non_empty_dp_rank(items, dp_axis=ParallelAxis.DP)
 
+    # 测试dp2withtp2filterscorrectly
     def test_dp2_with_tp2_filters_correctly(self) -> None:
         """DP=2 x TP=2: 4 items total, 2 non-empty from dp_rank=0."""
         items: list[ValueWithMeta] = [
@@ -235,6 +255,7 @@ class TestFilterToNonEmptyDpRank:
 
 
 class TestExtractDpInfoWithAxis:
+    # 测试moedpaxisfound
     def test_moe_dp_axis_found(self) -> None:
         meta: dict = {
             "sglang_parallel_info": {
@@ -246,16 +267,19 @@ class TestExtractDpInfoWithAxis:
         }
         assert _extract_dp_info(meta, dp_axis=ParallelAxis.MOE_DP) == (1, 4)
 
+    # 测试moedpaxisnotfoundreturnsnone
     def test_moe_dp_axis_not_found_returns_none(self) -> None:
         meta: dict = _make_sglang_meta(dp_rank=0, dp_size=2)
         assert _extract_dp_info(meta, dp_axis=ParallelAxis.MOE_DP) is None
 
+    # 测试dpaxisusesdefaultfields
     def test_dp_axis_uses_default_fields(self) -> None:
         meta: dict = _make_sglang_meta(dp_rank=1, dp_size=4)
         assert _extract_dp_info(meta, dp_axis=ParallelAxis.DP) == (1, 4)
 
 
 class TestFilterToNonEmptyDpRankWithAxis:
+    # 测试dpaxisunchangedbehavior
     def test_dp_axis_unchanged_behavior(self) -> None:
         """dp_axis=ParallelAxis.DP → same behavior as default (regression)."""
         items: list[ValueWithMeta] = [
@@ -276,6 +300,7 @@ class TestFilterToNonEmptyDpRankWithAxis:
         assert len(result) == 1
         assert torch.equal(result[0].value, torch.tensor([1.0, 2.0]))
 
+    # 测试moedpaxisabsentnoop
     def test_moe_dp_axis_absent_noop(self) -> None:
         """MOE_DP axis fields not in metadata → noop, return items unchanged."""
         items: list[ValueWithMeta] = [
@@ -295,6 +320,7 @@ class TestFilterToNonEmptyDpRankWithAxis:
 
         assert result is items
 
+    # 测试moedpaxissize1noop
     def test_moe_dp_axis_size_1_noop(self) -> None:
         """MOE_DP axis present but size=1 → noop."""
         meta: dict = {
@@ -315,6 +341,7 @@ class TestFilterToNonEmptyDpRankWithAxis:
 
         assert result is items
 
+    # 测试moedpaxisfilterscorrectly
     def test_moe_dp_axis_filters_correctly(self) -> None:
         """MOE_DP axis size=2, one empty rank → correctly filters."""
         meta_rank0: dict = {

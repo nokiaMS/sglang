@@ -1,3 +1,4 @@
+# 文件名: test_bmm.py - 批量矩阵乘法测试
 import itertools
 import unittest
 
@@ -16,10 +17,12 @@ torch.manual_seed(1234)
 
 
 class Mod(nn.Module):
+    # 执行init
     def __init__(self, input_channel, output_channel, has_bias):
         super(Mod, self).__init__()
         self.linear = torch.nn.Linear(input_channel, output_channel, has_bias)
 
+    # 前向传播
     def forward(self, x):
         return self.linear(x)
 
@@ -31,6 +34,7 @@ class TestBmm(CustomTestCase):
     B = [1, 16, 17]
     chunk = [True, False]
 
+    # 执行getbmminputs
     def _get_bmm_inputs(self, B, M, N, K, chunk, dtype):
         if chunk:
             mat1 = (
@@ -46,6 +50,7 @@ class TestBmm(CustomTestCase):
             mat3 = torch.randn(M, B, N, dtype=dtype).transpose_(0, 1)
         return mat1, mat2, mat3
 
+    # 执行bf16bmm
     def _bf16_bmm(self, B, M, N, K, chunk, dtype=torch.bfloat16):
         mat1, mat2, mat3 = self._get_bmm_inputs(B, M, N, K, chunk, dtype)
         ref = torch.bmm(mat1, mat2)
@@ -60,6 +65,7 @@ class TestBmm(CustomTestCase):
         torch.ops.sgl_kernel.bmm_cpu(mat3, mat1, packed_B, True, None)
         torch.testing.assert_close(ref, mat3, atol=atol, rtol=rtol)
 
+    # 执行fp8bmm
     def _fp8_bmm(self, B, M, N, K, chunk, dtype=torch.bfloat16):
         mat1, mat2, mat3 = self._get_bmm_inputs(B, M, N, K, chunk, dtype)
         mat2_q, mat2_s = input_to_float8(mat2)
@@ -75,6 +81,7 @@ class TestBmm(CustomTestCase):
         torch.ops.sgl_kernel.bmm_cpu(mat3, mat1, packed_B_q, True, mat2_s)
         torch.testing.assert_close(ref, mat3, atol=atol, rtol=rtol)
 
+    # 测试bmm
     def test_bmm(self):
         for params in itertools.product(
             self.B,

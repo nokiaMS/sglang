@@ -1,3 +1,4 @@
+# 文件名: test_srt_engine_with_quant_args.py - SRT引擎量化参数测试 - 验证fp8/torchao等量化配置下引擎的生成功能
 import unittest
 
 import sglang as sgl
@@ -6,6 +7,7 @@ from sglang.test.test_utils import DEFAULT_SMALL_MODEL_NAME_FOR_TEST, CustomTest
 
 class TestSRTEngineWithQuantArgs(CustomTestCase):
 
+    # 测试1 quantization args
     def test_1_quantization_args(self):
 
         # we only test fp8 because other methods are currently dependent on vllm. We can add other methods back to test after vllm dependency is resolved.
@@ -32,6 +34,7 @@ class TestSRTEngineWithQuantArgs(CustomTestCase):
             engine.generate(prompt, sampling_params)
             engine.shutdown()
 
+    # 测试2 torchao args
     def test_2_torchao_args(self):
 
         # we don't test int8dq because currently there is conflict between int8dq and capture cuda graph

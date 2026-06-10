@@ -1,3 +1,4 @@
+# 文件名: test_disaggregation_aarch64.py - ARM64分离式部署测试
 import os
 import unittest
 from types import SimpleNamespace
@@ -18,10 +19,11 @@ register_cuda_ci(est_time=300, stage="base-c", runner_config="4-gpu-gb200")
 
 class TestDisaggregationMooncakeAARCH64Accuracy(PDDisaggregationServerBase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
-        os.environ["SGLANG_MOONCAKE_CUSTOM_MEM_POOL"] = "true"
-        os.environ["MC_FORCE_MNNVL"] = "true"
+        os.environ["SGLANG_MOONCAKE_CUSTOM_MEM_POOL"] = "true"  # 访问环境变量
+        os.environ["MC_FORCE_MNNVL"] = "true"  # 访问环境变量
         cls.model = DEFAULT_MODEL_NAME_FOR_TEST
 
         # Non blocking start servers
@@ -35,12 +37,14 @@ class TestDisaggregationMooncakeAARCH64Accuracy(PDDisaggregationServerBase):
         cls.launch_lb()
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
-        os.environ.pop("SGLANG_MOONCAKE_CUSTOM_MEM_POOL")
-        os.environ.pop("MC_FORCE_MNNVL")
+        os.environ.pop("SGLANG_MOONCAKE_CUSTOM_MEM_POOL")  # 访问环境变量
+        os.environ.pop("MC_FORCE_MNNVL")  # 访问环境变量
         super().tearDownClass()
 
     @classmethod
+    # 执行startprefill
     def start_prefill(cls):
         prefill_args = [
             "--trust-remote-code",
@@ -60,6 +64,7 @@ class TestDisaggregationMooncakeAARCH64Accuracy(PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 执行startdecode
     def start_decode(cls):
         decode_args = [
             "--trust-remote-code",
@@ -80,6 +85,7 @@ class TestDisaggregationMooncakeAARCH64Accuracy(PDDisaggregationServerBase):
             other_args=decode_args,
         )
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,

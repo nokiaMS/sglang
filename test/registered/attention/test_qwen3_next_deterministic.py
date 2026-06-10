@@ -1,3 +1,4 @@
+# 文件名: test_qwen3_next_deterministic.py - Qwen3 Next确定性测试
 """
 Usage:
 cd test/srt
@@ -19,11 +20,13 @@ QWEN3_NEXT = "Qwen/Qwen3-Next-80B-A3B-Instruct"
 
 class TestFlashInferDeterministic(TestDeterministicBase):
     @classmethod
+    # 获取model
     def get_model(cls):
         return QWEN3_NEXT
 
     # Test with flashinfer attention backend
     @classmethod
+    # 获取serverargs
     def get_server_args(cls):
         args = COMMON_SERVER_ARGS
         args.extend(["--attention-backend", "flashinfer", "--tp", "4"])
@@ -32,11 +35,13 @@ class TestFlashInferDeterministic(TestDeterministicBase):
 
 class TestTritonDeterministic(TestDeterministicBase):
     @classmethod
+    # 获取model
     def get_model(cls):
         return QWEN3_NEXT
 
     # Test with triton attention backend
     @classmethod
+    # 获取serverargs
     def get_server_args(cls):
         args = COMMON_SERVER_ARGS
         args.extend(["--attention-backend", "triton", "--tp", "4"])

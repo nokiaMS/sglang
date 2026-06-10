@@ -1,3 +1,8 @@
+# KV缓存构建器
+# 负责根据服务器参数、模型配置和并行状态构建完整的KV缓存系统，
+# 包括内存池分配、树形缓存创建、推测解码的draft KV池获取、
+# 以及层级缓存（HiCache）的draft池注册等。
+
 from __future__ import annotations
 
 import logging
@@ -10,14 +15,25 @@ from typing import Optional
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class KVCacheBuildResult:
+    """KV缓存构建结果，包含构建后的所有缓存组件和配置信息。"""
+
+    # 是否为混合滑动窗口注意力模型
     is_hybrid_swa: bool
+    # 是否为混合状态空间模型（如Mamba）
     is_hybrid_ssm: bool
+    # 滑动窗口大小
     sliding_window_size: Optional[int]
+    # 每层完整注意力所需的token数量
     full_tokens_per_layer: Optional[int]
+    # 每层滑动窗口注意力所需的token数量
     swa_tokens_per_layer: Optional[int]
+    # 请求到token的映射池
     req_to_token_pool: object
+    # token到KV张量的分配器
     token_to_kv_pool_allocator: object
+    # 是否禁用基数缓存
     disable_radix_cache: bool
+    # 树形缓存实例
     tree_cache: object
 
 
@@ -52,9 +68,11 @@ def get_draft_kv_pool(
 ):
     """Return (draft_token_to_kv_pool, draft_model_config) for the current
     draft worker, or (None, None) when no draft KV pool is available."""
+    # 如果没有draft worker或使用ngram算法，则返回空
     if draft_worker is None or spec_algorithm.is_ngram():
         return None, None
 
+    # 支持spec_v2且启用重叠模式时，从draft_runner获取KV池
     if spec_algorithm.supports_spec_v2() and enable_overlap:
         if server_args.enable_multi_layer_eagle:
             draft_runner = draft_worker.draft_worker.draft_runner_list[0]
@@ -62,6 +80,7 @@ def get_draft_kv_pool(
             draft_runner = draft_worker.draft_worker.draft_runner
         return draft_runner.token_to_kv_pool, draft_runner.model_config
 
+    # 默认从draft worker的model_runner获取KV池
     return (
         draft_worker.model_runner.token_to_kv_pool,
         draft_worker.model_config,
@@ -79,9 +98,11 @@ def maybe_register_hicache_draft(
     page_size: int,
 ) -> None:
     """Register draft KV pool with HiCacheController for piggyback L2/L3 ops."""
+    # 未启用层级缓存则直接返回
     if not enable_hierarchical_cache:
         return
 
+    # 获取draft KV池
     draft_kv_pool, _ = get_draft_kv_pool(
         draft_worker=draft_worker,
         spec_algorithm=spec_algorithm,
@@ -102,11 +123,14 @@ def maybe_register_hicache_draft(
     )
 
     pool = draft_kv_pool
+    # 如果是混合线性KV池，提取其内部的full_kv_pool
     if isinstance(pool, HybridLinearKVPool):
         pool = pool.full_kv_pool
 
     # Create host pool for draft with the same slot count as the target host pool,
     # so that host indices stay 1-to-1 between target and draft KV caches.
+    # 为draft创建与目标主机池相同槽位数的主机池，
+    # 确保主机索引在目标和draft KV缓存之间保持一一对应
     primary = tree_cache.cache_controller.mem_pool_host
     kw = dict(
         host_to_device_ratio=primary.size / pool.size,
@@ -114,6 +138,7 @@ def maybe_register_hicache_draft(
         page_size=page_size,
         layout=server_args.hicache_mem_layout,
     )
+    # 根据池类型创建对应的主机端池
     if isinstance(pool, MHATokenToKVPool):
         draft_host_pool = MHATokenToKVPoolHost(pool, **kw)
     elif isinstance(pool, MLATokenToKVPool):
@@ -125,6 +150,7 @@ def maybe_register_hicache_draft(
         )
         return
 
+    # 将draft KV池和主机池注册到HiCache控制器
     tree_cache.cache_controller.set_draft_kv_pool(pool, draft_host_pool)
 
 
@@ -144,14 +170,21 @@ def build_kv_cache(
     tp_group: "GroupCoordinator",
     enable_hierarchical_cache: bool,
 ) -> "KVCacheBuildResult":
+    """构建KV缓存系统的主入口函数。
+
+    根据模型配置和服务器参数，确定缓存类型（混合SWA/SSM），
+    分配内存池，创建树形缓存，并返回构建结果。
+    """
     sliding_window_size: Optional[int] = None
     full_tokens_per_layer: Optional[int] = None
     swa_tokens_per_layer: Optional[int] = None
+    # 判断是否使用Transformers后端
     uses_transformers_backend = (
         get_resolved_model_impl(model_config) == ModelImpl.TRANSFORMERS
     )
 
     # Hybrid memory pool
+    # 检测混合模型类型
     is_hybrid_swa = tp_worker.is_hybrid_swa
     _spec = tp_worker.model_runner.linear_attn_model_spec
     _registry_needs_mamba = _spec.uses_mamba_radix_cache if _spec is not None else False
@@ -163,6 +196,7 @@ def build_kv_cache(
         or tp_worker.model_runner.hybrid_lightning_config is not None
     )
 
+    # 混合SWA模型需要获取滑动窗口大小和每层token数
     sliding_window_size = None
     if is_hybrid_swa:
         sliding_window_size = tp_worker.sliding_window_size
@@ -170,8 +204,10 @@ def build_kv_cache(
             tp_worker.get_tokens_per_layer_info()
         )
 
+    # 从tp_worker获取内存池
     req_to_token_pool, token_to_kv_pool_allocator = tp_worker.get_memory_pool()
 
+    # 判断是否禁用基数缓存：显式禁用或多模态+Transformers后端时自动禁用
     disable_radix_cache = server_args.disable_radix_cache or (
         model_config.is_multimodal and uses_transformers_backend
     )
@@ -184,6 +220,7 @@ def build_kv_cache(
     # Decode radix cache is unsupported with hybrid SWA/SSM models —
     # these use specialized memory pools incompatible with the
     # prefix-match-and-lock allocation path.
+    # 解码模式下的基数缓存与混合SWA/SSM模型不兼容
     if (
         server_args.disaggregation_decode_enable_radix_cache
         and server_args.disaggregation_mode == "decode"
@@ -199,16 +236,19 @@ def build_kv_cache(
                 "with Mamba/SSM models"
             )
 
+    # 多模态+Transformers后端时禁用分块预填充
     effective_chunked_prefill_size = server_args.chunked_prefill_size
     if model_config.is_multimodal and uses_transformers_backend:
         effective_chunked_prefill_size = None
 
+    # 构建缓存初始化参数
     params = CacheInitParams(
         disable=disable_radix_cache,
         req_to_token_pool=req_to_token_pool,
         token_to_kv_pool_allocator=token_to_kv_pool_allocator,
         page_size=page_size,
         is_eagle=spec_algorithm.is_eagle(),
+        # 根据是否启用DP注意力选择对应的通信组
         tp_cache_group=(
             attn_tp_cpu_group if server_args.enable_dp_attention else tp_cpu_group
         ),
@@ -224,6 +264,7 @@ def build_kv_cache(
         sliding_window_size=sliding_window_size,
     )
 
+    # 通过注册表创建树形缓存
     tree_cache = create_tree_cache(
         TreeCacheBuildContext(
             server_args=server_args,
@@ -241,6 +282,7 @@ def build_kv_cache(
         )
     )
 
+    # 初始化多模态嵌入缓存
     embedding_cache_size = envs.SGLANG_VLM_CACHE_SIZE_MB.get()
     init_mm_embedding_cache(embedding_cache_size * 1024 * 1024)
 

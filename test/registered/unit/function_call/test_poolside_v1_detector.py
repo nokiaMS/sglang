@@ -1,3 +1,4 @@
+# 文件名: test_poolside_v1_detector.py - Poolside V1检测器
 """Unit tests for PoolsideV1Detector — no server, no model loading."""
 
 import json
@@ -11,7 +12,10 @@ from sglang.test.test_utils import CustomTestCase
 register_cpu_ci(1.0, "base-a-test-cpu")
 
 
+# TestPoolsideV1Detector类
 class TestPoolsideV1Detector(CustomTestCase):
+
+    # TestPoolsideV1Detector类的测试初始化设置
     def setUp(self):
         self.tools = [
             Tool(
@@ -60,10 +64,11 @@ class TestPoolsideV1Detector(CustomTestCase):
             "<tool_call>get_weather\n<arg_key>location</arg_key>\n"
             "<arg_value>SF</arg_value>\n</tool_call>"
         )
-        self.assertTrue(self.detector.has_tool_call(text))
+        self.assertTrue(self.detector.has_tool_call(text))  # 断言为真
 
+    # TestPoolsideV1Detector类的测试hastoolcallfalse
     def test_has_tool_call_false(self):
-        self.assertFalse(self.detector.has_tool_call("just a sentence."))
+        self.assertFalse(self.detector.has_tool_call("just a sentence."))  # 断言为假
 
     # ==================== detect_and_parse ====================
 
@@ -73,11 +78,12 @@ class TestPoolsideV1Detector(CustomTestCase):
             "<arg_value>San Francisco</arg_value>\n</tool_call>"
         )
         result = self.detector.detect_and_parse(text, self.tools)
-        self.assertEqual(len(result.calls), 1)
-        self.assertEqual(result.calls[0].name, "get_weather")
+        self.assertEqual(len(result.calls), 1)  # 断言相等
+        self.assertEqual(result.calls[0].name, "get_weather")  # 断言相等
         args = json.loads(result.calls[0].parameters)
-        self.assertEqual(args, {"location": "San Francisco"})
+        self.assertEqual(args, {"location": "San Francisco"})  # 断言相等
 
+    # TestPoolsideV1Detector类的测试singletoolcallmixedtypes
     def test_single_tool_call_mixed_types(self):
         text = (
             "<tool_call>get_weather\n"
@@ -87,12 +93,13 @@ class TestPoolsideV1Detector(CustomTestCase):
             "</tool_call>"
         )
         result = self.detector.detect_and_parse(text, self.tools)
-        self.assertEqual(len(result.calls), 1)
+        self.assertEqual(len(result.calls), 1)  # 断言相等
         args = json.loads(result.calls[0].parameters)
-        self.assertEqual(args["location"], "London")
-        self.assertEqual(args["count"], 3)
-        self.assertEqual(args["options"], {"verbose": True})
+        self.assertEqual(args["location"], "London")  # 断言相等
+        self.assertEqual(args["count"], 3)  # 断言相等
+        self.assertEqual(args["options"], {"verbose": True})  # 断言相等
 
+    # TestPoolsideV1Detector类的测试multipletoolcalls
     def test_multiple_tool_calls(self):
         text = (
             "<tool_call>get_weather\n<arg_key>location</arg_key>\n"
@@ -101,11 +108,12 @@ class TestPoolsideV1Detector(CustomTestCase):
             "<arg_value>pizza</arg_value>\n</tool_call>"
         )
         result = self.detector.detect_and_parse(text, self.tools)
-        self.assertEqual(len(result.calls), 2)
-        self.assertEqual(result.calls[0].name, "get_weather")
-        self.assertEqual(result.calls[1].name, "search")
-        self.assertEqual(json.loads(result.calls[1].parameters), {"query": "pizza"})
+        self.assertEqual(len(result.calls), 2)  # 断言相等
+        self.assertEqual(result.calls[0].name, "get_weather")  # 断言相等
+        self.assertEqual(result.calls[1].name, "search")  # 断言相等
+        self.assertEqual(json.loads(result.calls[1].parameters), {"query": "pizza"})  # 断言相等
 
+    # TestPoolsideV1Detector类的测试leadingtextextractedasnormal
     def test_leading_text_extracted_as_normal(self):
         text = (
             "Sure, checking now. "
@@ -113,42 +121,47 @@ class TestPoolsideV1Detector(CustomTestCase):
             "<arg_value>tacos</arg_value>\n</tool_call>"
         )
         result = self.detector.detect_and_parse(text, self.tools)
-        self.assertEqual(result.normal_text, "Sure, checking now. ")
-        self.assertEqual(len(result.calls), 1)
+        self.assertEqual(result.normal_text, "Sure, checking now. ")  # 断言相等
+        self.assertEqual(len(result.calls), 1)  # 断言相等
 
+    # TestPoolsideV1Detector类的测试unknowntooldropped
     def test_unknown_tool_dropped(self):
         text = (
             "<tool_call>nonexistent_fn\n<arg_key>x</arg_key>\n"
             "<arg_value>1</arg_value>\n</tool_call>"
         )
         result = self.detector.detect_and_parse(text, self.tools)
-        self.assertEqual(len(result.calls), 0)
+        self.assertEqual(len(result.calls), 0)  # 断言相等
 
+    # TestPoolsideV1Detector类的测试malformedvaluefallsbacktostring
     def test_malformed_value_falls_back_to_string(self):
         text = (
             "<tool_call>get_weather\n<arg_key>options</arg_key>\n"
             "<arg_value>not_json</arg_value>\n</tool_call>"
         )
         result = self.detector.detect_and_parse(text, self.tools)
-        self.assertEqual(len(result.calls), 1)
+        self.assertEqual(len(result.calls), 1)  # 断言相等
         args = json.loads(result.calls[0].parameters)
-        self.assertEqual(args["options"], "not_json")
+        self.assertEqual(args["options"], "not_json")  # 断言相等
 
+    # TestPoolsideV1Detector类的测试zeroargcall
     def test_zero_arg_call(self):
         text = "<tool_call>now\n</tool_call>"
         result = self.detector.detect_and_parse(text, self.tools)
-        self.assertEqual(len(result.calls), 1)
-        self.assertEqual(result.calls[0].name, "now")
-        self.assertEqual(json.loads(result.calls[0].parameters), {})
+        self.assertEqual(len(result.calls), 1)  # 断言相等
+        self.assertEqual(result.calls[0].name, "now")  # 断言相等
+        self.assertEqual(json.loads(result.calls[0].parameters), {})  # 断言相等
 
+    # TestPoolsideV1Detector类的测试zeroargcallnonewline
     def test_zero_arg_call_no_newline(self):
         """`<tool_call>now</tool_call>` (no `\\n` between name and close tag)."""
         text = "<tool_call>now</tool_call>"
         result = self.detector.detect_and_parse(text, self.tools)
-        self.assertEqual(len(result.calls), 1)
-        self.assertEqual(result.calls[0].name, "now")
-        self.assertEqual(json.loads(result.calls[0].parameters), {})
+        self.assertEqual(len(result.calls), 1)  # 断言相等
+        self.assertEqual(result.calls[0].name, "now")  # 断言相等
+        self.assertEqual(json.loads(result.calls[0].parameters), {})  # 断言相等
 
+    # TestPoolsideV1Detector类的测试truncatedprevalueemitsnocalls
     def test_truncated_pre_value_emits_no_calls(self):
         """Regression: max-tokens cutoff mid-`<arg_value>` must drop the
         in-flight call, matching the old closing-tag-anchored regex behavior.
@@ -158,10 +171,11 @@ class TestPoolsideV1Detector(CustomTestCase):
             "<tool_call>get_weather\n<arg_key>location</arg_key>\n" "<arg_value>San Fr"
         )
         result = self.detector.detect_and_parse(text, self.tools)
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             len(result.calls), 0, "truncated mid-arg_value must yield 0 calls"
         )
 
+    # TestPoolsideV1Detector类的测试truncatedpostvalueemitsnocalls
     def test_truncated_post_value_emits_no_calls(self):
         """Regression: cutoff after `</arg_value>` but before `</tool_call>`
         used to surface a tool call with non-JSON parameters
@@ -171,12 +185,13 @@ class TestPoolsideV1Detector(CustomTestCase):
             "<arg_value>SF</arg_value>\n"
         )
         result = self.detector.detect_and_parse(text, self.tools)
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             len(result.calls),
             0,
             "truncated after arg_value but before </tool_call> must yield 0 calls",
         )
 
+    # TestPoolsideV1Detector类的测试setliteralfallsbacktorawstring
     def test_set_literal_falls_back_to_raw_string(self):
         """Regression: ast.literal_eval('{1,2,3}') returns a set, which
         json.dumps cannot serialize. Without the round-trip guard in
@@ -203,12 +218,13 @@ class TestPoolsideV1Detector(CustomTestCase):
             "<arg_value>{1, 2, 3}</arg_value>\n</tool_call>"
         )
         result = detector.detect_and_parse(text, tools_with_obj)
-        self.assertEqual(len(result.calls), 1)
+        self.assertEqual(len(result.calls), 1)  # 断言相等
         args = json.loads(result.calls[0].parameters)
         # set literal couldn't round-trip, so it's preserved as the raw
         # string (the only sane fallback).
-        self.assertEqual(args["options"], "{1, 2, 3}")
+        self.assertEqual(args["options"], "{1, 2, 3}")  # 断言相等
 
+    # TestPoolsideV1Detector类的测试truncatedaftercompletecallkeepscomplete
     def test_truncated_after_complete_call_keeps_complete(self):
         """A complete tool_call followed by a truncated second one must keep
         the complete one and drop only the truncated tail — matching the old
@@ -219,10 +235,11 @@ class TestPoolsideV1Detector(CustomTestCase):
             "<tool_call>search\n<arg_key>q"
         )
         result = self.detector.detect_and_parse(text, self.tools)
-        self.assertEqual(len(result.calls), 1)
-        self.assertEqual(result.calls[0].name, "get_weather")
-        self.assertEqual(json.loads(result.calls[0].parameters), {"location": "NYC"})
+        self.assertEqual(len(result.calls), 1)  # 断言相等
+        self.assertEqual(result.calls[0].name, "get_weather")  # 断言相等
+        self.assertEqual(json.loads(result.calls[0].parameters), {"location": "NYC"})  # 断言相等
 
+    # TestPoolsideV1Detector类的测试argkeywithoutvalueemitsemptycall
     def test_arg_key_without_value_emits_empty_call(self):
         """Non-streaming: malformed `<arg_key>K</arg_key></tool_call>` (no
         `<arg_value>`) yields a tool call with empty params — the orphan
@@ -230,10 +247,11 @@ class TestPoolsideV1Detector(CustomTestCase):
         Locks in the contract the streaming FSM must match."""
         text = "<tool_call>get_weather\n<arg_key>location</arg_key></tool_call>"
         result = self.detector.detect_and_parse(text, self.tools)
-        self.assertEqual(len(result.calls), 1)
-        self.assertEqual(result.calls[0].name, "get_weather")
-        self.assertEqual(json.loads(result.calls[0].parameters), {})
+        self.assertEqual(len(result.calls), 1)  # 断言相等
+        self.assertEqual(result.calls[0].name, "get_weather")  # 断言相等
+        self.assertEqual(json.loads(result.calls[0].parameters), {})  # 断言相等
 
+    # TestPoolsideV1Detector类的测试streamingargkeywithoutvalueclosescall
     def test_streaming_arg_key_without_value_closes_call(self):
         """Regression: malformed `<arg_key>K</arg_key></tool_call>` (no
         `<arg_value>`) used to leave the streaming FSM stuck in READING_VALUE
@@ -253,7 +271,7 @@ class TestPoolsideV1Detector(CustomTestCase):
             r = detector.parse_streaming_increment(chunk, self.tools)
             all_calls.extend(r.calls)
         names = [c.name for c in all_calls if c.name]
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             names,
             ["get_weather", "search"],
             "second call must not be swallowed when first is malformed",
@@ -264,10 +282,11 @@ class TestPoolsideV1Detector(CustomTestCase):
                 per_tool.setdefault(c.tool_index, "")
                 per_tool[c.tool_index] += c.parameters
         # Orphan `location` key dropped — first call has empty params.
-        self.assertEqual(json.loads(per_tool[0]), {})
+        self.assertEqual(json.loads(per_tool[0]), {})  # 断言相等
         # Second call's value must NOT leak into first call's stale key.
-        self.assertEqual(json.loads(per_tool[1]), {"query": "tacos"})
+        self.assertEqual(json.loads(per_tool[1]), {"query": "tacos"})  # 断言相等
 
+    # TestPoolsideV1Detector类的测试orphankeyfollowedbynewkeyusesnewkey
     def test_orphan_key_followed_by_new_key_uses_new_key(self):
         """Non-streaming: malformed `<arg_key>K1</arg_key><arg_key>K2</arg_key>
         <arg_value>V</arg_value>` (model emitted a key, then re-emitted a new
@@ -282,15 +301,16 @@ class TestPoolsideV1Detector(CustomTestCase):
             "\n</tool_call>"
         )
         result = self.detector.detect_and_parse(text, self.tools)
-        self.assertEqual(len(result.calls), 1)
-        self.assertEqual(result.calls[0].name, "get_weather")
+        self.assertEqual(len(result.calls), 1)  # 断言相等
+        self.assertEqual(result.calls[0].name, "get_weather")  # 断言相等
         args = json.loads(result.calls[0].parameters)
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             args,
             {"count": 3},
             f"orphan key 'location' should be dropped, count=3 should win, got {args}",
         )
 
+    # TestPoolsideV1Detector类的测试streamingorphankeyfollowedbynewkeyusesnewkey
     def test_streaming_orphan_key_followed_by_new_key_uses_new_key(self):
         """Regression: streaming on `<arg_key>K1</arg_key><arg_key>K2</arg_key>
         <arg_value>V</arg_value>` used to mis-attribute V to K1 — the bare-`<`
@@ -310,22 +330,24 @@ class TestPoolsideV1Detector(CustomTestCase):
             r = detector.parse_streaming_increment(chunk, self.tools)
             all_calls.extend(r.calls)
         names = [c.name for c in all_calls if c.name]
-        self.assertEqual(names, ["get_weather"])
+        self.assertEqual(names, ["get_weather"])  # 断言相等
         params = "".join(c.parameters for c in all_calls if c.parameters)
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             json.loads(params),
             {"count": 3},
             "orphan key 'location' should be dropped; count=3 must win",
         )
 
+    # TestPoolsideV1Detector类的测试streamingmalformednonamedoesnothang
     def test_streaming_malformed_no_name_does_not_hang(self):
         """Regression: malformed `<tool_call><arg_key>...` (no name, no \\n)
         used to spin in branch 2 with consume=0. Must drain to </tool_call>."""
         detector = PoolsideV1Detector()
         wire = "<tool_call><arg_key>k</arg_key><arg_value>v</arg_value></tool_call>"
         result = detector.parse_streaming_increment(wire, self.tools)
-        self.assertEqual(len(result.calls), 0)
+        self.assertEqual(len(result.calls), 0)  # 断言相等
 
+    # TestPoolsideV1Detector类的测试streamingargtagswithouttoolcallwrapper
     def test_streaming_arg_tags_without_tool_call_wrapper(self):
         """Regression: stray `<arg_key>...</arg_key><arg_value>...</arg_value>`
         with no preceding `<tool_call>` used to crash with IndexError on
@@ -336,16 +358,16 @@ class TestPoolsideV1Detector(CustomTestCase):
         detector = PoolsideV1Detector()
         wire = "<arg_key>k</arg_key><arg_value>v</arg_value>"
         result = detector.parse_streaming_increment(wire, self.tools)
-        self.assertEqual(len(result.calls), 0)
+        self.assertEqual(len(result.calls), 0)  # 断言相等
 
     # ==================== structure_info ====================
 
     def test_structure_info(self):
         info_func = self.detector.structure_info()
         info = info_func("get_weather")
-        self.assertEqual(info.trigger, "<tool_call>")
-        self.assertIn("get_weather", info.begin)
-        self.assertIn("</tool_call>", info.end)
+        self.assertEqual(info.trigger, "<tool_call>")  # 断言相等
+        self.assertIn("get_weather", info.begin)  # 断言包含
+        self.assertIn("</tool_call>", info.end)  # 断言包含
 
     # ==================== Streaming ====================
 
@@ -358,9 +380,10 @@ class TestPoolsideV1Detector(CustomTestCase):
             "ancisco</arg_value>\n</tool_call>",
         ]
         names, params = self._collect(detector, chunks)
-        self.assertEqual(names, ["get_weather"])
-        self.assertEqual(json.loads(params), {"location": "San Francisco"})
+        self.assertEqual(names, ["get_weather"])  # 断言相等
+        self.assertEqual(json.loads(params), {"location": "San Francisco"})  # 断言相等
 
+    # TestPoolsideV1Detector类的测试streamingcharbycharrobustness
     def test_streaming_char_by_char_robustness(self):
         """Per-arg streaming under one-byte chunks. Values are emitted as a
         single `"key": value` fragment when `</arg_value>` arrives; this test
@@ -374,13 +397,14 @@ class TestPoolsideV1Detector(CustomTestCase):
         )
         chunks = list(wire)
         names, params = self._collect(detector, chunks)
-        self.assertEqual(names, ["get_weather"])
+        self.assertEqual(names, ["get_weather"])  # 断言相等
         decoded = json.loads(params)
-        self.assertEqual(decoded, {"location": "hello world"})
+        self.assertEqual(decoded, {"location": "hello world"})  # 断言相等
         # And the emitted parameter delta itself contains no stray tag bytes.
-        self.assertNotIn("<", params)
-        self.assertNotIn(">", params)
+        self.assertNotIn("<", params)  # 断言不包含
+        self.assertNotIn(">", params)  # 断言不包含
 
+    # TestPoolsideV1Detector类的测试streamingindexissequentialnottoolsslot
     def test_streaming_index_is_sequential_not_tools_slot(self):
         """Regression: streaming emissions must use a per-response sequential
         index. If we emit the name with `tools_indices[name]` and the params
@@ -398,7 +422,7 @@ class TestPoolsideV1Detector(CustomTestCase):
             all_calls.extend(r.calls)
         # All chunks for this call must share the same index.
         indices = {c.tool_index for c in all_calls}
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             indices,
             {0},
             f"streaming emitted mixed indices {indices}; OpenAI clients would "
@@ -406,9 +430,10 @@ class TestPoolsideV1Detector(CustomTestCase):
         )
         names = [c.name for c in all_calls if c.name]
         params = "".join(c.parameters for c in all_calls if c.parameters)
-        self.assertEqual(names, ["search"])
-        self.assertEqual(json.loads(params), {"query": "tacos"})
+        self.assertEqual(names, ["search"])  # 断言相等
+        self.assertEqual(json.loads(params), {"query": "tacos"})  # 断言相等
 
+    # TestPoolsideV1Detector类的测试streamingmultiplecalls
     def test_streaming_multiple_calls(self):
         detector = PoolsideV1Detector()
         wire = (
@@ -422,24 +447,26 @@ class TestPoolsideV1Detector(CustomTestCase):
             r = detector.parse_streaming_increment(chunk, self.tools)
             all_calls.extend(r.calls)
         names = [c.name for c in all_calls if c.name]
-        self.assertEqual(names, ["get_weather", "search"])
+        self.assertEqual(names, ["get_weather", "search"])  # 断言相等
         # Each tool's argument deltas concatenate to a complete JSON object
         per_tool: dict = {}
         for c in all_calls:
             if c.parameters:
                 per_tool.setdefault(c.tool_index, "")
                 per_tool[c.tool_index] += c.parameters
-        self.assertEqual(json.loads(per_tool[0]), {"location": "NYC"})
-        self.assertEqual(json.loads(per_tool[1]), {"query": "pizza"})
+        self.assertEqual(json.loads(per_tool[0]), {"location": "NYC"})  # 断言相等
+        self.assertEqual(json.loads(per_tool[1]), {"query": "pizza"})  # 断言相等
 
+    # TestPoolsideV1Detector类的测试streamingzeroargcall
     def test_streaming_zero_arg_call(self):
         detector = PoolsideV1Detector()
         wire = "<tool_call>now\n</tool_call>"
         names, params = self._collect(detector, list(wire))
-        self.assertEqual(names, ["now"])
+        self.assertEqual(names, ["now"])  # 断言相等
         # Either a single "{}" emission or a sequence whose join parses to {}
-        self.assertEqual(json.loads(params or "{}"), {})
+        self.assertEqual(json.loads(params or "{}"), {})  # 断言相等
 
+    # TestPoolsideV1Detector类的测试streamingtextbeforetoolcall
     def test_streaming_text_before_tool_call(self):
         detector = PoolsideV1Detector()
         chunks = [
@@ -453,15 +480,15 @@ class TestPoolsideV1Detector(CustomTestCase):
             r = detector.parse_streaming_increment(chunk, self.tools)
             all_calls.extend(r.calls)
             normal += r.normal_text
-        self.assertEqual(normal, "Let me check. ")
+        self.assertEqual(normal, "Let me check. ")  # 断言相等
         names = [c.name for c in all_calls if c.name]
-        self.assertEqual(names, ["search"])
+        self.assertEqual(names, ["search"])  # 断言相等
 
     # ==================== Registry ====================
 
     def test_registered_in_function_call_parser(self):
-        self.assertIn("poolside_v1", FunctionCallParser.ToolCallParserEnum)
-        self.assertIs(
+        self.assertIn("poolside_v1", FunctionCallParser.ToolCallParserEnum)  # 断言包含
+        self.assertIs(  # 断言是同一对象
             FunctionCallParser.ToolCallParserEnum["poolside_v1"], PoolsideV1Detector
         )
 

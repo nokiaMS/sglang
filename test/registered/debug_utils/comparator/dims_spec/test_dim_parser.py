@@ -1,3 +1,4 @@
+# 文件名: test_dim_parser.py - 维度解析器测试
 import sys
 
 import pytest
@@ -17,21 +18,25 @@ register_cpu_ci(est_time=1, suite="base-b-test-cpu")
 
 
 class TestParseDim:
+    # 测试plainname
     def test_plain_name(self) -> None:
         assert parse_dim("b") == DimSpec(name="b")
 
+    # 测试parallelaxis
     def test_parallel_axis(self) -> None:
         assert parse_dim("h[tp]") == DimSpec(
             name="h",
             parallel_modifiers=[ParallelModifier(axis=ParallelAxis.TP)],
         )
 
+    # 测试allparallelaxes
     def test_all_parallel_axes(self) -> None:
         assert parse_dim("a[tp]").parallel_modifiers[0].axis == ParallelAxis.TP
         assert parse_dim("a[cp]").parallel_modifiers[0].axis == ParallelAxis.CP
         assert parse_dim("a[ep]").parallel_modifiers[0].axis == ParallelAxis.EP
         assert parse_dim("a[sp]").parallel_modifiers[0].axis == ParallelAxis.SP
 
+    # 测试ordering
     def test_ordering(self) -> None:
         assert (
             parse_dim("s[cp:zigzag]").parallel_modifiers[0].ordering == Ordering.ZIGZAG
@@ -41,12 +46,14 @@ class TestParseDim:
             == Ordering.NATURAL
         )
 
+    # 测试reduction
     def test_reduction(self) -> None:
         assert (
             parse_dim("h[tp:partial]").parallel_modifiers[0].reduction
             == Reduction.PARTIAL
         )
 
+    # 测试allqualifiers
     def test_all_qualifiers(self) -> None:
         assert parse_dim("s[cp:zigzag+partial]") == DimSpec(
             name="s",
@@ -59,6 +66,7 @@ class TestParseDim:
             ],
         )
 
+    # 测试multiaxis
     def test_multi_axis(self) -> None:
         result: DimSpec = parse_dim("t[cp:zigzag,sp]")
         assert result.name == "t"
@@ -68,41 +76,50 @@ class TestParseDim:
         )
         assert result.parallel_modifiers[1] == ParallelModifier(axis=ParallelAxis.SP)
 
+    # 测试invalidtokenraises
     def test_invalid_token_raises(self) -> None:
         with pytest.raises(ValueError, match="Invalid dim token"):
             parse_dim("h[]")
         with pytest.raises(ValueError, match="Invalid dim token"):
             parse_dim("h[tp[x]]")
 
+    # 测试unknownaxisraises
     def test_unknown_axis_raises(self) -> None:
         with pytest.raises(ValueError, match="Unknown axis"):
             parse_dim("h[xyz]")
 
+    # 测试unknownqualifierraises
     def test_unknown_qualifier_raises(self) -> None:
         with pytest.raises(ValueError, match="Unknown qualifier"):
             parse_dim("h[tp:foobar]")
 
+    # 测试multipleorderingraises
     def test_multiple_ordering_raises(self) -> None:
         with pytest.raises(ValueError, match="Multiple ordering"):
             parse_dim("s[cp:zigzag+natural]")
 
+    # 测试multiplereductionraises
     def test_multiple_reduction_raises(self) -> None:
         with pytest.raises(ValueError, match="Multiple reduction"):
             parse_dim("h[tp:partial+partial]")
 
+    # 测试duplicateaxisraises
     def test_duplicate_axis_raises(self) -> None:
         with pytest.raises(ValueError, match="Duplicate axis"):
             parse_dim("h[tp,tp]")
 
+    # 测试squeezedim
     def test_squeeze_dim(self) -> None:
         assert parse_dim("1") == DimSpec(name="1")
 
+    # 测试squeezedimrejectsmodifiers
     def test_squeeze_dim_rejects_modifiers(self) -> None:
         with pytest.raises(ValueError, match="Invalid dim token"):
             parse_dim("1[tp]")
 
 
 class TestParseFusedDim:
+    # 测试basicfused
     def test_basic_fused(self) -> None:
         result: DimSpec = parse_dim("(num_heads*head_dim)")
         assert result.name == "num_heads*head_dim"
@@ -110,23 +127,27 @@ class TestParseFusedDim:
         assert result.is_fused
         assert result.sub_dims == ["num_heads", "head_dim"]
 
+    # 测试fusedwithmodifier
     def test_fused_with_modifier(self) -> None:
         result: DimSpec = parse_dim("(num_heads*head_dim)[tp]")
         assert result.name == "num_heads*head_dim"
         assert result.parallel_modifiers == [ParallelModifier(axis=ParallelAxis.TP)]
         assert result.sub_dims == ["num_heads", "head_dim"]
 
+    # 测试threewayfused
     def test_three_way_fused(self) -> None:
         result: DimSpec = parse_dim("(a*b*c)")
         assert result.name == "a*b*c"
         assert len(result.sub_dims) == 3
         assert result.sub_dims == ["a", "b", "c"]
 
+    # 测试threewayfusedwithmodifier
     def test_three_way_fused_with_modifier(self) -> None:
         result: DimSpec = parse_dim("(a*b*c)[tp]")
         assert result.parallel_modifiers == [ParallelModifier(axis=ParallelAxis.TP)]
         assert len(result.sub_dims) == 3
 
+    # 测试fusedwithcomplexmodifier
     def test_fused_with_complex_modifier(self) -> None:
         result: DimSpec = parse_dim("(a*b)[cp:zigzag]")
         assert result.parallel_modifiers == [
@@ -134,15 +155,18 @@ class TestParseFusedDim:
         ]
         assert result.sub_dims == ["a", "b"]
 
+    # 测试regulardimnotfused
     def test_regular_dim_not_fused(self) -> None:
         result: DimSpec = parse_dim("h[tp]")
         assert not result.is_fused
         assert result.sub_dims == ["h"]
 
+    # 测试fusedduplicatesubnamesraises
     def test_fused_duplicate_sub_names_raises(self) -> None:
         with pytest.raises(ValueError, match="Duplicate sub-dim"):
             parse_dim("(a*a)")
 
+    # 测试fusedinvalidsubdimraises
     def test_fused_invalid_sub_dim_raises(self) -> None:
         with pytest.raises(ValueError, match="Invalid sub-dim"):
             parse_dim("(a*1)")

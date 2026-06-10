@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 # Adapted from https://github.com/vllm-project/vllm/blob/8ca7a71df787ad711ad3ac70a5bd2eb2bb398938/tests/quantization/test_fp8.py
 
+# 文件名: test_custom_ops.py - 自定义量化算子测试 - 验证FP8 per-tensor/per-token量化和填充的正确性
 import sys
 
 import pytest
@@ -17,8 +18,10 @@ fp8_dtype = torch.float8_e4m3fnuz if _is_fp8_fnuz else torch.float8_e4m3fn
 
 
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+# 测试per-tensor FP8量化 - 验证动态和静态量化模式
 def test_scaled_fp8_quant_per_tensor(dtype) -> None:
 
+    # per-tensor量化参考实现 - 按张量级进行FP8量化的参考方法
     def quantize_ref_per_tensor(tensor, inv_scale):
         # The reference implementation that fully aligns to
         # the kernel being tested.
@@ -28,6 +31,7 @@ def test_scaled_fp8_quant_per_tensor(dtype) -> None:
         qweight = qweight.to(fp8_dtype)
         return qweight
 
+    # per-tensor反量化 - 按张量级进行FP8反量化
     def dequantize_per_tensor(tensor, inv_scale, dtype):
         fake_qweight = tensor.to(dtype)
         dq_weight = fake_qweight * inv_scale
@@ -60,7 +64,9 @@ def test_scaled_fp8_quant_per_tensor(dtype) -> None:
 if _is_cuda or _is_hip:
 
     @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+    # 测试per-token动态FP8量化 - 验证按token动态量化
     def test_scaled_fp8_quant_per_token_dynamic(dtype) -> None:
+        # per-token量化参考实现 - 按token级进行FP8量化的参考方法
         def quantize_ref_per_token(tensor, inv_scale):
             # The reference implementation that fully aligns to
             # the kernel being tested.
@@ -72,6 +78,7 @@ if _is_cuda or _is_hip:
             qweight = qweight.to(fp8_dtype)
             return qweight
 
+        # per-token反量化 - 按token级进行FP8反量化
         def dequantize_per_token(tensor, inv_scale, dtype):
             fake_qweight = tensor.to(dtype)
             dq_weight = fake_qweight * inv_scale
@@ -92,6 +99,7 @@ if _is_cuda or _is_hip:
         )
 
     @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+    # 测试带填充的FP8量化 - 验证token填充后的量化结果
     def test_scaled_fp8_quant_with_padding(dtype) -> None:
         original_rows = 5
         x = (torch.randn(size=(original_rows, 16), device="cuda") * 13).to(dtype)

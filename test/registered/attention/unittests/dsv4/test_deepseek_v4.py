@@ -1,3 +1,4 @@
+# 文件名: test_deepseek_v4.py - DeepSeek V4注意力测试
 """DSV4 attention correctness — SWA + C4/C128 coverage.
 
 Covers eager EXTEND/DECODE plus CUDA-graph-style capture/replay for the
@@ -140,11 +141,13 @@ class TestDSV4AttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试swaonlycases
     def test_swa_only_cases(self):
         for case in self.CASES:
             with self.subTest(case=case.name, backend=case.backend):
                 run_dsv4_attention_case(self, case)
 
+    # 测试runnermodecudagraphdecodecases
     def test_runner_mode_cuda_graph_decode_cases(self):
         for case in self.CUDA_GRAPH_DECODE_CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -185,6 +188,7 @@ class TestDSV4AttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试compressattentioncases
     def test_compress_attention_cases(self):
         for case in self.COMPRESS_CASES:
             with self.subTest(
@@ -194,6 +198,7 @@ class TestDSV4AttentionBackendCorrectness(CustomTestCase):
             ):
                 run_dsv4_compress_attention_case(self, case)
 
+    # 测试eagletargetverifychaincases
     def test_eagle_target_verify_chain_cases(self):
         for case in self.TARGET_VERIFY_CASES:
             with self.subTest(
@@ -236,6 +241,7 @@ class TestDSV4AttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试runnermodeeagleverifycudagraphcases
     def test_runner_mode_eagle_verify_cuda_graph_cases(self):
         for case in self.EAGLE_VERIFY_CUDA_GRAPH_CASES:
             with self.subTest(
@@ -258,6 +264,7 @@ class TestDSV4AttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试eagledraftextendcases
     def test_eagle_draft_extend_cases(self):
         for case in self.DRAFT_EXTEND_CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -282,6 +289,7 @@ class TestDSV4AttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试runnermodeeagledraftextendcudagraphcases
     def test_runner_mode_eagle_draft_extend_cuda_graph_cases(self):
         for case in self.EAGLE_DRAFT_EXTEND_CUDA_GRAPH_CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -303,6 +311,7 @@ class TestDSV4AttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试runnermodeproductioneagledraftcudagraphrunnercases
     def test_runner_mode_production_eagle_draft_cuda_graph_runner_cases(self):
         for case in self.PRODUCTION_EAGLE_DRAFT_RUNNER_CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -331,6 +340,7 @@ class TestDSV4AttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试runnermodeproductioneagledraftextendcudagraphrunnercases
     def test_runner_mode_production_eagle_draft_extend_cuda_graph_runner_cases(self):
         for case in self.PRODUCTION_EAGLE_DRAFT_EXTEND_RUNNER_CASES:
             with self.subTest(case=case.name, backend=case.backend):

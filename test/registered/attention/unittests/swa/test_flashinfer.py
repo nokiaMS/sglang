@@ -1,3 +1,4 @@
+# 文件名: test_flashinfer.py - FlashInfer后端测试
 import sys
 import unittest
 from pathlib import Path
@@ -90,6 +91,7 @@ class TestFlashInferSWAAttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试projectedswaattentioncases
     def test_projected_swa_attention_cases(self):
         for case in self.CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -129,6 +131,7 @@ class TestFlashInferSWAAttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试layoutrobustnesscases
     def test_layout_robustness_cases(self):
         for case in self.LAYOUT_ROBUSTNESS_CASES:
             for layout in ("interleaved_pages", "non_monotonic_extend"):
@@ -143,6 +146,7 @@ class TestFlashInferSWAAttentionBackendCorrectness(CustomTestCase):
                         loc_layout=layout,
                     )
 
+    # 测试runnermodecudagraphdecodecases
     def test_runner_mode_cuda_graph_decode_cases(self):
         for case in self.CUDA_GRAPH_CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -153,6 +157,7 @@ class TestFlashInferSWAAttentionBackendCorrectness(CustomTestCase):
                     hidden_size=self.HIDDEN_SIZE,
                 )
 
+    # 测试runnermodesplitopextendcases
     def test_runner_mode_split_op_extend_cases(self):
         for case, static_num_tokens in self.SPLIT_OP_CASES:
             for breakable in (False, True):

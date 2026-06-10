@@ -1,3 +1,4 @@
+# 文件名: test_torch_backend.py - 测试PyTorch原生LoRA后端的SGEMM运算
 import unittest
 
 import torch
@@ -32,6 +33,7 @@ class TestTorchNativeLoRABackend(CustomTestCase):
     )
 
     @classmethod
+    # 类级别初始化，启动服务器或设置测试环境
     def setUpClass(cls):
         cls.backend = TorchNativeLoRABackend(max_loras_per_batch=2, device=cls.device)
         cls.backend.prepare_lora_batch(
@@ -42,6 +44,7 @@ class TestTorchNativeLoRABackend(CustomTestCase):
             use_cuda_graph=cls.use_cuda_graph,
         )
 
+    # 测试run lora a sgemm功能
     def test_run_lora_a_sgemm(self):
         batch_size = 3
         input_dim = 4
@@ -79,8 +82,9 @@ class TestTorchNativeLoRABackend(CustomTestCase):
 
         actual_output = self.backend.run_lora_a_sgemm(x, weights)
 
-        self.assertTrue(torch.allclose(actual_output, expect_output))
+        self.assertTrue(torch.allclose(actual_output, expect_output))  # 断言条件为真
 
+    # 测试run lora b sgemm功能
     def test_run_lora_b_sgemm(self):
         batch_size = 3
         input_dim = 6
@@ -117,8 +121,9 @@ class TestTorchNativeLoRABackend(CustomTestCase):
 
         actual_output = self.backend.run_lora_b_sgemm(x, weights)
 
-        self.assertTrue(torch.allclose(actual_output, expect_output))
+        self.assertTrue(torch.allclose(actual_output, expect_output))  # 断言条件为真
 
+    # 测试run qkv lora功能
     def test_run_qkv_lora(self):
         batch_size = 3
         num_loras = 3
@@ -176,8 +181,9 @@ class TestTorchNativeLoRABackend(CustomTestCase):
         actual_output = self.backend.run_qkv_lora(
             x, qkv_lora_a, qkv_lora_b, None, output_offset_cpu, 0
         )
-        self.assertTrue(torch.allclose(actual_output, expect_output))
+        self.assertTrue(torch.allclose(actual_output, expect_output))  # 断言条件为真
 
+    # 测试run gate up lora功能
     def test_run_gate_up_lora(self):
         batch_size = 3
         input_dim = 6
@@ -239,7 +245,7 @@ class TestTorchNativeLoRABackend(CustomTestCase):
         )
 
         actual_output = self.backend.run_gate_up_lora(x, gate_up_lora_a, gate_up_lora_b)
-        self.assertTrue(torch.allclose(actual_output, expect_output))
+        self.assertTrue(torch.allclose(actual_output, expect_output))  # 断言条件为真
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+# 文件名: test_hicache_nixl_storage.py - HiCache NIXL存储
 """Unit tests for the NIXL HiCache storage backend -- no server, no model loading."""
 
 from sglang.test.ci.ci_register import register_cuda_ci
@@ -24,6 +25,7 @@ from sglang.test.test_utils import CustomTestCase
 STRESS_ENABLED = bool(os.environ.get("SGLANG_RUN_NIXL_STRESS"))
 
 
+# MockMemPoolHost类
 class MockMemPoolHost:
     """Minimal MHA-style HostKVCache stand-in supporting the v1 paths.
 
@@ -63,6 +65,7 @@ class MockMemPoolHost:
                 (2, layer_num, self.size, head_num, head_dim), dtype=dtype
             )
 
+    # MockMemPoolHost类的get_page_buffer_meta
     def get_page_buffer_meta(self, indices):
         ptr_list = []
         base = self.kv_buffer.data_ptr()
@@ -89,18 +92,21 @@ class MockMemPoolHost:
         )
         return ptr_list, [element_size] * len(ptr_list)
 
+    # MockMemPoolHost类的get_dummy_flat_data_page
     def get_dummy_flat_data_page(self):
         return torch.zeros(
             (2, self.layer_num, self.page_size, self.head_num, self.head_dim),
             dtype=self.dtype,
         ).flatten()
 
+    # MockMemPoolHost类的get_data_page
     def get_data_page(self, index, flat=True):
         if hasattr(index, "item"):
             index = int(index.item())
         page = self.kv_buffer[:, :, index : index + self.page_size, :, :]
         return page.flatten() if flat else page
 
+    # MockMemPoolHost类的set_from_flat_data_page
     def set_from_flat_data_page(self, index, data_page):
         if hasattr(index, "item"):
             index = int(index.item())
@@ -108,12 +114,14 @@ class MockMemPoolHost:
             2, self.layer_num, self.page_size, self.head_num, self.head_dim
         )
 
+    # MockMemPoolHost类的is_stride_page_aligned
     def is_stride_page_aligned(self, page_size_bytes: int = 4096) -> bool:
         # Test tensors are too small to satisfy 4 KiB stride alignment; the
         # O_DIRECT path correctly falls back to copy mode in this case.
         return False
 
 
+# MinioFixture类
 class MinioFixture:
     """Spin up a single-node MinIO server on localhost and create a bucket.
 
@@ -124,6 +132,7 @@ class MinioFixture:
     user = "minioadmin"
     password = "minioadmin"
 
+    # MinioFixture类的初始化
     def __init__(self, bucket: str = "hicache-test"):
         self.bucket = bucket
         self.api_port = self._find_free_port()
@@ -131,16 +140,22 @@ class MinioFixture:
         self.proc: subprocess.Popen | None = None
 
     @property
+
+    # MinioFixture类的endpoint
     def endpoint(self) -> str:
         return f"127.0.0.1:{self.api_port}"
 
     @staticmethod
+
+    # MinioFixture类的内部方法_find_free_port
     def _find_free_port() -> int:
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0))
             return s.getsockname()[1]
 
     @staticmethod
+
+    # MinioFixture类的内部方法_minio_bin
     def _minio_bin() -> str | None:
         path = shutil.which("minio") or "/usr/local/bin/minio"
         if os.path.isfile(path) and os.access(path, os.X_OK):
@@ -148,6 +163,8 @@ class MinioFixture:
         return None
 
     @classmethod
+
+    # MinioFixture类的is_available
     def is_available(cls) -> bool:
         """True iff a minio binary and boto3 are both importable."""
         if cls._minio_bin() is None:
@@ -158,10 +175,11 @@ class MinioFixture:
             return False
         return True
 
+    # MinioFixture类的start
     def start(self) -> None:
         minio_bin = self._minio_bin()
         if minio_bin is None:
-            raise FileNotFoundError("minio binary not available")
+            raise FileNotFoundError("minio binary not available")  # 抛出异常
 
         self.proc = subprocess.Popen(
             [minio_bin, "server", "--address", self.endpoint, self.data_dir],
@@ -172,7 +190,7 @@ class MinioFixture:
         deadline = time.time() + 15.0
         while time.time() < deadline:
             if self.proc.poll() is not None:
-                raise RuntimeError(f"minio exited early with rc={self.proc.returncode}")
+                raise RuntimeError(f"minio exited early with rc={self.proc.returncode}")  # 抛出异常
             try:
                 with socket.create_connection(
                     ("127.0.0.1", self.api_port), timeout=0.5
@@ -182,7 +200,7 @@ class MinioFixture:
                 time.sleep(0.1)
         else:
             self.stop()
-            raise RuntimeError("minio did not become ready within 15s")
+            raise RuntimeError("minio did not become ready within 15s")  # 抛出异常
 
         import boto3
         from botocore.config import Config
@@ -196,6 +214,7 @@ class MinioFixture:
         )
         s3.create_bucket(Bucket=self.bucket)
 
+    # MinioFixture类的stop
     def stop(self) -> None:
         if self.proc and self.proc.poll() is None:
             self.proc.terminate()
@@ -207,6 +226,7 @@ class MinioFixture:
         shutil.rmtree(self.data_dir, ignore_errors=True)
 
 
+# TestNixlUnified类
 class TestNixlUnified(CustomTestCase):
     """Unified test suite for all NIXL components."""
 
@@ -244,15 +264,19 @@ class TestNixlUnified(CustomTestCase):
         except ImportError:
             self.skipTest("NIXL not available, skipping NIXL storage tests")
 
+    # TestNixlUnified类的测试清理
     def tearDown(self):
         """Clean up test directories."""
         if os.path.exists(self.test_dir):
             shutil.rmtree(self.test_dir, ignore_errors=True)
 
     @staticmethod
+
+    # TestNixlUnified类的内部方法_open_fds
     def _open_fds() -> int:
         return len(os.listdir("/proc/self/fd"))
 
+    # TestNixlUnified类的测试storageregisterfailureclosesfds
     def test_storage_register_failure_closes_fds(self):
         """If NIXL register_memory raises after fds are opened, all fds are still closed."""
         files = [os.path.join(self.test_dir, f"fail_{i}.bin") for i in range(3)]
@@ -262,24 +286,26 @@ class TestNixlUnified(CustomTestCase):
 
         orig = self.hicache.agent.register_memory
 
+        # boom
         def boom(*args, **kwargs):
-            raise RuntimeError("simulated register_memory failure")
+            raise RuntimeError("simulated register_memory failure")  # 抛出异常
 
         self.hicache.agent.register_memory = boom
         try:
             with self.hicache.registry.storage(buffers, files, "WRITE") as descs:
-                self.assertIsNone(
+                self.assertIsNone(  # 断言为None
                     descs, "storage CM should yield None on register failure"
                 )
         finally:
             self.hicache.agent.register_memory = orig
 
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             self._open_fds(),
             fds_before,
             "fd leak after register_memory failure mid-storage",
         )
 
+    # TestNixlUnified类的内部方法_assert_host_addrs_pre_registered
     def _assert_host_addrs_pre_registered(
         self, is_zero_copy_mode: bool, hicache: HiCacheNixl = None
     ):
@@ -301,6 +327,7 @@ class TestNixlUnified(CustomTestCase):
 
         orig_get_reg = agent.get_reg_descs
 
+        # spy_get_reg
         def spy_get_reg(items, mem_type=None):
             # NIXL's register_memory calls get_reg_descs internally with an
             # already-built nixlRegDList; iterating that pybind11 type is
@@ -319,6 +346,7 @@ class TestNixlUnified(CustomTestCase):
 
         orig_register = agent.register_memory
 
+        # spy_register
         def spy_register(reg_descs):
             reg = orig_register(reg_descs)
             entries = pending.pop(0) if pending else []
@@ -327,6 +355,7 @@ class TestNixlUnified(CustomTestCase):
 
         orig_dereg = agent.deregister_memory
 
+        # spy_dereg
         def spy_dereg(reg):
             active_regs.pop(id(reg), None)
             return orig_dereg(reg)
@@ -335,6 +364,7 @@ class TestNixlUnified(CustomTestCase):
 
         orig_get_xfer = agent.get_xfer_descs
 
+        # spy_get_xfer
         def spy_get_xfer(items, mem_type=None):
             if mem_type in (None, "DRAM"):
                 ranges = []
@@ -350,6 +380,7 @@ class TestNixlUnified(CustomTestCase):
         violations: list = []
         orig_init = agent.initialize_xfer
 
+        # spy_init
         def spy_init(direction, local, remote, agent_name):
             host_regs = [
                 (a, s)
@@ -383,13 +414,13 @@ class TestNixlUnified(CustomTestCase):
             )
 
             set_results = hicache.batch_set_v1(keys, host_indices)
-            self.assertTrue(
+            self.assertTrue(  # 断言为真
                 all(set_results),
                 f"batch_set_v1 failed (zero_copy={is_zero_copy_mode}): {set_results}",
             )
 
             get_results = hicache.batch_get_v1(keys, host_indices)
-            self.assertTrue(
+            self.assertTrue(  # 断言为真
                 all(get_results),
                 f"batch_get_v1 failed (zero_copy={is_zero_copy_mode}): {get_results}",
             )
@@ -400,20 +431,23 @@ class TestNixlUnified(CustomTestCase):
             agent.get_xfer_descs = orig_get_xfer
             agent.initialize_xfer = orig_init
 
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             violations,
             [],
             f"Host xfer addrs not covered by registration (zero_copy={is_zero_copy_mode}): {violations}",
         )
 
+    # TestNixlUnified类的测试nixlapicontracthostaddrswithinregisteredregionzerocopy
     def test_nixl_api_contract_host_addrs_within_registered_region_zero_copy(self):
         """All host xfer addrs must lie within a registered region -- zero-copy."""
         self._assert_host_addrs_pre_registered(is_zero_copy_mode=True)
 
+    # TestNixlUnified类的测试nixlapicontracthostaddrswithinregisteredregionnonzerocopy
     def test_nixl_api_contract_host_addrs_within_registered_region_non_zero_copy(self):
         """All host xfer addrs must lie within a registered region -- non-zero-copy."""
         self._assert_host_addrs_pre_registered(is_zero_copy_mode=False)
 
+    # TestNixlUnified类的内部方法_make_obj_hicache
     def _make_obj_hicache(self) -> HiCacheNixl:
         """Start a MinIO server (cleaned up via addCleanup) and return a
         HiCacheNixl wired to its OBJ backend. Skips the test if the backend
@@ -454,12 +488,15 @@ class TestNixlUnified(CustomTestCase):
     @unittest.skipUnless(
         MinioFixture.is_available(), "minio binary or boto3 not available"
     )
+
+    # TestNixlUnified类的测试nixlapicontracthostaddrswithinregisteredregionobj
     def test_nixl_api_contract_host_addrs_within_registered_region_obj(self):
         """Same property over the OBJ backend (MinIO fixture)."""
         self._assert_host_addrs_pre_registered(
             is_zero_copy_mode=False, hicache=self._make_obj_hicache()
         )
 
+    # TestNixlUnified类的测试batchsetv1skipsonnonzeromlarank
     def test_batch_set_v1_skips_on_nonzero_mla_rank(self):
         """batch_set_v1 is a no-op on nonzero MLA backup ranks.
 
@@ -471,16 +508,18 @@ class TestNixlUnified(CustomTestCase):
         results = self.hicache.batch_set_v1(
             ["key1", "key2"], torch.tensor([0, 1], dtype=torch.int64)
         )
-        self.assertEqual(results, [True, True])
+        self.assertEqual(results, [True, True])  # 断言相等
 
+    # TestNixlUnified类的测试batchexistszerocopymlausessinglekeydenominator
     def test_batch_exists_zero_copy_mla_uses_single_key_denominator(self):
         """Zero-copy MLA batch_exists counts one storage key per logical key."""
         self.hicache.is_zero_copy = True
         self.hicache.is_mla_model = True
         self.hicache.agent.query_memory = lambda *a, **kw: [object(), None]
 
-        self.assertEqual(self.hicache.batch_exists(["key1", "key2"]), 1)
+        self.assertEqual(self.hicache.batch_exists(["key1", "key2"]), 1)  # 断言相等
 
+    # TestNixlUnified类的测试batchexistszerocopymhausestwokeydenominator
     def test_batch_exists_zero_copy_mha_uses_two_key_denominator(self):
         """Zero-copy non-MLA batch_exists counts k/v pairs per logical key."""
         self.hicache.is_zero_copy = True
@@ -492,8 +531,9 @@ class TestNixlUnified(CustomTestCase):
             None,
         ]
 
-        self.assertEqual(self.hicache.batch_exists(["key1", "key2"]), 1)
+        self.assertEqual(self.hicache.batch_exists(["key1", "key2"]), 1)  # 断言相等
 
+    # TestNixlUnified类的内部方法_run_concurrent_stress
     def _run_concurrent_stress(
         self, is_zero_copy_mode: bool, hicache: HiCacheNixl = None
     ):
@@ -534,9 +574,11 @@ class TestNixlUnified(CustomTestCase):
                 return (slice(None), s, slice(None), slice(None), slice(None))
             return (slice(None), slice(None), s, slice(None), slice(None))
 
+        # page_index
         def page_index(start_page: int, n_pages: int):
             return token_index(start_page * page_size, n_pages * page_size)
 
+        # fill_pages
         def fill_pages(start_page: int, n_pages: int, value_fn):
             """value_fn(i) -> scalar value for page i."""
             for i in range(n_pages):
@@ -558,7 +600,7 @@ class TestNixlUnified(CustomTestCase):
             preset_src[1] * page_size,
             dtype=torch.int64,
         )
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             all(hicache.batch_set_v1(preset_keys, preset_indices)),
             "phase 1: presetting keys failed",
         )
@@ -574,10 +616,12 @@ class TestNixlUnified(CustomTestCase):
         errors: List[str] = []
         errors_lock = threading.Lock()
 
+        # record_error
         def record_error(msg: str):
             with errors_lock:
                 errors.append(msg)
 
+        # getter_loop
         def getter_loop():
             dst_indices = torch.arange(
                 getter_dst[0] * page_size,
@@ -599,6 +643,7 @@ class TestNixlUnified(CustomTestCase):
                         return
                 loops += 1
 
+        # setter_loop
         def setter_loop():
             src_indices = torch.arange(
                 setter_src[0] * page_size,
@@ -629,18 +674,22 @@ class TestNixlUnified(CustomTestCase):
         t_get.join(timeout=10)
         t_set.join(timeout=10)
 
-        self.assertFalse(
+        self.assertFalse(  # 断言为假
             t_get.is_alive() or t_set.is_alive(),
             "stress threads failed to stop",
         )
-        self.assertEqual(errors, [], f"concurrency errors: {errors}")
+        self.assertEqual(errors, [], f"concurrency errors: {errors}")  # 断言相等
 
     @unittest.skipUnless(STRESS_ENABLED, "set SGLANG_RUN_NIXL_STRESS=1 to run")
+
+    # TestNixlUnified类的测试concurrentgettersetterfilezerocopy
     def test_concurrent_getter_setter_file_zero_copy(self):
         """Stress: concurrent getter+setter, FILE backend, zero-copy."""
         self._run_concurrent_stress(is_zero_copy_mode=True)
 
     @unittest.skipUnless(STRESS_ENABLED, "set SGLANG_RUN_NIXL_STRESS=1 to run")
+
+    # TestNixlUnified类的测试concurrentgettersetterfilenonzerocopy
     def test_concurrent_getter_setter_file_non_zero_copy(self):
         """Stress: concurrent getter+setter, FILE backend, non-zero-copy."""
         self._run_concurrent_stress(is_zero_copy_mode=False)
@@ -649,6 +698,8 @@ class TestNixlUnified(CustomTestCase):
     @unittest.skipUnless(
         MinioFixture.is_available(), "minio binary or boto3 not available"
     )
+
+    # TestNixlUnified类的测试concurrentgettersetterobjzerocopy
     def test_concurrent_getter_setter_obj_zero_copy(self):
         """Stress: concurrent getter+setter, OBJ backend (MinIO), zero-copy."""
         self._run_concurrent_stress(
@@ -659,6 +710,8 @@ class TestNixlUnified(CustomTestCase):
     @unittest.skipUnless(
         MinioFixture.is_available(), "minio binary or boto3 not available"
     )
+
+    # TestNixlUnified类的测试concurrentgettersetterobjnonzerocopy
     def test_concurrent_getter_setter_obj_non_zero_copy(self):
         """Stress: concurrent getter+setter, OBJ backend (MinIO), non-zero-copy."""
         self._run_concurrent_stress(
@@ -667,6 +720,8 @@ class TestNixlUnified(CustomTestCase):
 
 
 @unittest.skipUnless(hasattr(os, "O_DIRECT"), "O_DIRECT not available on this platform")
+
+# TestNixlDirectIO类
 class TestNixlDirectIO(CustomTestCase):
     """Tests for the O_DIRECT file I/O path in NixlFileManager and HiCacheNixl."""
 
@@ -674,10 +729,12 @@ class TestNixlDirectIO(CustomTestCase):
         self.test_dir = "/tmp/test_nixl_direct_io"
         os.makedirs(self.test_dir, exist_ok=True)
 
+    # TestNixlDirectIO类的测试清理
     def tearDown(self):
         if os.path.exists(self.test_dir):
             shutil.rmtree(self.test_dir, ignore_errors=True)
 
+    # TestNixlDirectIO类的测试openfilesetsodirect
     def test_open_file_sets_o_direct(self):
         """open_file sets O_DIRECT on the file descriptor when use_direct_io=True."""
         import fcntl
@@ -688,10 +745,11 @@ class TestNixlDirectIO(CustomTestCase):
         test_file = os.path.join(self.test_dir, "test_odirect.bin")
         fd = fm.open_file(test_file, create=True)
         try:
-            self.assertTrue(fcntl.fcntl(fd, fcntl.F_GETFL) & os.O_DIRECT)
+            self.assertTrue(fcntl.fcntl(fd, fcntl.F_GETFL) & os.O_DIRECT)  # 断言为真
         finally:
             os.close(fd)
 
+    # TestNixlDirectIO类的测试openfilenoodirect
     def test_open_file_no_o_direct(self):
         """open_file does not set O_DIRECT when use_direct_io=False."""
         import fcntl
@@ -702,10 +760,11 @@ class TestNixlDirectIO(CustomTestCase):
         test_file = os.path.join(self.test_dir, "test_buffered.bin")
         fd = fm.open_file(test_file, create=True)
         try:
-            self.assertFalse(fcntl.fcntl(fd, fcntl.F_GETFL) & os.O_DIRECT)
+            self.assertFalse(fcntl.fcntl(fd, fcntl.F_GETFL) & os.O_DIRECT)  # 断言为假
         finally:
             os.close(fd)
 
+    # TestNixlDirectIO类的内部方法_make_direct_io_hicache
     def _make_direct_io_hicache(self) -> HiCacheNixl:
         """Return a HiCacheNixl configured for O_DIRECT (default) with the POSIX backend."""
         storage_config = HiCacheStorageConfig(
@@ -727,11 +786,13 @@ class TestNixlDirectIO(CustomTestCase):
         except ImportError:
             self.skipTest("NIXL not available")
 
+    # TestNixlDirectIO类的测试needspagealignmenttrueforfilebackend
     def test_needs_page_alignment_true_for_file_backend(self):
         """File-based backend + use_direct_io=True must set needs_page_alignment."""
         hicache = self._make_direct_io_hicache()
-        self.assertTrue(hicache.needs_page_alignment)
+        self.assertTrue(hicache.needs_page_alignment)  # 断言为真
 
+    # TestNixlDirectIO类的测试odirectunalignedpoolfallsbacktocopy
     def test_odirect_unaligned_pool_falls_back_to_copy(self):
         """O_DIRECT with non-aligned pool strides falls back to copy mode."""
         hicache = self._make_direct_io_hicache()
@@ -741,10 +802,11 @@ class TestNixlDirectIO(CustomTestCase):
 
         # MockMemPoolHost.is_stride_page_aligned() returns False, so even though
         # the layout would otherwise enable zero-copy, the backend must fall back.
-        self.assertFalse(hicache.is_zero_copy)
-        self.assertIsNotNone(hicache._bounce_set)
-        self.assertIsNotNone(hicache._bounce_get)
+        self.assertFalse(hicache.is_zero_copy)  # 断言为假
+        self.assertIsNotNone(hicache._bounce_set)  # 断言不为None
+        self.assertIsNotNone(hicache._bounce_get)  # 断言不为None
 
+    # TestNixlDirectIO类的测试odirectdisabledviaconfig
     def test_odirect_disabled_via_config(self):
         """Top-level use_direct_io=false in extra_config disables O_DIRECT."""
         storage_config = HiCacheStorageConfig(
@@ -769,8 +831,8 @@ class TestNixlDirectIO(CustomTestCase):
             )
         except ImportError:
             self.skipTest("NIXL not available")
-        self.assertFalse(hicache.needs_page_alignment)
-        self.assertFalse(hicache.file_manager.use_direct_io)
+        self.assertFalse(hicache.needs_page_alignment)  # 断言为假
+        self.assertFalse(hicache.file_manager.use_direct_io)  # 断言为假
 
 
 if __name__ == "__main__":

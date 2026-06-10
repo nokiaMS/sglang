@@ -1,3 +1,4 @@
+# 文件名: test_text_models_gsm8k_eval.py - 夜间测试：文本模型GSM8K/MGSM评估（多模型精度）
 import json
 import unittest
 import warnings
@@ -44,6 +45,7 @@ MODEL_SCORE_THRESHOLDS = {
 # Do not use `CustomTestCase` since `test_mgsm_en_all_models` does not want retry
 class TestNightlyGsm8KEval(unittest.TestCase):
     @classmethod
+    # 类级别初始化，启动服务器或设置测试环境
     def setUpClass(cls):
         cls.models = []
         models_tp1 = parse_models(
@@ -60,6 +62,7 @@ class TestNightlyGsm8KEval(unittest.TestCase):
 
         cls.base_url = DEFAULT_URL_FOR_TEST
 
+    # 测试mgsm en all models功能
     def test_mgsm_en_all_models(self):
         warnings.filterwarnings(
             "ignore", category=ResourceWarning, message="unclosed.*socket"
@@ -73,7 +76,7 @@ class TestNightlyGsm8KEval(unittest.TestCase):
                 if model_setup.model_path == "meta-llama/Llama-3.1-70B-Instruct":
                     other_args.extend(["--mem-fraction-static", "0.9"])
 
-                process = popen_launch_server(
+                process = popen_launch_server(  # 启动推理服务器
                     model=model_setup.model_path,
                     other_args=other_args,
                     base_url=self.base_url,
@@ -89,7 +92,7 @@ class TestNightlyGsm8KEval(unittest.TestCase):
                         num_threads=1024,
                     )
 
-                    metrics = run_eval(args)
+                    metrics = run_eval(args)  # 运行评估
                     print(
                         f"{'=' * 42}\n{model_setup.model_path} - metrics={metrics} score={metrics['score']}\n{'=' * 42}\n"
                     )
@@ -102,7 +105,7 @@ class TestNightlyGsm8KEval(unittest.TestCase):
                     # 0.0 for empty latency
                     all_results.append((model_setup.model_path, metrics["score"], 0.0))
                 finally:
-                    kill_process_tree(process.pid)
+                    kill_process_tree(process.pid)  # 终止服务器进程
 
         try:
             with open("results.json", "r") as f:

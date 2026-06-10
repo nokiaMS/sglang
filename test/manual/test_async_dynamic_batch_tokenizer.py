@@ -1,3 +1,4 @@
+# 文件名: test_async_dynamic_batch_tokenizer.py - 异步动态批处理分词器测试 - 验证批处理效率、超时处理和错误处理
 """
 Unit tests for AsyncDynamicbatchTokenizer.
 
@@ -21,9 +22,11 @@ class TestAsyncDynamicbatchTokenizer:
     """Test suite for AsyncDynamicbatchTokenizer."""
 
     @pytest.fixture
+    # mock tokenizer
     def mock_tokenizer(self):
         """Create a mock tokenizer that behaves like HuggingFace tokenizer."""
 
+        # mock encode
         def mock_encode(texts, **kwargs):
             is_single = isinstance(texts, str)
             if is_single:
@@ -53,6 +56,7 @@ class TestAsyncDynamicbatchTokenizer:
 
             # Create a proper BatchEncoding-like object that supports dict operations
             class MockBatchEncoding(dict):
+                # 内部方法: init  
                 def __init__(self, data):
                     super().__init__(data)
                     for key, value in data.items():
@@ -64,6 +68,7 @@ class TestAsyncDynamicbatchTokenizer:
         return mock_encode
 
     @pytest.fixture
+    # async tokenizer
     def async_tokenizer(self, mock_tokenizer):
         """Create AsyncDynamicbatchTokenizer instance."""
         return AsyncDynamicbatchTokenizer(
@@ -71,6 +76,7 @@ class TestAsyncDynamicbatchTokenizer:
         )
 
     @pytest.mark.asyncio
+    # 测试single request
     async def test_single_request(self, async_tokenizer):
         """Test tokenizing a single request."""
         text = "hello world"
@@ -80,6 +86,7 @@ class TestAsyncDynamicbatchTokenizer:
         assert result["input_ids"] == [0, 1]  # 2 words -> 2 tokens
 
     @pytest.mark.asyncio
+    # 测试single request with token type ids
     async def test_single_request_with_token_type_ids(self, async_tokenizer):
         """Test tokenizing with token type IDs."""
         text = "hello world"
@@ -91,6 +98,7 @@ class TestAsyncDynamicbatchTokenizer:
         assert result["token_type_ids"] == [0, 0]
 
     @pytest.mark.asyncio
+    # 测试concurrent requests same kwargs
     async def test_concurrent_requests_same_kwargs(self, async_tokenizer):
         """Test that concurrent requests with same kwargs get batched."""
         texts = ["hello world", "how are you", "fine thanks", "good morning"]
@@ -107,6 +115,7 @@ class TestAsyncDynamicbatchTokenizer:
             assert result["input_ids"] == expected_tokens
 
     @pytest.mark.asyncio
+    # 测试concurrent requests different kwargs
     async def test_concurrent_requests_different_kwargs(self, async_tokenizer):
         """Test that requests with different kwargs are processed individually."""
         text1 = "hello world"
@@ -130,6 +139,7 @@ class TestAsyncDynamicbatchTokenizer:
         assert result2["input_ids"] == [0, 1, 2]
 
     @pytest.mark.asyncio
+    # 测试batch timeout
     async def test_batch_timeout(self, async_tokenizer):
         """Test that batching respects timeout."""
         # Send first request
@@ -149,6 +159,7 @@ class TestAsyncDynamicbatchTokenizer:
         assert results[1]["input_ids"] == [0, 1, 2]
 
     @pytest.mark.asyncio
+    # 测试max batch size limit
     async def test_max_batch_size_limit(self, async_tokenizer):
         """Test that batching respects max_batch_size."""
         # Send more requests than max_batch_size (4)
@@ -164,6 +175,7 @@ class TestAsyncDynamicbatchTokenizer:
             assert result["input_ids"] == [0, 1]  # "text i" -> 2 tokens
 
     @pytest.mark.asyncio
+    # 测试callable interface
     async def test_callable_interface(self, async_tokenizer):
         """Test that the tokenizer is callable."""
         text = "hello world"
@@ -173,6 +185,7 @@ class TestAsyncDynamicbatchTokenizer:
         assert result["input_ids"] == [0, 1]
 
     @pytest.mark.asyncio
+    # 测试lazy initialization
     async def test_lazy_initialization(self, mock_tokenizer):
         """Test that initialization happens lazily."""
         tokenizer = AsyncDynamicbatchTokenizer(mock_tokenizer)
@@ -187,6 +200,7 @@ class TestAsyncDynamicbatchTokenizer:
         assert tokenizer._initialized
 
     @pytest.mark.asyncio
+    # 测试error handling in tokenizer
     async def test_error_handling_in_tokenizer(self, mock_tokenizer):
         """Test error handling when tokenizer fails."""
 
@@ -202,6 +216,7 @@ class TestAsyncDynamicbatchTokenizer:
             await async_tokenizer.encode("hello world")
 
     @pytest.mark.asyncio
+    # 测试batch processing logs
     async def test_batch_processing_logs(self, async_tokenizer, caplog):
         """Test that batch processing logs are generated."""
         caplog.set_level(logging.DEBUG)
@@ -221,6 +236,7 @@ class TestAsyncDynamicbatchTokenizer:
         )
 
     @pytest.mark.asyncio
+    # 测试empty queue immediate processing
     async def test_empty_queue_immediate_processing(self, async_tokenizer):
         """Test that single requests are processed immediately when queue is empty."""
         start_time = time.time()
@@ -232,6 +248,7 @@ class TestAsyncDynamicbatchTokenizer:
         assert result["input_ids"] == [0, 1]
 
     @pytest.mark.asyncio
+    # 测试real tokenizer integration
     async def test_real_tokenizer_integration(self):
         """Test with a real HuggingFace tokenizer."""
         try:
@@ -254,6 +271,7 @@ class TestAsyncDynamicbatchTokenizer:
             pytest.skip(f"Real tokenizer test skipped: {e}")
 
     @pytest.mark.asyncio
+    # 测试concurrent mixed requests
     async def test_concurrent_mixed_requests(self, async_tokenizer):
         """Test mixing single and batched requests."""
         # Start some requests
@@ -275,6 +293,7 @@ class TestAsyncDynamicbatchTokenizer:
             assert "input_ids" in result
             assert isinstance(result["input_ids"], list)
 
+    # 测试cleanup on destruction
     def test_cleanup_on_destruction(self, mock_tokenizer):
         """Test that resources are cleaned up properly."""
         tokenizer = AsyncDynamicbatchTokenizer(mock_tokenizer)

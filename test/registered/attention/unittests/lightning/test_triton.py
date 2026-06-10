@@ -1,3 +1,4 @@
+# 文件名: test_triton.py - Triton内核测试
 import sys
 import unittest
 from pathlib import Path
@@ -124,6 +125,7 @@ class TestTritonLightningBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试projectedlightningattentioncases
     def test_projected_lightning_attention_cases(self):
         for case in self.CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -150,6 +152,7 @@ class TestTritonLightningBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试layoutrobustnesscases
     def test_layout_robustness_cases(self):
         for case in self.LAYOUT_ROBUSTNESS_CASES:
             for layout in ("interleaved_pages", "non_monotonic_extend"):
@@ -158,11 +161,13 @@ class TestTritonLightningBackendCorrectness(CustomTestCase):
                 with self.subTest(case=case.name, layout=layout):
                     run_lightning_attention_case(self, case, loc_layout=layout)
 
+    # 测试runnermodecudagraphdecodecases
     def test_runner_mode_cuda_graph_decode_cases(self):
         for case in self.CUDA_GRAPH_CASES:
             with self.subTest(case=case.name, backend=case.backend):
                 run_lightning_cuda_graph_decode_case(self, case)
 
+    # 测试runnermodeeagleverifycases
     def test_runner_mode_eagle_verify_cases(self):
         for case, topk, spec_kind in self.EAGLE_VERIFY_CASES:
             with self.subTest(
@@ -175,6 +180,7 @@ class TestTritonLightningBackendCorrectness(CustomTestCase):
                     self, case, topk=topk, spec_kind=spec_kind
                 )
 
+    # 测试runnermodeeagleverifycudagraphcases
     def test_runner_mode_eagle_verify_cuda_graph_cases(self):
         for case, topk, spec_kind in self.EAGLE_VERIFY_CUDA_GRAPH_CASES:
             with self.subTest(
@@ -214,6 +220,7 @@ class TestTritonLightningBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试runnermodeeagledraftextendcases
     def test_runner_mode_eagle_draft_extend_cases(self):
         for case, spec_kind in self.EAGLE_DRAFT_EXTEND_CASES:
             with self.subTest(

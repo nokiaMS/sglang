@@ -1,3 +1,4 @@
+# 内存缓存公共工具模块：提供淘汰策略选择、MLA KV缓存Triton内核、哈希计算等工具函数
 # Copyright 2025 SGLang Team
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -33,6 +34,7 @@ from sglang.srt.mem_cache.evict_policy import (
     SLRUStrategy,
 )
 
+# 淘汰策略名称到策略类的映射表
 _EVICTION_POLICY_FACTORIES: dict[str, Callable[[], EvictionStrategy]] = {
     "lru": LRUStrategy,
     "lfu": LFUStrategy,
@@ -44,6 +46,7 @@ _EVICTION_POLICY_FACTORIES: dict[str, Callable[[], EvictionStrategy]] = {
 }
 
 
+# 根据淘汰策略名称获取对应的淘汰策略实例
 def get_eviction_strategy(eviction_policy: str) -> EvictionStrategy:
     policy = eviction_policy.lower()
     try:
@@ -55,6 +58,7 @@ def get_eviction_strategy(eviction_policy: str) -> EvictionStrategy:
         ) from None
 
 
+# Triton内核：将MLA的nope和rope两部分写入KV缓存缓冲区
 @triton.jit
 def set_mla_kv_buffer_kernel(
     kv_buffer_ptr,
@@ -122,13 +126,15 @@ def set_mla_kv_buffer_kernel(
         tl.extra.cuda.gdc_launch_dependents()
 
 
-# Above this loc count the TMA bulk-store path overtakes the single-CTA-per-loc
+# TMA批量存储路径的最低loc数量阈值，超过此值使用JIT CUDA内核，否则使用Triton内核
+_Above this loc count the TMA bulk-store path overtakes the single-CTA-per-loc
 # Triton kernel. Below it, Triton with BLOCK = next_pow2(total_dim) (one CTA
 # does the whole row in one tile, no boundary fan-out) is the winning fallback.
 # Tuned on GB300 with DSv4 row widths.
 _TMA_BULK_STORE_MIN_LOCS = 768
 
 
+# 将MLA分页KV散射写入分派到最快的可用路径（JIT CUDA或Triton内核）
 def set_mla_kv_buffer_triton(
     kv_buffer: torch.Tensor,
     loc: torch.Tensor,
@@ -202,6 +208,7 @@ def set_mla_kv_buffer_triton(
     )
 
 
+# Triton内核：将BF16/FP16 MLA K量化为FP8并写入分页KV缓存
 @triton.jit
 def set_mla_kv_buffer_fp8_quant_kernel(
     kv_buffer_fp8_ptr,
@@ -265,6 +272,7 @@ def set_mla_kv_buffer_fp8_quant_kernel(
         tl.extra.cuda.gdc_launch_dependents()
 
 
+# 将BF16/FP16 MLA K量化与分页KV写入融合执行
 def set_mla_kv_buffer_triton_fp8_quant(
     kv_buffer: torch.Tensor,
     loc: torch.Tensor,
@@ -299,6 +307,7 @@ def set_mla_kv_buffer_triton_fp8_quant(
     )
 
 
+# Triton内核：将MLA的nope和rope缩放因子写入KV缩放缓冲区
 @triton.jit
 def set_mla_kv_scale_buffer_kernel(
     kv_buffer_ptr,
@@ -339,6 +348,7 @@ def set_mla_kv_scale_buffer_kernel(
     tl.store(dst_ptr, src, mask=mask)
 
 
+# 将MLA的KV缩放因子写入缩放缓冲区
 def set_mla_kv_scale_buffer_triton(
     kv_buffer: torch.Tensor,
     loc: torch.Tensor,
@@ -366,6 +376,7 @@ def set_mla_kv_scale_buffer_triton(
     )
 
 
+# Triton内核：从KV缓冲区中读取MLA的nope和rope部分
 @triton.jit
 def get_mla_kv_buffer_kernel(
     kv_buffer_ptr,
@@ -400,6 +411,7 @@ def get_mla_kv_buffer_kernel(
     )
 
 
+# 从KV缓冲区中提取MLA的nope和rope部分到目标张量
 def get_mla_kv_buffer_triton(
     kv_buffer: torch.Tensor,
     loc: torch.Tensor,
@@ -425,6 +437,7 @@ def get_mla_kv_buffer_triton(
     )
 
 
+# 根据环境变量初始化自定义内存池（目前主要用于Mooncake拆分场景）
 def maybe_init_custom_mem_pool(
     device: str,
 ) -> Tuple[bool, Optional[Any], Optional[str]]:
@@ -454,6 +467,7 @@ def maybe_init_custom_mem_pool(
         return False, None, None
 
 
+# 计算token ID序列的SHA256哈希字符串
 def get_hash_str(token_ids: List[int], prior_hash: Optional[str] = None) -> str:
     hasher = hashlib.sha256()
 
@@ -472,6 +486,7 @@ def get_hash_str(token_ids: List[int], prior_hash: Optional[str] = None) -> str:
     return hasher.hexdigest()
 
 
+# 将SHA256十六进制字符串转换为有符号64位整数（用于事件标识）
 def hash_str_to_int64(hash_str: str) -> int:
     """Convert SHA256 hex string to signed 64-bit integer for events.
 
@@ -483,6 +498,7 @@ def hash_str_to_int64(hash_str: str) -> int:
     return uint64_val
 
 
+# 为节点的KV缓存块计算基于位置的SHA256哈希值列表
 def compute_node_hash_values(node: Any, page_size: int) -> List[str]:
     """Compute SHA256-based hash values for position-aware KV block IDs."""
     hash_values = []
@@ -503,6 +519,7 @@ def compute_node_hash_values(node: Any, page_size: int) -> List[str]:
     return hash_values
 
 
+# 在节点分裂时将哈希值列表在父节点和子节点之间分割
 def split_node_hash_value(
     child_hash_value: Optional[List[str]], split_len: int, page_size: int
 ) -> tuple[Optional[List[str]], Optional[List[str]]]:

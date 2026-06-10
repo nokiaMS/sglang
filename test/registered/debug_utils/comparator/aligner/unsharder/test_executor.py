@@ -1,3 +1,4 @@
+# 文件名: test_executor.py - 执行器测试
 import sys
 
 import pytest
@@ -34,6 +35,7 @@ register_cpu_ci(est_time=10, suite="base-a-test-cpu", nightly=True)
 register_cpu_ci(est_time=1, suite="base-b-test-cpu")
 
 
+# 执行nametensors
 def _name_tensors(
     tensors: list[torch.Tensor], dim_specs: list[DimSpec]
 ) -> list[torch.Tensor]:
@@ -42,6 +44,7 @@ def _name_tensors(
 
 
 class TestExecuteUnsharderPlan:
+    # 测试tp4concat
     def test_tp4_concat(self) -> None:
         full_tensor = torch.randn(2, 8, 16)
         shards = list(full_tensor.chunk(4, dim=1))
@@ -63,6 +66,7 @@ class TestExecuteUnsharderPlan:
         )
         assert unsharder_result.replicated_checks == []
 
+    # 测试scrambledworldrankscorrectresult
     def test_scrambled_world_ranks_correct_result(self) -> None:
         full_tensor = torch.randn(4, 8)
         shards = list(full_tensor.chunk(4, dim=0))
@@ -96,6 +100,7 @@ class TestExecuteUnsharderPlan:
         )
         assert unsharder_result.replicated_checks == []
 
+    # 测试singlestepreducestensorcount
     def test_single_step_reduces_tensor_count(self) -> None:
         """8 tensors with 2 groups of 4 produce 2 output tensors."""
         full_a = torch.randn(4, 8)
@@ -134,6 +139,7 @@ class TestExecuteUnsharderPlan:
         )
         assert len(final_result.tensors) == 1
 
+    # 测试cptpconcat
     def test_cp_tp_concat(self) -> None:
         """CP=2 + TP=2: multi-step unshard reconstructs original tensor."""
         torch.manual_seed(42)
@@ -165,6 +171,7 @@ class TestExecuteUnsharderPlan:
         assert len(current) == 1
         assert torch.allclose(without_dim_names(current[0]), full_tensor)
 
+    # 测试cptpscrambled
     def test_cp_tp_scrambled(self) -> None:
         """Scrambled world_ranks for CP=2 + TP=2 still reconstruct correctly."""
         torch.manual_seed(42)
@@ -207,6 +214,7 @@ class TestExecuteUnsharderPlan:
         assert len(current) == 1
         assert torch.allclose(without_dim_names(current[0]), full_tensor)
 
+    # 测试unsupportedparamstyperaises
     def test_unsupported_params_type_raises(self) -> None:
         """_apply_unshard raises ValueError for unknown params type."""
 
@@ -221,6 +229,7 @@ class TestExecuteUnsharderPlan:
                 group_index=0,
             )
 
+    # 测试cptpepthreeaxisconcat
     def test_cp_tp_ep_three_axis_concat(self) -> None:
         """CP=2 + TP=2 + EP=2: three-step unshard reconstructs original tensor."""
         torch.manual_seed(42)
@@ -261,6 +270,7 @@ class TestExecuteUnsharderPlan:
         assert len(current) == 1
         assert torch.allclose(without_dim_names(current[0]), full_tensor)
 
+    # 测试cptpepscrambledthreeaxis
     def test_cp_tp_ep_scrambled_three_axis(self) -> None:
         """Scrambled ranks for CP=2 + TP=2 + EP=2 still reconstruct correctly."""
         torch.manual_seed(42)
@@ -312,6 +322,7 @@ class TestExecuteUnsharderPlan:
 
 
 class TestPickOperation:
+    # 测试picksinglegroup
     def test_pick_single_group(self) -> None:
         """PickParams picks the first tensor from a single group."""
         tensor = torch.randn(4, 8)
@@ -335,6 +346,7 @@ class TestPickOperation:
         assert torch.allclose(without_dim_names(unsharder_result.tensors[0]), tensor)
         assert all(c.passed for c in unsharder_result.replicated_checks)
 
+    # 测试pickmultiplegroups
     def test_pick_multiple_groups(self) -> None:
         """PickParams with multiple groups picks one from each."""
         dim_specs = parse_dims("h[tp] # cp:replicated").dims
@@ -374,6 +386,7 @@ class TestPickOperation:
         assert len(unsharder_result.tensors) == 2
         assert all(c.passed for c in unsharder_result.replicated_checks)
 
+    # 测试replicatedtpshardedcpe2e
     def test_replicated_tp_sharded_cp_e2e(self) -> None:
         """CP2 TP2, dims='b s[cp] d # tp:replicated': replicated TP pick + sharded CP concat round-trip."""
         torch.manual_seed(42)
@@ -407,6 +420,7 @@ class TestPickOperation:
         assert len(current) == 1
         assert torch.allclose(without_dim_names(current[0]), full_tensor)
 
+    # 测试fullyreplicatede2e
     def test_fully_replicated_e2e(self) -> None:
         """CP2 TP2, dims='b h d # cp:replicated tp:replicated': fully replicated -> 2 pick steps -> 1 tensor."""
         torch.manual_seed(42)
@@ -442,6 +456,7 @@ class TestPickOperation:
 
 
 class TestVerifyReplicatedGroup:
+    # 测试failsonmismatch
     def test_fails_on_mismatch(self) -> None:
         """_verify_replicated_group returns failed check when replicas differ."""
         tensor_a = torch.ones(4)
@@ -460,6 +475,7 @@ class TestVerifyReplicatedGroup:
         assert not checks[0].passed
         assert checks[0].diff.max_abs_diff == pytest.approx(0.1, abs=1e-5)
 
+    # 测试passeswhenidentical
     def test_passes_when_identical(self) -> None:
         """_verify_replicated_group returns passed check for identical replicas."""
         tensor = torch.randn(4, 8)
@@ -472,6 +488,7 @@ class TestVerifyReplicatedGroup:
         assert len(checks) == 1
         assert checks[0].passed
 
+    # 测试multiplemismatches
     def test_multiple_mismatches(self) -> None:
         """_verify_replicated_group reports each differing replica."""
         baseline = torch.zeros(4)
@@ -490,6 +507,7 @@ class TestVerifyReplicatedGroup:
         assert not checks[1].passed
         assert checks[1].diff.max_abs_diff == pytest.approx(2.0, abs=1e-5)
 
+    # 测试executereturnsreplicatedchecks
     def test_execute_returns_replicated_checks(self) -> None:
         """execute_unsharder_plan returns replicated checks for mismatch."""
         dim_specs = parse_dims("h d # tp:replicated").dims
@@ -513,6 +531,7 @@ class TestVerifyReplicatedGroup:
         assert not unsharder_result.replicated_checks[0].passed
         assert torch.allclose(without_dim_names(unsharder_result.tensors[0]), tensor_a)
 
+    # 测试atolboundarywithin
     def test_atol_boundary_within(self) -> None:
         """Difference exactly at atol (1e-6) -> passed."""
         baseline = torch.zeros(4)
@@ -526,6 +545,7 @@ class TestVerifyReplicatedGroup:
         assert len(checks) == 1
         assert checks[0].passed
 
+    # 测试atolboundaryexceeded
     def test_atol_boundary_exceeded(self) -> None:
         """Difference just above atol (1e-6 + 1e-9) -> failed."""
         baseline = torch.zeros(4)
@@ -540,6 +560,7 @@ class TestVerifyReplicatedGroup:
         assert not checks[0].passed
         assert checks[0].compared_index == 1
 
+    # 测试recomputepseudomismatch
     def test_recompute_pseudo_mismatch(self) -> None:
         """_verify_replicated_group returns failed check for RECOMPUTE_PSEUDO axis mismatch."""
         tensor_a = torch.ones(4)
@@ -560,6 +581,7 @@ class TestVerifyReplicatedGroup:
 
 
 class TestThdCpConcat:
+    # 测试singleseq
     def test_single_seq(self) -> None:
         """Single seq THD unshard: 2 ranks → per-seq concat."""
         rank0 = apply_dim_names(torch.tensor([1, 2, 3]), ["t"])
@@ -576,6 +598,7 @@ class TestThdCpConcat:
         expected = torch.tensor([1, 2, 3, 4, 5, 6])
         assert torch.equal(without_dim_names(unsharder_result.tensors[0]), expected)
 
+    # 测试multiseq
     def test_multi_seq(self) -> None:
         """Multi-seq THD unshard: 2 ranks, seq_lens=[50, 32, 46]."""
         # rank0: [seqA_r0(50) | seqB_r0(32) | pad_r0(46)]
@@ -607,6 +630,7 @@ class TestThdCpConcat:
         # pad: r0(46) + r1(46) = 92 tokens
         assert torch.equal(unsharded[164:256], torch.cat([pad_r0, pad_r1]))
 
+    # 测试withhiddendim
     def test_with_hidden_dim(self) -> None:
         """THD unshard with trailing hidden dim: shape [T, H]."""
         torch.manual_seed(42)
@@ -635,6 +659,7 @@ class TestThdCpConcat:
         assert torch.equal(unsharded[:6], torch.cat([seq_a_r0, seq_a_r1]))
         assert torch.equal(unsharded[6:10], torch.cat([seq_b_r0, seq_b_r1]))
 
+    # 测试withleadingbatchdim
     def test_with_leading_batch_dim(self) -> None:
         """THD unshard with leading batch dim: shape [B, T, H], t is dim=1."""
         torch.manual_seed(42)
@@ -670,6 +695,7 @@ class TestThdCpConcat:
 
 
 class TestReduceSum:
+    # 测试basictp2reduce
     def test_basic_tp2_reduce(self) -> None:
         """2 partial tensors sum to full tensor."""
         torch.manual_seed(42)
@@ -695,6 +721,7 @@ class TestReduceSum:
             without_dim_names(unsharder_result.tensors[0]), full_tensor
         )
 
+    # 测试tp4reduce
     def test_tp4_reduce(self) -> None:
         """4 partial tensors sum to full tensor."""
         torch.manual_seed(42)
@@ -718,6 +745,7 @@ class TestReduceSum:
             without_dim_names(unsharder_result.tensors[0]), full_tensor
         )
 
+    # 测试multiaxisconcatthenreduce
     def test_multi_axis_concat_then_reduce(self) -> None:
         """CP concat + TP reduce end-to-end."""
         torch.manual_seed(42)
@@ -749,6 +777,7 @@ class TestReduceSum:
         assert len(current) == 1
         assert torch.allclose(without_dim_names(current[0]), full_tensor)
 
+    # 测试reducescrambledranks
     def test_reduce_scrambled_ranks(self) -> None:
         """Scrambled rank order — sum is commutative so result is the same."""
         torch.manual_seed(42)
@@ -779,6 +808,7 @@ class TestReduceSum:
             without_dim_names(unsharder_result.tensors[0]), full_tensor
         )
 
+    # 测试reducepreservesnameddims
     def test_reduce_preserves_named_dims(self) -> None:
         """Named tensor dimensions are preserved through reduce_sum."""
         dim_specs = parse_dims("h[tp:partial] d").dims
@@ -803,6 +833,7 @@ class TestReduceSum:
             without_dim_names(unsharder_result.tensors[0]), without_dim_names(expected)
         )
 
+    # 测试recomputepseudomismatch
     def test_recompute_pseudo_mismatch(self) -> None:
         """_verify_replicated_group returns failed check for RECOMPUTE_PSEUDO axis mismatch."""
         tensor_a = torch.ones(4)
@@ -823,6 +854,7 @@ class TestReduceSum:
 
 
 class TestThdCpConcat:
+    # 测试singleseq
     def test_single_seq(self) -> None:
         """Single seq THD unshard: 2 ranks → per-seq concat."""
         rank0 = apply_dim_names(torch.tensor([1, 2, 3]), ["t"])
@@ -839,6 +871,7 @@ class TestThdCpConcat:
         expected = torch.tensor([1, 2, 3, 4, 5, 6])
         assert torch.equal(without_dim_names(unsharder_result.tensors[0]), expected)
 
+    # 测试multiseq
     def test_multi_seq(self) -> None:
         """Multi-seq THD unshard: 2 ranks, seq_lens=[50, 32, 46]."""
         # rank0: [seqA_r0(50) | seqB_r0(32) | pad_r0(46)]
@@ -870,6 +903,7 @@ class TestThdCpConcat:
         # pad: r0(46) + r1(46) = 92 tokens
         assert torch.equal(unsharded[164:256], torch.cat([pad_r0, pad_r1]))
 
+    # 测试withhiddendim
     def test_with_hidden_dim(self) -> None:
         """THD unshard with trailing hidden dim: shape [T, H]."""
         torch.manual_seed(42)
@@ -898,6 +932,7 @@ class TestThdCpConcat:
         assert torch.equal(unsharded[:6], torch.cat([seq_a_r0, seq_a_r1]))
         assert torch.equal(unsharded[6:10], torch.cat([seq_b_r0, seq_b_r1]))
 
+    # 测试withleadingbatchdim
     def test_with_leading_batch_dim(self) -> None:
         """THD unshard with leading batch dim: shape [B, T, H], t is dim=1."""
         torch.manual_seed(42)
@@ -933,6 +968,7 @@ class TestThdCpConcat:
 
 
 class TestReduceSum:
+    # 测试basictp2reduce
     def test_basic_tp2_reduce(self) -> None:
         """2 partial tensors sum to full tensor."""
         torch.manual_seed(42)
@@ -958,6 +994,7 @@ class TestReduceSum:
             without_dim_names(unsharder_result.tensors[0]), full_tensor
         )
 
+    # 测试tp4reduce
     def test_tp4_reduce(self) -> None:
         """4 partial tensors sum to full tensor."""
         torch.manual_seed(42)
@@ -981,6 +1018,7 @@ class TestReduceSum:
             without_dim_names(unsharder_result.tensors[0]), full_tensor
         )
 
+    # 测试multiaxisconcatthenreduce
     def test_multi_axis_concat_then_reduce(self) -> None:
         """CP concat + TP reduce end-to-end."""
         torch.manual_seed(42)
@@ -1012,6 +1050,7 @@ class TestReduceSum:
         assert len(current) == 1
         assert torch.allclose(without_dim_names(current[0]), full_tensor)
 
+    # 测试reducescrambledranks
     def test_reduce_scrambled_ranks(self) -> None:
         """Scrambled rank order — sum is commutative so result is the same."""
         torch.manual_seed(42)
@@ -1042,6 +1081,7 @@ class TestReduceSum:
             without_dim_names(unsharder_result.tensors[0]), full_tensor
         )
 
+    # 测试reducepreservesnameddims
     def test_reduce_preserves_named_dims(self) -> None:
         """Named tensor dimensions are preserved through reduce_sum."""
         dim_specs = parse_dims("h[tp:partial] d").dims
@@ -1068,6 +1108,7 @@ class TestReduceSum:
 
 
 class TestFusedDimExecutor:
+    # 测试fusedtp2concat
     def test_fused_tp2_concat(self) -> None:
         """Fused dim "t (num_heads*head_dim)[tp]": TP=2 concat on fused axis."""
         torch.manual_seed(42)

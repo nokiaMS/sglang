@@ -1,3 +1,4 @@
+# 文件名: test_torch_native_attention_backend.py - PyTorch原生注意力后端测试
 """
 Usage:
 python3 -m unittest test_torch_native_attention_backend.TestTorchNativeAttnBackend.test_mmlu
@@ -23,6 +24,7 @@ register_amd_ci(est_time=150, suite="stage-b-test-1-gpu-small-amd")
 
 
 class TestTorchNativeAttnBackend(CustomTestCase):
+    # 测试mmlu
     def test_mmlu(self):
         model = DEFAULT_MODEL_NAME_FOR_TEST
         base_url = DEFAULT_URL_FOR_TEST

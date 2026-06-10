@@ -1,3 +1,4 @@
+# 文件名: test_meta_overrider.py - 元数据覆盖器测试
 """Tests for meta_overrider — unit tests."""
 
 from __future__ import annotations
@@ -26,34 +27,40 @@ register_cpu_ci(est_time=1, suite="base-b-test-cpu")
 class TestMetaOverrideRule:
     """Pydantic validation for MetaOverrideRule."""
 
+    # 测试shareddimsboth
     def test_shared_dims_both(self) -> None:
         """Default side='both' applies dims to both sides."""
         rule = MetaOverrideRule(match="hidden", dims="b s h d")
         assert rule.dims == "b s h d"
         assert rule.side == "both"
 
+    # 测试sidebaseline
     def test_side_baseline(self) -> None:
         """side='baseline' is accepted."""
         rule = MetaOverrideRule(match="logits", dims="b s v[tp]", side="baseline")
         assert rule.dims == "b s v[tp]"
         assert rule.side == "baseline"
 
+    # 测试sidetarget
     def test_side_target(self) -> None:
         """side='target' is accepted."""
         rule = MetaOverrideRule(match="logits", dims="b s v[ep]", side="target")
         assert rule.dims == "b s v[ep]"
         assert rule.side == "target"
 
+    # 测试invalidsiderejected
     def test_invalid_side_rejected(self) -> None:
         """Invalid side value is rejected."""
         with pytest.raises(Exception):
             MetaOverrideRule(match="x", dims="b s", side="invalid")
 
+    # 测试dimsrequired
     def test_dims_required(self) -> None:
         """Must specify dims."""
         with pytest.raises(Exception):
             MetaOverrideRule(match="x")
 
+    # 测试extrafieldrejected
     def test_extra_field_rejected(self) -> None:
         """Extra fields are rejected by _StrictBase."""
         with pytest.raises(Exception):
@@ -66,34 +73,40 @@ class TestMetaOverrideRule:
 class TestParseCLIOverrideArg:
     """CLI arg parsing for 'name:dims_string' format."""
 
+    # 测试基本功能
     def test_basic(self) -> None:
         """Standard 'name:dims' parsing."""
         name, dims_str = _parse_cli_override_arg("hidden_states:b s h d")
         assert name == "hidden_states"
         assert dims_str == "b s h d"
 
+    # 测试colonindims
     def test_colon_in_dims(self) -> None:
         """Extra colons in dims are kept (maxsplit=1)."""
         name, dims_str = _parse_cli_override_arg("x:a:b")
         assert name == "x"
         assert dims_str == "a:b"
 
+    # 测试whitespacetrimmed
     def test_whitespace_trimmed(self) -> None:
         """Leading/trailing whitespace around name and dims is stripped."""
         name, dims_str = _parse_cli_override_arg("  foo  :  b s  ")
         assert name == "foo"
         assert dims_str == "b s"
 
+    # 测试missingcolon
     def test_missing_colon(self) -> None:
         """No colon raises ValueError."""
         with pytest.raises(ValueError, match="Invalid override format"):
             _parse_cli_override_arg("no_colon_here")
 
+    # 测试emptyname
     def test_empty_name(self) -> None:
         """Empty name raises ValueError."""
         with pytest.raises(ValueError, match="Invalid override format"):
             _parse_cli_override_arg(":b s h")
 
+    # 测试emptydims
     def test_empty_dims(self) -> None:
         """Empty dims raises ValueError."""
         with pytest.raises(ValueError, match="Invalid override format"):
@@ -106,6 +119,7 @@ class TestParseCLIOverrideArg:
 class TestMetaOverrider:
     """MetaOverrider logic: matching, priority, apply_to_meta."""
 
+    # 测试firstmatchwins
     def test_first_match_wins(self) -> None:
         """First matching rule takes effect; later rules ignored."""
         overrider = MetaOverrider(
@@ -121,6 +135,7 @@ class TestMetaOverrider:
         )
         assert result["dims"] == "FIRST"
 
+    # 测试regexcontainsmatch
     def test_regex_contains_match(self) -> None:
         """match is a regex contains search, not exact match."""
         overrider = MetaOverrider(
@@ -133,6 +148,7 @@ class TestMetaOverrider:
         )
         assert result["dims"] == "h d"
 
+    # 测试nomatchpreservesoriginal
     def test_no_match_preserves_original(self) -> None:
         """No matching rule leaves meta untouched."""
         overrider = MetaOverrider(
@@ -156,6 +172,7 @@ class TestMetaOverrider:
             ("both", "target", True),
         ],
     )
+    # 测试sidefiltering
     def test_side_filtering(
         self, rule_side: str, apply_side: str, should_match: bool
     ) -> None:
@@ -170,11 +187,13 @@ class TestMetaOverrider:
         )
         assert result["dims"] == ("NEW" if should_match else "old")
 
+    # 测试isempty
     def test_is_empty(self) -> None:
         """Empty overrider reports is_empty=True."""
         assert MetaOverrider(rules=[]).is_empty
         assert not MetaOverrider(rules=[MetaOverrideRule(match="x", dims="d")]).is_empty
 
+    # 测试metawithoutdimskey
     def test_meta_without_dims_key(self) -> None:
         """Override adds 'dims' even if original meta lacks it."""
         overrider = MetaOverrider(rules=[MetaOverrideRule(match="hidden", dims="NEW")])
@@ -192,6 +211,7 @@ class TestMetaOverrider:
 class TestFromArgsAndConfig:
     """MetaOverrider.from_args_and_config merges CLI + YAML rules."""
 
+    # 测试clibeforeyaml
     def test_cli_before_yaml(self, tmp_path: Path) -> None:
         """CLI rules are ordered before YAML rules (CLI wins on conflict)."""
         yaml_path = tmp_path / "override.yaml"
@@ -215,6 +235,7 @@ class TestFromArgsAndConfig:
         )
         assert result["dims"] == "FROM_CLI"
 
+    # 测试noconfignocli
     def test_no_config_no_cli(self) -> None:
         """Empty CLI + no YAML yields empty overrider."""
         overrider = MetaOverrider.from_args_and_config(
@@ -225,6 +246,7 @@ class TestFromArgsAndConfig:
         )
         assert overrider.is_empty
 
+    # 测试persidecliproducesseparaterules
     def test_per_side_cli_produces_separate_rules(self) -> None:
         """--override-baseline-dims and --override-target-dims produce separate rules with side field."""
         overrider = MetaOverrider.from_args_and_config(
@@ -254,6 +276,7 @@ class TestFromArgsAndConfig:
 class TestLoadYamlRules:
     """YAML loading and validation."""
 
+    # 测试validyaml
     def test_valid_yaml(self, tmp_path: Path) -> None:
         """Valid YAML with override rules loads correctly."""
         yaml_path = tmp_path / "override.yaml"
@@ -272,6 +295,7 @@ class TestLoadYamlRules:
         assert rules[1].dims == "b s v[tp]"
         assert rules[1].side == "baseline"
 
+    # 测试emptyyaml
     def test_empty_yaml(self, tmp_path: Path) -> None:
         """Empty YAML file returns no rules."""
         yaml_path = tmp_path / "empty.yaml"
@@ -279,6 +303,7 @@ class TestLoadYamlRules:
         rules = _load_yaml_rules(yaml_path)
         assert rules == []
 
+    # 测试unknowntopkeyrejected
     def test_unknown_top_key_rejected(self, tmp_path: Path) -> None:
         """Unknown top-level key is rejected by OverrideConfig."""
         yaml_path = tmp_path / "bad.yaml"
@@ -286,6 +311,7 @@ class TestLoadYamlRules:
         with pytest.raises(Exception):
             _load_yaml_rules(yaml_path)
 
+    # 测试overridesemptylist
     def test_overrides_empty_list(self, tmp_path: Path) -> None:
         """Only 'overrides' key with no entries returns empty list."""
         yaml_path = tmp_path / "minimal.yaml"

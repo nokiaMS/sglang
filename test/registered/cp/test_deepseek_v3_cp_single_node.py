@@ -1,3 +1,4 @@
+# 文件名: test_deepseek_v3_cp_single_node.py - DeepSeek V3单节点上下文并行测试
 import unittest
 from types import SimpleNamespace
 
@@ -28,6 +29,7 @@ class TestDeepseekV3CPInSeqSplit(CustomTestCase):
     """tp=8, dp=2, attn-cp=4 — DP attention + DeepEP MoE + MLA CP."""
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = DEEPSEEK_V3_MODEL_PATH
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -57,12 +59,14 @@ class TestDeepseekV3CPInSeqSplit(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         if hasattr(cls, "process") and cls.process:
             kill_process_tree(cls.process.pid)
 
     # "test_a_" prefix pins alphabetical first-run ordering so this
     # warms up the server before any follow-up sibling test methods.
+    # 测试agsm8k
     def test_a_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,

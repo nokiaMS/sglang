@@ -1,3 +1,4 @@
+# 文件名: test_extend.py - 扩展操作测试
 import unittest
 
 import torch
@@ -12,6 +13,7 @@ torch.manual_seed(1234)
 
 
 class TestExtendAttention(CustomTestCase):
+    # 执行scaleddotproductattention
     def _scaled_dot_product_attention(self, Q, K, V, S, scaling, sliding_window):
         # sliding_window <= 0 means no sliding window
         # Q: [n_tokens_q, n_heads, q_mult, d_head]
@@ -44,6 +46,7 @@ class TestExtendAttention(CustomTestCase):
         attn = torch.einsum("hmqk,khmd->qhmd", W, V)
         return attn.reshape(n_tokens_q, -1)
 
+    # 执行runsdpaforwardextend
     def _run_sdpa_forward_extend(
         self,
         query: torch.Tensor,
@@ -117,6 +120,7 @@ class TestExtendAttention(CustomTestCase):
             start_q, start_kv = end_q, end_kv
         return output
 
+    # 执行runsdpaforwardextendsink
     def _run_sdpa_forward_extend_sink(
         self,
         query: torch.Tensor,
@@ -181,6 +185,7 @@ class TestExtendAttention(CustomTestCase):
             start_q, start_kv = end_q, end_kv
         return output
 
+    # 执行testextendattentiononce
     def _test_extend_attention_once(
         self,
         B,
@@ -219,7 +224,7 @@ class TestExtendAttention(CustomTestCase):
             b_seq_len_extend = torch.as_tensor(b_seq_len_extend, dtype=torch.int32)
         b_seq_len = b_seq_len_prefix + b_seq_len_extend
         max_len_in_batch = (
-            torch.max(b_seq_len, 0)[0].item() + torch.max(encoder_lens, 0)[0].item()
+            torch.max(b_seq_len, 0)[0].item() + torch.max(encoder_lens, 0)[0].item()  # 获取标量值
         )
 
         b_req_idx = torch.arange(B, dtype=torch.int32)
@@ -234,8 +239,8 @@ class TestExtendAttention(CustomTestCase):
                 b_start_loc[i], b_start_loc[i] + b_seq_len[i] + encoder_lens[i]
             )
 
-        total_token_num = torch.sum(b_seq_len).item() + torch.sum(encoder_lens).item()
-        extend_token_num = torch.sum(b_seq_len_extend).item()
+        total_token_num = torch.sum(b_seq_len).item() + torch.sum(encoder_lens).item()  # 获取标量值
+        extend_token_num = torch.sum(b_seq_len_extend).item()  # 获取标量值
 
         H_BUF = 1 if mla else H_KV
         k_buffer = torch.randn((total_token_num, H_BUF, D), dtype=dtype)
@@ -273,7 +278,7 @@ class TestExtendAttention(CustomTestCase):
         b_seq_len_extend = b_seq_len - b_seq_len_prefix
         b_start_loc_extend = torch.zeros_like(b_seq_len)
         b_start_loc_extend[1:] = torch.cumsum(b_seq_len_extend[:-1], 0)
-        max_len_extend = torch.max(b_seq_len_extend, 0)[0].item()
+        max_len_extend = torch.max(b_seq_len_extend, 0)[0].item()  # 获取标量值
 
         sm_scale = 1.0 / (D**0.5)
         logit_cap = 0.0
@@ -343,6 +348,7 @@ class TestExtendAttention(CustomTestCase):
 
         torch.testing.assert_close(o_ref, o_extend, atol=1e-2, rtol=1e-2)
 
+    # 测试extendattention
     def test_extend_attention(self):
         for is_mla in [True, False]:
             for is_cross_attn in [True, False]:
@@ -374,6 +380,7 @@ class TestExtendAttention(CustomTestCase):
                     1, 20, 1, 1, 64, 64, sliding_window, has_sink, False, False
                 )
 
+    # 测试extendattentionlargeseqcausalmask
     def test_extend_attention_large_seq_causal_mask(self):
         self._test_extend_attention_once(
             B=1,
@@ -386,6 +393,7 @@ class TestExtendAttention(CustomTestCase):
             b_seq_len_extend=[5000],
         )
 
+    # 测试extendattentiongqapartialextendwithprefix
     def test_extend_attention_gqa_partial_extend_with_prefix(self):
         self._test_extend_attention_once(
             B=1,

@@ -1,3 +1,4 @@
+# 文件名: test_mamba2.py - Mamba2状态空间模型测试
 import sys
 import unittest
 from pathlib import Path
@@ -156,6 +157,7 @@ class TestTritonMamba2BackendCorrectness(CustomTestCase):
         for spec_kind in ("eagle", "frozen_kv_mtp")
     )
 
+    # 测试projectedmamba2attentioncases
     def test_projected_mamba2_attention_cases(self):
         for case in self.CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -164,6 +166,7 @@ class TestTritonMamba2BackendCorrectness(CustomTestCase):
     # Layout-robustness. See dense/test_triton.py for the rationale.
     # Reuse the case generator's first two cases to avoid duplicating
     # all the Mamba2-specific config fields.
+    # 测试layoutrobustnesscases
     def test_layout_robustness_cases(self):
         cases = [
             self.CASES[0],  # extend exact-page (zero-prefix, multi-token)
@@ -174,11 +177,13 @@ class TestTritonMamba2BackendCorrectness(CustomTestCase):
                 with self.subTest(case=case.name, layout=layout):
                     run_mamba2_attention_case(self, case, loc_layout=layout)
 
+    # 测试runnermodecudagraphdecodecases
     def test_runner_mode_cuda_graph_decode_cases(self):
         for case in self.CUDA_GRAPH_CASES:
             with self.subTest(case=case.name, backend=case.backend):
                 run_mamba2_cuda_graph_decode_case(self, case)
 
+    # 测试runnermodeeagleverifycases
     def test_runner_mode_eagle_verify_cases(self):
         for case, topk, spec_kind in self.EAGLE_VERIFY_CASES:
             with self.subTest(
@@ -189,11 +194,13 @@ class TestTritonMamba2BackendCorrectness(CustomTestCase):
             ):
                 run_mamba2_eagle_verify_case(self, case, topk=topk, spec_kind=spec_kind)
 
+    # 测试runnermodeeagleverifycudagraphcases
     def test_runner_mode_eagle_verify_cuda_graph_cases(self):
         for case, topk in self.EAGLE_VERIFY_CUDA_GRAPH_CASES:
             with self.subTest(case=case.name, backend=case.backend, topk=topk):
                 run_mamba2_eagle_verify_cuda_graph_case(self, case, topk=topk)
 
+    # 测试runnermodeeagledraftextendcases
     def test_runner_mode_eagle_draft_extend_cases(self):
         for case, spec_kind in self.EAGLE_DRAFT_EXTEND_CASES:
             with self.subTest(
@@ -215,6 +222,7 @@ class TestTritonMamba2BackendCorrectness(CustomTestCase):
     # runner variant that passes unpadded `hidden_states` while still
     # padding the `forward_batch.input_ids` / `out_cache_loc`.
 
+    # 测试mamba2replaymetadatapaddingindices
     def test_mamba2_replay_metadata_padding_indices(self):
         # Drive `init_forward_metadata_replay_cuda_graph` directly with
         # `seq_lens_cpu=[5, 1, 1]` (two trailing rows at the cuda-graph
@@ -249,14 +257,14 @@ class TestTritonMamba2BackendCorrectness(CustomTestCase):
             bs=bs,
             req_pool_indices=req_pool_indices,
             seq_lens=seq_lens,
-            seq_lens_sum=int(seq_lens_cpu.sum().item()),
+            seq_lens_sum=int(seq_lens_cpu.sum().item()),  # 获取标量值
             encoder_lens=None,
             forward_mode=ForwardMode.DECODE,
             spec_info=None,
             seq_lens_cpu=seq_lens_cpu,
         )
 
-        state_indices = backend.state_indices_list[bs - 1].cpu().tolist()
+        state_indices = backend.state_indices_list[bs - 1].cpu().tolist()  # 转移到CPU
         self.assertEqual(
             state_indices,
             [7, -1, -1],
@@ -274,6 +282,7 @@ class TestTritonMamba2BackendCorrectness(CustomTestCase):
     # dispatch-layer slice mutation (e.g. `attn_backend_list[1:]` vs
     # `[:1]`) would silently break Mamba2 dispatch without these spies.
 
+    # 执行makedispatchspybackend
     def _make_dispatch_spy_backend(self):
         full_attn_backend = MagicMock(name="full_attn_backend")
         # `HybridLinearAttnBackend.__init__` aliases these buffer refs.
@@ -292,6 +301,7 @@ class TestTritonMamba2BackendCorrectness(CustomTestCase):
         return backend, full_attn_backend, linear_attn_backend
 
     @staticmethod
+    # 执行assertfanoutforwarded
     def _assert_fanout_forwarded(method_mock, *sentinels):
         """Assert `method_mock` was called exactly once and that each
         sentinel object identity appears in the call's positional or
@@ -307,6 +317,7 @@ class TestTritonMamba2BackendCorrectness(CustomTestCase):
                     f"{method_mock._mock_name or method_mock}; call_args={call}"
                 )
 
+    # 测试hybriddispatcheagerinitforwardmetadatafanout
     def test_hybrid_dispatch_eager_init_forward_metadata_fan_out(self):
         backend, full_attn_backend, linear_attn_backend = (
             self._make_dispatch_spy_backend()
@@ -326,6 +337,7 @@ class TestTritonMamba2BackendCorrectness(CustomTestCase):
             linear_attn_backend.init_forward_metadata, sentinel_forward_batch
         )
 
+    # 测试hybriddispatchreplayinitforwardmetadatafanout
     def test_hybrid_dispatch_replay_init_forward_metadata_fan_out(self):
         backend, full_attn_backend, linear_attn_backend = (
             self._make_dispatch_spy_backend()
@@ -357,6 +369,7 @@ class TestTritonMamba2BackendCorrectness(CustomTestCase):
                 ForwardMode.DECODE,
             )
 
+    # 测试hybriddispatchcaptureinitforwardmetadatafanout
     def test_hybrid_dispatch_capture_init_forward_metadata_fan_out(self):
         backend, full_attn_backend, linear_attn_backend = (
             self._make_dispatch_spy_backend()

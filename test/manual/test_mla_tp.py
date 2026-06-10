@@ -1,3 +1,4 @@
+# 文件名: test_mla_tp.py - MLA张量并行测试 - 验证MLA模型在TP模式下的推理功能
 import unittest
 from types import SimpleNamespace
 
@@ -15,6 +16,7 @@ from sglang.test.test_utils import (
 
 class TestDeepseekTP2(CustomTestCase):
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         cls.model = "lmsys/sglang-ci-dsv3-test"
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -31,9 +33,11 @@ class TestDeepseekTP2(CustomTestCase):
         )
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -47,6 +51,7 @@ class TestDeepseekTP2(CustomTestCase):
         metrics = run_eval(args)
         self.assertGreater(metrics["score"], 0.62)
 
+    # 测试gsm8k bs1
     def test_gsm8k_bs1(self):
         # test torch compile accuracy for bs=1
         args = SimpleNamespace(

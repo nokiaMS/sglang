@@ -1,3 +1,4 @@
+# 文件名: test_spec_utils.py - 推测解码工具函数测试 - 验证draft cache位置分配和KV缓存复制的正确性
 import unittest
 
 import numpy as np
@@ -12,6 +13,7 @@ BYTES_PER_TILE = 128
 
 class TestSpecUtils(unittest.TestCase):
 
+    # setUp
     def setUp(self):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.data_ptrs = torch.zeros(2, 1, dtype=torch.uint64, device=self.device)
@@ -43,6 +45,7 @@ class TestSpecUtils(unittest.TestCase):
             dtype=torch.int64,
         )
 
+    # 测试assign draft cache locs single seq
     def test_assign_draft_cache_locs_single_seq(self):
         # Testing Setup: req_to_token starting from 4
         # 4,5,6,7,{8,9,10}, 8,9,10 is the last partial page, 3 tokens < page_size=4
@@ -123,6 +126,7 @@ class TestSpecUtils(unittest.TestCase):
             ),
         )
 
+    # 测试assign draft cache locs multi seq
     def test_assign_draft_cache_locs_multi_seq(self):
         device = self.device
         num_seqs = 3
@@ -233,6 +237,7 @@ class TestSpecUtils(unittest.TestCase):
             ),
         )
 
+    # 测试assign draft cache locs page size 1
     def test_assign_draft_cache_locs_page_size_1(self):
         # Test to make sure page_size=1 not affected
         device = self.device
@@ -278,6 +283,7 @@ class TestSpecUtils(unittest.TestCase):
         expected_out_cache_loc = torch.arange(11, 11 + extend_lens_num, device=device)
         assert torch.allclose(out_cache_loc, expected_out_cache_loc)
 
+    # 测试assign draft cache locs page size gt spec steps
     def test_assign_draft_cache_locs_page_size_gt_spec_steps(self):
         device = self.device
         num_seqs = 1

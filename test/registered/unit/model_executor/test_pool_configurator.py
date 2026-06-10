@@ -1,3 +1,4 @@
+# 文件名: test_pool_configurator.py - 池配置器
 """Unit tests for pool_configurator.py -- CPU only, no GPU required.
 
 Tests the end-to-end computation: available_bytes -> MemoryPoolConfig,
@@ -16,6 +17,8 @@ register_cpu_ci(est_time=10, suite="base-a-test-cpu")
 
 
 @contextlib.contextmanager
+
+# mock_cpu_env
 def mock_cpu_env(kv_size=2, tp_size=1):
     """Mock GPU-dependent functions for CPU-only testing."""
     with (
@@ -28,6 +31,7 @@ def mock_cpu_env(kv_size=2, tp_size=1):
         yield
 
 
+# 内部方法_make_model_runner
 def _make_model_runner(
     *,
     num_kv_heads=4,
@@ -93,16 +97,19 @@ def _make_model_runner(
 KV_SIZE = 2  # bf16
 
 
+# 内部方法_full_per_token
 def _full_per_token(mr):
     mc = mr.model_config
     return mc.get_num_kv_heads(1) * (mc.head_dim + mc.v_head_dim) * KV_SIZE
 
 
+# 内部方法_swa_per_token
 def _swa_per_token(mr):
     mc = mr.model_config
     return mc.get_swa_num_kv_heads(1) * (mc.swa_head_dim + mc.swa_v_head_dim) * KV_SIZE
 
 
+# 内部方法_actual_memory_used
 def _actual_memory_used(mr, config):
     """Compute actual memory consumed by the pool sizes in config."""
     mc = mr.model_config
@@ -119,6 +126,7 @@ def _actual_memory_used(mr, config):
         return config.max_total_num_tokens * full_pt * (nf + ns)
 
 
+# TestDefaultConfigurator类
 class TestDefaultConfigurator(unittest.TestCase):
     """Default (MHA): available_bytes -> tokens, memory invariant holds."""
 
@@ -133,38 +141,44 @@ class TestDefaultConfigurator(unittest.TestCase):
             config = cfg.calculate_pool_sizes(available_bytes, page_size)
         return mr, cfg, config
 
+    # TestDefaultConfigurator类的测试memoryutilization
     def test_memory_utilization(self):
         """Memory used should be <= available and within 1% of available."""
         available = 10_000_000
         mr, cfg, config = self._run(available)
         used = _actual_memory_used(mr, config)
         self.assertLessEqual(used, available)
-        self.assertGreater(used, available * 0.99)
+        self.assertGreater(used, available * 0.99)  # 断言大于
 
+    # TestDefaultConfigurator类的测试pagealignment
     def test_page_alignment(self):
         available = 10_000_000
         _, _, config = self._run(available, page_size=128)
-        self.assertEqual(config.max_total_num_tokens % 128, 0)
+        self.assertEqual(config.max_total_num_tokens % 128, 0)  # 断言相等
 
+    # TestDefaultConfigurator类的测试constraintrespected
     def test_constraint_respected(self):
         """calculate_pool_sizes_from_max_tokens respects the limit."""
         mr, cfg, config = self._run(10_000_000)
         with mock_cpu_env():
             constrained = cfg.calculate_pool_sizes_from_max_tokens(100, page_size=1)
-        self.assertEqual(constrained.max_total_num_tokens, 100)
+        self.assertEqual(constrained.max_total_num_tokens, 100)  # 断言相等
 
+    # TestDefaultConfigurator类的测试constraintpagealigned
     def test_constraint_page_aligned(self):
         mr, cfg, _ = self._run(10_000_000, page_size=128)
         with mock_cpu_env():
             constrained = cfg.calculate_pool_sizes_from_max_tokens(1000, page_size=128)
-        self.assertEqual(constrained.max_total_num_tokens, 896)  # 1000 // 128 * 128
+        self.assertEqual(constrained.max_total_num_tokens, 896)  # 1000 // 128 * 128  # 断言相等
 
+    # TestDefaultConfigurator类的测试noswafields
     def test_no_swa_fields(self):
         _, _, config = self._run(10_000_000)
-        self.assertIsNone(config.full_max_total_num_tokens)
-        self.assertIsNone(config.swa_max_total_num_tokens)
+        self.assertIsNone(config.full_max_total_num_tokens)  # 断言为None
+        self.assertIsNone(config.swa_max_total_num_tokens)  # 断言为None
 
 
+# TestHybridSWAConfigurator类
 class TestHybridSWAConfigurator(unittest.TestCase):
     """Hybrid SWA: full/swa split, ratio, memory invariant."""
 
@@ -178,6 +192,7 @@ class TestHybridSWAConfigurator(unittest.TestCase):
             swa_full_tokens_ratio=ratio,
         )
 
+    # TestHybridSWAConfigurator类的内部方法_run
     def _run(self, available_bytes, **kwargs):
         mr = self._make_swa_runner(**kwargs)
         with mock_cpu_env():
@@ -189,14 +204,16 @@ class TestHybridSWAConfigurator(unittest.TestCase):
             config = cfg.calculate_pool_sizes(available_bytes, mr.server_args.page_size)
         return mr, cfg, config
 
+    # TestHybridSWAConfigurator类的测试memoryutilization
     def test_memory_utilization(self):
         """Memory used should be <= available and within 1% of available."""
         available = 10_000_000
         mr, _, config = self._run(available)
         used = _actual_memory_used(mr, config)
         self.assertLessEqual(used, available)
-        self.assertGreater(used, available * 0.99)
+        self.assertGreater(used, available * 0.99)  # 断言大于
 
+    # TestHybridSWAConfigurator类的测试ratiorespected
     def test_ratio_respected(self):
         """swa_tokens ~= full_tokens * ratio (within page alignment)"""
         available = 10_000_000
@@ -204,31 +221,35 @@ class TestHybridSWAConfigurator(unittest.TestCase):
             mr, _, config = self._run(available, ratio=ratio, page_size=1)
             full = config.full_max_total_num_tokens
             swa = config.swa_max_total_num_tokens
-            self.assertEqual(swa, int(full * ratio), f"ratio={ratio}")
+            self.assertEqual(swa, int(full * ratio), f"ratio={ratio}")  # 断言相等
 
+    # TestHybridSWAConfigurator类的测试ratiowithpagealignment
     def test_ratio_with_page_alignment(self):
         """With page alignment, swa_tokens = align(full_tokens * ratio)"""
         available = 10_000_000
         mr, _, config = self._run(available, ratio=0.5, page_size=128)
         full = config.full_max_total_num_tokens
         swa = config.swa_max_total_num_tokens
-        self.assertEqual(full % 128, 0)
-        self.assertEqual(swa % 128, 0)
-        self.assertEqual(swa, (int(full * 0.5) // 128) * 128)
+        self.assertEqual(full % 128, 0)  # 断言相等
+        self.assertEqual(swa % 128, 0)  # 断言相等
+        self.assertEqual(swa, (int(full * 0.5) // 128) * 128)  # 断言相等
 
+    # TestHybridSWAConfigurator类的测试maxtotalequalsfull
     def test_max_total_equals_full(self):
         """For hybrid, max_total_num_tokens = full_max_total_num_tokens"""
         _, _, config = self._run(10_000_000)
-        self.assertEqual(config.max_total_num_tokens, config.full_max_total_num_tokens)
+        self.assertEqual(config.max_total_num_tokens, config.full_max_total_num_tokens)  # 断言相等
 
+    # TestHybridSWAConfigurator类的测试constraintrespected
     def test_constraint_respected(self):
         """full_tokens = constrained value after re-run"""
         mr, cfg, _ = self._run(10_000_000, page_size=1)
         with mock_cpu_env():
             config = cfg.calculate_pool_sizes_from_max_tokens(200, page_size=1)
-        self.assertEqual(config.full_max_total_num_tokens, 200)
-        self.assertEqual(config.swa_max_total_num_tokens, 100)
+        self.assertEqual(config.full_max_total_num_tokens, 200)  # 断言相等
+        self.assertEqual(config.swa_max_total_num_tokens, 100)  # 断言相等
 
+    # TestHybridSWAConfigurator类的测试constraintmemorywithinbudget
     def test_constraint_memory_within_budget(self):
         """After constraint, memory <= original budget (but less than profiled due to constraint)."""
         available = 10_000_000
@@ -242,20 +263,22 @@ class TestHybridSWAConfigurator(unittest.TestCase):
         self.assertLessEqual(used, available)
         # constrained should use roughly half the memory
         original_used = _actual_memory_used(mr, original)
-        self.assertAlmostEqual(used / original_used, 0.5, delta=0.01)
+        self.assertAlmostEqual(used / original_used, 0.5, delta=0.01)  # 断言近似相等
 
+    # TestHybridSWAConfigurator类的测试differentlayercounts
     def test_different_layer_counts(self):
         """Asymmetric full/swa layer counts"""
         available = 10_000_000
         mr, _, config = self._run(available, full_layers=24, swa_layers=8, ratio=0.5)
         used = _actual_memory_used(mr, config)
         self.assertLessEqual(used, available)
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             config.swa_max_total_num_tokens,
             int(config.full_max_total_num_tokens * 0.5),
         )
 
 
+# TestAllSWAConfigurator类
 class TestAllSWAConfigurator(unittest.TestCase):
     """All-SWA (full_layers=0): special case."""
 
@@ -277,14 +300,17 @@ class TestAllSWAConfigurator(unittest.TestCase):
             config = cfg.calculate_pool_sizes(available_bytes, page_size)
         return mr, cfg, config
 
+    # TestAllSWAConfigurator类的测试fullmaxiszero
     def test_full_max_is_zero(self):
         _, _, config = self._run(10_000_000)
-        self.assertEqual(config.full_max_total_num_tokens, 0)
+        self.assertEqual(config.full_max_total_num_tokens, 0)  # 断言相等
 
+    # TestAllSWAConfigurator类的测试maxtotalequalsswa
     def test_max_total_equals_swa(self):
         _, _, config = self._run(10_000_000)
-        self.assertEqual(config.max_total_num_tokens, config.swa_max_total_num_tokens)
+        self.assertEqual(config.max_total_num_tokens, config.swa_max_total_num_tokens)  # 断言相等
 
+    # TestAllSWAConfigurator类的测试memoryutilization
     def test_memory_utilization(self):
         """Memory used should be <= available and within 1% of available."""
         available = 10_000_000
@@ -293,17 +319,21 @@ class TestAllSWAConfigurator(unittest.TestCase):
         ns = len(mr.model_config.swa_attention_layer_ids)
         used = config.swa_max_total_num_tokens * swa_pt * ns
         self.assertLessEqual(used, available)
-        self.assertGreater(used, available * 0.99)
+        self.assertGreater(used, available * 0.99)  # 断言大于
 
+    # TestAllSWAConfigurator类的测试constraintrespected
     def test_constraint_respected(self):
         mr, cfg, _ = self._run(10_000_000, page_size=1)
         with mock_cpu_env():
             config = cfg.calculate_pool_sizes_from_max_tokens(500, page_size=1)
-        self.assertEqual(config.max_total_num_tokens, 500)
-        self.assertEqual(config.swa_max_total_num_tokens, 500)
+        self.assertEqual(config.max_total_num_tokens, 500)  # 断言相等
+        self.assertEqual(config.swa_max_total_num_tokens, 500)  # 断言相等
 
 
+# TestFactory类
 class TestFactory(unittest.TestCase):
+
+    # TestFactory类的测试defaultfornonswa
     def test_default_for_non_swa(self):
         mr = _make_model_runner(is_hybrid_swa=False)
         with mock_cpu_env():
@@ -315,6 +345,7 @@ class TestFactory(unittest.TestCase):
             cfg = create_memory_pool_configurator(mr)
         self.assertIsInstance(cfg, DefaultPoolConfigurator)
 
+    # TestFactory类的测试swaforhybrid
     def test_swa_for_hybrid(self):
         mr = _make_model_runner(
             is_hybrid_swa=True,

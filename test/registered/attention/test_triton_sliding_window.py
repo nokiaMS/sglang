@@ -1,3 +1,4 @@
+# 文件名: test_triton_sliding_window.py - Triton滑动窗口注意力测试
 import unittest
 from types import SimpleNamespace
 
@@ -24,6 +25,7 @@ class TestSlidingWindowAttentionTriton(CustomTestCase):
     """Test sliding window attention functionality with triton backend."""
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         """Set up the test server with Gemma3 model and triton backend."""
         # Gemma3 model supports sliding window attention
@@ -48,6 +50,7 @@ class TestSlidingWindowAttentionTriton(CustomTestCase):
         """ * 100
         cls.long_context_prompt += "\nNow, summarize the story in one sentence:"
 
+    # 执行testmmlu
     def _test_mmlu(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -65,6 +68,7 @@ class TestSlidingWindowAttentionTriton(CustomTestCase):
         else:
             self.assertGreaterEqual(metrics["score"], 0.60)
 
+    # 执行testshortcontextgeneration
     def _test_short_context_generation(self):
         response = requests.post(
             self.base_url + "/generate",
@@ -82,6 +86,7 @@ class TestSlidingWindowAttentionTriton(CustomTestCase):
         self.assertIn("paris", result["text"].lower())
         print(f"Short context generation result: {result['text']}")
 
+    # 执行testlongcontextgeneration
     def _test_long_context_generation(self):
         response = requests.post(
             self.base_url + "/generate",
@@ -100,6 +105,7 @@ class TestSlidingWindowAttentionTriton(CustomTestCase):
         print(f"Long context generation result: {result['text'][:100]}...")
 
     @unittest.skipIf(is_in_ci(), "To reduce the CI execution time.")
+    # 测试nocudagraph
     def test_no_cuda_graph(self):
         self.no_cuda_graph_process = popen_launch_server(
             self.model,
@@ -115,6 +121,7 @@ class TestSlidingWindowAttentionTriton(CustomTestCase):
         finally:
             kill_process_tree(self.no_cuda_graph_process.pid)
 
+    # 测试cudagraph
     def test_cuda_graph(self):
         self.cuda_graph_process = popen_launch_server(
             self.model,

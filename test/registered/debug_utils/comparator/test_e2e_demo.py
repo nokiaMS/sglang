@@ -1,3 +1,4 @@
+# 文件名: test_e2e_demo.py - 端到端演示测试
 """Minimal demo: run the comparator on synthetic data and print its output.
 
 This is NOT a correctness test suite.
@@ -32,6 +33,7 @@ _EXP_NAME = "demo_exp"
 
 
 # This file has exactly ONE test. All demo scenarios go here — do not add separate tests.
+# 测试demo
 def test_demo(tmp_path: Path) -> None:
     """Passed + failed + skipped + sharded + errored in a single demo file."""
     torch.manual_seed(0)
@@ -112,6 +114,7 @@ def test_demo(tmp_path: Path) -> None:
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
+# 执行assertsummary
 def _assert_summary(
     report_path: Path, *, passed: int, failed: int, skipped: int, errored: int = 0
 ) -> None:
@@ -123,10 +126,12 @@ def _assert_summary(
     assert summary.errored == errored
 
 
+# 执行dumpsingle
 def _dump_single(directory: Path, *, name: str, tensor: torch.Tensor) -> None:
     _dump_rank(directory, rank=0, name=name, tensor=tensor)
 
 
+# 执行dumptpsharded
 def _dump_tp_sharded(
     directory: Path,
     *,
@@ -147,6 +152,7 @@ def _dump_tp_sharded(
         )
 
 
+# 执行dumpcpzigzagspsharded
 def _dump_cp_zigzag_sp_sharded(
     directory: Path,
     *,
@@ -188,6 +194,7 @@ def _dump_cp_zigzag_sp_sharded(
             rank += 1
 
 
+# 执行dumprank
 def _dump_rank(
     directory: Path,
     *,
@@ -207,9 +214,10 @@ def _dump_rank(
             static_meta["sglang_parallel_info"] = parallel_info
         dumper.__dict__["_static_meta"] = static_meta
         dumper.dump(name, tensor, dims=dims)
-        dumper.step()
+        dumper.step()  # 执行优化步骤
 
 
+# 执行run
 def _run(
     baseline_path: Path,
     target_path: Path,
@@ -239,6 +247,7 @@ def _run(
     return run(parse_args(argv))
 
 
+# 执行readreport
 def _read_report(report_path: Path) -> List[AnyRecord]:
     return [
         parse_record_json(line) for line in report_path.read_text().strip().splitlines()

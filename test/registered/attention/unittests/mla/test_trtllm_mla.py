@@ -1,3 +1,4 @@
+# 文件名: test_trtllm_mla.py - TensorRT-LLM MLA注意力测试
 import sys
 import unittest
 from pathlib import Path
@@ -29,6 +30,7 @@ MLA_SHAPE_KWARGS = dict(
 )
 
 
+# 执行supported
 def _supported() -> tuple[bool, str]:
     if not torch.cuda.is_available():
         return False, "CUDA is required"
@@ -156,6 +158,7 @@ class TestTRTLLMMLAAttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试projectedmlaattentioncases
     def test_projected_mla_attention_cases(self):
         for case in self.CASES:
             with self.subTest(case=case.name, backend=case.backend):

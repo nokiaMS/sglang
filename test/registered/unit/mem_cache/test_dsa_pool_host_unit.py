@@ -1,3 +1,4 @@
+# 文件名: test_dsa_pool_host_unit.py - DSA池主机单元
 import unittest
 
 import torch
@@ -15,7 +16,10 @@ from sglang.test.ci.ci_register import register_cuda_ci
 register_cuda_ci(est_time=9, stage="base-b", runner_config="1-gpu-small")
 
 
+# TestDSAHiCacheTransfer类
 class TestDSAHiCacheTransfer(unittest.TestCase):
+
+    # TestDSAHiCacheTransfer类的测试初始化设置
     def setUp(self):
         if not torch.cuda.is_available():
             self.skipTest("CUDA is required for DSA host transfer tests.")
@@ -25,6 +29,8 @@ class TestDSAHiCacheTransfer(unittest.TestCase):
             self.skipTest("CUDA/ROCm not available.")
 
     @staticmethod
+
+    # TestDSAHiCacheTransfer类的内部方法_token_indices_for_pages
     def _token_indices_for_pages(pages: torch.Tensor, page_size: int, device: str):
         parts = [
             torch.arange(
@@ -37,6 +43,7 @@ class TestDSAHiCacheTransfer(unittest.TestCase):
         ]
         return torch.cat(parts, dim=0)
 
+    # TestDSAHiCacheTransfer类的内部方法_run_device_to_host_indexer_copy
     def _run_device_to_host_indexer_copy(self, io_backend: str):
         page_size = 1 if is_hip() else 64
         layer_num = 2
@@ -123,7 +130,7 @@ class TestDSAHiCacheTransfer(unittest.TestCase):
                 expected = device_pool.index_k_with_scale_buffer[layer_id][
                     device_page
                 ].cpu()
-                self.assertTrue(torch.equal(got, expected))
+                self.assertTrue(torch.equal(got, expected))  # 断言为真
                 host_start = host_page * page_size
                 device_start = device_page * page_size
                 got_kv = mla_host.kv_buffer[layer_id][
@@ -132,11 +139,13 @@ class TestDSAHiCacheTransfer(unittest.TestCase):
                 expected_kv = device_pool.kv_buffer[layer_id][
                     device_start : device_start + page_size
                 ].cpu()
-                self.assertTrue(torch.equal(got_kv, expected_kv))
+                self.assertTrue(torch.equal(got_kv, expected_kv))  # 断言为真
 
+    # TestDSAHiCacheTransfer类的测试devicetohostindexerkernel
     def test_device_to_host_indexer_kernel(self):
         self._run_device_to_host_indexer_copy(io_backend="kernel")
 
+    # TestDSAHiCacheTransfer类的测试devicetohostindexerdirect
     def test_device_to_host_indexer_direct(self):
         self._run_device_to_host_indexer_copy(io_backend="direct")
 

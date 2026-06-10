@@ -1,3 +1,8 @@
+# Phi-4多模态工具模块实现文件
+# 本文件实现了Phi-4多模态模型所需的各种工具组件
+# 包含激活函数、自适应编码器掩码、GLU、卷积模块、前馈网络、
+# 位置编码、多头注意力、子采样等Conformer相关组件
+
 # Copyright 2024 SGLang Team
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,15 +26,15 @@ from torch import Tensor, nn
 
 
 class BlockBase(nn.Module):
-    """Block abstract module"""
+    """Block abstract module"""  # 块抽象模块
 
     def __init__(self, input_size, output_size):
         super().__init__()
-        self.input_size = input_size
-        self.output_size = output_size
+        self.input_size = input_size  # 输入大小
+        self.output_size = output_size  # 输出大小
 
 
-def get_activation(name="relu"):
+def get_activation(name="relu"):  # 根据名称选择激活函数
     """Select an activation function by name
 
     Args:
@@ -50,7 +55,7 @@ def get_activation(name="relu"):
     return nn.Identity()
 
 
-def adaptive_enc_mask(x_len, chunk_start_idx, left_window=0, right_window=0):
+def adaptive_enc_mask(x_len, chunk_start_idx, left_window=0, right_window=0):  # 自适应编码器掩码函数，生成流式注意力掩码
     """
     The function is very important for Transformer Transducer Streaming mode
     Args:
@@ -100,8 +105,8 @@ def adaptive_enc_mask(x_len, chunk_start_idx, left_window=0, right_window=0):
 
 
 class Swish(nn.Module):
-    """Implement Swish activation module.
-    From https://arxiv.org/pdf/2005.03191.pdf
+    """Implement Swish activation module.  # 实现Swish激活模块
+    From https://arxiv.org/pdf/2005.03191.pdf  # 来自Swish论文
 
     """
 
@@ -120,7 +125,7 @@ class Swish(nn.Module):
 
 
 class GLU(nn.Module):
-    """Implement Gated Linear Unit (GLU) module"""
+    """Implement Gated Linear Unit (GLU) module"""  # 实现门控线性单元模块
 
     def __init__(self, dim: int = -1, act_name: str = "sigmoid") -> None:
         super().__init__()
@@ -154,8 +159,8 @@ class GLU(nn.Module):
 
 # TODO: Abdel, this can be improved using GLU module
 class GLUPointWiseConv(nn.Module):
-    """GLUPointWiseConv module
-    used for conformer architecture,
+    """GLUPointWiseConv module  # GLU逐点卷积模块
+    used for conformer architecture,  # 用于Conformer架构
     for more details see:
     https://arxiv.org/pdf/2005.08100v1.pdf
 
@@ -260,8 +265,8 @@ class GLUPointWiseConv(nn.Module):
 
 
 class DepthWiseSeperableConv1d(nn.Module):
-    """DepthWiseSeperableConv1d module used in Convnet module
-    for the conformer, for more details see:
+    """DepthWiseSeperableConv1d module used in Convnet module  # 深度可分离1D卷积模块，用于卷积网络模块
+    for the conformer, for more details see:  # 用于Conformer，更多细节见
     https://arxiv.org/pdf/2005.08100v1.pdf
 
     Args:
@@ -328,7 +333,7 @@ class DepthWiseSeperableConv1d(nn.Module):
 
 
 class ConvModule(nn.Module):
-    """ConvModule Module for the conformer block.
+    """ConvModule Module for the conformer block.  # Conformer块的卷积模块
     for more details see:
     https://arxiv.org/pdf/2005.08100v1.pdf
 
@@ -563,7 +568,7 @@ class ConvModule(nn.Module):
 
 
 class GLULinear(nn.Module):
-    """Linear + GLU module
+    """Linear + GLU module  # 线性层+GLU模块
 
     Args:
         input_dim: int
@@ -600,7 +605,7 @@ class GLULinear(nn.Module):
 
 
 class FeedForward(nn.Module):
-    """FeedForward Module.
+    """FeedForward Module.  # 前馈网络模块
     For more details see Conformer paper:
         https://arxiv.org/pdf/2005.08100.pdf
 
@@ -675,9 +680,9 @@ def _pre_hook(
         state_dict.pop(k)
 
 
-class T5RelativeAttentionLogitBias(nn.Module):
+class T5RelativeAttentionLogitBias(nn.Module):  # T5相对注意力偏置模块
     """
-    This module implements the relative position bias described in Section
+    This module implements the relative position bias described in Section  # 本模块实现T5论文第2.1节描述的相对位置偏置
     2.1 of the T5 paper: https://arxiv.org/pdf/1910.10683.pdf
 
     The Huggingface implementation is used as a reference
@@ -810,7 +815,7 @@ class T5RelativeAttentionLogitBias(nn.Module):
 
 
 class AbsolutePositionalEncoding(nn.Module):
-    """Absolute Positional encoding module.
+    """Absolute Positional encoding module.  # 绝对位置编码模块
     This module implement Absolute sinusoidal positional encoding
     from: https://arxiv.org/pdf/1706.03762.pdf
 
@@ -873,7 +878,7 @@ class AbsolutePositionalEncoding(nn.Module):
 
 #### forward embedding layers starts here
 class MeanVarianceNormLayer(nn.Module):
-    """Mean/variance normalization layer.
+    """Mean/variance normalization layer.  # 均值/方差归一化层
 
     Will subtract mean and multiply input by inverted standard deviation.
     Typically used as a very first layer in a model.
@@ -899,10 +904,10 @@ class MeanVarianceNormLayer(nn.Module):
         return (input_ - self.global_mean) * self.global_invstd
 
 
-class CausalConv1D(nn.Conv1d):
+class CausalConv1D(nn.Conv1d):  # 因果1D卷积，不会看到未来帧
     """
-    A causal version of nn.Conv1d where each step would have limited access to
-    locations on its right or left
+    A causal version of nn.Conv1d where each step would have limited access to  # nn.Conv1d的因果版本，每个步骤只能有限访问
+    locations on its right or left  # 右侧或左侧的位置
     All arguments are the same as nn.Conv1d except padding.
 
     If padding is set None, then paddings are set automatically to make it a
@@ -989,10 +994,10 @@ class CausalConv1D(nn.Conv1d):
             return x, cache
 
 
-class CausalConv2D(nn.Conv2d):
+class CausalConv2D(nn.Conv2d):  # 因果2D卷积，不会看到右方和下方的位置
     """
-    A causal version of nn.Conv2d where each location in the 2D matrix would
-    have no access to locations on its right or down
+    A causal version of nn.Conv2d where each location in the 2D matrix would  # nn.Conv2d的因果版本，2D矩阵中每个位置
+    have no access to locations on its right or down  # 不能访问右方或下方的位置
     All arguments are the same as nn.Conv2d except padding which should be
     set as None
     """
@@ -1043,8 +1048,8 @@ class CausalConv2D(nn.Conv2d):
         return x
 
 
-class NemoConvSubsampling(torch.nn.Module):
-    """Convlutional subsampling module, taken from NeMo ASR
+class NemoConvSubsampling(torch.nn.Module):  # NeMo卷积子采样模块，用于降低音频序列长度
+    """Convlutional subsampling module, taken from NeMo ASR  # 卷积子采样模块，来自NeMo ASR
     (https://github.com/NVIDIA/NeMo/blob/b367413645d5c72db3c2c96e46e95a
     34501479cf/nemo/collections/asr/parts/submodules/subsampling.py)
 
@@ -1596,7 +1601,7 @@ def calc_length(lengths, all_paddings, kernel_size, stride, ceil_mode, repeat_nu
 
 ####  multihead attention starts here
 class AttModule(nn.Module):
-    """Attention abstraction module"""
+    """Attention abstraction module"""  # 注意力抽象模块
 
     def __init__(self):
         super().__init__()
@@ -1629,7 +1634,7 @@ class AttModule(nn.Module):
 
 
 class AttBlock(BlockBase, AttModule):
-    """Attention Block module to support both Attention and Block module."""
+    """Attention Block module to support both Attention and Block module."""  # 注意力块模块，同时支持注意力和块模块
 
     def memory_dims(self, max_len=False):
         """memory dimensions"""
@@ -1651,8 +1656,8 @@ def masked_softmax(
     return attn
 
 
-class MultiHeadedAttention(nn.Module):
-    """Multi-Head Attention layer with optional relative position embedding
+class MultiHeadedAttention(nn.Module):  # 多头注意力模块
+    """Multi-Head Attention layer with optional relative position embedding  # 带可选相对位置嵌入的多头注意力层
     and GLU.
 
     Args:
@@ -1862,7 +1867,7 @@ class MultiHeadedAttention(nn.Module):
 
 
 class MultiSequential(torch.nn.Sequential):
-    """Multi-input multi-output torch.nn.Sequential"""
+    """Multi-input multi-output torch.nn.Sequential"""  # 多输入多输出序列模块
 
     @torch.jit.ignore
     def forward(self, *args):
@@ -1872,8 +1877,8 @@ class MultiSequential(torch.nn.Sequential):
         return args
 
 
-def get_offset(input_layer: str, time_reduction: int):
-    """Get an offset. We will use the offset for determining #frames of a
+def get_offset(input_layer: str, time_reduction: int):  # 获取子采样偏移量函数
+    """Get an offset. We will use the offset for determining #frames of a  # 获取偏移量，用于确定子采样特征的帧数
     subsampled feature.
 
     Args:
@@ -1891,7 +1896,7 @@ def get_offset(input_layer: str, time_reduction: int):
     return 0
 
 
-def unfold_tensor(xs_pad, max_seq_len):
+def unfold_tensor(xs_pad, max_seq_len):  # 展开张量函数，将长序列分割为固定长度的块
     """
     For a given tensor with shape of (N, T, D), if sequence length T is
     longer than max_seq_len, this function unfold it to a

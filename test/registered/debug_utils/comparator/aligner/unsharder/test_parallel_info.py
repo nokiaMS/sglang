@@ -1,3 +1,4 @@
+# 文件名: test_parallel_info.py - 并行信息测试
 import sys
 
 import pytest
@@ -14,6 +15,7 @@ register_cpu_ci(est_time=1, suite="base-b-test-cpu")
 
 
 class TestNormalizeParallelInfo:
+    # 测试sglanginfo
     def test_sglang_info(self) -> None:
         meta = {
             "sglang_parallel_info": {
@@ -26,6 +28,7 @@ class TestNormalizeParallelInfo:
         result = normalize_parallel_info(meta)
         assert result == {ParallelAxis.TP: AxisInfo(axis_rank=2, axis_size=4)}
 
+    # 测试megatroninfo
     def test_megatron_info(self) -> None:
         meta = {
             "megatron_parallel_info": {
@@ -43,10 +46,12 @@ class TestNormalizeParallelInfo:
             ParallelAxis.CP: AxisInfo(axis_rank=0, axis_size=4),
         }
 
+    # 测试noparallelinfo
     def test_no_parallel_info(self) -> None:
         assert normalize_parallel_info({}) == {}
         assert normalize_parallel_info({"other_key": 42}) == {}
 
+    # 测试bothpresentraises
     def test_both_present_raises(self) -> None:
         meta = {
             "sglang_parallel_info": {"tp_rank": 0, "tp_size": 2},
@@ -55,6 +60,7 @@ class TestNormalizeParallelInfo:
         with pytest.raises(ValueError, match="multiple parallel_info"):
             normalize_parallel_info(meta)
 
+    # 测试megatronwithsp
     def test_megatron_with_sp(self) -> None:
         """Megatron SP reuses TP group: sp_rank==tp_rank, sp_size==tp_size."""
         meta = {
@@ -71,6 +77,7 @@ class TestNormalizeParallelInfo:
             ParallelAxis.SP: AxisInfo(axis_rank=1, axis_size=4),
         }
 
+    # 测试size1filtered
     def test_size_1_filtered(self) -> None:
         meta = {
             "sglang_parallel_info": {
@@ -82,6 +89,7 @@ class TestNormalizeParallelInfo:
         }
         assert normalize_parallel_info(meta) == {}
 
+    # 测试recomputepseudofromtoplevelmeta
     def test_recompute_pseudo_from_top_level_meta(self) -> None:
         """recompute_pseudo_rank/size at top-level meta is extracted alongside TP."""
         meta = {

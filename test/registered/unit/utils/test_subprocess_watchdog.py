@@ -1,3 +1,4 @@
+# 文件名: test_subprocess_watchdog.py - 子进程看门狗
 # Copyright 2023-2024 SGLang Team
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,24 +29,31 @@ register_cpu_ci(est_time=9, suite="base-a-test-cpu")
 register_cpu_ci(est_time=9, suite="base-b-test-cpu")
 
 
+# healthy_worker
 def healthy_worker():
     time.sleep(10)
 
 
+# crashing_worker
 def crashing_worker():
     os._exit(1)
 
 
+# slow_crash_worker
 def slow_crash_worker(delay: float = 0.5):
     time.sleep(delay)
     os._exit(42)
 
 
+# noop_worker
 def noop_worker():
     pass
 
 
+# TestSubprocessWatchdog类
 class TestSubprocessWatchdog(CustomTestCase):
+
+    # TestSubprocessWatchdog类的测试初始化设置
     def setUp(self):
         self.sigquit_triggered = threading.Event()
         self._procs = []
@@ -53,6 +61,7 @@ class TestSubprocessWatchdog(CustomTestCase):
 
         original_kill = os.kill
 
+        # mock_kill
         def mock_kill(pid, sig):
             if sig == signal.SIGQUIT:
                 self.sigquit_triggered.set()
@@ -62,6 +71,7 @@ class TestSubprocessWatchdog(CustomTestCase):
         self._patcher = unittest.mock.patch("os.kill", side_effect=mock_kill)
         self._patcher.start()
 
+    # TestSubprocessWatchdog类的测试清理
     def tearDown(self):
         if self._monitor is not None:
             self._monitor.stop()
@@ -71,12 +81,14 @@ class TestSubprocessWatchdog(CustomTestCase):
                 p.terminate()
                 p.join(timeout=1)
 
+    # TestSubprocessWatchdog类的内部方法_spawn
     def _spawn(self, target, args=()):
         proc = mp.Process(target=target, args=args)
         proc.start()
         self._procs.append(proc)
         return proc
 
+    # TestSubprocessWatchdog类的内部方法_watch
     def _watch(self, procs, names=None, interval=0.1):
         if not isinstance(procs, list):
             procs = [procs]
@@ -88,48 +100,54 @@ class TestSubprocessWatchdog(CustomTestCase):
         self._monitor.start()
         return self._monitor
 
+    # TestSubprocessWatchdog类的测试healthyprocessesnosigquit
     def test_healthy_processes_no_sigquit(self):
         proc = self._spawn(healthy_worker)
         self._watch(proc)
         time.sleep(0.5)
-        self.assertFalse(self.sigquit_triggered.is_set())
+        self.assertFalse(self.sigquit_triggered.is_set())  # 断言为假
 
+    # TestSubprocessWatchdog类的测试crashedprocesstriggerssigquit
     def test_crashed_process_triggers_sigquit(self):
         proc = self._spawn(slow_crash_worker, args=(0.2,))
         self._watch(proc)
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             self.sigquit_triggered.wait(timeout=5.0),
             "SIGQUIT was not triggered within timeout",
         )
 
+    # TestSubprocessWatchdog类的测试immediatecrashdetection
     def test_immediate_crash_detection(self):
         proc = self._spawn(crashing_worker)
         self._watch(proc, interval=0.05)
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             self.sigquit_triggered.wait(timeout=5.0),
             "Immediate crash was not detected",
         )
 
+    # TestSubprocessWatchdog类的测试multipleprocessesonecrashes
     def test_multiple_processes_one_crashes(self):
         healthy = self._spawn(healthy_worker)
         crashing = self._spawn(slow_crash_worker, args=(0.2,))
         self._watch([healthy, crashing], names=["healthy", "crashing"])
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             self.sigquit_triggered.wait(timeout=5.0),
             "Crash was not detected when one of multiple processes crashed",
         )
 
+    # TestSubprocessWatchdog类的测试emptyprocesseslist
     def test_empty_processes_list(self):
         self._watch([], interval=0.1)
         time.sleep(0.3)
-        self.assertFalse(self.sigquit_triggered.is_set())
+        self.assertFalse(self.sigquit_triggered.is_set())  # 断言为假
 
+    # TestSubprocessWatchdog类的测试normalexitnosigquit
     def test_normal_exit_no_sigquit(self):
         proc = self._spawn(noop_worker)
         proc.join(timeout=2)
         self._watch(proc)
         time.sleep(0.3)
-        self.assertFalse(
+        self.assertFalse(  # 断言为假
             self.sigquit_triggered.is_set(),
             "SIGQUIT should not be triggered for normal exit (exitcode=0)",
         )

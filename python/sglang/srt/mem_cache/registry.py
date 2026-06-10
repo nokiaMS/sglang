@@ -1,3 +1,4 @@
+# 基数树缓存工厂注册表：提供可插拔的RadixCache工厂机制，支持自定义缓存后端的注册与选择
 """Registry for pluggable RadixCache factories.
 
 If `--radix-cache-backend` is unset (by default), the built-in selection
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# 基数树缓存构建上下文，封装构建缓存所需的所有参数
 @dataclass
 class TreeCacheBuildContext:
     """Radix Cache construction arguments."""

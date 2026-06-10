@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# 文件名: test_cross_node_scheduler_info_sync.py - 跨节点调度器信息同步测试 - 验证分布式调度器的信息同步功能
 """
 Test cross-node scheduler_infos synchronization for remote weight loading.
 
@@ -88,6 +89,7 @@ TEST_CASE_MODELS = {
 }
 
 
+# get local ip
 def get_local_ip() -> str:
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -99,6 +101,7 @@ def get_local_ip() -> str:
         s.close()
 
 
+# launch node
 def launch_node(
     test_case: TestCase, node_rank: int, model_path: str, dist_init_addr: str
 ):
@@ -134,6 +137,7 @@ def launch_node(
     subprocess.run(cmd)
 
 
+# 测试api
 def test_api(test_case: TestCase) -> bool:
     base_url = "http://127.0.0.1:30000"
     print(f"Testing {test_case.name}: expecting {test_case.expected_ranks} ranks")
@@ -169,6 +173,7 @@ def test_api(test_case: TestCase) -> bool:
     return all_passed
 
 
+# main
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(

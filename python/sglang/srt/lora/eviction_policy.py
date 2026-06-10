@@ -1,3 +1,6 @@
+# 本文件实现了LoRA适配器内存管理中的驱逐策略，包括LRU（最近最少使用）和FIFO（先进先出）策略。
+# 当内存池中LoRA适配器数量达到上限时，需要根据驱逐策略选择淘汰的适配器以腾出空间。
+
 # Copyright 2023-2024 SGLang Team
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,6 +28,7 @@ from typing import Optional, Set
 logger = logging.getLogger(__name__)
 
 
+# LoRA适配器驱逐策略的抽象基类，定义了标记使用、选择淘汰目标和移除的接口
 class EvictionPolicy(ABC):
     """Abstract base class for LoRA adapter eviction policies."""
 
@@ -44,6 +48,7 @@ class EvictionPolicy(ABC):
         pass
 
 
+# LRU驱逐策略：淘汰最近最少使用的适配器
 class LRUEvictionPolicy(EvictionPolicy):
     """LRU eviction policy - evicts the least recently used adapter."""
 
@@ -52,6 +57,7 @@ class LRUEvictionPolicy(EvictionPolicy):
         self.total_accesses = 0
         self.eviction_count = 0
 
+    # 标记适配器为已使用，将其移到访问顺序末尾（最近使用）
     def mark_used(self, uid: Optional[str]) -> None:
         if uid is not None:
             current_time = time.monotonic()
@@ -61,6 +67,7 @@ class LRUEvictionPolicy(EvictionPolicy):
             self.total_accesses += 1
             logger.debug(f"LoRA {uid} marked as used at {current_time}")
 
+    # 从候选适配器中选择最近最少使用的适配器进行淘汰
     def select_victim(self, candidates: Set[Optional[str]]) -> Optional[str]:
         """Select the least recently used adapter from candidates."""
         # Iterate through access_order (oldest first) to find LRU victim
@@ -81,12 +88,14 @@ class LRUEvictionPolicy(EvictionPolicy):
         # Should never reach here if candidates is non-empty
         assert False, f"Failed to select LRU victim from candidates: {candidates}"
 
+    # 从LRU追踪中移除指定适配器
     def remove(self, uid: Optional[str]) -> None:
         if uid is not None:
             self.access_order.pop(uid, None)
             logger.debug(f"Removed LoRA {uid} from LRU tracking")
 
 
+# FIFO驱逐策略：淘汰最早插入的适配器，用于向后兼容
 class FIFOEvictionPolicy(EvictionPolicy):
     """FIFO eviction policy - for backward compatibility."""
 
@@ -96,6 +105,7 @@ class FIFOEvictionPolicy(EvictionPolicy):
         )  # key=uid, OrderedDict maintains insertion order
         self.eviction_count = 0
 
+    # 对于FIFO策略，仅追踪插入顺序而非访问时间
     def mark_used(self, uid: Optional[str]) -> None:
         """For FIFO, we only track insertion order (not access time)."""
         if uid is not None and uid not in self.insertion_order:
@@ -103,6 +113,7 @@ class FIFOEvictionPolicy(EvictionPolicy):
                 True  # Value unused, OrderedDict tracks insertion order
             )
 
+    # 从候选适配器中选择最早插入的适配器进行淘汰
     def select_victim(self, candidates: Set[Optional[str]]) -> Optional[str]:
         """Select the first inserted adapter from candidates."""
         # Iterate through insertion_order (oldest first) to find FIFO victim
@@ -123,11 +134,13 @@ class FIFOEvictionPolicy(EvictionPolicy):
         # Should never reach here if candidates is non-empty
         assert False, f"Failed to select FIFO victim from candidates: {candidates}"
 
+    # 从FIFO追踪中移除指定适配器
     def remove(self, uid: Optional[str]) -> None:
         if uid is not None:
             self.insertion_order.pop(uid, None)
 
 
+# 驱逐策略工厂函数，根据策略名称创建对应的驱逐策略实例
 def get_eviction_policy(policy_name: str) -> EvictionPolicy:
     """Factory function to create eviction policy instances."""
     policies = {

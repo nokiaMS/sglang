@@ -1,3 +1,4 @@
+# 文件名: test_gdn_prefill_cutedsl.py - GDN预填充CuteDSL测试
 """Correctness test for the SM100 CuTe DSL GDN prefill kernel.
 
 Ported from vLLM PR https://github.com/vllm-project/vllm/pull/43273.
@@ -38,11 +39,12 @@ from sglang.srt.layers.attention.linear.kernels.gdn_blackwell import (  # noqa: 
 
 @pytest.mark.parametrize("num_seqs", [1, 5, 257])
 @pytest.mark.parametrize("state_dtype", [torch.bfloat16, torch.float32])
+# 测试gdnchunkcutedslcorrectness
 def test_gdn_chunk_cutedsl_correctness(num_seqs: int, state_dtype: torch.dtype):
     seq_lens = torch.randint(1, 130, (num_seqs,), dtype=torch.int32)
     cu_seqlens = torch.zeros(num_seqs + 1, device="cuda", dtype=torch.int32)
     cu_seqlens[1:] = seq_lens.to(device="cuda").cumsum(0)
-    total_tokens = int(cu_seqlens[-1].item())
+    total_tokens = int(cu_seqlens[-1].item())  # 获取标量值
 
     num_k_heads = 4
     num_v_heads = 8
@@ -57,8 +59,8 @@ def test_gdn_chunk_cutedsl_correctness(num_seqs: int, state_dtype: torch.dtype):
     v = torch.randn(
         1, total_tokens, num_v_heads, head_v_dim, device="cuda", dtype=dtype
     )
-    q = F.normalize(q.float(), p=2, dim=-1).to(dtype)
-    k = F.normalize(k.float(), p=2, dim=-1).to(dtype)
+    q = F.normalize(q.float(), p=2, dim=-1).to(dtype)  # 转换为单精度
+    k = F.normalize(k.float(), p=2, dim=-1).to(dtype)  # 转换为单精度
     a = torch.randn(1, total_tokens, num_v_heads, device="cuda", dtype=dtype)
     b = torch.randn(1, total_tokens, num_v_heads, device="cuda", dtype=dtype)
 
@@ -73,9 +75,9 @@ def test_gdn_chunk_cutedsl_correctness(num_seqs: int, state_dtype: torch.dtype):
     dt = torch.clamp(dt, min=1e-4)
     dt_bias = dt + torch.log(-torch.expm1(-dt))
     g = -A_log.exp().view(1, 1, num_v_heads) * F.softplus(
-        a.float() + dt_bias.view(1, 1, num_v_heads)
+        a.float() + dt_bias.view(1, 1, num_v_heads)  # 转换为单精度
     )
-    beta = torch.sigmoid(b.float())
+    beta = torch.sigmoid(b.float())  # 转换为单精度
     initial_state = (
         torch.randn(
             num_seqs,
@@ -90,11 +92,11 @@ def test_gdn_chunk_cutedsl_correctness(num_seqs: int, state_dtype: torch.dtype):
 
     # Metadata kernel matches the FLA reference helpers.
     chunk_indices, chunk_offsets = prepare_metadata_cutedsl(cu_seqlens, total_tokens)
-    torch.cuda.synchronize()
+    torch.cuda.synchronize()  # 同步CUDA操作
 
     expected_indices = prepare_chunk_indices(cu_seqlens, 64)
     expected_offsets = prepare_chunk_offsets(cu_seqlens, 64)
-    total_chunks = int(expected_offsets[-1].item())
+    total_chunks = int(expected_offsets[-1].item())  # 获取标量值
 
     torch.testing.assert_close(chunk_offsets, expected_offsets.to(torch.int32))
     torch.testing.assert_close(chunk_indices[:total_chunks], expected_indices)
@@ -128,20 +130,20 @@ def test_gdn_chunk_cutedsl_correctness(num_seqs: int, state_dtype: torch.dtype):
         chunk_offsets=chunk_offsets,
         core_attn_out=actual_core_attn_out,
     )
-    torch.cuda.synchronize()
+    torch.cuda.synchronize()  # 同步CUDA操作
 
-    o_error = (actual_o.float() - ref_o.float()).abs()
+    o_error = (actual_o.float() - ref_o.float()).abs()  # 转换为单精度
     state_error = (
-        actual_state.float() - ref_state.to(actual_state.dtype).float()
+        actual_state.float() - ref_state.to(actual_state.dtype).float()  # 转换为单精度
     ).abs()
-    assert o_error.max().item() < 2e-3
-    assert o_error.mean().item() < 6e-5
-    assert state_error.max().item() < 2e-2
-    assert state_error.mean().item() < 6e-4
+    assert o_error.max().item() < 2e-3  # 获取标量值
+    assert o_error.mean().item() < 6e-5  # 获取标量值
+    assert state_error.max().item() < 2e-2  # 获取标量值
+    assert state_error.mean().item() < 6e-4  # 获取标量值
     core_attn_out_error = (
-        actual_core_attn_out.float() - actual_o.squeeze(0).float()
+        actual_core_attn_out.float() - actual_o.squeeze(0).float()  # 转换为单精度
     ).abs()
-    assert core_attn_out_error.max().item() == 0
+    assert core_attn_out_error.max().item() == 0  # 获取标量值
 
     no_buffer_o, no_buffer_state = chunk_gated_delta_rule_cutedsl(
         q=q,
@@ -154,22 +156,22 @@ def test_gdn_chunk_cutedsl_correctness(num_seqs: int, state_dtype: torch.dtype):
         chunk_indices=chunk_indices,
         chunk_offsets=chunk_offsets,
     )
-    torch.cuda.synchronize()
+    torch.cuda.synchronize()  # 同步CUDA操作
 
-    no_buffer_o_error = (no_buffer_o.float() - ref_o.float()).abs()
+    no_buffer_o_error = (no_buffer_o.float() - ref_o.float()).abs()  # 转换为单精度
     no_buffer_state_error = (
-        no_buffer_state.float() - ref_state.to(no_buffer_state.dtype).float()
+        no_buffer_state.float() - ref_state.to(no_buffer_state.dtype).float()  # 转换为单精度
     ).abs()
-    buffer_o_error = (no_buffer_o.float() - actual_o.float()).abs()
+    buffer_o_error = (no_buffer_o.float() - actual_o.float()).abs()  # 转换为单精度
     buffer_state_error = (
-        no_buffer_state.float() - actual_state.to(no_buffer_state.dtype).float()
+        no_buffer_state.float() - actual_state.to(no_buffer_state.dtype).float()  # 转换为单精度
     ).abs()
-    assert no_buffer_o_error.max().item() < 2e-3
-    assert no_buffer_o_error.mean().item() < 6e-5
-    assert no_buffer_state_error.max().item() < 2e-2
-    assert no_buffer_state_error.mean().item() < 6e-4
-    assert buffer_o_error.max().item() == 0
-    assert buffer_state_error.max().item() == 0
+    assert no_buffer_o_error.max().item() < 2e-3  # 获取标量值
+    assert no_buffer_o_error.mean().item() < 6e-5  # 获取标量值
+    assert no_buffer_state_error.max().item() < 2e-2  # 获取标量值
+    assert no_buffer_state_error.mean().item() < 6e-4  # 获取标量值
+    assert buffer_o_error.max().item() == 0  # 获取标量值
+    assert buffer_state_error.max().item() == 0  # 获取标量值
 
 
 if __name__ == "__main__":

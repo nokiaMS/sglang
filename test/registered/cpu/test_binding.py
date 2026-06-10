@@ -1,3 +1,4 @@
+# 文件名: test_binding.py - 算子绑定测试
 import re
 import unittest
 
@@ -12,6 +13,7 @@ register_cpu_ci(est_time=10, suite="base-b-test-cpu")
 
 
 class TestBinding(CustomTestCase):
+    # 测试binding
     def test_binding(self):
         start_id = 1
         n_cpu = 6

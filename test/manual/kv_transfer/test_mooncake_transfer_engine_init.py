@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# 文件名: test_mooncake_transfer_engine_init.py - 测试Mooncake传输引擎的初始化条件与门控逻辑
 """
 Test script for validating Mooncake transfer-engine gating and initialization.
 Tests the Mooncake-related branches in the current model-runner flow.
@@ -50,6 +51,7 @@ def test_mooncake_te_condition(server_args: ServerArgs) -> bool:
     dummy_runner = SimpleNamespace(server_args=server_args, gpu_id=0)
     init_called = False
 
+    # 内部方法：fake init mooncake transfer engine
     def _fake_init_mooncake_transfer_engine(*, hostname, gpu_id, ib_device):
         nonlocal init_called
         init_called = True
@@ -74,6 +76,7 @@ def test_mooncake_te_condition(server_args: ServerArgs) -> bool:
     return init_called
 
 
+# 工作进程函数，测试Mooncake传输引擎初始化
 def run_mooncake_init(
     rank: int,
     world_size: int,
@@ -82,12 +85,12 @@ def run_mooncake_init(
     server_args: ServerArgs,
 ):
     """Worker function for testing mooncake transfer engine initialization."""
-    os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda_visible_devices
-    os.environ["MASTER_ADDR"] = "127.0.0.1"
-    os.environ["MASTER_PORT"] = str(master_port)
-    os.environ["RANK"] = str(rank)
-    os.environ["WORLD_SIZE"] = str(world_size)
-    os.environ["LOCAL_RANK"] = str(rank)
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda_visible_devices  # 设置环境变量
+    os.environ["MASTER_ADDR"] = "127.0.0.1"  # 设置环境变量
+    os.environ["MASTER_PORT"] = str(master_port)  # 设置环境变量
+    os.environ["RANK"] = str(rank)  # 设置环境变量
+    os.environ["WORLD_SIZE"] = str(world_size)  # 设置环境变量
+    os.environ["LOCAL_RANK"] = str(rank)  # 设置环境变量
 
     # Import before try block to avoid NameError in finally
     import torch
@@ -98,7 +101,7 @@ def run_mooncake_init(
     try:
         # Initialize distributed environment
         print(f"[Rank {rank}] Initializing distributed environment...")
-        dist.init_process_group(
+        dist.init_process_group(  # 初始化分布式进程组
             backend="nccl",
             world_size=world_size,
             rank=rank,
@@ -111,7 +114,7 @@ def run_mooncake_init(
         torch.cuda.set_device(rank)
 
         # Sync to ensure all ranks are ready
-        dist.barrier()
+        dist.barrier()  # 分布式同步屏障
         print(f"[Rank {rank}] Distributed initialization complete.")
 
         # Test the condition logic
@@ -141,7 +144,7 @@ def run_mooncake_init(
             print(f"[Rank {rank}] Session ID: {engine.get_session_id()}")
             print(f"[Rank {rank}] MooncakeTransferEngine initialized successfully!")
 
-            dist.barrier()
+            dist.barrier()  # 分布式同步屏障
 
         print(f"[Rank {rank}] Test completed successfully!")
         sys.exit(0)
@@ -160,7 +163,7 @@ def run_mooncake_init(
     finally:
         # Cleanup
         if dist_initialized and dist.is_initialized():
-            dist.destroy_process_group()
+            dist.destroy_process_group()  # 销毁分布式进程组
         print(f"[Rank {rank}] Process group destroyed.")
 
 
@@ -180,7 +183,7 @@ def run_test(args: argparse.Namespace, server_args: ServerArgs) -> bool:
     # Check GPU availability
     import torch
 
-    if not torch.cuda.is_available():
+    if not torch.cuda.is_available():  # 检查CUDA可用性
         print("ERROR: CUDA is not available")
         sys.exit(1)
 
@@ -331,7 +334,7 @@ def test_condition_logic():
             if env_value is None:
                 os.environ.pop("SGLANG_HICACHE_MOONCAKE_REUSE_TE", None)
             else:
-                os.environ["SGLANG_HICACHE_MOONCAKE_REUSE_TE"] = env_value
+                os.environ["SGLANG_HICACHE_MOONCAKE_REUSE_TE"] = env_value  # 设置环境变量
 
             result = test_mooncake_te_condition(server_args)
             status = "PASS" if result == expected else "FAIL"
@@ -348,7 +351,7 @@ def test_condition_logic():
         if original_hicache_reuse is None:
             os.environ.pop("SGLANG_HICACHE_MOONCAKE_REUSE_TE", None)
         else:
-            os.environ["SGLANG_HICACHE_MOONCAKE_REUSE_TE"] = original_hicache_reuse
+            os.environ["SGLANG_HICACHE_MOONCAKE_REUSE_TE"] = original_hicache_reuse  # 设置环境变量
 
     print(f"Condition logic tests: {passed} passed, {failed} failed")
     print()
@@ -356,6 +359,7 @@ def test_condition_logic():
     return failed == 0
 
 
+# 主函数，解析参数并运行测试
 def main():
     parser = argparse.ArgumentParser(
         description="Validate Mooncake transfer-engine gating and initialization"
@@ -403,7 +407,7 @@ def main():
     elif args.test_case == "hicache":
         server_args.enable_hierarchical_cache = True
         server_args.hicache_storage_backend = "mooncake"
-        os.environ["SGLANG_HICACHE_MOONCAKE_REUSE_TE"] = "1"
+        os.environ["SGLANG_HICACHE_MOONCAKE_REUSE_TE"] = "1"  # 设置环境变量
     elif args.test_case == "encoder_only":
         server_args.encoder_only = True
         server_args.encoder_transfer_backend = "mooncake"

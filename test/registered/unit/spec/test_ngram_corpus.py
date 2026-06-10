@@ -1,3 +1,4 @@
+# 文件名: test_ngram_corpus.py - Ngram语料库
 import json
 import os
 import tempfile
@@ -16,6 +17,7 @@ from sglang.test.test_utils import CustomTestCase
 register_cpu_ci(est_time=26, suite="base-a-test-cpu")
 
 
+# 内部方法_make_corpus
 def _make_corpus(match_type="BFS", **kwargs):
     external_corpus_documents = kwargs.pop("external_corpus_documents", None)
     defaults = dict(
@@ -46,6 +48,7 @@ def _make_corpus(match_type="BFS", **kwargs):
     return corpus
 
 
+# 内部方法_batch_get
 def _batch_get(
     corpus: NgramCorpus,
     batch_tokens: list[list[int]],
@@ -57,6 +60,7 @@ def _batch_get(
     )
 
 
+# 内部方法_batch_get_with_state
 def _batch_get_with_state(
     corpus: NgramCorpus,
     req_id: str,
@@ -66,7 +70,10 @@ def _batch_get_with_state(
     return corpus.batch_get([req_id], [current_tokens], [total_len])
 
 
+# _IntTokenizer类
 class _IntTokenizer:
+
+    # _IntTokenizer类的encode
     def encode(self, text: str, add_special_tokens: bool = False):
         del add_special_tokens
         return [int(piece) for piece in text.split()]
@@ -158,10 +165,13 @@ EXPECTED_PROB_MASKS = [
 ]
 
 
+# TestNgramCorpusBFS类
 class TestNgramCorpusBFS(CustomTestCase):
     """Golden-output tests for BFS matching mode."""
 
     @classmethod
+
+    # TestNgramCorpusBFS类的测试类初始化设置
     def setUpClass(cls):
         cls.corpus = _make_corpus("BFS")
         cls.corpus.batch_put(SEED_SEQUENCES)
@@ -171,23 +181,29 @@ class TestNgramCorpusBFS(CustomTestCase):
         cls.ids = ids.reshape(-1, draft)
         cls.masks = masks.reshape(-1, draft, draft)
 
+    # TestNgramCorpusBFS类的测试tokenids
     def test_token_ids(self):
         np.testing.assert_array_equal(self.ids.tolist(), EXPECTED_BFS_IDS)
 
+    # TestNgramCorpusBFS类的测试masks
     def test_masks(self):
         np.testing.assert_array_equal(self.masks.tolist(), EXPECTED_BFS_MASKS)
 
+    # TestNgramCorpusBFS类的测试outputshapes
     def test_output_shapes(self):
         n_queries = len(QUERY_SEQUENCES)
         draft = 8
-        self.assertEqual(self.ids.shape, (n_queries, draft))
-        self.assertEqual(self.masks.shape, (n_queries, draft, draft))
+        self.assertEqual(self.ids.shape, (n_queries, draft))  # 断言相等
+        self.assertEqual(self.masks.shape, (n_queries, draft, draft))  # 断言相等
 
 
+# TestNgramCorpusProb类
 class TestNgramCorpusProb(CustomTestCase):
     """Golden-output tests for Prob matching mode."""
 
     @classmethod
+
+    # TestNgramCorpusProb类的测试类初始化设置
     def setUpClass(cls):
         cls.corpus = _make_corpus("PROB")
         cls.corpus.batch_put(SEED_SEQUENCES)
@@ -196,18 +212,22 @@ class TestNgramCorpusProb(CustomTestCase):
         cls.ids = ids.reshape(-1, 8)
         cls.masks = masks.reshape(-1, 8, 8)
 
+    # TestNgramCorpusProb类的测试tokenids
     def test_token_ids(self):
         np.testing.assert_array_equal(self.ids.tolist(), EXPECTED_PROB_IDS)
 
+    # TestNgramCorpusProb类的测试masks
     def test_masks(self):
         np.testing.assert_array_equal(self.masks.tolist(), EXPECTED_PROB_MASKS)
 
+    # TestNgramCorpusProb类的测试outputshapes
     def test_output_shapes(self):
         n_queries = len(QUERY_SEQUENCES)
-        self.assertEqual(self.ids.shape, (n_queries, 8))
-        self.assertEqual(self.masks.shape, (n_queries, 8, 8))
+        self.assertEqual(self.ids.shape, (n_queries, 8))  # 断言相等
+        self.assertEqual(self.masks.shape, (n_queries, 8, 8))  # 断言相等
 
 
+# TestNgramCorpusReset类
 class TestNgramCorpusReset(CustomTestCase):
     """Verify reset clears all cached state."""
 
@@ -217,7 +237,7 @@ class TestNgramCorpusReset(CustomTestCase):
         corpus.synchronize()
 
         ids_before, _ = _batch_get(corpus, [[1, 2, 3]])
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             any(t != 0 for t in ids_before.tolist()[1:]),
             "Expected non-trivial draft tokens before reset",
         )
@@ -225,13 +245,14 @@ class TestNgramCorpusReset(CustomTestCase):
         corpus.reset()
 
         ids_after, _ = _batch_get(corpus, [[1, 2, 3]])
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             ids_after.tolist(),
             [3, 0, 0, 0, 0, 0, 0, 0],
             "After reset, only last_token should be present (rest zero-padded)",
         )
 
 
+# TestNgramCorpusNoMatch类
 class TestNgramCorpusNoMatch(CustomTestCase):
     """Verify behavior when query has no match in the corpus."""
 
@@ -242,20 +263,22 @@ class TestNgramCorpusNoMatch(CustomTestCase):
 
         ids, masks = _batch_get(corpus, [[999, 888, 777]])
         ids_list = ids.tolist()
-        self.assertEqual(ids_list[0], 777, "First token should be last context token")
-        self.assertTrue(
+        self.assertEqual(ids_list[0], 777, "First token should be last context token")  # 断言相等
+        self.assertTrue(  # 断言为真
             all(t == 0 for t in ids_list[1:]),
             "No draft tokens expected when nothing matches",
         )
 
+    # TestNgramCorpusNoMatch类的测试emptycorpus
     def test_empty_corpus(self):
         corpus = _make_corpus("BFS")
         ids, masks = _batch_get(corpus, [[1, 2, 3]])
         ids_list = ids.tolist()
-        self.assertEqual(ids_list[0], 3)
-        self.assertTrue(all(t == 0 for t in ids_list[1:]))
+        self.assertEqual(ids_list[0], 3)  # 断言相等
+        self.assertTrue(all(t == 0 for t in ids_list[1:]))  # 断言为真
 
 
+# TestNgramCorpusMultipleInserts类
 class TestNgramCorpusMultipleInserts(CustomTestCase):
     """Verify that multiple inserts accumulate correctly."""
 
@@ -270,10 +293,11 @@ class TestNgramCorpusMultipleInserts(CustomTestCase):
         ids, _ = _batch_get(corpus, [[1, 2, 3]])
         ids_list = ids.tolist()
 
-        self.assertIn(4, ids_list, "Token 4 from first insert should still match")
-        self.assertIn(44, ids_list, "Token 44 from second insert should also match")
+        self.assertIn(4, ids_list, "Token 4 from first insert should still match")  # 断言包含
+        self.assertIn(44, ids_list, "Token 44 from second insert should also match")  # 断言包含
 
 
+# TestNgramCorpusSqueeze类
 class TestNgramCorpusSqueeze(CustomTestCase):
     """Verify cache eviction under memory pressure."""
 
@@ -284,8 +308,9 @@ class TestNgramCorpusSqueeze(CustomTestCase):
         corpus.synchronize()
 
         ids, masks = _batch_get(corpus, [[50, 51, 52]])
-        self.assertEqual(len(ids), 8, "Should still produce draft_token_num outputs")
+        self.assertEqual(len(ids), 8, "Should still produce draft_token_num outputs")  # 断言相等
 
+    # TestNgramCorpusSqueeze类的测试evictionpreservesrecent
     def test_eviction_preserves_recent(self):
         corpus = _make_corpus("BFS", capacity=500, max_trie_depth=6)
 
@@ -299,10 +324,11 @@ class TestNgramCorpusSqueeze(CustomTestCase):
 
         ids, _ = _batch_get(corpus, [[2000, 2001, 2002]])
         ids_list = ids.tolist()
-        self.assertEqual(ids_list[0], 2002, "Last context token should be first")
-        self.assertIn(2003, ids_list, "Recent sequence should still be matchable")
+        self.assertEqual(ids_list[0], 2002, "Last context token should be first")  # 断言相等
+        self.assertIn(2003, ids_list, "Recent sequence should still be matchable")  # 断言包含
 
 
+# TestNgramCorpusLeafPaths类
 class TestNgramCorpusLeafPaths(CustomTestCase):
     """Verify the leaf_paths_from_mask utility."""
 
@@ -319,10 +345,11 @@ class TestNgramCorpusLeafPaths(CustomTestCase):
         paths = corpus.leaf_paths_from_mask(tokens, mask)
 
         for path in paths:
-            self.assertIn(3, path, "Root token should be in every path")
+            self.assertIn(3, path, "Root token should be in every path")  # 断言包含
 
-        self.assertEqual(len(paths), 2, "Two leaf paths expected for a binary tree")
+        self.assertEqual(len(paths), 2, "Two leaf paths expected for a binary tree")  # 断言相等
 
+    # TestNgramCorpusLeafPaths类的测试singlechain
     def test_single_chain(self):
         corpus = _make_corpus("BFS")
         tokens = [10, 20, 30]
@@ -332,10 +359,11 @@ class TestNgramCorpusLeafPaths(CustomTestCase):
             [1, 1, 1],
         ]
         paths = corpus.leaf_paths_from_mask(tokens, mask)
-        self.assertEqual(len(paths), 1)
-        self.assertEqual(paths[0], [10, 20, 30])
+        self.assertEqual(len(paths), 1)  # 断言相等
+        self.assertEqual(paths[0], [10, 20, 30])  # 断言相等
 
 
+# TestNgramCorpusBatchConsistency类
 class TestNgramCorpusBatchConsistency(CustomTestCase):
     """Verify batch queries produce same results as individual queries."""
 
@@ -366,15 +394,17 @@ class TestNgramCorpusBatchConsistency(CustomTestCase):
             )
 
 
+# TestMaskValidity类
 class TestMaskValidity(CustomTestCase):
     """Verify structural invariants of the output mask for any draft tree."""
 
     def _check_mask(self, masks_2d):
         n = len(masks_2d)
         for i in range(n):
-            self.assertEqual(masks_2d[i][i], 1, f"Diagonal must be 1 at row {i}")
-        self.assertEqual(masks_2d[0], [1] + [0] * (n - 1))
+            self.assertEqual(masks_2d[i][i], 1, f"Diagonal must be 1 at row {i}")  # 断言相等
+        self.assertEqual(masks_2d[0], [1] + [0] * (n - 1))  # 断言相等
 
+    # TestMaskValidity类的测试bfsmaskinvariants
     def test_bfs_mask_invariants(self):
         corpus = _make_corpus("BFS")
         corpus.batch_put(SEED_SEQUENCES)
@@ -384,6 +414,7 @@ class TestMaskValidity(CustomTestCase):
         for i in range(masks.shape[0]):
             self._check_mask(masks[i].tolist())
 
+    # TestMaskValidity类的测试probmaskinvariants
     def test_prob_mask_invariants(self):
         corpus = _make_corpus("PROB")
         corpus.batch_put(SEED_SEQUENCES)
@@ -394,6 +425,7 @@ class TestMaskValidity(CustomTestCase):
             self._check_mask(masks[i].tolist())
 
 
+# TestFrequencyBoosting类
 class TestFrequencyBoosting(CustomTestCase):
     """Verify that repeated insertions change Prob-mode selection."""
 
@@ -415,13 +447,14 @@ class TestFrequencyBoosting(CustomTestCase):
         ids, _ = _batch_get(corpus, [[1, 2, 3]])
         ids_list = ids.tolist()
 
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             ids_list[1],
             20,
             f"Token 20 should be selected over 10 after frequency boost, got {ids_list}",
         )
 
 
+# TestRecencyOrdering类
 class TestRecencyOrdering(CustomTestCase):
     """Verify that BFS mode respects LRU recency."""
 
@@ -440,13 +473,14 @@ class TestRecencyOrdering(CustomTestCase):
 
         ids, _ = _batch_get(corpus, [[1, 2, 3]])
         ids_list = ids.tolist()
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             ids_list[1],
             20,
             f"Token 20 (recent) should be selected over 10 (old), got {ids_list}",
         )
 
 
+# TestOverlappingSuffixes类
 class TestOverlappingSuffixes(CustomTestCase):
     """Verify correct matching when sequences share suffixes."""
 
@@ -458,10 +492,11 @@ class TestOverlappingSuffixes(CustomTestCase):
 
         ids, _ = _batch_get(corpus, [[7, 8, 9]])
         ids_list = ids.tolist()
-        self.assertIn(50, ids_list, "Continuation from first sequence missing")
-        self.assertIn(60, ids_list, "Continuation from second sequence missing")
+        self.assertIn(50, ids_list, "Continuation from first sequence missing")  # 断言包含
+        self.assertIn(60, ids_list, "Continuation from second sequence missing")  # 断言包含
 
 
+# TestSingleTokenContext类
 class TestSingleTokenContext(CustomTestCase):
     """Verify behavior with minimum-length context."""
 
@@ -472,10 +507,11 @@ class TestSingleTokenContext(CustomTestCase):
 
         ids, masks = _batch_get(corpus, [[5]])
         ids_list = ids.tolist()
-        self.assertEqual(ids_list[0], 5, "First token should be last context token")
-        self.assertIn(10, ids_list, "Should match continuation after single token 5")
+        self.assertEqual(ids_list[0], 5, "First token should be last context token")  # 断言相等
+        self.assertIn(10, ids_list, "Should match continuation after single token 5")  # 断言包含
 
 
+# TestLongContext类
 class TestLongContext(CustomTestCase):
     """Verify behavior when query context exceeds max_trie_depth."""
 
@@ -488,9 +524,10 @@ class TestLongContext(CustomTestCase):
         long_query = list(range(1, 16))
         ids, masks = _batch_get(corpus, [long_query])
         ids_list = ids.tolist()
-        self.assertEqual(ids_list[0], 15, "First token should be last context token")
-        self.assertIn(16, ids_list, "Should match via suffix despite long context")
+        self.assertEqual(ids_list[0], 15, "First token should be last context token")  # 断言相等
+        self.assertIn(16, ids_list, "Should match via suffix despite long context")  # 断言包含
 
+    # TestLongContext类的测试matcheslongeststoredsuffix
     def test_matches_longest_stored_suffix(self):
         corpus = _make_corpus("BFS", max_trie_depth=6, draft_token_num=4)
         corpus.batch_put([[1, 2, 3, 4, 5, 6, 7]])
@@ -499,16 +536,17 @@ class TestLongContext(CustomTestCase):
 
         ids, _ = _batch_get(corpus, [[2, 3, 4, 5, 6]])
         ids_list = ids.tolist()
-        self.assertIn(
+        self.assertIn(  # 断言包含
             7, ids_list, "Longest stored suffix should contribute a continuation"
         )
-        self.assertIn(
+        self.assertIn(  # 断言包含
             8,
             ids_list,
             "Shorter matching suffixes should still contribute continuations",
         )
 
 
+# TestDraftBudgetSaturation类
 class TestDraftBudgetSaturation(CustomTestCase):
     """Verify the draft tree uses exactly draft_token_num slots."""
 
@@ -520,15 +558,16 @@ class TestDraftBudgetSaturation(CustomTestCase):
 
         ids, _ = _batch_get(corpus, [[1, 2, 3]])
         ids_list = ids.tolist()
-        self.assertEqual(len(ids_list), 8)
+        self.assertEqual(len(ids_list), 8)  # 断言相等
         non_zero = [t for t in ids_list[1:] if t != 0]
-        self.assertGreater(
+        self.assertGreater(  # 断言大于
             len(non_zero),
             0,
             "Draft budget should have non-zero tokens when cache has long chains",
         )
 
 
+# TestTruncate类
 class TestTruncate(CustomTestCase):
     """Verify truncation logic on batch_get output."""
 
@@ -539,13 +578,14 @@ class TestTruncate(CustomTestCase):
 
         ids, _ = _batch_get(corpus, [[1, 2, 3]])
         ids = ids.reshape(8)
-        self.assertEqual(len(ids), 8)
+        self.assertEqual(len(ids), 8)  # 断言相等
 
         # Simulate truncate to 4
         trunc_n = 4
         trunc_ids = ids[:trunc_n]
-        self.assertEqual(len(trunc_ids), trunc_n)
+        self.assertEqual(len(trunc_ids), trunc_n)  # 断言相等
 
+    # TestTruncate类的测试truncatepreservesmaskstructure
     def test_truncate_preserves_mask_structure(self):
         corpus = _make_corpus("BFS", draft_token_num=8)
         corpus.batch_put(SEED_SEQUENCES)
@@ -560,13 +600,14 @@ class TestTruncate(CustomTestCase):
 
         for i in range(trunc_n):
             for j in range(trunc_n):
-                self.assertEqual(
+                self.assertEqual(  # 断言相等
                     trunc_mask[i, j],
                     full_mask[i, j],
                     f"Mask mismatch at ({i},{j})",
                 )
 
 
+# TestResetAndReinsert类
 class TestResetAndReinsert(CustomTestCase):
     """Verify that reset followed by new inserts works correctly."""
 
@@ -582,17 +623,18 @@ class TestResetAndReinsert(CustomTestCase):
 
         ids_old, _ = _batch_get(corpus, [[1, 2, 3]])
         ids_old_list = ids_old.tolist()
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             all(t == 0 for t in ids_old_list[1:]),
             f"Old data should not match after reset+reinsert, got {ids_old_list}",
         )
 
         ids_new, _ = _batch_get(corpus, [[10, 20, 30]])
         ids_new_list = ids_new.tolist()
-        self.assertEqual(ids_new_list[0], 30)
-        self.assertIn(40, ids_new_list, "New data should match after reset+reinsert")
+        self.assertEqual(ids_new_list[0], 30)  # 断言相等
+        self.assertIn(40, ids_new_list, "New data should match after reset+reinsert")  # 断言包含
 
 
+# TestSqueezeEvictsOld类
 class TestSqueezeEvictsOld(CustomTestCase):
     """Verify that squeeze actually evicts old data, not just preserves recent."""
 
@@ -604,7 +646,7 @@ class TestSqueezeEvictsOld(CustomTestCase):
         corpus.synchronize()
 
         ids_before, _ = _batch_get(corpus, [[5000, 5001, 5002]])
-        self.assertIn(
+        self.assertIn(  # 断言包含
             5003,
             ids_before.tolist(),
             "Old data should match before eviction",
@@ -617,13 +659,14 @@ class TestSqueezeEvictsOld(CustomTestCase):
 
         ids_after, _ = _batch_get(corpus, [[5000, 5001, 5002]])
         ids_after_list = ids_after.tolist()
-        self.assertNotIn(
+        self.assertNotIn(  # 断言不包含
             5003,
             ids_after_list,
             f"Old data should be evicted after pressure, got {ids_after_list}",
         )
 
 
+# TestNgramCorpusIncremental类
 class TestNgramCorpusIncremental(CustomTestCase):
     """Verify the incremental matching path matches the stateless path."""
 
@@ -651,12 +694,15 @@ class TestNgramCorpusIncremental(CustomTestCase):
             np.testing.assert_array_equal(inc_ids, full_ids)
             np.testing.assert_array_equal(inc_masks, full_masks)
 
+    # TestNgramCorpusIncremental类的测试incrementalmatchesstatelessbfs
     def test_incremental_matches_stateless_bfs(self):
         self._assert_incremental_matches_stateless("BFS")
 
+    # TestNgramCorpusIncremental类的测试incrementalmatchesstatelessprob
     def test_incremental_matches_stateless_prob(self):
         self._assert_incremental_matches_stateless("PROB")
 
+    # TestNgramCorpusIncremental类的测试leafanchorbecomesexpandable
     def test_leaf_anchor_becomes_expandable(self):
         corpus = _make_corpus("BFS", max_trie_depth=4, draft_token_num=4)
         corpus.batch_put([[1, 2, 3]])
@@ -664,7 +710,7 @@ class TestNgramCorpusIncremental(CustomTestCase):
 
         req_id = "leaf-anchor"
         ids_before, _ = _batch_get_with_state(corpus, req_id, [2, 3], 2)
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             all(t == 0 for t in ids_before.tolist()[1:]),
             f"Expected only the last token before extension, got {ids_before.tolist()}",
         )
@@ -676,12 +722,13 @@ class TestNgramCorpusIncremental(CustomTestCase):
         full_ids, full_masks = _batch_get(corpus, [[2, 3]])
         np.testing.assert_array_equal(inc_ids, full_ids)
         np.testing.assert_array_equal(inc_masks, full_masks)
-        self.assertIn(
+        self.assertIn(  # 断言包含
             4,
             inc_ids.tolist(),
             f"Expected token 4 after extension, got {inc_ids.tolist()}",
         )
 
+    # TestNgramCorpusIncremental类的测试stalestaterebuildsaftereviction
     def test_stale_state_rebuilds_after_eviction(self):
         corpus = _make_corpus("BFS", capacity=150, max_trie_depth=6, draft_token_num=4)
         corpus.batch_put([list(range(5000, 5030))])
@@ -703,6 +750,7 @@ class TestNgramCorpusIncremental(CustomTestCase):
         np.testing.assert_array_equal(inc_masks, full_masks)
 
 
+# TestNgramCorpusExternalSam类
 class TestNgramCorpusExternalSam(CustomTestCase):
     """Verify external SAM loading and fixed-budget composition."""
 
@@ -727,13 +775,14 @@ class TestNgramCorpusExternalSam(CustomTestCase):
         )
         corpus.commit_external_corpus_load(path, loaded_token_count)
         # 5 doc tokens + 1 separator + 2 doc tokens = 8
-        self.assertEqual(loaded_token_count, 8)
+        self.assertEqual(loaded_token_count, 8)  # 断言相等
 
         ids, _ = _batch_get(corpus, [[1, 2, 3]])
         ids_list = ids.tolist()
-        self.assertEqual(ids_list[0], 3)
-        self.assertEqual(ids_list[1:3], [4, 5])
+        self.assertEqual(ids_list[0], 3)  # 断言相等
+        self.assertEqual(ids_list[1:3], [4, 5])  # 断言相等
 
+    # TestNgramCorpusExternalSam类的测试externalcorpusiteratorrejectsoversizedcorpus
     def test_external_corpus_iterator_rejects_oversized_corpus(self):
         corpus = _make_corpus(
             "BFS",
@@ -754,6 +803,7 @@ class TestNgramCorpusExternalSam(CustomTestCase):
                 iter_external_corpus_chunks(path, _IntTokenizer(), max_tokens=4),
             )
 
+    # TestNgramCorpusExternalSam类的测试externalsamonlychain
     def test_external_sam_only_chain(self):
         corpus = _make_corpus(
             "BFS",
@@ -764,9 +814,10 @@ class TestNgramCorpusExternalSam(CustomTestCase):
 
         ids, masks = _batch_get(corpus, [[1, 2, 3]])
         ids_list = ids.tolist()
-        self.assertEqual(ids_list[0], 3)
-        self.assertEqual(ids_list[1:3], [4, 5])
+        self.assertEqual(ids_list[0], 3)  # 断言相等
+        self.assertEqual(ids_list[1:3], [4, 5])  # 断言相等
 
+    # TestNgramCorpusExternalSam类的测试externalsamrespectsdocumentboundaries
     def test_external_sam_respects_document_boundaries(self):
         corpus = _make_corpus(
             "BFS",
@@ -777,9 +828,10 @@ class TestNgramCorpusExternalSam(CustomTestCase):
 
         ids, _ = _batch_get(corpus, [[2, 3]])
         ids_list = ids.tolist()
-        self.assertEqual(ids_list[0], 3)
-        self.assertTrue(all(token == 0 for token in ids_list[1:]), ids_list)
+        self.assertEqual(ids_list[0], 3)  # 断言相等
+        self.assertTrue(all(token == 0 for token in ids_list[1:]), ids_list)  # 断言为真
 
+    # TestNgramCorpusExternalSam类的测试externalsamaddsdistinctrootbranch
     def test_external_sam_adds_distinct_root_branch(self):
         corpus = _make_corpus(
             "BFS",
@@ -794,9 +846,10 @@ class TestNgramCorpusExternalSam(CustomTestCase):
         leaf_paths = corpus.leaf_paths_from_mask(
             ids.tolist(), masks.reshape(6, 6).tolist()
         )
-        self.assertIn([3, 10, 11], leaf_paths)
-        self.assertIn([3, 20, 21], leaf_paths)
+        self.assertIn([3, 10, 11], leaf_paths)  # 断言包含
+        self.assertIn([3, 20, 21], leaf_paths)  # 断言包含
 
+    # TestNgramCorpusExternalSam类的测试sharedprefixkeepsbothbranches
     def test_shared_prefix_keeps_both_branches(self):
         corpus = _make_corpus(
             "BFS",
@@ -811,9 +864,10 @@ class TestNgramCorpusExternalSam(CustomTestCase):
         leaf_paths = corpus.leaf_paths_from_mask(
             ids.tolist(), masks.reshape(5, 5).tolist()
         )
-        self.assertIn([3, 10, 11], leaf_paths)
-        self.assertIn([3, 10, 99], leaf_paths)
+        self.assertIn([3, 10, 11], leaf_paths)  # 断言包含
+        self.assertIn([3, 10, 99], leaf_paths)  # 断言包含
 
+    # TestNgramCorpusExternalSam类的测试sharedprefixmergecanunderfillbudget
     def test_shared_prefix_merge_can_underfill_budget(self):
         corpus = _make_corpus(
             "BFS",
@@ -827,10 +881,11 @@ class TestNgramCorpusExternalSam(CustomTestCase):
         ids, masks = _batch_get(corpus, [[1, 2, 3]])
         ids_list = ids.tolist()
         leaf_paths = corpus.leaf_paths_from_mask(ids_list, masks.reshape(6, 6).tolist())
-        self.assertIn([3, 10, 11], leaf_paths)
-        self.assertIn([3, 10, 99], leaf_paths)
-        self.assertEqual(ids_list.count(0), 2, ids_list)
+        self.assertIn([3, 10, 11], leaf_paths)  # 断言包含
+        self.assertIn([3, 10, 99], leaf_paths)  # 断言包含
+        self.assertEqual(ids_list.count(0), 2, ids_list)  # 断言相等
 
+    # TestNgramCorpusExternalSam类的测试externalsamprobprefersfrequentcontinuation
     def test_external_sam_prob_prefers_frequent_continuation(self):
         corpus = _make_corpus(
             "PROB",
@@ -847,9 +902,10 @@ class TestNgramCorpusExternalSam(CustomTestCase):
         )
 
         ids, _ = _batch_get(corpus, [[1, 2, 3]])
-        self.assertEqual(ids.tolist(), [3, 20])
+        self.assertEqual(ids.tolist(), [3, 20])  # 断言相等
 
 
+# TestNgramCorpusMatchBenchmark类
 class TestNgramCorpusMatchBenchmark(CustomTestCase):
     """Benchmark incremental advance vs full rebuild in match()."""
 
@@ -906,7 +962,7 @@ class TestNgramCorpusMatchBenchmark(CustomTestCase):
 
         # The incremental path should be at least as fast; allow a small margin
         # for noise. With D=12 the theoretical speedup is ~12x (D^2/D).
-        self.assertLess(
+        self.assertLess(  # 断言小于
             incremental_us,
             rebuild_us * 1.1,
             f"Incremental ({incremental_us:.1f} us) should not be slower than "
@@ -914,6 +970,7 @@ class TestNgramCorpusMatchBenchmark(CustomTestCase):
         )
 
 
+# TestNgramCorpusMultiSam类
 class TestNgramCorpusMultiSam(CustomTestCase):
     """Verify multi-SAM add/remove/list and budget splitting."""
 
@@ -926,10 +983,11 @@ class TestNgramCorpusMultiSam(CustomTestCase):
         )
         corpus.commit_external_corpus_load("b", loaded_token_count)
         token_counts = corpus.list_external_corpora()
-        self.assertEqual(sorted(token_counts.keys()), ["a", "b"])
-        self.assertEqual(token_counts["a"], 5)
-        self.assertEqual(token_counts["b"], 5)
+        self.assertEqual(sorted(token_counts.keys()), ["a", "b"])  # 断言相等
+        self.assertEqual(token_counts["a"], 5)  # 断言相等
+        self.assertEqual(token_counts["b"], 5)  # 断言相等
 
+    # TestNgramCorpusMultiSam类的测试remove
     def test_remove(self):
         corpus = _make_corpus("BFS", draft_token_num=4, external_sam_budget=3)
         loaded_token_count = corpus.load_external_corpus_named("a", [[1, 2, 3, 4, 5]])
@@ -939,13 +997,15 @@ class TestNgramCorpusMultiSam(CustomTestCase):
         )
         corpus.commit_external_corpus_load("b", loaded_token_count)
         corpus.remove_external_corpus("a")
-        self.assertEqual(list(corpus.list_external_corpora().keys()), ["b"])
+        self.assertEqual(list(corpus.list_external_corpora().keys()), ["b"])  # 断言相等
 
+    # TestNgramCorpusMultiSam类的测试removenonexistentisnoop
     def test_remove_nonexistent_is_noop(self):
         corpus = _make_corpus("BFS", draft_token_num=4, external_sam_budget=3)
         corpus.remove_external_corpus("nonexistent")
-        self.assertEqual(corpus.list_external_corpora(), {})
+        self.assertEqual(corpus.list_external_corpora(), {})  # 断言相等
 
+    # TestNgramCorpusMultiSam类的测试multisamcandidates
     def test_multi_sam_candidates(self):
         corpus = _make_corpus("BFS", draft_token_num=6, external_sam_budget=4)
         loaded_token_count = corpus.load_external_corpus_named("a", [[1, 2, 3, 10, 11]])
@@ -958,9 +1018,10 @@ class TestNgramCorpusMultiSam(CustomTestCase):
             ids.tolist(), masks.reshape(6, 6).tolist()
         )
         # Both SAMs should contribute candidates
-        self.assertIn([3, 10, 11], leaf_paths)
-        self.assertIn([3, 20, 21], leaf_paths)
+        self.assertIn([3, 10, 11], leaf_paths)  # 断言包含
+        self.assertIn([3, 20, 21], leaf_paths)  # 断言包含
 
+    # TestNgramCorpusMultiSam类的测试removereducescandidates
     def test_remove_reduces_candidates(self):
         corpus = _make_corpus("BFS", draft_token_num=6, external_sam_budget=4)
         loaded_token_count = corpus.load_external_corpus_named("a", [[1, 2, 3, 10, 11]])
@@ -974,9 +1035,10 @@ class TestNgramCorpusMultiSam(CustomTestCase):
         leaf_paths = corpus.leaf_paths_from_mask(
             ids.tolist(), masks.reshape(6, 6).tolist()
         )
-        self.assertIn([3, 10, 11], leaf_paths)
-        self.assertNotIn([3, 20, 21], leaf_paths)
+        self.assertIn([3, 10, 11], leaf_paths)  # 断言包含
+        self.assertNotIn([3, 20, 21], leaf_paths)  # 断言不包含
 
+    # TestNgramCorpusMultiSam类的测试makecorpuswithdocuments
     def test_make_corpus_with_documents(self):
         """_make_corpus helper loads documents as a named corpus."""
         corpus = _make_corpus(
@@ -986,8 +1048,9 @@ class TestNgramCorpusMultiSam(CustomTestCase):
             external_corpus_documents=[[1, 2, 3, 4, 5]],
         )
         token_counts = corpus.list_external_corpora()
-        self.assertIn("test_corpus", token_counts)
+        self.assertIn("test_corpus", token_counts)  # 断言包含
 
+    # TestNgramCorpusMultiSam类的测试removefreestokenbudget
     def test_remove_frees_token_budget(self):
         """Removing a corpus should free its tokens from the total budget."""
         corpus = _make_corpus(
@@ -1002,16 +1065,17 @@ class TestNgramCorpusMultiSam(CustomTestCase):
             "b", [[10, 20, 30, 40, 50]]
         )
         corpus.commit_external_corpus_load("b", loaded_token_count)
-        self.assertEqual(corpus.remaining_token_budget, 0)
+        self.assertEqual(corpus.remaining_token_budget, 0)  # 断言相等
 
         corpus.remove_external_corpus("a")
-        self.assertEqual(corpus.remaining_token_budget, 5)
+        self.assertEqual(corpus.remaining_token_budget, 5)  # 断言相等
 
         # Now there's room for a new corpus.
         loaded_token_count = corpus.load_external_corpus_named("c", [[100, 200, 300]])
         corpus.commit_external_corpus_load("c", loaded_token_count)
-        self.assertEqual(sorted(corpus.list_external_corpora().keys()), ["b", "c"])
+        self.assertEqual(sorted(corpus.list_external_corpora().keys()), ["b", "c"])  # 断言相等
 
+    # TestNgramCorpusMultiSam类的测试duplicatecorpusidisrejected
     def test_duplicate_corpus_id_is_rejected(self):
         """Adding a duplicate corpus_id should fail without replacing the original corpus."""
         corpus = _make_corpus(
@@ -1025,19 +1089,20 @@ class TestNgramCorpusMultiSam(CustomTestCase):
         with self.assertRaisesRegex(ValueError, "already exists"):
             corpus.load_external_corpus_named("a", [[10, 20, 30]])
 
-        self.assertEqual(corpus.remaining_token_budget, 5)
-        self.assertEqual(list(corpus.list_external_corpora().keys()), ["a"])
+        self.assertEqual(corpus.remaining_token_budget, 5)  # 断言相等
+        self.assertEqual(list(corpus.list_external_corpora().keys()), ["a"])  # 断言相等
 
         # The original corpus must still be usable for matching.
         ids, masks = _batch_get(corpus, [[1, 2, 3]])
         leaf_paths = corpus.leaf_paths_from_mask(
             ids.tolist(), masks.reshape(4, 4).tolist()
         )
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             any(4 in path or 5 in path for path in leaf_paths),
             f"Expected tokens from corpus 'a' in {leaf_paths}",
         )
 
+    # TestNgramCorpusMultiSam类的测试erroronloadpreservesexistingcorpora
     def test_error_on_load_preserves_existing_corpora(self):
         """A failed load must not wipe previously loaded corpora (staging-only cleanup)."""
         corpus = _make_corpus(
@@ -1050,11 +1115,11 @@ class TestNgramCorpusMultiSam(CustomTestCase):
         corpus.commit_external_corpus_load("a", loaded_token_count)
 
         # Force an error by exceeding the budget.
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError):  # 断言抛出异常
             corpus.load_external_corpus_named("b", [[10, 20, 30, 40, 50, 60]])
 
-        self.assertEqual(list(corpus.list_external_corpora().keys()), ["a"])
-        self.assertEqual(corpus.remaining_token_budget, 5)
+        self.assertEqual(list(corpus.list_external_corpora().keys()), ["a"])  # 断言相等
+        self.assertEqual(corpus.remaining_token_budget, 5)  # 断言相等
 
         # "a" must still be usable for matching.
         ids, masks = _batch_get(corpus, [[1, 2, 3]])
@@ -1062,16 +1127,19 @@ class TestNgramCorpusMultiSam(CustomTestCase):
             ids.tolist(), masks.reshape(4, 4).tolist()
         )
         # Should still find continuations from corpus "a".
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             any(4 in path or 5 in path for path in leaf_paths),
             f"Expected tokens from corpus 'a' in {leaf_paths}",
         )
 
 
+# TestMultiSamHttpMock类
 class TestMultiSamHttpMock(CustomTestCase):
     """Test HTTP endpoints for multi-SAM management with a mocked backend."""
 
     @classmethod
+
+    # TestMultiSamHttpMock类的测试类初始化设置
     def setUpClass(cls):
         from unittest.mock import AsyncMock, MagicMock
 
@@ -1080,7 +1148,7 @@ class TestMultiSamHttpMock(CustomTestCase):
 
             from sglang.srt.entrypoints.http_server import app, set_global_state
         except (ImportError, OSError):
-            raise unittest.SkipTest(
+            raise unittest.SkipTest(  # 抛出异常
                 "http_server import requires CUDA libraries not available on CPU"
             )
         from sglang.srt.managers.io_struct import (
@@ -1115,46 +1183,51 @@ class TestMultiSamHttpMock(CustomTestCase):
         cls.client = TestClient(app)
         cls.mock_tm = tm
 
+    # TestMultiSamHttpMock类的测试addcorpus
     def test_add_corpus(self):
         resp = self.client.post(
             "/add_external_corpus",
             json={"corpus_id": "my-corpus", "documents": ["hello world"]},
         )
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 200)  # 断言相等
         data = resp.json()
-        self.assertTrue(data["success"])
-        self.assertEqual(data["corpus_id"], "test-id")
-        self.assertEqual(data["loaded_token_count"], 100)
+        self.assertTrue(data["success"])  # 断言为真
+        self.assertEqual(data["corpus_id"], "test-id")  # 断言相等
+        self.assertEqual(data["loaded_token_count"], 100)  # 断言相等
 
+    # TestMultiSamHttpMock类的测试addcorpusautoid
     def test_add_corpus_auto_id(self):
         resp = self.client.post(
             "/add_external_corpus",
             json={"documents": ["hello world"]},
         )
-        self.assertEqual(resp.status_code, 200)
-        self.assertTrue(resp.json()["success"])
+        self.assertEqual(resp.status_code, 200)  # 断言相等
+        self.assertTrue(resp.json()["success"])  # 断言为真
 
+    # TestMultiSamHttpMock类的测试removecorpus
     def test_remove_corpus(self):
         resp = self.client.post(
             "/remove_external_corpus",
             json={"corpus_id": "test-id"},
         )
-        self.assertEqual(resp.status_code, 200)
-        self.assertTrue(resp.json()["success"])
+        self.assertEqual(resp.status_code, 200)  # 断言相等
+        self.assertTrue(resp.json()["success"])  # 断言为真
 
+    # TestMultiSamHttpMock类的测试removecorpusmissingid
     def test_remove_corpus_missing_id(self):
         resp = self.client.post(
             "/remove_external_corpus",
             json={},
         )
-        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.status_code, 400)  # 断言相等
 
+    # TestMultiSamHttpMock类的测试listcorpora
     def test_list_corpora(self):
         resp = self.client.get("/list_external_corpora")
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 200)  # 断言相等
         data = resp.json()
-        self.assertTrue(data["success"])
-        self.assertEqual(data["corpus_token_counts"], {"a": 100, "b": 200})
+        self.assertTrue(data["success"])  # 断言为真
+        self.assertEqual(data["corpus_token_counts"], {"a": 100, "b": 200})  # 断言相等
 
 
 if __name__ == "__main__":

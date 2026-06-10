@@ -1,3 +1,4 @@
+# 文件名: test_triton.py - Triton内核测试
 import sys
 import unittest
 from pathlib import Path
@@ -306,6 +307,7 @@ class TestTritonDenseAttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试projecteddenseattentioncases
     def test_projected_dense_attention_cases(self):
         for case in self.CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -345,6 +347,7 @@ class TestTritonDenseAttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试layoutrobustnesscases
     def test_layout_robustness_cases(self):
         for case in self.LAYOUT_ROBUSTNESS_CASES:
             # shuffled_pages is the default for all tests now, so it's
@@ -361,11 +364,13 @@ class TestTritonDenseAttentionBackendCorrectness(CustomTestCase):
                 with self.subTest(case=case.name, layout=layout):
                     run_dense_attention_case(self, case, loc_layout=layout)
 
+    # 测试runnermodecudagraphdecodecases
     def test_runner_mode_cuda_graph_decode_cases(self):
         for case in self.CUDA_GRAPH_CASES:
             with self.subTest(case=case.name, backend=case.backend):
                 run_dense_cuda_graph_decode_case(self, case)
 
+    # 测试runnermodesplitopextendcases
     def test_runner_mode_split_op_extend_cases(self):
         for case, static_num_tokens in self.SPLIT_OP_CASES:
             for breakable in (False, True):
@@ -382,6 +387,7 @@ class TestTritonDenseAttentionBackendCorrectness(CustomTestCase):
                         static_num_tokens=static_num_tokens,
                     )
 
+    # 测试runnermodespecverifycases
     def test_runner_mode_spec_verify_cases(self):
         for case, topk, spec_kind in self.SPEC_VERIFY_CASES:
             with self.subTest(
@@ -397,6 +403,7 @@ class TestTritonDenseAttentionBackendCorrectness(CustomTestCase):
                     spec_kind=spec_kind,
                 )
 
+    # 测试runnermodespecverifycudagraphcases
     def test_runner_mode_spec_verify_cuda_graph_cases(self):
         for case, topk, spec_kind in self.SPEC_VERIFY_CUDA_GRAPH_CASES:
             with self.subTest(
@@ -412,6 +419,7 @@ class TestTritonDenseAttentionBackendCorrectness(CustomTestCase):
                     spec_kind=spec_kind,
                 )
 
+    # 测试runnermodeeagledraftextendv2cudagraphcases
     def test_runner_mode_eagle_draft_extend_v2_cuda_graph_cases(self):
         # pad_ratio is expressed as the captured batch size relative to the
         # case's real batch size: 1.0x = no padding, 2.0x = 50% padded, etc.
@@ -435,11 +443,13 @@ class TestTritonDenseAttentionBackendCorrectness(CustomTestCase):
                             pad_style=pad_style,
                         )
 
+    # 测试runnermodeeagledraftextendv2cudagraphrunnercases
     def test_runner_mode_eagle_draft_extend_v2_cuda_graph_runner_cases(self):
         for case in self.EAGLE_DRAFT_EXTEND_V2_RUNNER_CASES:
             with self.subTest(case=case.name, backend=case.backend):
                 run_dense_eagle_draft_extend_v2_cuda_graph_runner_case(self, case)
 
+    # 测试runnermodeeagledraftcudagraphrunnercases
     def test_runner_mode_eagle_draft_cuda_graph_runner_cases(self):
         for case, topk, num_draft_tokens in self.EAGLE_DRAFT_RUNNER_CASES:
             with self.subTest(case=case.name, backend=case.backend, topk=topk):
@@ -450,6 +460,7 @@ class TestTritonDenseAttentionBackendCorrectness(CustomTestCase):
                     speculative_num_draft_tokens=num_draft_tokens,
                 )
 
+    # 测试runnermodefrozenkvmtpcudagraphrunnercases
     def test_runner_mode_frozen_kv_mtp_cuda_graph_runner_cases(self):
         for case in self.FROZEN_KV_MTP_RUNNER_CASES:
             with self.subTest(case=case.name, backend=case.backend):

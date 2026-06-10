@@ -1,69 +1,74 @@
-import logging
-import math
-from math import sqrt
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+# Step3 VL 多模态模型推理实现文件
+# 本文件实现了Step3视觉语言模型，包含文本模型和视觉模型两部分
+# 文本模型支持MoE混合专家和共享专家，使用MLA注意力机制
+# 视觉模型支持可变分辨率图像处理和2D卷积下采样投影
 
-import torch
-from torch import nn
-from torch.nn import LayerNorm
-from torch.nn import functional as F
-from transformers import PretrainedConfig
-from transformers.activations import ACT2FN
+import logging  # 导入日志模块
+import math  # 导入数学模块
+from math import sqrt  # 导入平方根
+from typing import Any, Dict, Iterable, List, Optional, Tuple  # 导入类型提示
 
-from sglang.srt.configs.step3_vl import (
+import torch  # 导入PyTorch
+from torch import nn  # 导入神经网络模块
+from torch.nn import LayerNorm  # 导入层归一化
+from torch.nn import functional as F  # 导入函数式接口
+from transformers import PretrainedConfig  # 导入预训练配置
+from transformers.activations import ACT2FN  # 导入激活函数映射
+
+from sglang.srt.configs.step3_vl import (  # 导入Step3配置
     Step3TextConfig,
     Step3VisionEncoderConfig,
     Step3VLConfig,
 )
-from sglang.srt.distributed import (
+from sglang.srt.distributed import (  # 导入分布式
     get_tensor_model_parallel_rank,
     get_tensor_model_parallel_world_size,
     tensor_model_parallel_all_reduce,
 )
-from sglang.srt.eplb.expert_location import ModelConfigForExpertLocation
-from sglang.srt.layers.activation import SiluAndMul
-from sglang.srt.layers.attention.vision import VisionAttention
-from sglang.srt.layers.communicator import LayerCommunicator, LayerScatterModes
-from sglang.srt.layers.conv import Conv2dLayer
-from sglang.srt.layers.dp_attention import (
+from sglang.srt.eplb.expert_location import ModelConfigForExpertLocation  # 专家位置配置
+from sglang.srt.layers.activation import SiluAndMul  # SiLU激活
+from sglang.srt.layers.attention.vision import VisionAttention  # 视觉注意力
+from sglang.srt.layers.communicator import LayerCommunicator, LayerScatterModes  # 层通信器
+from sglang.srt.layers.conv import Conv2dLayer  # 2D卷积层
+from sglang.srt.layers.dp_attention import (  # DP注意力
     get_attention_tp_rank,
     get_attention_tp_size,
     is_dp_attention_enabled,
 )
-from sglang.srt.layers.layernorm import RMSNorm
-from sglang.srt.layers.linear import (
+from sglang.srt.layers.layernorm import RMSNorm  # RMS归一化
+from sglang.srt.layers.linear import (  # 线性层
     ColumnParallelLinear,
     MergedColumnParallelLinear,
     ReplicatedLinear,
     RowParallelLinear,
 )
-from sglang.srt.layers.logits_processor import LogitsProcessor
-from sglang.srt.layers.moe import get_moe_a2a_backend
-from sglang.srt.layers.moe.ep_moe.layer import get_moe_impl_class
-from sglang.srt.layers.moe.fused_moe_triton import FusedMoE
-from sglang.srt.layers.moe.topk import TopK
-from sglang.srt.layers.quantization.base_config import QuantizationConfig
-from sglang.srt.layers.radix_attention import RadixAttention
-from sglang.srt.layers.rotary_embedding import get_rope
-from sglang.srt.layers.vocab_parallel_embedding import (
+from sglang.srt.layers.logits_processor import LogitsProcessor  # 逻辑处理器
+from sglang.srt.layers.moe import get_moe_a2a_backend  # MoE全对全后端
+from sglang.srt.layers.moe.ep_moe.layer import get_moe_impl_class  # MoE实现类
+from sglang.srt.layers.moe.fused_moe_triton import FusedMoE  # 融合MoE
+from sglang.srt.layers.moe.topk import TopK  # TopK路由
+from sglang.srt.layers.quantization.base_config import QuantizationConfig  # 量化配置
+from sglang.srt.layers.radix_attention import RadixAttention  # 基数注意力
+from sglang.srt.layers.rotary_embedding import get_rope  # 旋转位置编码
+from sglang.srt.layers.vocab_parallel_embedding import (  # 词表并行嵌入
     ParallelLMHead,
     VocabParallelEmbedding,
 )
-from sglang.srt.managers.mm_utils import (
+from sglang.srt.managers.mm_utils import (  # 多模态工具
     MultiModalityDataPaddingPatternMultimodalTokens,
     general_mm_embed_routine,
 )
-from sglang.srt.managers.schedule_batch import (
+from sglang.srt.managers.schedule_batch import (  # 调度批次
     Modality,
     MultimodalDataItem,
     MultimodalInputs,
 )
-from sglang.srt.model_executor.forward_batch_info import ForwardBatch
-from sglang.srt.model_loader.weight_utils import default_weight_loader
-from sglang.srt.utils import add_prefix, log_info_on_rank0, make_layers
-from sglang.srt.utils.hf_transformers_utils import get_rope_config
+from sglang.srt.model_executor.forward_batch_info import ForwardBatch  # 前向批次
+from sglang.srt.model_loader.weight_utils import default_weight_loader  # 默认权重加载器
+from sglang.srt.utils import add_prefix, log_info_on_rank0, make_layers  # 工具函数
+from sglang.srt.utils.hf_transformers_utils import get_rope_config  # RoPE配置
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)  # 创建日志记录器
 
 
 """
@@ -72,14 +77,16 @@ Text Model
 
 
 class Step3TextMLP(nn.Module):
+    """Step3文本MLP模块"""
     def __init__(
         self,
-        hidden_size: int,
-        intermediate_size: int,
-        hidden_act: str,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        hidden_size: int,  # 隐藏层大小
+        intermediate_size: int,  # 中间层大小
+        hidden_act: str,  # 激活函数
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
     ) -> None:
+        """初始化Step3文本MLP"""
         super().__init__()
         self.gate_up_proj = MergedColumnParallelLinear(
             hidden_size,
@@ -103,6 +110,7 @@ class Step3TextMLP(nn.Module):
         self.act_fn = SiluAndMul()
 
     def forward(self, x):
+        """MLP前向传播"""
         gate_up, _ = self.gate_up_proj(x)
         x = self.act_fn(gate_up)
         x, _ = self.down_proj(x)
@@ -110,14 +118,16 @@ class Step3TextMLP(nn.Module):
 
 
 class Step3TextMoEMLP(nn.Module):
+    """Step3文本MoE MLP模块"""
     # Native
     def __init__(
         self,
-        layer_id: int,
-        config: Step3TextConfig,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        layer_id: int,  # 层ID
+        config: Step3TextConfig,  # 文本配置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
     ):
+        """初始化Step3文本MoE MLP"""
         super().__init__()
         self.tp_size = get_tensor_model_parallel_world_size()
         self.layer_id = layer_id
@@ -156,6 +166,7 @@ class Step3TextMoEMLP(nn.Module):
             raise NotImplementedError("DeepEP MoE is not supported yet in Step3 model.")
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        """MoE MLP前向传播"""
         num_tokens, hidden_dim = hidden_states.shape
         hidden_states = hidden_states.view(-1, hidden_dim)
 
@@ -171,21 +182,23 @@ class Step3TextMoEMLP(nn.Module):
 
 
 class Step3TextAttention(nn.Module):
+    """Step3文本注意力模块，支持共享Q维度"""
     def __init__(
         self,
-        hidden_size: int,
-        num_heads: int,
-        num_kv_heads: int,
-        head_dim: int,
-        share_q_dim: int,
-        layer_id: int = 0,
-        rope_theta: float = 10000,
-        rope_scaling: Optional[Dict[str, Any]] = None,
-        max_position_embeddings: int = 8192,
-        quant_config: Optional[QuantizationConfig] = None,
-        rms_norm_eps=None,
-        prefix: str = "",
+        hidden_size: int,  # 隐藏层大小
+        num_heads: int,  # 头数
+        num_kv_heads: int,  # KV头数
+        head_dim: int,  # 头维度
+        share_q_dim: int,  # 共享Q维度
+        layer_id: int = 0,  # 层ID
+        rope_theta: float = 10000,  # RoPE基础频率
+        rope_scaling: Optional[Dict[str, Any]] = None,  # RoPE缩放
+        max_position_embeddings: int = 8192,  # 最大位置编码
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        rms_norm_eps=None,  # RMS归一化epsilon
+        prefix: str = "",  # 前缀
     ) -> None:
+        """初始化Step3文本注意力"""
         super().__init__()
         self.hidden_size = hidden_size
 
@@ -221,7 +234,7 @@ class Step3TextAttention(nn.Module):
             [self.q_size, self.kv_size, self.kv_size],
             bias=False,
             quant_config=quant_config,
-            tp_rank=0,  # In fact, we need a MergedReplicatedLinear
+            tp_rank=0,  # In fact, we need a MergedReplicatedLinear  实际需要MergedReplicatedLinear
             tp_size=1,
             prefix=add_prefix("qkv_proj", prefix),
         )
@@ -237,7 +250,7 @@ class Step3TextAttention(nn.Module):
             prefix=add_prefix("o_proj", prefix),
         )
 
-        self.inter_norm = RMSNorm(self.q_size, eps=rms_norm_eps)
+        self.inter_norm = RMSNorm(self.q_size, eps=rms_norm_eps)  # 中间归一化
 
         self.wq = ColumnParallelLinear(
             self.q_size,
@@ -247,7 +260,7 @@ class Step3TextAttention(nn.Module):
             tp_rank=attn_tp_rank,
             tp_size=attn_tp_size,
             prefix=add_prefix("wq", prefix),
-        )
+        )  # Q扩展投影
         self.rotary_emb = get_rope(
             self.head_dim,
             rotary_dim=self.head_dim,
@@ -267,28 +280,31 @@ class Step3TextAttention(nn.Module):
 
     def forward(
         self,
-        positions: torch.Tensor,
-        hidden_states: torch.Tensor,
-        forward_batch: ForwardBatch,
+        positions: torch.Tensor,  # 位置
+        hidden_states: torch.Tensor,  # 隐藏状态
+        forward_batch: ForwardBatch,  # 前向批次
     ) -> torch.Tensor:
+        """Step3文本注意力前向传播"""
         qkv, _ = self.qkv_proj(hidden_states)
         q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
-        q = self.inter_norm(q.contiguous())
-        q, _ = self.wq(q)
-        q, k = self.rotary_emb(positions, q, k)
+        q = self.inter_norm(q.contiguous())  # 中间归一化
+        q, _ = self.wq(q)  # Q扩展
+        q, k = self.rotary_emb(positions, q, k)  # RoPE
         attn_output = self.attn(q, k, v, forward_batch)
         output, _ = self.o_proj(attn_output)
         return output
 
 
 class Step3TextDecoderLayer(nn.Module):
+    """Step3文本解码器层"""
     def __init__(
         self,
-        config: Step3TextConfig,
-        layer_id: int,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        config: Step3TextConfig,  # 文本配置
+        layer_id: int,  # 层ID
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
     ) -> None:
+        """初始化Step3文本解码器层"""
         super().__init__()
         self.hidden_size = config.hidden_size
         rope_theta, rope_scaling = get_rope_config(config)
@@ -308,7 +324,7 @@ class Step3TextDecoderLayer(nn.Module):
         self.self_attn = Step3TextAttention(
             hidden_size=self.hidden_size,
             num_heads=config.num_attention_heads,
-            num_kv_heads=1,
+            num_kv_heads=1,  # MQA
             head_dim=head_dim,
             share_q_dim=config.share_q_dim,
             layer_id=layer_id,
@@ -372,7 +388,7 @@ class Step3TextDecoderLayer(nn.Module):
                     hidden_act="silu",
                     quant_config=quant_config,
                     prefix=add_prefix("share_expert", prefix),
-                )
+                )  # 共享专家
             else:
                 self.moe = Step3TextMoEMLP(
                     layer_id=layer_id,
@@ -388,22 +404,23 @@ class Step3TextDecoderLayer(nn.Module):
         )
 
     def moe_mlp_forward(self, hidden_states):
+        """MoE MLP前向传播，包含路由专家和共享专家"""
         if not self.num_fused_shared_experts:
             h = hidden_states.clone()
-            hidden_states = self.moe(hidden_states)
-            hidden_states += self.share_expert(h)
+            hidden_states = self.moe(hidden_states)  # 路由专家
+            hidden_states += self.share_expert(h)  # 共享专家
         else:
             hidden_states = self.moe(hidden_states)
         return hidden_states
 
     def forward(
         self,
-        positions: torch.Tensor,
-        hidden_states: torch.Tensor,
-        forward_batch: ForwardBatch,
-        residual: Optional[torch.Tensor],
+        positions: torch.Tensor,  # 位置
+        hidden_states: torch.Tensor,  # 隐藏状态
+        forward_batch: ForwardBatch,  # 前向批次
+        residual: Optional[torch.Tensor],  # 残差
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-
+        """Step3文本解码器层前向传播"""
         hidden_states, residual = self.layer_communicator.prepare_attn(
             hidden_states, residual, forward_batch
         )
@@ -431,12 +448,14 @@ class Step3TextDecoderLayer(nn.Module):
 
 
 class Step3TextModel(nn.Module):
+    """Step3文本模型"""
     def __init__(
         self,
-        config: PretrainedConfig,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        config: PretrainedConfig,  # 模型配置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
     ) -> None:
+        """初始化Step3文本模型"""
         super().__init__()
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
@@ -461,15 +480,17 @@ class Step3TextModel(nn.Module):
         self.norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
     def get_input_embeddings(self):
+        """获取输入嵌入"""
         return self.embed_tokens
 
     def forward(
         self,
-        input_ids: torch.Tensor,
-        positions: torch.Tensor,
-        forward_batch: ForwardBatch,
-        input_embeds: torch.Tensor = None,
+        input_ids: torch.Tensor,  # 输入ID
+        positions: torch.Tensor,  # 位置
+        forward_batch: ForwardBatch,  # 前向批次
+        input_embeds: torch.Tensor = None,  # 输入嵌入
     ) -> torch.Tensor:
+        """Step3文本模型前向传播"""
         if input_embeds is None:
             hidden_states = self.embed_tokens(input_ids)
         else:
@@ -496,6 +517,7 @@ Vision Model
 
 
 def get_abs_pos(abs_pos, tgt_size):
+    """获取绝对位置编码，支持不同尺寸的双三次插值"""
     dim = abs_pos.size(-1)
     abs_pos_new = abs_pos.squeeze(0)
     cls_token, old_pos_embed = abs_pos_new[:1], abs_pos_new[1:]
@@ -504,7 +526,7 @@ def get_abs_pos(abs_pos, tgt_size):
     tgt_size = int(math.sqrt(tgt_size))
     dtype = abs_pos.dtype
 
-    if src_size != tgt_size:
+    if src_size != tgt_size:  # 需要插值
         old_pos_embed = (
             old_pos_embed.view(1, src_size, src_size, dim)
             .permute(0, 3, 1, 2)
@@ -528,15 +550,17 @@ def get_abs_pos(abs_pos, tgt_size):
 
 
 class Step3VisionMLP(nn.Module):
+    """Step3视觉MLP模块"""
     def __init__(
         self,
-        dim: int,
-        intermediate_size: int,
-        bias: bool = True,
-        hidden_act="quick_gelu",
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        dim: int,  # 维度
+        intermediate_size: int,  # 中间层大小
+        bias: bool = True,  # 偏置
+        hidden_act="quick_gelu",  # 激活函数
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
     ) -> None:
+        """初始化Step3视觉MLP"""
         super().__init__()
         # Since this is a dense model,
         # the MLP component likewise adopts a DP-MLP approach modeled after DP Attention.
@@ -564,6 +588,7 @@ class Step3VisionMLP(nn.Module):
         )
 
     def forward(self, hidden_states) -> torch.Tensor:
+        """视觉MLP前向传播"""
         hidden_states, _ = self.fc1(hidden_states)
         hidden_states = self.act(hidden_states)
         hidden_states, _ = self.fc2(hidden_states)
@@ -571,14 +596,15 @@ class Step3VisionMLP(nn.Module):
 
 
 class Step3VisionAttention(nn.Module):
+    """Step3视觉注意力模块"""
     def __init__(
         self,
-        dim: int,
-        num_heads: int = 16,
-        quant_config=None,
-        prefix: str = "",
+        dim: int,  # 维度
+        num_heads: int = 16,  # 头数
+        quant_config=None,  # 量化配置
+        prefix: str = "",  # 前缀
     ) -> None:
-
+        """初始化Step3视觉注意力"""
         super().__init__()
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
@@ -602,20 +628,23 @@ class Step3VisionAttention(nn.Module):
         )
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        """视觉注意力前向传播"""
         attn_output = self.attn(hidden_states)
         return attn_output
 
 
 class Step3VisionEmbeddings(nn.Module):
+    """Step3视觉嵌入层"""
 
     def __init__(self, config: Step3VisionEncoderConfig):
+        """初始化Step3视觉嵌入，配置CLS令牌、补丁嵌入和位置嵌入"""
         super().__init__()
         self.config = config
         self.embed_dim = config.hidden_size
         self.image_size = config.image_size
         self.patch_size = config.patch_size
 
-        self.class_embedding = nn.Parameter(torch.randn(1, self.embed_dim))
+        self.class_embedding = nn.Parameter(torch.randn(1, self.embed_dim))  # CLS嵌入
 
         self.patch_embedding = Conv2dLayer(
             in_channels=config.num_channels,
@@ -623,14 +652,14 @@ class Step3VisionEmbeddings(nn.Module):
             kernel_size=self.patch_size,
             stride=self.patch_size,
             bias=True,
-        )
+        )  # 补丁卷积嵌入
 
         self.num_patches = (self.image_size // self.patch_size) ** 2
-        self.pad_tp_size = 4  # hard code for padding
+        self.pad_tp_size = 4  # hard code for padding  填充TP大小
         # To load the pretrained weights, we still use P+1 as the seqlen
         self.position_embedding = torch.nn.Embedding(
             self.num_patches + 1, self.embed_dim
-        )
+        )  # 位置嵌入
         self.register_buffer(
             "position_ids",
             torch.arange(self.num_patches + 1).expand((1, -1)),
@@ -638,6 +667,7 @@ class Step3VisionEmbeddings(nn.Module):
         )
 
     def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
+        """视觉嵌入前向传播：补丁嵌入+CLS令牌+位置编码+填充"""
         batch_size = pixel_values.shape[0]
         patch_embeds = self.patch_embedding(
             pixel_values
@@ -645,14 +675,14 @@ class Step3VisionEmbeddings(nn.Module):
         patch_embeds = patch_embeds.flatten(2).transpose(1, 2)
 
         # pad
-        class_embeds = self.class_embedding.expand(batch_size, 1, -1)
+        class_embeds = self.class_embedding.expand(batch_size, 1, -1)  # CLS嵌入
         embeddings = torch.cat([class_embeds, patch_embeds], dim=1)
         embeddings = embeddings + get_abs_pos(
             self.position_embedding(self.position_ids), patch_embeds.size(1)
-        )
+        )  # 位置编码
         embeddings = torch.cat(
             [
-                embeddings[:, 0, :].unsqueeze(1).repeat(1, self.pad_tp_size - 1, 1),
+                embeddings[:, 0, :].unsqueeze(1).repeat(1, self.pad_tp_size - 1, 1),  # CLS填充
                 embeddings,
             ],
             dim=1,
@@ -661,7 +691,9 @@ class Step3VisionEmbeddings(nn.Module):
 
 
 class Step3VisionEncoderLayer(nn.Module):
+    """Step3视觉编码器层"""
     def __init__(self, config, attn_implementation: str = "sdpa") -> None:
+        """初始化视觉编码器层"""
         super().__init__()
         self.embed_dim = config.hidden_size
         self.layer_norm1 = LayerNorm(self.embed_dim, eps=1e-6)
@@ -677,13 +709,16 @@ class Step3VisionEncoderLayer(nn.Module):
         )
 
     def forward(self, hidden_states) -> torch.Tensor:
+        """视觉编码器层前向传播：Pre-Norm注意力+Pre-Norm MLP"""
         hidden_states = hidden_states + self.layer_norm1(self.self_attn(hidden_states))
         hidden_states = hidden_states + self.layer_norm2(self.mlp(hidden_states))
         return hidden_states
 
 
 class Step3VisionTransformer(nn.Module):
+    """Step3视觉Transformer"""
     def __init__(self, config: Step3VisionEncoderConfig):
+        """初始化Step3视觉Transformer"""
         super().__init__()
         self.config = config
         self.image_size = config.image_size
@@ -692,27 +727,30 @@ class Step3VisionTransformer(nn.Module):
 
     @property
     def dtype(self) -> torch.dtype:
+        """获取数据类型"""
         return self.embeddings.patch_embedding.weight.dtype
 
     def forward(
         self,
-        pixel_values: torch.Tensor,
+        pixel_values: torch.Tensor,  # 像素值
     ):
+        """视觉Transformer前向传播"""
         hidden_states = self.embeddings(pixel_values)
         hidden_states = self.transformer(inputs_embeds=hidden_states)
         return hidden_states
 
 
 class Step3VisionEncoder(nn.Module):
-    """
-    Transformer encoder consisting of `config.num_hidden_layers` self attention layers. Each layer is a
+    """Transformer encoder consisting of `config.num_hidden_layers` self attention layers. Each layer is a
     [`Step3VisionEncoderLayer`].
 
     Args:
         config: StepVisionEncoderConfig
     """
+    """Step3视觉编码器，由多个自注意力层组成"""
 
     def __init__(self, config: Step3VisionEncoderConfig):
+        """初始化视觉编码器"""
         super().__init__()
         self.config = config
         self.layers = nn.ModuleList(
@@ -721,9 +759,9 @@ class Step3VisionEncoder(nn.Module):
 
     def forward(
         self,
-        inputs_embeds,
+        inputs_embeds,  # 输入嵌入
     ) -> torch.Tensor:
-
+        """视觉编码器前向传播"""
         hidden_states = inputs_embeds
         for encoder_layer in self.layers:
             hidden_states = encoder_layer(
@@ -734,13 +772,14 @@ class Step3VisionEncoder(nn.Module):
 
 
 class Step3VLForConditionalGeneration(nn.Module):
-
+    """Step3视觉语言条件生成模型"""
     def __init__(
         self,
-        config: Step3VLConfig,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        config: Step3VLConfig,  # 模型配置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
     ) -> None:
+        """初始化Step3 VL模型"""
         super().__init__()
         self.config = config
         self.quant_config = quant_config
@@ -755,19 +794,19 @@ class Step3VLForConditionalGeneration(nn.Module):
             config.vision_config.output_hidden_size,
             kernel_size=2,
             stride=config.understand_projector_stride,
-        )
+        )  # 视觉下采样器1
         self.vit_downsampler2 = nn.Conv2d(
             config.vision_config.output_hidden_size,
             config.vision_config.output_hidden_size * 2,
             kernel_size=3,
             stride=2,
             padding=1,
-        )
+        )  # 视觉下采样器2
         self.vit_large_projector = nn.Linear(
             config.vision_config.output_hidden_size * 2,
             config.hidden_size,
             bias=config.projector_bias,
-        )
+        )  # 视觉投影器
 
         # TODO: support shared experts fusion
         # self.n_shared_experts = 1
@@ -790,10 +829,11 @@ class Step3VLForConditionalGeneration(nn.Module):
         self.logits_processor = LogitsProcessor(config.text_config)
 
     def _get_vision_model_output(self, input_tensor: torch.Tensor) -> torch.Tensor:
+        """获取视觉模型输出，去除填充令牌"""
         return self.vision_model(input_tensor)[:, 4:]
 
     def _flatten_embeddings(self, embeddings) -> torch.Tensor:
-
+        """展平嵌入张量"""
         if isinstance(embeddings, torch.Tensor):
             # Flatten all but the last dimension.
             return embeddings.flatten(0, -2)
@@ -801,17 +841,19 @@ class Step3VLForConditionalGeneration(nn.Module):
         return torch.cat(tuple(self._flatten_embeddings(t) for t in embeddings))
 
     def _process_image_features(self, image_features: torch.Tensor) -> torch.Tensor:
+        """处理图像特征：2D卷积下采样+线性投影"""
         B, P = image_features.shape[:2]
         HW = int(sqrt(P))
         image_features = image_features.permute(0, 2, 1).view(B, -1, HW, HW)
-        image_features = self.vit_downsampler(image_features)
-        image_features = self.vit_downsampler2(image_features)
+        image_features = self.vit_downsampler(image_features)  # 下采样1
+        image_features = self.vit_downsampler2(image_features)  # 下采样2
         n_dim = image_features.size(1)
         image_features = image_features.view(B, n_dim, -1).permute(0, 2, 1)
-        image_features = self.vit_large_projector(image_features)
+        image_features = self.vit_large_projector(image_features)  # 投影
         return image_features
 
     def get_image_feature(self, items: List[MultimodalDataItem]) -> torch.Tensor:
+        """获取图像特征，支持基础图像和补丁图像"""
         assert len(items) == 1  # We only have images.
 
         item = items[0]
@@ -840,7 +882,7 @@ class Step3VLForConditionalGeneration(nn.Module):
 
         merged_image_features = []
         cur_patch_idx = 0
-        for i, num_patch in enumerate(num_patches):
+        for i, num_patch in enumerate(num_patches):  # 合并基础图像和补丁图像特征
             cur_feature = []
             if num_patch > 0:
                 patch_slice = patch_image_features[
@@ -855,17 +897,19 @@ class Step3VLForConditionalGeneration(nn.Module):
         return self._flatten_embeddings(merged_image_features)
 
     def pad_input_ids(self, input_ids: List[int], mm_inputs: MultimodalInputs):
+        """填充输入ID以支持多模态令牌"""
         pattern = MultiModalityDataPaddingPatternMultimodalTokens()
         return pattern.pad_input_tokens(input_ids, mm_inputs)
 
     @torch.no_grad()
     def forward(
         self,
-        input_ids: torch.Tensor,
-        positions: torch.Tensor,
-        forward_batch: ForwardBatch,
-        input_embeds: torch.Tensor = None,
+        input_ids: torch.Tensor,  # 输入ID
+        positions: torch.Tensor,  # 位置
+        forward_batch: ForwardBatch,  # 前向批次
+        input_embeds: torch.Tensor = None,  # 输入嵌入
     ) -> torch.Tensor:
+        """Step3 VL模型前向传播"""
         hidden_states = general_mm_embed_routine(
             input_ids=input_ids,
             forward_batch=forward_batch,
@@ -881,6 +925,7 @@ class Step3VLForConditionalGeneration(nn.Module):
         )
 
     def load_weights(self, weights: Iterable[Tuple[str, torch.Tensor]]):
+        """加载模型权重，处理堆叠参数、专家参数和重命名"""
         stacked_params_mapping = [
             # (param_name, shard_name, shard_id)
             (".qkv_proj", ".q_proj", 0),
@@ -906,18 +951,19 @@ class Step3VLForConditionalGeneration(nn.Module):
         loaded_params = set()
 
         def match_expert_and_shard_ids(name_path: str, weight_path: str) -> bool:
+            """匹配专家和分片ID"""
             name_parts = name_path.split(".")
             weight_parts = weight_path.split(".")
             shard_id_matches = name_parts[4] == weight_parts[2]
             return shard_id_matches
 
         for name, loaded_weight in weights:
-            if "vision_model" in name:
+            if "vision_model" in name:  # 视觉模型名称重映射
                 name = name.replace("self_attn", "self_attn.attn")
                 name = name.replace("out_proj", "proj")
 
             # TODO: support vision model
-            if self.num_fused_shared_experts > 0 and "share" in name:
+            if self.num_fused_shared_experts > 0 and "share" in name:  # 共享专家融合
                 # assert False
                 name = name.replace("share_expert", "moe")
                 for mapping in expert_params_mapping:
@@ -943,7 +989,7 @@ class Step3VLForConditionalGeneration(nn.Module):
                     break
                 continue
 
-            for param_name, weight_name, shard_id in stacked_params_mapping:
+            for param_name, weight_name, shard_id in stacked_params_mapping:  # 堆叠参数
                 if weight_name not in name:
                     continue
                 if "gate." not in name and "moe" in name:
@@ -954,16 +1000,16 @@ class Step3VLForConditionalGeneration(nn.Module):
                 weight_loader(param, loaded_weight, shard_id)
                 loaded_params.add(name)
                 break
-            else:
-                if "moe" not in name:
+            else:  # 非堆叠参数
+                if "moe" not in name:  # 非MoE参数
                     param = params_dict[name]
                     weight_loader = getattr(
                         param, "weight_loader", default_weight_loader
                     )
                     weight_loader(param, loaded_weight)
                     loaded_params.add(name)
-                else:
-                    if "gate." in name:
+                else:  # MoE参数
+                    if "gate." in name:  # 门控参数
                         name = name.replace(weight_name, param_name)
                         param = params_dict[name]
                         weight_loader = param.weight_loader
@@ -971,7 +1017,7 @@ class Step3VLForConditionalGeneration(nn.Module):
                         loaded_params.add(name)
                         continue
 
-                    for mapping in expert_params_mapping:
+                    for mapping in expert_params_mapping:  # 专家参数
                         param_name, weight_name, expert_id, shard_id = mapping
                         if expert_id == self.config.text_config.moe_num_experts:
                             continue
@@ -994,6 +1040,7 @@ class Step3VLForConditionalGeneration(nn.Module):
 
     @classmethod
     def get_model_config_for_expert_location(cls, config: Step3VLConfig):
+        """获取专家位置配置"""
         return ModelConfigForExpertLocation(
             num_layers=config.text_config.num_hidden_layers,
             num_logical_experts=config.text_config.moe_num_experts,
@@ -1001,4 +1048,4 @@ class Step3VLForConditionalGeneration(nn.Module):
         )
 
 
-EntryClass = Step3VLForConditionalGeneration
+EntryClass = Step3VLForConditionalGeneration  # 模型注册入口类

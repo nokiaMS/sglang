@@ -1,3 +1,8 @@
+# Nemotron-H 混合架构因果语言模型实现
+# 该文件实现了推理专用的 Nemotron-H 模型，支持注意力、MLP、Mamba 和 MoE 混合层架构，
+# 兼容 HuggingFace 权重格式，支持流水线并行和张量并行。
+
+
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 # Copyright 2023-2025 SGLang Team
@@ -17,79 +22,81 @@
 
 """Inference-only NemotronH model."""
 
-from collections.abc import Iterable
-from typing import Optional, Union
+from collections.abc import Iterable  # 导入abc
+from typing import Optional, Union  # 导入from typing
 
 import torch
-from torch import nn
+from torch import nn  # 导入from torch
 
-from sglang.srt.compilation.compilation_config import register_split_op
-from sglang.srt.compilation.piecewise_context_manager import (
+from sglang.srt.compilation.compilation_config import register_split_op  # 导入compilation_config
+from sglang.srt.compilation.piecewise_context_manager import (  # 导入piecewise_context_manager
     get_forward_context,
     is_in_piecewise_cuda_graph,
 )
-from sglang.srt.configs import NemotronHConfig
-from sglang.srt.configs.nemotron_h import ATTENTION, MAMBA, MLP, MOE
-from sglang.srt.distributed import (
+from sglang.srt.configs import NemotronHConfig  # 导入configs
+from sglang.srt.configs.nemotron_h import ATTENTION, MAMBA, MLP, MOE  # 导入nemotron_h
+from sglang.srt.distributed import (  # 导入distributed
     get_moe_ep_group,
     get_pp_group,
     get_tensor_model_parallel_world_size,
     tensor_model_parallel_all_reduce,
 )
-from sglang.srt.layers.activation import ReLU2
-from sglang.srt.layers.attention.hybrid_linear_attn_backend import (
+from sglang.srt.layers.activation import ReLU2  # 导入activation
+from sglang.srt.layers.attention.hybrid_linear_attn_backend import (  # 导入hybrid_linear_attn_backend
     HybridLinearAttnBackend,
     Mamba2AttnBackend,
 )
-from sglang.srt.layers.attention.mamba.mamba import MambaMixer2
-from sglang.srt.layers.layernorm import RMSNorm
-from sglang.srt.layers.linear import (
+from sglang.srt.layers.attention.mamba.mamba import MambaMixer2  # 导入mamba
+from sglang.srt.layers.layernorm import RMSNorm  # 导入layernorm
+from sglang.srt.layers.linear import (  # 导入linear
     ColumnParallelLinear,
     QKVParallelLinear,
     ReplicatedLinear,
     RowParallelLinear,
 )
-from sglang.srt.layers.logits_processor import LogitsProcessor
-from sglang.srt.layers.moe.ep_moe.layer import get_moe_impl_class
-from sglang.srt.layers.moe.fused_moe_triton.layer import FusedMoE
-from sglang.srt.layers.moe.topk import TopK
-from sglang.srt.layers.moe.utils import RoutingMethodType
-from sglang.srt.layers.quantization import QuantizationConfig
-from sglang.srt.layers.radix_attention import RadixAttention
-from sglang.srt.layers.utils import PPMissingLayer, get_layer_id
-from sglang.srt.layers.vocab_parallel_embedding import (
+from sglang.srt.layers.logits_processor import LogitsProcessor  # 导入logits_processor
+from sglang.srt.layers.moe.ep_moe.layer import get_moe_impl_class  # 导入layer
+from sglang.srt.layers.moe.fused_moe_triton.layer import FusedMoE  # 导入layer
+from sglang.srt.layers.moe.topk import TopK  # 导入topk
+from sglang.srt.layers.moe.utils import RoutingMethodType  # 导入utils
+from sglang.srt.layers.quantization import QuantizationConfig  # 导入quantization
+from sglang.srt.layers.radix_attention import RadixAttention  # 导入radix_attention
+from sglang.srt.layers.utils import PPMissingLayer, get_layer_id  # 导入utils
+from sglang.srt.layers.vocab_parallel_embedding import (  # 导入vocab_parallel_embedding
     DEFAULT_VOCAB_PADDING_SIZE,
     ParallelLMHead,
     VocabParallelEmbedding,
 )
-from sglang.srt.model_executor.breakable_cuda_graph.breakable_cuda_graph import (
+from sglang.srt.model_executor.breakable_cuda_graph.breakable_cuda_graph import (  # 导入breakable_cuda_graph
     eager_on_graph,
 )
-from sglang.srt.model_executor.breakable_cuda_graph.context import (
+from sglang.srt.model_executor.breakable_cuda_graph.context import (  # 导入context
     is_in_breakable_cuda_graph,
 )
-from sglang.srt.model_executor.forward_batch_info import ForwardBatch, PPProxyTensors
-from sglang.srt.model_executor.forward_context import get_attn_backend
-from sglang.srt.model_loader.weight_utils import (
+from sglang.srt.model_executor.forward_batch_info import ForwardBatch, PPProxyTensors  # 导入forward_batch_info
+from sglang.srt.model_executor.forward_context import get_attn_backend  # 导入forward_context
+from sglang.srt.model_loader.weight_utils import (  # 导入weight_utils
     default_weight_loader,
     maybe_remap_kv_scale_name,
     replace_prefix,
     replace_substrings,
 )
-from sglang.srt.models.utils import WeightsMapper
-from sglang.srt.server_args import get_global_server_args
-from sglang.srt.utils import (
+from sglang.srt.models.utils import WeightsMapper  # 导入utils
+from sglang.srt.server_args import get_global_server_args  # 导入server_args
+from sglang.srt.utils import (  # 导入utils
     add_prefix,
     get_current_device_stream_fast,
     is_cuda,
     make_layers,
 )
-from sglang.srt.utils.custom_op import register_custom_op
-from sglang.utils import logger
+from sglang.srt.utils.custom_op import register_custom_op  # 导入custom_op
+from sglang.utils import logger  # 导入utils
 
 _is_cuda = is_cuda()
 
 
+# Nemotron-H MLP 模块，使用 ReLU2 激活函数
+# Nemotron-H MLP 模块，使用 ReLU2 激活函数
 class NemotronHMLP(nn.Module):
     def __init__(
         self,
@@ -129,6 +136,8 @@ class NemotronHMLP(nn.Module):
 _alt_stream = None
 
 
+# 获取或创建替代 CUDA 流
+# 获取或创建替代 CUDA 流
 def _get_or_create_alt_stream(device_module):
     global _alt_stream
     if _alt_stream is None:
@@ -136,6 +145,8 @@ def _get_or_create_alt_stream(device_module):
     return _alt_stream
 
 
+# Nemotron-H 混合专家模块，支持共享专家和路由专家
+# Nemotron-H 混合专家模块，支持共享专家和路由专家
 class NemotronHMoE(nn.Module):
     def __init__(
         self,
@@ -227,6 +238,8 @@ class NemotronHMoE(nn.Module):
             self.fc1_latent_proj = None
             self.fc2_latent_proj = None
 
+    # MoE 核心前向，选择重叠或普通模式
+    # MoE 核心前向，选择重叠或普通模式
     def _forward_core(
         self,
         hidden_states: torch.Tensor,
@@ -238,6 +251,8 @@ class NemotronHMoE(nn.Module):
         else:
             return self._forward_core_normal(hidden_states)
 
+    # MoE 普通前向，串行执行共享和路由专家
+    # MoE 普通前向，串行执行共享和路由专家
     def _forward_core_normal(
         self,
         hidden_states: torch.Tensor,
@@ -254,6 +269,8 @@ class NemotronHMoE(nn.Module):
         final_hidden_states = self.experts(hidden_states, topk_output)
         return final_hidden_states, shared_output
 
+    # MoE 重叠前向，并行执行共享和路由专家
+    # MoE 重叠前向，并行执行共享和路由专家
     def _forward_core_shared_routed_overlap(
         self,
         hidden_states: torch.Tensor,
@@ -301,6 +318,8 @@ class NemotronHMoE(nn.Module):
         return final_hidden_states.view(num_tokens, hidden_dim)
 
 
+# Nemotron-H MLP 解码器层
+# Nemotron-H MLP 解码器层
 class NemotronHMLPDecoderLayer(nn.Module):
     def __init__(
         self,
@@ -349,6 +368,8 @@ class NemotronHMLPDecoderLayer(nn.Module):
         return hidden_states, residual
 
 
+# Nemotron-H MoE 解码器层
+# Nemotron-H MoE 解码器层
 class NemotronHMoEDecoderLayer(nn.Module):
     def __init__(
         self,
@@ -386,6 +407,8 @@ class NemotronHMoEDecoderLayer(nn.Module):
         return hidden_states, residual
 
 
+# Nemotron-H Mamba 解码器层
+# Nemotron-H Mamba 解码器层
 class NemotronHMambaDecoderLayer(nn.Module):
     def __init__(
         self,
@@ -411,6 +434,8 @@ class NemotronHMambaDecoderLayer(nn.Module):
 
         self.norm = RMSNorm(config.hidden_size, eps=config.layer_norm_epsilon)
 
+    # Mamba 核心前向逻辑
+    # Mamba 核心前向逻辑
     def _forward_mamba(
         self, hidden_states: torch.Tensor, forward_batch: ForwardBatch
     ) -> torch.Tensor:
@@ -456,6 +481,8 @@ class NemotronHMambaDecoderLayer(nn.Module):
             return output, residual
 
 
+# Nemotron-H 注意力模块
+# Nemotron-H 注意力模块
 class NemotronHAttention(nn.Module):
     def __init__(
         self,
@@ -526,6 +553,8 @@ class NemotronHAttention(nn.Module):
         return output
 
 
+# Nemotron-H 注意力解码器层
+# Nemotron-H 注意力解码器层
 class NemotronHAttentionDecoderLayer(nn.Module):
     def __init__(
         self,
@@ -579,6 +608,8 @@ ALL_DECODER_LAYER_TYPES: dict[str, type] = {
 }
 
 
+# Nemotron-H 模型主体
+# Nemotron-H 模型主体
 class NemotronHModel(nn.Module):
     def __init__(
         self,
@@ -662,6 +693,8 @@ class NemotronHModel(nn.Module):
         return hidden_states
 
 
+# Nemotron-H 因果语言模型
+# Nemotron-H 因果语言模型
 class NemotronHForCausalLM(nn.Module):
     stacked_params_mapping = [
         # (param_name, shard_name, shard_id)
@@ -753,6 +786,8 @@ class NemotronHForCausalLM(nn.Module):
 
         self.logits_processor = LogitsProcessor(config)
 
+    # 初始化模型主体
+    # 初始化模型主体
     def _init_model(
         self,
         config: NemotronHConfig,
@@ -763,18 +798,24 @@ class NemotronHForCausalLM(nn.Module):
             config=config, quant_config=quant_config, prefix=add_prefix("model", prefix)
         )
 
+    # 获取输入嵌入层
+    # 获取输入嵌入层
     def get_input_embeddings(self) -> VocabParallelEmbedding:
         return self.model.embed_tokens
 
+    # 获取堆叠乘数（非门控 MoE 使用 1）
+    # 获取堆叠乘数（非门控 MoE 使用 1）
     def get_stacked_multiply(self, module_name):
         """Non-gated MoE uses stacked_multiply=1 for gate_up_proj_moe."""
         if module_name == "gate_up_proj_moe":
             return 1  # Non-gated: only w1, no w3
         # Fall back to defaults for everything else
-        from sglang.srt.lora.utils import get_stacked_multiply
+        from sglang.srt.lora.utils import get_stacked_multiply  # 导入utils
 
         return get_stacked_multiply(module_name)
 
+    # 获取指定模块的隐藏维度（用于 LoRA）
+    # 获取指定模块的隐藏维度（用于 LoRA）
     def get_hidden_dim(self, module_name, layer_idx):
         """Return (input_dim, output_dim) for LoRA buffers, per layer type."""
         config = self.config
@@ -1016,6 +1057,8 @@ EntryClass = [NemotronHForCausalLM, NemotronHPuzzleForCausalLM]
 
 @register_custom_op(mutates_args=["output"])
 @register_split_op()
+# Mamba2 分段 CUDA 图前向操作
+# Mamba2 分段 CUDA 图前向操作
 def nemotron_mamba2_with_output(
     hidden_states: torch.Tensor,
     output: torch.Tensor,

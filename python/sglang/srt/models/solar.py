@@ -1,3 +1,8 @@
+# Solar 模型推理实现文件
+# 本文件实现了Solar模型（基于Llama架构的深度上扩模型）
+# 支持骨干跳跃连接(BSKCN)实现深度上扩机制
+# 包含MLP、注意力、解码层、模型和权重加载等核心组件
+
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
@@ -23,52 +28,54 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # Adapted from https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/models/solar.py
-from collections.abc import Iterable
-from typing import Any, List, Optional, Tuple, Union
+from collections.abc import Iterable  # 导入可迭代类型
+from typing import Any, List, Optional, Tuple, Union  # 导入类型提示
 
-import torch
-from torch import nn
-from transformers import PretrainedConfig
+import torch  # 导入PyTorch
+from torch import nn  # 导入神经网络模块
+from transformers import PretrainedConfig  # 导入预训练配置
 
-from sglang.srt.distributed import get_pp_group, get_tensor_model_parallel_world_size
-from sglang.srt.distributed.parallel_state import get_tensor_model_parallel_rank
-from sglang.srt.layers.activation import SiluAndMul
-from sglang.srt.layers.layernorm import RMSNorm
-from sglang.srt.layers.linear import (
+from sglang.srt.distributed import get_pp_group, get_tensor_model_parallel_world_size  # 导入分布式
+from sglang.srt.distributed.parallel_state import get_tensor_model_parallel_rank  # 导入TP秩
+from sglang.srt.layers.activation import SiluAndMul  # 导入SiLU激活
+from sglang.srt.layers.layernorm import RMSNorm  # 导入RMS归一化
+from sglang.srt.layers.linear import (  # 导入线性层
     MergedColumnParallelLinear,
     QKVParallelLinear,
     RowParallelLinear,
 )
-from sglang.srt.layers.logits_processor import LogitsProcessor, LogitsProcessorOutput
-from sglang.srt.layers.quantization import QuantizationConfig
-from sglang.srt.layers.radix_attention import RadixAttention
-from sglang.srt.layers.rotary_embedding import get_rope
-from sglang.srt.layers.utils import PPMissingLayer
-from sglang.srt.layers.vocab_parallel_embedding import (
+from sglang.srt.layers.logits_processor import LogitsProcessor, LogitsProcessorOutput  # 导入逻辑处理器
+from sglang.srt.layers.quantization import QuantizationConfig  # 导入量化配置
+from sglang.srt.layers.radix_attention import RadixAttention  # 导入基数注意力
+from sglang.srt.layers.rotary_embedding import get_rope  # 导入旋转位置编码
+from sglang.srt.layers.utils import PPMissingLayer  # 导入PP缺失层
+from sglang.srt.layers.vocab_parallel_embedding import (  # 导入词表并行嵌入
     DEFAULT_VOCAB_PADDING_SIZE,
     ParallelLMHead,
     VocabParallelEmbedding,
 )
-from sglang.srt.model_executor.forward_batch_info import ForwardBatch, PPProxyTensors
-from sglang.srt.model_loader.weight_utils import (
+from sglang.srt.model_executor.forward_batch_info import ForwardBatch, PPProxyTensors  # 导入前向批次
+from sglang.srt.model_loader.weight_utils import (  # 导入权重工具
     default_weight_loader,
     kv_cache_scales_loader,
 )
-from sglang.srt.utils import add_prefix, make_layers
-from sglang.srt.utils.hf_transformers_utils import get_rope_config
+from sglang.srt.utils import add_prefix, make_layers  # 导入工具函数
+from sglang.srt.utils.hf_transformers_utils import get_rope_config  # 导入RoPE配置
 
 
 class SolarMLP(nn.Module):
+    """Solar MLP模块"""
 
     def __init__(
         self,
-        hidden_size: int,
-        intermediate_size: int,
-        hidden_act: str,
-        quant_config: Optional[QuantizationConfig] = None,
-        bias: bool = False,
-        prefix: str = "",
+        hidden_size: int,  # 隐藏层大小
+        intermediate_size: int,  # 中间层大小
+        hidden_act: str,  # 激活函数
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        bias: bool = False,  # 偏置
+        prefix: str = "",  # 前缀
     ) -> None:
+        """初始化Solar MLP"""
         super().__init__()
         self.gate_up_proj = MergedColumnParallelLinear(
             input_size=hidden_size,
@@ -92,6 +99,7 @@ class SolarMLP(nn.Module):
         self.act_fn = SiluAndMul()
 
     def forward(self, x):
+        """MLP前向传播"""
         gate_up, _ = self.gate_up_proj(x)
         x = self.act_fn(gate_up)
         x, _ = self.down_proj(x)
@@ -99,21 +107,23 @@ class SolarMLP(nn.Module):
 
 
 class SolarAttention(nn.Module):
+    """Solar注意力模块"""
 
     def __init__(
         self,
-        config: PretrainedConfig,
-        hidden_size: int,
-        num_heads: int,
-        num_kv_heads: int,
-        rope_theta: float = 10000,
-        rope_scaling: Optional[dict[str, Any]] = None,
-        max_position_embeddings: int = 8192,
-        quant_config: Optional[QuantizationConfig] = None,
-        bias: bool = False,
-        prefix: str = "",
-        layer_id: int = 0,
+        config: PretrainedConfig,  # 模型配置
+        hidden_size: int,  # 隐藏层大小
+        num_heads: int,  # 头数
+        num_kv_heads: int,  # KV头数
+        rope_theta: float = 10000,  # RoPE基础频率
+        rope_scaling: Optional[dict[str, Any]] = None,  # RoPE缩放
+        max_position_embeddings: int = 8192,  # 最大位置编码
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        bias: bool = False,  # 偏置
+        prefix: str = "",  # 前缀
+        layer_id: int = 0,  # 层ID
     ) -> None:
+        """初始化Solar注意力"""
         super().__init__()
         self.hidden_size = hidden_size
         tp_size = get_tensor_model_parallel_world_size()
@@ -172,10 +182,11 @@ class SolarAttention(nn.Module):
 
     def forward(
         self,
-        positions: torch.Tensor,
-        forward_batch: ForwardBatch,
-        hidden_states: torch.Tensor,
+        positions: torch.Tensor,  # 位置
+        forward_batch: ForwardBatch,  # 前向批次
+        hidden_states: torch.Tensor,  # 隐藏状态
     ) -> torch.Tensor:
+        """Solar注意力前向传播"""
         qkv, _ = self.qkv_proj(hidden_states)
         q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
         q, k = self.rotary_emb(positions, q, k)
@@ -185,14 +196,16 @@ class SolarAttention(nn.Module):
 
 
 class SolarDecoderLayer(nn.Module):
+    """Solar解码器层"""
 
     def __init__(
         self,
-        config: PretrainedConfig,
-        layer_id: int,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        config: PretrainedConfig,  # 模型配置
+        layer_id: int,  # 层ID
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
     ) -> None:
+        """初始化Solar解码器层"""
         super().__init__()
         self.hidden_size = config.hidden_size
         rope_theta, rope_scaling = get_rope_config(config)
@@ -238,11 +251,12 @@ class SolarDecoderLayer(nn.Module):
 
     def forward(
         self,
-        positions: torch.Tensor,
-        hidden_states: torch.Tensor,
-        forward_batch: ForwardBatch,
-        residual: Optional[torch.Tensor],
+        positions: torch.Tensor,  # 位置
+        hidden_states: torch.Tensor,  # 隐藏状态
+        forward_batch: ForwardBatch,  # 前向批次
+        residual: Optional[torch.Tensor],  # 残差
     ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Solar解码器层前向传播"""
         # Self Attention
         if residual is None:
             residual = hidden_states
@@ -262,13 +276,15 @@ class SolarDecoderLayer(nn.Module):
 
 
 class SolarModel(nn.Module):
+    """Solar模型，支持深度上扩机制"""
 
     def __init__(
         self,
-        config: PretrainedConfig,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        config: PretrainedConfig,  # 模型配置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
     ):
+        """初始化Solar模型"""
         super().__init__()
         self.config = config
 
@@ -300,16 +316,18 @@ class SolarModel(nn.Module):
             self.norm = PPMissingLayer()
 
     def get_input_embeddings(self, input_ids: torch.Tensor) -> torch.Tensor:
+        """获取输入嵌入"""
         return self.embed_tokens(input_ids)
 
     def forward(
         self,
-        input_ids: Optional[torch.Tensor],
-        positions: torch.Tensor,
-        forward_batch: ForwardBatch,
-        inputs_embeds: Optional[torch.Tensor] = None,
-        pp_proxy_tensors: Optional[PPProxyTensors] = None,
+        input_ids: Optional[torch.Tensor],  # 输入ID
+        positions: torch.Tensor,  # 位置
+        forward_batch: ForwardBatch,  # 前向批次
+        inputs_embeds: Optional[torch.Tensor] = None,  # 输入嵌入
+        pp_proxy_tensors: Optional[PPProxyTensors] = None,  # PP代理张量
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, List[torch.Tensor]], PPProxyTensors]:
+        """Solar模型前向传播，支持BSKCN深度上扩"""
         if self.pp_group().is_first_rank:
             if inputs_embeds is not None:
                 hidden_states = inputs_embeds
@@ -324,24 +342,24 @@ class SolarModel(nn.Module):
 
         # Depth up-scaling mechanism: caches hidden states and residuals from intermediate layers and interpolates them with the states of later layers.
         # `bskcn` stands for "backbone skip connection".
-        bskcn_h_1 = None
-        bskcn_h_2 = None
-        bskcn_r_1 = None
-        bskcn_r_2 = None
-        bskcn_tv = self.config.bskcn_tv[0] if self.training else self.config.bskcn_tv[1]
+        bskcn_h_1 = None  # 骨干跳跃连接隐藏状态1
+        bskcn_h_2 = None  # 骨干跳跃连接隐藏状态2
+        bskcn_r_1 = None  # 骨干跳跃连接残差1
+        bskcn_r_2 = None  # 骨干跳跃连接残差2
+        bskcn_tv = self.config.bskcn_tv[0] if self.training else self.config.bskcn_tv[1]  # 插值权重
 
         for i in range(self.start_layer, self.end_layer):
-            if i in self.config.bskcn_1:
+            if i in self.config.bskcn_1:  # 缓存点1
                 bskcn_h_1 = hidden_states.clone()
                 bskcn_r_1 = residual.clone() if residual is not None else None
-            if i in self.config.bskcn_2:
+            if i in self.config.bskcn_2:  # 缓存点2
                 bskcn_h_2 = hidden_states.clone()
                 bskcn_r_2 = residual.clone() if residual is not None else None
-            if i in self.config.bskcn_3:
+            if i in self.config.bskcn_3:  # 插值点1
                 hidden_states = bskcn_h_1 * bskcn_tv + hidden_states * (1 - bskcn_tv)
                 if bskcn_r_1 is not None and residual is not None:
                     residual = bskcn_r_1 * bskcn_tv + residual * (1 - bskcn_tv)
-            if i in self.config.bskcn_4:
+            if i in self.config.bskcn_4:  # 插值点2
                 hidden_states = bskcn_h_2 * bskcn_tv + hidden_states * (1 - bskcn_tv)
                 if bskcn_r_2 is not None and residual is not None:
                     residual = bskcn_r_2 * bskcn_tv + residual * (1 - bskcn_tv)
@@ -362,6 +380,7 @@ class SolarModel(nn.Module):
         return hidden_states
 
     def load_kv_cache_scales(self, quantization_param_path: str) -> None:
+        """加载KV缓存缩放因子"""
         tp_size = get_tensor_model_parallel_world_size()
         tp_rank = get_tensor_model_parallel_rank()
         for layer_idx, scaling_factor in kv_cache_scales_loader(
@@ -384,6 +403,7 @@ class SolarModel(nn.Module):
 
 
 class SolarForCausalLM(nn.Module):
+    """Solar因果语言模型"""
 
     packed_modules_mapping = {
         "qkv_proj": [
@@ -417,10 +437,11 @@ class SolarForCausalLM(nn.Module):
 
     def __init__(
         self,
-        config: PretrainedConfig,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        config: PretrainedConfig,  # 模型配置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
     ):
+        """初始化Solar因果语言模型"""
         super().__init__()
         self.pp_group = get_pp_group()
         self.config = config
@@ -452,11 +473,12 @@ class SolarForCausalLM(nn.Module):
 
     def forward(
         self,
-        input_ids: torch.Tensor,
-        positions: torch.Tensor,
-        forward_batch: ForwardBatch,
-        inputs_embeds: Optional[torch.Tensor] = None,
+        input_ids: torch.Tensor,  # 输入ID
+        positions: torch.Tensor,  # 位置
+        forward_batch: ForwardBatch,  # 前向批次
+        inputs_embeds: Optional[torch.Tensor] = None,  # 输入嵌入
     ) -> Union[torch.Tensor, LogitsProcessorOutput]:
+        """Solar因果语言模型前向传播"""
         hidden_states = self.model(
             input_ids=input_ids,
             positions=positions,
@@ -471,7 +493,7 @@ class SolarForCausalLM(nn.Module):
         return hidden_states
 
     def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]):
-
+        """加载模型权重"""
         params_dict = dict(self.named_parameters())
         for name, loaded_weight in weights:
 
@@ -502,4 +524,4 @@ class SolarForCausalLM(nn.Module):
                 weight_loader(param, loaded_weight)
 
 
-EntryClass = SolarForCausalLM
+EntryClass = SolarForCausalLM  # 模型注册入口类

@@ -1,3 +1,4 @@
+# 文件名: test_deepep_small.py - DeepEP小规模测试
 import os
 import unittest
 from types import SimpleNamespace
@@ -21,6 +22,7 @@ register_cuda_ci(est_time=478, stage="base-c", runner_config="deepep-4-gpu-h100"
 
 class TestPureDP(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = DEFAULT_MODEL_NAME_FOR_TEST_MLA
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -47,9 +49,11 @@ class TestPureDP(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -68,6 +72,7 @@ class TestPureDP(CustomTestCase):
 
 class TestHybridDPTP(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = DEFAULT_MODEL_NAME_FOR_TEST_MLA
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -92,9 +97,11 @@ class TestHybridDPTP(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -113,6 +120,7 @@ class TestHybridDPTP(CustomTestCase):
 
 class TestTP(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = DEFAULT_MODEL_NAME_FOR_TEST_MLA
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -134,9 +142,11 @@ class TestTP(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -156,6 +166,7 @@ class TestTP(CustomTestCase):
 @unittest.skip("covered in test_deepep_large.py")
 class TestNoGatherdBuffer(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = DEFAULT_MODEL_NAME_FOR_TEST_MLA
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -183,9 +194,11 @@ class TestNoGatherdBuffer(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -204,6 +217,7 @@ class TestNoGatherdBuffer(CustomTestCase):
 
 class TestTBO(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = DEFAULT_MODEL_NAME_FOR_TEST_MLA
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -229,15 +243,17 @@ class TestTBO(CustomTestCase):
                 "512",
             ],
             env={
-                **os.environ,
+                **os.environ,  # 访问环境变量
                 "SGLANG_TBO_DEBUG": "1",
             },
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -256,6 +272,7 @@ class TestTBO(CustomTestCase):
 
 class TestTBOWithTPAttn(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = DEFAULT_MODEL_NAME_FOR_TEST_MLA
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -278,15 +295,17 @@ class TestTBOWithTPAttn(CustomTestCase):
                 "0.7",
             ],
             env={
-                **os.environ,
+                **os.environ,  # 访问环境变量
                 "SGLANG_TBO_DEBUG": "1",
             },
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -307,6 +326,7 @@ class TestTBOWithTPAttn(CustomTestCase):
 # @unittest.skip("covered in TestMTPWithTPAttnAndTBO")
 class TestTBOWithTPAttnAndDenseDP(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = DEFAULT_MODEL_NAME_FOR_TEST_MLA
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -331,15 +351,17 @@ class TestTBOWithTPAttnAndDenseDP(CustomTestCase):
                 "0.7",
             ],
             env={
-                **os.environ,
+                **os.environ,  # 访问环境变量
                 "SGLANG_TBO_DEBUG": "1",
             },
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -359,6 +381,7 @@ class TestTBOWithTPAttnAndDenseDP(CustomTestCase):
 @unittest.skip("covered in TestMTPWithTBO")
 class TestMTP(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = DEFAULT_MODEL_NAME_FOR_TEST_MLA
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -394,9 +417,11 @@ class TestMTP(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -426,6 +451,7 @@ class TestMTP(CustomTestCase):
 
 class TestMTPWithTBO(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
 
         cls.model = DEFAULT_MODEL_NAME_FOR_TEST_MLA
@@ -462,15 +488,17 @@ class TestMTPWithTBO(CustomTestCase):
                 "128",
             ],
             env={
-                **os.environ,
+                **os.environ,  # 访问环境变量
                 "SGLANG_TBO_DEBUG": "1",
             },
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -501,6 +529,7 @@ class TestMTPWithTBO(CustomTestCase):
 @unittest.skip("skipped due to bug when using MTP & TBO & attn_tp_size > 1")
 class TestMTPWithTPAttnAndTBO(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
 
         cls.model = DEFAULT_MODEL_NAME_FOR_TEST_MLA
@@ -538,15 +567,17 @@ class TestMTPWithTPAttnAndTBO(CustomTestCase):
                 "0.7",
             ],
             env={
-                **os.environ,
+                **os.environ,  # 访问环境变量
                 "SGLANG_TBO_DEBUG": "1",
             },
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,

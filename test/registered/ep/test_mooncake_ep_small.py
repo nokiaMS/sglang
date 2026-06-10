@@ -1,3 +1,4 @@
+# 文件名: test_mooncake_ep_small.py - Mooncake专家并行小规模测试
 import os
 import unittest
 from types import SimpleNamespace
@@ -24,6 +25,7 @@ class TestTP(CustomTestCase):
     extra_args = []
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = DEFAULT_MODEL_NAME_FOR_TEST_MLA
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -64,9 +66,11 @@ class TestTP(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -94,6 +98,7 @@ class TestPureDP(TestTP):
     pkill_process_1 = "sglang::scheduler_DP1_TP1_EP1"
     pkill_process_2 = "sglang::scheduler_DP3_TP3_EP3"
 
+    # 测试gsm8kfault1
     def test_gsm8k_fault_1(self):
         """
         Kill one rank and the system should remain operational.
@@ -102,6 +107,7 @@ class TestPureDP(TestTP):
         super().test_gsm8k()
 
     @unittest.skipIf(is_in_ci(), "To reduce the CI execution time.")
+    # 测试gsm8kfault2
     def test_gsm8k_fault_2(self):
         """
         Kill another rank and the system should remain operational.

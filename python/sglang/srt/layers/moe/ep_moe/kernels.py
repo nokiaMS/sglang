@@ -1,27 +1,36 @@
-import logging
+# EP MoE Triton 内核实现文件
+# 包含 Expert Parallel MoE 所需的各种 Triton GPU 内核，包括：
+# - 数据重排（preorder/post_reorder）内核
+# - SiLU 激活与量化融合内核
+# - 专家并行 scatter/gather 内核
+# - DeepGEMM 预处理内核
+# - FP8 量化相关内核
 
-import torch
-import triton
+import logging  # 导入日志记录模块
 
-from sglang.srt.utils import ceil_div, is_cuda, is_musa
+import torch  # 导入 PyTorch 深度学习框架
+import triton  # 导入 Triton GPU 编程框架
 
-logger = logging.getLogger(__name__)
+from sglang.srt.utils import ceil_div, is_cuda, is_musa  # 导入向上取整除法和平台检测函数
 
-_is_cuda = is_cuda()
-_is_musa = is_musa()
+logger = logging.getLogger(__name__)  # 创建当前模块的日志记录器
+
+_is_cuda = is_cuda()  # 判断是否为 CUDA 平台
+_is_musa = is_musa()  # 判断是否为 MUSA 平台
 
 if _is_cuda or _is_musa:
     from sglang.srt.layers.quantization.fp8_kernel import (
         sglang_per_token_group_quant_fp8 as per_token_group_quant_fp8,
     )
 
-import triton.language as tl
+import triton.language as tl  # 导入 Triton 语言模块
 
 
+# 获取一维 Triton 内核的启动配置（grid 和 block 大小）
 def _get_launch_config_1d(device, numel):
     MAX_THREADS_PER_BLOCK = 1024
     MIN_THREADS_PER_BLOCK = 512
-    MAX_WAVES = 8  # empirical numbers
+    MAX_WAVES = 8  # empirical numbers # 最大波次（经验数值）
 
     props = torch.cuda.get_device_properties(device)
     sm_count = props.multi_processor_count
@@ -45,10 +54,11 @@ def _get_launch_config_1d(device, numel):
     return (grid_dim,), block_dim
 
 
+# 获取二维 Triton 内核的启动配置（grid 和 block 大小）
 def _get_launch_config_2d(device, m, n):
     MAX_THREADS_PER_BLOCK = 1024
     MIN_THREADS_PER_BLOCK = 512
-    MAX_WAVES = 8  # empirical numbers
+    MAX_WAVES = 8  # empirical numbers # 最大波次（经验数值）
 
     props = torch.cuda.get_device_properties(device)
     sm_count = props.multi_processor_count
@@ -73,6 +83,7 @@ def _get_launch_config_2d(device, m, n):
 
 
 @triton.jit
+# DeepEP 数据重排 Triton 内核：将输入数据按 src2dst 映射重排到 gateup 输入缓冲区
 def deepep_permute_triton_kernel(
     input_ptr,
     gateup_input_ptr,
@@ -104,6 +115,7 @@ def deepep_permute_triton_kernel(
 
 
 @triton.jit
+# DeepEP 后重排 Triton 内核：将 down 层输出按权重加权累加到最终输出
 def deepep_post_reorder_triton_kernel(
     down_output_ptr,
     output_ptr,
@@ -137,6 +149,7 @@ def deepep_post_reorder_triton_kernel(
 
 
 @triton.jit
+# 计算源到目标索引映射的 Triton 内核
 def compute_src2dst_triton_kernel(
     reorder_ids, src2dst, num_toks, BLOCK_SIZE: tl.constexpr
 ):
@@ -148,6 +161,7 @@ def compute_src2dst_triton_kernel(
 
 
 @triton.jit
+# DeepEP 计算源到目标索引映射的内核（考虑无效 token 偏移）
 def deepep_compute_src2dst_triton_kernel(
     reorder_ids, src2dst, num_toks, num_minus_one, BLOCK_SIZE: tl.constexpr
 ):
@@ -159,12 +173,13 @@ def deepep_compute_src2dst_triton_kernel(
     tl.store(src2dst + src_id, dst_id - num_invalid, mask=mask)
 
 
+# DeepEP MoE 深度预处理：对 topk_ids 排序并计算 src2dst 映射和分段索引
 def deepep_run_moe_deep_preprocess(topk_ids: torch.Tensor, num_experts: int):
     reorder_topk_ids, reorder_ids = torch.sort(topk_ids.view(-1), stable=True)
     seg_indptr = torch.empty(num_experts + 1, device=topk_ids.device, dtype=torch.int64)
     src2dst = torch.empty(topk_ids.numel(), device=topk_ids.device, dtype=torch.int64)
 
-    # Find offset
+    # Find offset # 查找各专家的起始偏移
     expert_ids = torch.arange(
         num_experts + 1, device=topk_ids.device, dtype=reorder_topk_ids.dtype
     )
@@ -182,6 +197,7 @@ def deepep_run_moe_deep_preprocess(topk_ids: torch.Tensor, num_experts: int):
 
 
 @triton.jit
+# 通过二分查找计算每个专家的分段起始位置
 def compute_seg_indptr_triton_kernel(reorder_topk_ids, seg_indptr, num_toks):
     expert_id_minus_1 = tl.program_id(0) - 1
     low = 0
@@ -198,6 +214,7 @@ def compute_seg_indptr_triton_kernel(reorder_topk_ids, seg_indptr, num_toks):
     tl.store(seg_indptr + expert_id_minus_1 + 1, target_location + 1)
 
 
+# CUTLASS W4A8 MoE EP 预处理：排序 topk_ids 并计算 src2dst 映射
 def cutlass_w4_run_moe_ep_preproess(topk_ids: torch.Tensor):
     _, reorder_ids = torch.sort(topk_ids.view(-1), stable=True)
 
@@ -212,6 +229,7 @@ def cutlass_w4_run_moe_ep_preproess(topk_ids: torch.Tensor):
 
 
 @triton.jit
+# CUTLASS MoE 的预重排内核：将输入数据按专家分配重排到 gateup 输入缓冲区
 def pre_reorder_triton_kernel_for_cutlass_moe(
     input_ptr,
     gateup_input_ptr,
@@ -256,6 +274,7 @@ def pre_reorder_triton_kernel_for_cutlass_moe(
                 tl.store(dst_ptr_offs + dst_idx * hidden_size, out_data, mask=mask)
 
 
+# CUTLASS MoE 预重排：将输入数据按照专家分配重排到 gateup_input 缓冲区
 def pre_reorder_for_cutlass_moe(
     input,
     gateup_input,
@@ -284,8 +303,9 @@ def pre_reorder_for_cutlass_moe(
     )
 
 
-# copy from https://github.com/ModelTC/lightllm/blob/a000ab69098654df4731f5b12587dd4e7f0a4f41/lightllm/common/fused_moe/moe_silu_and_mul_mix_quant_ep.py
+# copy from https://github.com/ModelTC/lightllm/blob/a000ab69098654df4731f5b12587dd4e7f0a4f41/lightllm/common/fused_moe/moe_silu_and_mul_mix_quant_ep.py # 复制自同上源链接
 @triton.jit
+# 融合 SiLU 激活、逐元素乘法和分组 FP8 量化的 Triton 内核
 def _silu_and_mul_post_quant_kernel(
     input_ptr,
     stride_input_0,
@@ -363,6 +383,7 @@ def _silu_and_mul_post_quant_kernel(
         )
 
 
+# 融合 SiLU 激活、乘法与分组 FP8 量化的前向传播
 def silu_and_mul_masked_post_quant_fwd(
     input: torch.Tensor,
     output: torch.Tensor,
@@ -432,6 +453,7 @@ def silu_and_mul_masked_post_quant_fwd(
 
 
 @triton.jit
+# 融合 SiLU 激活和逐元素乘法的 Triton 内核（BF16 版本）
 def _silu_and_mul_kernel(
     input_ptr,
     stride_input_0,
@@ -477,8 +499,8 @@ def _silu_and_mul_kernel(
             other=0.0,
         ).to(tl.float32)
         gate = gate / (1 + tl.exp(-gate))
-        gate_up = up * gate
-        # Compute SiLU in fp32 for better precision, then cast back to the
+        gate_up = up * gate  # 在 fp32 精度下计算 SiLU 以获得更高精度，然后转回
+        # Compute SiLU in fp32 for better precision, then cast back to the # 输入数据类型。
         # input dtype.
         gate_up = gate_up.to(input_ptr.dtype.element_ty)
         tl.store(
@@ -488,6 +510,7 @@ def _silu_and_mul_kernel(
         )
 
 
+# 融合 SiLU 激活与乘法的掩码前向传播（BF16 版本）
 def silu_and_mul_masked_fwd(
     input: torch.Tensor,
     output: torch.Tensor,
@@ -542,6 +565,7 @@ def silu_and_mul_masked_fwd(
 
 
 @triton.jit
+# CUTLASS MoE 融合 SiLU 激活、乘法和静态张量级量化的 Triton 内核
 def silu_mul_static_tensorwise_quant_triton_kernel_for_cutlass_moe(
     input_ptr,
     output_ptr,
@@ -574,6 +598,7 @@ def silu_mul_static_tensorwise_quant_triton_kernel_for_cutlass_moe(
         tl.store(output_ptr + ids, output.to(OutDtype), mask=mask)
 
 
+# CUTLASS MoE SiLU 乘法静态张量级量化前向传播
 def silu_mul_static_tensorwise_quant_for_cutlass_moe(
     input: torch.Tensor,
     output: torch.Tensor,
@@ -598,6 +623,7 @@ def silu_mul_static_tensorwise_quant_for_cutlass_moe(
 
 
 @triton.jit
+# CUTLASS MoE 的后重排内核：将 down 层输出按权重加权累加到最终输出
 def post_reorder_triton_kernel_for_cutlass_moe(
     down_output_ptr,
     output_ptr,
@@ -647,6 +673,7 @@ def post_reorder_triton_kernel_for_cutlass_moe(
         tl.store(store_ptr_offs, sum_vec.to(OutDtype), mask=mask)
 
 
+# CUTLASS MoE 后重排：将 down 层输出按权重加权累加到最终输出
 def post_reorder_for_cutlass_moe(
     down_output,
     output,
@@ -678,6 +705,7 @@ def post_reorder_for_cutlass_moe(
 
 
 @triton.jit
+# 通用后重排 Triton 内核：将 down 层输出按权重加权累加到最终输出
 def post_reorder_triton_kernel(
     down_output_ptr,
     output_ptr,
@@ -712,14 +740,15 @@ def post_reorder_triton_kernel(
                 dst_idx = dst_idx_int32.to(tl.int64)
                 weigh_scale = tl.load(topk_weights_ptr + idx).to(tl.float32)
                 load_ptr = down_output_ptr + dst_idx * hidden_size
-                # accumulate expert outputs in fp32 for better precision
-                # before casting to the final output dtype.
+                # accumulate expert outputs in fp32 for better precision # 在 fp32 精度下累加专家输出以获得更高精度
+                # before casting to the final output dtype. # 然后再转换回最终输出数据类型。
                 in_data = tl.load(load_ptr + offset, mask=mask).to(tl.float32)
                 sum_vec += in_data * weigh_scale
         tl.store(store_ptr + offset, sum_vec.to(InDtype), mask=mask)
 
 
 @triton.jit
+# 专家并行 scatter 第一阶段内核：计算专家起始位置和 M 索引
 def _fwd_kernel_ep_scatter_1(
     num_recv_tokens_per_expert,
     expert_start_loc,
@@ -753,6 +782,7 @@ def _fwd_kernel_ep_scatter_1(
 
 
 @triton.jit
+# 专家并行 scatter 第二阶段内核：将输入数据 scatter 到输出缓冲区
 def _fwd_kernel_ep_scatter_2(
     total_token_num,
     expert_start_loc,
@@ -780,7 +810,7 @@ def _fwd_kernel_ep_scatter_2(
     SCALE_HIDDEN_SIZE: tl.constexpr,
     SCALE_HIDDEN_SIZE_PAD: tl.constexpr,
     # Platform-specific semaphore for atomic_add performance tuning
-    ATOMIC_ADD_SEM: tl.constexpr,
+    ATOMIC_ADD_SEM: tl.constexpr,  # 平台特定的原子加法信号量，用于性能调优
     IS_FP8: tl.constexpr,
 ):
     start_token_id = tl.program_id(0)
@@ -833,8 +863,9 @@ def _fwd_kernel_ep_scatter_2(
                     )
 
 
-# copy from https://github.com/ModelTC/lightllm/blob/main/lightllm/common/fused_moe/deepep_scatter_gather.py
+# copy from https://github.com/ModelTC/lightllm/blob/main/lightllm/common/fused_moe/deepep_scatter_gather.py # 复制自同上源链接
 @torch.no_grad()
+# 专家并行 scatter：将接收到的输入数据按 topk 专家分配 scatter 到输出张量中
 def ep_scatter(
     recv_x: torch.Tensor,
     recv_x_scale: torch.Tensor,
@@ -857,8 +888,8 @@ def ep_scatter(
 
     scale_hidden_size = hidden_size // BLOCK_D
     if scale_ue8m0:
-        # ue8m0 scales are packed here (4 scales per int32),
-        # hence the effective size of this dimension is divided by 4.
+        # ue8m0 scales are packed here (4 scales per int32), # ue8m0 缩放因子在此打包（每个 int32 包含 4 个缩放因子），
+        # hence the effective size of this dimension is divided by 4. # 因此此维度的有效大小除以 4。
         scale_hidden_size = ceil_div(scale_hidden_size, 4)
 
     assert m_indices.shape[0] % BLOCK_E == 0
@@ -911,7 +942,7 @@ def ep_scatter(
         HIDDEN_SIZE_PAD=triton.next_power_of_2(hidden_size),
         SCALE_HIDDEN_SIZE=scale_hidden_size,
         SCALE_HIDDEN_SIZE_PAD=triton.next_power_of_2(scale_hidden_size),
-        # XXX (MUSA): Atomic add with "relaxed" semaphore on musa backend for better performance
+        # XXX (MUSA): Atomic add with "relaxed" semaphore on musa backend for better performance # MUSA：在 MUSA 后端使用 relaxed 信号量的原子加法以获得更好性能
         ATOMIC_ADD_SEM=None if not _is_musa else "relaxed",
         IS_FP8=is_fp8,
     )
@@ -919,6 +950,7 @@ def ep_scatter(
 
 
 @triton.jit
+# 专家并行 gather 内核：将专家输出按 topk 权重加权累加到最终输出
 def _fwd_kernel_ep_gather(
     total_token_num,
     input_tensor,
@@ -985,6 +1017,7 @@ def _fwd_kernel_ep_gather(
 
 
 @torch.no_grad()
+# 专家并行 gather：将专家的输出按 topk 权重加权累加回最终输出张量
 def ep_gather(
     input_tensor: torch.Tensor,
     recv_topk_ids: torch.Tensor,
@@ -1022,8 +1055,9 @@ def ep_gather(
     return
 
 
-# copy from
-# https://github.com/deepseek-ai/DeepGEMM/blob/bd2a77552886b98c205af12f8d7d2d61247c4b27/deep_gemm/jit_kernels/utils.py#L58
+# copy from # 复制自同上源链接
+# https://github.com/deepseek-ai/DeepGEMM/blob/bd2a77552886b98c205af12f8d7d2d61247c4b27/deep_gemm/jit_kernels/utils.py#L58 # 同上
+# 计算 TMA 对齐后的维度大小
 def get_tma_aligned_size(x: int, element_size: int) -> int:
     """
     Global memory address of TMA must be 16-byte aligned.
@@ -1044,6 +1078,7 @@ def get_tma_aligned_size(x: int, element_size: int) -> int:
 
 
 @triton.jit
+# TMA 对齐输入缩放因子的 Triton 内核：将缩放因子重新排列为列主序布局
 def _tma_align_input_scale_kernel(
     input_scale_ptr,
     output_ptr,
@@ -1073,7 +1108,8 @@ def _tma_align_input_scale_kernel(
         tl.store(output_offset, input_data, mask=k_offsets < k_div_block_size)
 
 
-# copy from https://github.com/ModelTC/lightllm/blob/main/lightllm/common/quantization/triton_quant/fp8/fp8act_quant_kernel.py
+# copy from https://github.com/ModelTC/lightllm/blob/main/lightllm/common/quantization/triton_quant/fp8/fp8act_quant_kernel.py # 复制自同上源链接
+# 将输入缩放因子重新排列为 TMA 对齐的列主序布局
 def tma_align_input_scale(input_scale: torch.Tensor):
     assert input_scale.dim() == 2
     m, k_div_block_size = input_scale.shape
@@ -1092,14 +1128,15 @@ def tma_align_input_scale(input_scale: torch.Tensor):
         k_div_block_size=k_div_block_size,
         input_scale_stride_m=input_scale.stride(0),
         input_scale_stride_k=input_scale.stride(1),
-        output_stride_m=output.stride(1),  # Note: these are swapped
-        output_stride_k=output.stride(0),  # for column-major
+        output_stride_m=output.stride(1),  # Note: these are swapped # 注意：这两个步长交换了
+        output_stride_k=output.stride(0),  # for column-major # 用于列主序布局
         BLOCK_SIZE_K=BLOCK_SIZE_K,
     )
     return output.t()[:m]
 
 
 @triton.jit
+# 计算每个专家有效 token 数的 Triton 内核
 def compute_masked_m_triton_kernel(seg_indptr, masked_m):
     expert_id = tl.program_id(0)
     start = tl.load(seg_indptr + expert_id)
@@ -1108,6 +1145,7 @@ def compute_masked_m_triton_kernel(seg_indptr, masked_m):
 
 
 @triton.jit
+# DeepGEMM 计算源到目标索引映射的 Triton 内核
 def deepgemm_compute_src2dst_triton_kernel(
     topk_ids,
     reorder_ids,
@@ -1129,6 +1167,7 @@ def deepgemm_compute_src2dst_triton_kernel(
 
 
 @triton.jit
+# 填充 gate-up 层输入缓冲区的 Triton 内核
 def fill_gateup_input_triton_kernel(
     input_ptr,
     scale_ptr,
@@ -1173,6 +1212,7 @@ def fill_gateup_input_triton_kernel(
                     tl.store(scale_dst_ptr + offset, in_scale, mask=mask)
 
 
+# MoE Expert Parallel DeepGEMM 预处理：排序 topk_ids 并准备 DeepGEMM 所需的输入数据
 def moe_ep_deepgemm_preprocess(
     topk_ids: torch.Tensor,
     num_local_experts: int,
@@ -1195,7 +1235,7 @@ def moe_ep_deepgemm_preprocess(
     grid = lambda meta: (triton.cdiv(topk_ids.numel(), meta["BLOCK_SIZE"]),)
     compute_masked_m_triton_kernel[(num_local_experts,)](seg_indptr, masked_m)
 
-    # For masked grouped GEMM, shape M should be multiple of the block M (current block M: {block_m}) https://github.com/deepseek-ai/DeepGEMM/blob/main/deep_gemm/jit_kernels/m_grouped_gemm.py#L165
+    # For masked grouped GEMM, shape M should be multiple of the block M (current block M: {block_m}) https://github.com/deepseek-ai/DeepGEMM/blob/main/deep_gemm/jit_kernels/m_grouped_gemm.py#L165 # 对于掩码分组 GEMM，M 维度大小应该是块 M 的倍数
     m_max = (hidden_states.size(0) // 256 + 1) * 256
     expected_m = (topk_ids.numel() - 1) // num_local_experts + 1
     gateup_input = torch.empty(
@@ -1220,7 +1260,7 @@ def moe_ep_deepgemm_preprocess(
     block_n, block_k = block_shape[0], block_shape[1]
     is_fp8 = output_dtype == torch.float8_e4m3fn
     if is_fp8:
-        # TODO: fuse this with the preprocess
+        # TODO: fuse this with the preprocess # 将此操作与预处理融合
         hidden_states, scale = per_token_group_quant_fp8(hidden_states, block_k)
 
         gateup_input_scale = torch.empty(
@@ -1256,6 +1296,7 @@ def moe_ep_deepgemm_preprocess(
 
 
 @triton.jit
+# 计算零专家（恒等变换）的 Triton 内核
 def compute_identity_kernel(
     top_k,
     hidden_states_ptr,
@@ -1294,6 +1335,7 @@ def compute_identity_kernel(
     )
 
 
+# 使用 Triton 内核计算零专家（恒等变换）的输出
 def zero_experts_compute_triton(
     expert_indices, expert_scales, num_experts, zero_expert_type, hidden_states
 ):
@@ -1330,6 +1372,7 @@ def zero_experts_compute_triton(
 
 
 @triton.jit
+# 计算 W4A8 量化 GEMM 问题大小的 Triton 内核
 def compute_problem_sizes_w4a8_kernel(
     masked_m_ptr,
     problem_sizes1_ptr,
@@ -1367,6 +1410,7 @@ def compute_problem_sizes_w4a8_kernel(
     tl.store(problem_sizes2_ptr + ps2_idx_2, n, mask=ps2_mask_2)
 
 
+# 计算 W4A8 量化 GEMM 的两组问题大小（用于分组 GEMM）
 def compute_problem_sizes_w4a8(
     masked_m, problem_sizes1, problem_sizes2, n, k, num_experts
 ):
@@ -1384,6 +1428,7 @@ def compute_problem_sizes_w4a8(
     return problem_sizes1, problem_sizes2
 
 
+# 获取 DeepEP 低延迟模式下 CUTLASS W4A8 MoE 的矩阵乘法问题大小数据
 def deepep_ll_get_cutlass_w4a8_moe_mm_data(
     masked_m,
     problem_sizes1,
@@ -1402,6 +1447,7 @@ def deepep_ll_get_cutlass_w4a8_moe_mm_data(
 
 
 @triton.jit
+# 融合 SiLU 激活、乘法和逐张量 FP8 量化的 Triton 内核
 def _silu_and_mul_post_per_tensor_quant_kernel(
     input_ptr,
     stride_input_expert,
@@ -1419,10 +1465,10 @@ def _silu_and_mul_post_per_tensor_quant_kernel(
     BLOCK_N: tl.constexpr,
     NUM_STAGE: tl.constexpr,
 ):
-    """
-    Triton kernel: fused SiLU(gate) * up + per-tensor FP8 quantization.
-
-    Shape:
+    """  # Triton 内核：融合 SiLU(gate) * up + 逐张量 FP8 量化。
+    Triton kernel: fused SiLU(gate) * up + per-tensor FP8 quantization.  # 形状：
+  # 输入：[E, T_padded, 2*D] -> gate: [:,:,D], up: [:,:,D]
+    Shape:  # 输出：[E, T_padded, D], dtype=float8_e4m3fn
         input:  [E, T_padded, 2*D]  -> gate: [:,:,D], up: [:,:,D]
         output: [E, T_padded, D], dtype=float8_e4m3fn
     """
@@ -1444,7 +1490,7 @@ def _silu_and_mul_post_per_tensor_quant_kernel(
     offset_d = block_id_dim * BLOCK_N + tl.arange(0, BLOCK_N)
     mask_d = offset_d < inner_dim
 
-    # base pointers for current expert and dim block
+    # base pointers for current expert and dim block # 当前专家和维度块的基指针
     input_base_offs = input_ptr + expert_id * stride_input_expert + offset_d
     output_base_offs = output_ptr + expert_id * stride_output_expert + offset_d
 
@@ -1456,7 +1502,7 @@ def _silu_and_mul_post_per_tensor_quant_kernel(
         gate = tl.load(gate_ptr, mask=mask_d, other=0.0).to(tl.float32)
         up = tl.load(up_ptr, mask=mask_d, other=0.0).to(tl.float32)
 
-        # SiLU: x * sigmoid(x)
+        # SiLU: x * sigmoid(x) # SiLU：x * sigmoid(x)
         gate = gate / (1 + tl.exp(-gate))
         gate = gate.to(input_ptr.dtype.element_ty)
         gate_up = up * gate
@@ -1467,6 +1513,7 @@ def _silu_and_mul_post_per_tensor_quant_kernel(
         tl.store(out_ptr, output_q, mask=mask_d)
 
 
+# 融合 SiLU 激活、乘法与逐张量 FP8 量化的前向传播
 def silu_and_mul_masked_post_per_tensor_quant_fwd(
     input: torch.Tensor,
     output: torch.Tensor,
@@ -1524,6 +1571,7 @@ def silu_and_mul_masked_post_per_tensor_quant_fwd(
 
 
 @triton.jit
+# 将逐 token FP8 量化转换为逐张量 FP8 量化的 Triton 内核
 def _fp8_per_token_quant_to_per_tensor_quant_kernel(
     x_ptr,
     x_scale_ptr,
@@ -1565,6 +1613,7 @@ def _fp8_per_token_quant_to_per_tensor_quant_kernel(
         tl.store(output_ptrs + tok_idx * k, hidden.to(output_ptr.dtype.element_ty))
 
 
+# 将逐 token FP8 量化数据转换为逐张量 FP8 量化数据
 def fp8_per_token_to_per_tensor_quant_triton(
     x: torch.Tensor,
     x_scale: torch.Tensor,

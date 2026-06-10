@@ -1,3 +1,4 @@
+# 文件名: test_separate_reasoning_execution.py - 测试分离推理功能的执行逻辑，验证ReasoningParser调用
 """
 Tests for the execution of separate_reasoning functionality in sglang.
 
@@ -21,11 +22,13 @@ def create_daemon_event():
 
 
 class MockReasoningParser:
+    # 内部方法：init  
     def __init__(self, model_type):
         self.model_type = model_type
         self.parse_non_stream_called = False
         self.parse_stream_chunk_called = False
 
+    # 执行parse_non_stream
     def parse_non_stream(self, full_text):
         self.parse_non_stream_called = True
         # Simulate parsing by adding a prefix to indicate reasoning
@@ -33,6 +36,7 @@ class MockReasoningParser:
         normal_text = f"[NORMAL from {self.model_type}]: {full_text}"
         return reasoning, normal_text
 
+    # 执行parse_stream_chunk
     def parse_stream_chunk(self, chunk_text):
         self.parse_stream_chunk_called = True
         # Simulate parsing by adding a prefix to indicate reasoning
@@ -56,6 +60,7 @@ class TestSeparateReasoningExecution(CustomTestCase):
         for event in self.events:
             event.set()
 
+    # 测试方法级别清理
     def tearDown(self):
         super().tearDown()
         # wake up all threads
@@ -114,25 +119,25 @@ class TestSeparateReasoningExecution(CustomTestCase):
         mock_parser_class.assert_called_once_with("deepseek-r1")
 
         # Verify that parse_non_stream was called
-        self.assertTrue(mock_parser.parse_non_stream_called)
+        self.assertTrue(mock_parser.parse_non_stream_called)  # 断言条件为真
 
         # Verify that the variables were updated correctly
         reasoning_name = f"{var_name}_reasoning_content"
-        self.assertIn(reasoning_name, executor.variables)
-        self.assertEqual(
+        self.assertIn(reasoning_name, executor.variables)  # 断言值包含在集合中
+        self.assertEqual(  # 断言值相等
             executor.variables[reasoning_name],
             f"[REASONING from deepseek-r1]: {var_value}",
         )
-        self.assertEqual(
+        self.assertEqual(  # 断言值相等
             executor.variables[var_name], f"[NORMAL from deepseek-r1]: {var_value}"
         )
 
         # Verify that the variable event was set
-        self.assertIn(reasoning_name, executor.variable_event)
-        self.assertTrue(executor.variable_event[reasoning_name].is_set())
+        self.assertIn(reasoning_name, executor.variable_event)  # 断言值包含在集合中
+        self.assertTrue(executor.variable_event[reasoning_name].is_set())  # 断言条件为真
 
         # Verify that the text was updated
-        self.assertEqual(executor.text_, f"[NORMAL from deepseek-r1]: {var_value}")
+        self.assertEqual(executor.text_, f"[NORMAL from deepseek-r1]: {var_value}")  # 断言值相等
 
     @patch("sglang.srt.parser.reasoning_parser.ReasoningParser")
     def test_reasoning_parser_integration(self, mock_parser_class):
@@ -156,14 +161,14 @@ class TestSeparateReasoningExecution(CustomTestCase):
         test_text = "This is a test"
         reasoning, normal_text = deepseek_parser.parse_non_stream(test_text)
 
-        self.assertEqual(reasoning, f"[REASONING from deepseek-r1]: {test_text}")
-        self.assertEqual(normal_text, f"[NORMAL from deepseek-r1]: {test_text}")
+        self.assertEqual(reasoning, f"[REASONING from deepseek-r1]: {test_text}")  # 断言值相等
+        self.assertEqual(normal_text, f"[NORMAL from deepseek-r1]: {test_text}")  # 断言值相等
 
         # Test with Qwen3 model
         reasoning, normal_text = qwen_parser.parse_non_stream(test_text)
 
-        self.assertEqual(reasoning, f"[REASONING from qwen3]: {test_text}")
-        self.assertEqual(normal_text, f"[NORMAL from qwen3]: {test_text}")
+        self.assertEqual(reasoning, f"[REASONING from qwen3]: {test_text}")  # 断言值相等
+        self.assertEqual(normal_text, f"[NORMAL from qwen3]: {test_text}")  # 断言值相等
 
     @patch("sglang.srt.parser.reasoning_parser.ReasoningParser")
     def test_reasoning_parser_invalid_model(self, mock_parser_class):
@@ -182,11 +187,11 @@ class TestSeparateReasoningExecution(CustomTestCase):
 
         with self.assertRaises(ValueError) as context:
             mock_parser_class("invalid-model")
-        self.assertIn("Unsupported model type", str(context.exception))
+        self.assertIn("Unsupported model type", str(context.exception))  # 断言值包含在集合中
 
         with self.assertRaises(ValueError) as context:
             mock_parser_class(None)
-        self.assertIn("Model type must be specified", str(context.exception))
+        self.assertIn("Model type must be specified", str(context.exception))  # 断言值包含在集合中
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+# 文件名: test_cache_report.py - 测试缓存报告功能（缓存命中token数与cache_salt隔离）
 import unittest
 
 import openai
@@ -14,11 +15,12 @@ from sglang.test.test_utils import (
 
 class TestCacheReport(CustomTestCase):
     @classmethod
+    # 类级别初始化，启动服务器或设置测试环境
     def setUpClass(cls):
         cls.model = DEFAULT_SMALL_MODEL_NAME_FOR_TEST
         cls.base_url = DEFAULT_URL_FOR_TEST
         cls.min_cached = 5
-        cls.process = popen_launch_server(
+        cls.process = popen_launch_server(  # 启动推理服务器
             cls.model,
             cls.base_url,
             timeout=300,
@@ -44,11 +46,13 @@ class TestCacheReport(CustomTestCase):
         )
 
     @classmethod
+    # 类级别清理，关闭服务器或清理资源
     def tearDownClass(cls):
-        kill_process_tree(cls.process.pid)
+        kill_process_tree(cls.process.pid)  # 终止服务器进程
 
+    # 运行decode请求
     def run_decode(self, return_logprob=False, top_logprobs_num=0, n=1):
-        response = requests.post(
+        response = requests.post(  # 发送POST请求
             self.base_url + "/generate",
             # we use an uncommon start to minimise the chance that the cache is hit by chance
             json={
@@ -67,6 +71,7 @@ class TestCacheReport(CustomTestCase):
         )
         return response
 
+    # 运行OpenAI聊天请求
     def run_openai(self, message):
         response = self.client.chat.completions.create(
             model=self.model,
@@ -79,6 +84,7 @@ class TestCacheReport(CustomTestCase):
         )
         return response
 
+    # 异步运行OpenAI聊天请求
     async def run_openai_async(self, message):
         response = await self.aclient.chat.completions.create(
             model=self.model,
@@ -90,6 +96,7 @@ class TestCacheReport(CustomTestCase):
         )
         return response
 
+    # 验证OpenAI接口的缓存命中报告
     def cache_report_openai(self, message):
         response = self.run_openai(message)
         print(
@@ -105,12 +112,14 @@ class TestCacheReport(CustomTestCase):
         assert cached_tokens == int(response.usage.prompt_tokens) - 1
         return first_cached_tokens
 
+    # 异步验证OpenAI接口的缓存命中
     async def cache_report_openai_async(self, message):
         response = await self.run_openai_async(message)
         cached_tokens = int(response.usage.prompt_tokens_details.cached_tokens)
         prompt_tokens = int(response.usage.prompt_tokens)
         return cached_tokens, prompt_tokens
 
+    # 测试generate功能
     def test_generate(self):
         print("=" * 100)
         response = self.run_decode()
@@ -130,6 +139,7 @@ class TestCacheReport(CustomTestCase):
         )
         assert cached_tokens == int(response.json()["meta_info"]["prompt_tokens"]) - 1
 
+    # 测试cache split prefill openai功能
     def test_cache_split_prefill_openai(self):
         print("=" * 100)
         self.cache_report_openai(
@@ -138,6 +148,7 @@ class TestCacheReport(CustomTestCase):
             " several prefill requests. Still, it shouldn't be cached"
         )
 
+    # 测试cache report openai功能
     def test_cache_report_openai(self):
         print("=" * 100)
         # warm up the cache, for the template
@@ -215,6 +226,7 @@ class TestCacheReport(CustomTestCase):
             return 0
         return int(details.cached_tokens)
 
+    # 测试cache salt effectiveness功能
     def test_cache_salt_effectiveness(self):
         print("=" * 100)
         print("Testing cache_salt effectiveness")

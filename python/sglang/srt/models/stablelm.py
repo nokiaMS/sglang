@@ -1,3 +1,8 @@
+# StableLM 模型推理实现文件
+# 本文件实现了仅推理的StableLM-2模型，兼容HuggingFace权重
+# 支持部分旋转位置编码(partial RoPE)、QKV偏置和NPU平台
+# 包含MLP、注意力、解码层、模型和权重加载等核心组件
+
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
@@ -22,41 +27,43 @@ Inference-only StableLM-2 (https://huggingface.co/stabilityai/stablelm-2-1_6b)
 model compatible with HuggingFace weights.
 """
 
-from typing import Iterable, Optional, Tuple
+from typing import Iterable, Optional, Tuple  # 导入类型提示
 
-import torch
-from torch import nn
-from transformers import PretrainedConfig
+import torch  # 导入PyTorch
+from torch import nn  # 导入神经网络模块
+from transformers import PretrainedConfig  # 导入预训练配置
 
-from sglang.srt.distributed import get_tensor_model_parallel_world_size
-from sglang.srt.layers.activation import SiluAndMul
-from sglang.srt.layers.linear import (
+from sglang.srt.distributed import get_tensor_model_parallel_world_size  # 导入TP世界大小
+from sglang.srt.layers.activation import SiluAndMul  # 导入SiLU激活
+from sglang.srt.layers.linear import (  # 导入线性层
     MergedColumnParallelLinear,
     QKVParallelLinear,
     RowParallelLinear,
 )
-from sglang.srt.layers.logits_processor import LogitsProcessor
-from sglang.srt.layers.quantization.base_config import QuantizationConfig
-from sglang.srt.layers.radix_attention import RadixAttention
-from sglang.srt.layers.rotary_embedding import get_rope
-from sglang.srt.layers.vocab_parallel_embedding import (
+from sglang.srt.layers.logits_processor import LogitsProcessor  # 导入逻辑处理器
+from sglang.srt.layers.quantization.base_config import QuantizationConfig  # 导入量化配置
+from sglang.srt.layers.radix_attention import RadixAttention  # 导入基数注意力
+from sglang.srt.layers.rotary_embedding import get_rope  # 导入旋转位置编码
+from sglang.srt.layers.vocab_parallel_embedding import (  # 导入词表并行嵌入
     ParallelLMHead,
     VocabParallelEmbedding,
 )
-from sglang.srt.model_executor.forward_batch_info import ForwardBatch
-from sglang.srt.model_loader.weight_utils import default_weight_loader
-from sglang.srt.utils import add_prefix, is_npu
+from sglang.srt.model_executor.forward_batch_info import ForwardBatch  # 导入前向批次
+from sglang.srt.model_loader.weight_utils import default_weight_loader  # 导入默认权重加载器
+from sglang.srt.utils import add_prefix, is_npu  # 导入工具函数
 
-_is_npu = is_npu()
+_is_npu = is_npu()  # 是否NPU
 
 
 class StablelmMLP(nn.Module):
+    """StableLM MLP模块"""
     def __init__(
         self,
-        config: PretrainedConfig,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        config: PretrainedConfig,  # 模型配置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
     ) -> None:
+        """初始化StableLM MLP"""
         super().__init__()
         self.config = config
         self.hidden_size = config.hidden_size
@@ -78,6 +85,7 @@ class StablelmMLP(nn.Module):
         self.act_fn = SiluAndMul()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """MLP前向传播"""
         gate_up, _ = self.gate_up_proj(x)
         x = self.act_fn(gate_up)
         x, _ = self.down_proj(x)
@@ -85,13 +93,15 @@ class StablelmMLP(nn.Module):
 
 
 class StablelmAttention(nn.Module):
+    """StableLM注意力模块，支持部分旋转位置编码"""
     def __init__(
         self,
-        config: PretrainedConfig,
-        layer_id: int = 0,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        config: PretrainedConfig,  # 模型配置
+        layer_id: int = 0,  # 层ID
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
     ) -> None:
+        """初始化StableLM注意力"""
         super().__init__()
         self.config = config
         self.hidden_size = config.hidden_size
@@ -113,8 +123,8 @@ class StablelmAttention(nn.Module):
         self.max_position_embeddings = config.max_position_embeddings
         rope_pct = getattr(
             config, "rope_pct", getattr(config, "partial_rotary_factor", 1)
-        )
-        self.rotary_ndims = int(self.head_dim * rope_pct)
+        )  # 部分旋转比例
+        self.rotary_ndims = int(self.head_dim * rope_pct)  # 旋转维度数
         self.scaling = self.head_dim**-0.5
         self.q_size = self.num_heads * self.head_dim
         self.kv_size = self.num_key_value_heads * self.head_dim
@@ -142,14 +152,14 @@ class StablelmAttention(nn.Module):
             quant_config=quant_config,
             prefix=add_prefix("o_proj", prefix),
         )
-        if not _is_npu:
+        if not _is_npu:  # 非NPU
             self.rotary_emb = get_rope(
                 self.head_dim,
                 rotary_dim=self.rotary_ndims,
                 max_position=self.config.max_position_embeddings,
                 base=self.config.rope_parameters["rope_theta"],
             )
-        else:
+        else:  # NPU使用float32
             self.rotary_emb = get_rope(
                 self.head_dim,
                 rotary_dim=self.rotary_ndims,
@@ -169,15 +179,16 @@ class StablelmAttention(nn.Module):
 
     def forward(
         self,
-        positions: torch.Tensor,
-        hidden_states: torch.Tensor,
-        forward_batch: ForwardBatch,
+        positions: torch.Tensor,  # 位置
+        hidden_states: torch.Tensor,  # 隐藏状态
+        forward_batch: ForwardBatch,  # 前向批次
     ) -> torch.Tensor:
+        """StableLM注意力前向传播"""
         qkv, _ = self.qkv_proj(hidden_states)
         q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
-        if not _is_npu:
+        if not _is_npu:  # 非NPU
             q, k = self.rotary_emb(positions, q, k)
-        else:
+        else:  # NPU上使用float32精度
             odtype = q.dtype
             q, k = self.rotary_emb(positions, q.to(torch.float32), k.to(torch.float32))
             q, k = q.to(odtype), k.to(odtype)
@@ -187,13 +198,15 @@ class StablelmAttention(nn.Module):
 
 
 class StablelmDecoderLayer(nn.Module):
+    """StableLM解码器层"""
     def __init__(
         self,
-        config: PretrainedConfig,
-        layer_id: int = 0,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        config: PretrainedConfig,  # 模型配置
+        layer_id: int = 0,  # 层ID
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
     ) -> None:
+        """初始化StableLM解码器层"""
         super().__init__()
         self.self_attn = StablelmAttention(
             config, layer_id=layer_id, prefix=add_prefix("self_attn", prefix)
@@ -207,10 +220,11 @@ class StablelmDecoderLayer(nn.Module):
 
     def forward(
         self,
-        positions: torch.Tensor,
-        hidden_states: torch.Tensor,
-        forward_batch: ForwardBatch,
+        positions: torch.Tensor,  # 位置
+        hidden_states: torch.Tensor,  # 隐藏状态
+        forward_batch: ForwardBatch,  # 前向批次
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """StableLM解码器层前向传播"""
         # Self Attention
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
@@ -231,12 +245,14 @@ class StablelmDecoderLayer(nn.Module):
 
 
 class StableLMEpochModel(nn.Module):
+    """StableLM Epoch模型"""
     def __init__(
         self,
-        config: PretrainedConfig,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        config: PretrainedConfig,  # 模型配置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
     ) -> None:
+        """初始化StableLM Epoch模型"""
         super().__init__()
         self.embed_tokens = VocabParallelEmbedding(
             config.vocab_size,
@@ -259,11 +275,12 @@ class StableLMEpochModel(nn.Module):
 
     def forward(
         self,
-        input_ids: torch.Tensor,
-        positions: torch.Tensor,
-        forward_batch: ForwardBatch,
-        input_embeds: torch.Tensor = None,
+        input_ids: torch.Tensor,  # 输入ID
+        positions: torch.Tensor,  # 位置
+        forward_batch: ForwardBatch,  # 前向批次
+        input_embeds: torch.Tensor = None,  # 输入嵌入
     ) -> torch.Tensor:
+        """StableLM Epoch模型前向传播"""
         if input_embeds is None:
             hidden_states = self.embed_tokens(input_ids)
         else:
@@ -280,12 +297,14 @@ class StableLMEpochModel(nn.Module):
 
 
 class StableLmForCausalLM(nn.Module):
+    """StableLM因果语言模型"""
     def __init__(
         self,
-        config: PretrainedConfig,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        config: PretrainedConfig,  # 模型配置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
     ) -> None:
+        """初始化StableLM因果语言模型"""
         super().__init__()
         self.config = config
         self.quant_config = quant_config
@@ -300,17 +319,19 @@ class StableLmForCausalLM(nn.Module):
     @torch.no_grad()
     def forward(
         self,
-        input_ids: torch.Tensor,
-        positions: torch.Tensor,
-        forward_batch: ForwardBatch,
-        input_embeds: torch.Tensor = None,
+        input_ids: torch.Tensor,  # 输入ID
+        positions: torch.Tensor,  # 位置
+        forward_batch: ForwardBatch,  # 前向批次
+        input_embeds: torch.Tensor = None,  # 输入嵌入
     ) -> torch.Tensor:
+        """StableLM因果语言模型前向传播"""
         hidden_states = self.model(input_ids, positions, forward_batch, input_embeds)
         return self.logits_processor(
             input_ids, hidden_states, self.lm_head, forward_batch
         )
 
     def load_weights(self, weights: Iterable[Tuple[str, torch.Tensor]]):
+        """加载模型权重"""
         stacked_params_mapping = [
             # (param_name, shard_name, shard_id)
             ("qkv_proj", "q_proj", "q"),
@@ -347,4 +368,4 @@ class StableLmForCausalLM(nn.Module):
                 weight_loader(param, loaded_weight)
 
 
-EntryClass = StableLmForCausalLM
+EntryClass = StableLmForCausalLM  # 模型注册入口类

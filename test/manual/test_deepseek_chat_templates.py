@@ -1,3 +1,4 @@
+# 文件名: test_deepseek_chat_templates.py - DeepSeek聊天模板测试 - 验证DeepSeek模型的聊天模板渲染功能
 """
 Unit tests for DeepSeek chat template tool call handling.
 
@@ -16,6 +17,7 @@ class TestDeepSeekChatTemplateToolCalls(unittest.TestCase):
     """Test DeepSeek chat templates handle tool calls correctly."""
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         """Load all DeepSeek chat templates."""
         base_path = os.path.join(
@@ -35,6 +37,7 @@ class TestDeepSeekChatTemplateToolCalls(unittest.TestCase):
                 template_content = f.read()
             cls.templates[version] = Template(template_content)
 
+    # 内部方法: render template
     def _render_template(
         self, version, messages, tools=None, add_generation_prompt=True
     ):
@@ -53,6 +56,7 @@ class TestDeepSeekChatTemplateToolCalls(unittest.TestCase):
 
         return template.render(**context)
 
+    # 测试tool arguments as dict
     def test_tool_arguments_as_dict(self):
         """Test that tool arguments as dict are properly JSON-encoded (normal case)."""
         # This tests the normal case where arguments come from OpenAI API as dict
@@ -112,6 +116,7 @@ class TestDeepSeekChatTemplateToolCalls(unittest.TestCase):
                     '\\\\"', output, f"{version}: Should not have escaped backslashes"
                 )
 
+    # 测试tool arguments as string
     def test_tool_arguments_as_string(self):
         """Test that tool arguments as string are used as-is (multi-round case)."""
         # This tests the multi-round function calling case from issue #11700
@@ -175,6 +180,7 @@ class TestDeepSeekChatTemplateToolCalls(unittest.TestCase):
                     '""{"', output, f"{version}: Should not have extra quotes"
                 )
 
+    # 测试multiple tool calls mixed types
     def test_multiple_tool_calls_mixed_types(self):
         """Test multiple tool calls with mixed dict and string argument types."""
         # This tests a complex scenario with multiple tools, some with dict args, some with string
@@ -261,6 +267,7 @@ class TestDeepSeekChatTemplateToolCalls(unittest.TestCase):
                     f"{version}: Second tool should not double-escape",
                 )
 
+    # 测试tool call with content
     def test_tool_call_with_content(self):
         """Test tool calls that also include content text."""
         # Some models include explanatory text along with tool calls

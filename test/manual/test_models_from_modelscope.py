@@ -1,3 +1,4 @@
+# 文件名: test_models_from_modelscope.py - ModelScope模型测试 - 验证从ModelScope加载的模型的推理功能
 import os
 import shutil
 import subprocess
@@ -11,6 +12,7 @@ from sglang.test.test_utils import CustomTestCase
 class TestDownloadFromModelScope(CustomTestCase):
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         cls.model = "iic/nlp_lstmcrf_word-segmentation_chinese-news"
         stat, output = subprocess.getstatusoutput("pip install modelscope")
@@ -19,9 +21,11 @@ class TestDownloadFromModelScope(CustomTestCase):
         cls.with_modelscope_environ["SGLANG_USE_MODELSCOPE"] = "True"
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         pass
 
+    # 测试prepare model and tokenizer
     def test_prepare_model_and_tokenizer(self):
         from modelscope.utils.file_utils import get_model_cache_root
 

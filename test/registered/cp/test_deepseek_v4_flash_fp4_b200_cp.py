@@ -1,3 +1,4 @@
+# 文件名: test_deepseek_v4_flash_fp4_b200_cp.py - DeepSeek V4 Flash FP4 B200上下文并行测试
 """B200 extra CI: DeepSeek-V4-Flash FP4 with attn-CP (DSA prefill CP).
 
 Balanced recipe (TP=4, DeepEP, EAGLE) plus --attn-cp-size=4 with the
@@ -42,6 +43,7 @@ class TestDSV4FlashFP4B200Balanced_CP(
     gsm8k_accuracy_thres = 0.93
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = try_cached_model(MODEL)
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -76,6 +78,7 @@ class TestDSV4FlashFP4B200Balanced_CP(
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         if hasattr(cls, "process") and cls.process:
             kill_process_tree(cls.process.pid)
@@ -91,6 +94,7 @@ class TestDSV4FlashFP4B200Balanced_CP_NonDeepEP(
     gsm8k_accuracy_thres = 0.93
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = try_cached_model(MODEL)
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -121,6 +125,7 @@ class TestDSV4FlashFP4B200Balanced_CP_NonDeepEP(
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         if hasattr(cls, "process") and cls.process:
             kill_process_tree(cls.process.pid)

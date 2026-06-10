@@ -1,3 +1,4 @@
+# 文件名: test_attention_patching.py - 注意力补丁
 """Unit tests for MLX attention discovery and generic cache handling."""
 
 from __future__ import annotations
@@ -56,6 +57,7 @@ if _HAS_MLX:
     from sglang.srt.server_args import ServerArgs, set_global_server_args_for_scheduler
 
 
+# 内部方法_set_runner_cache_layout
 def _set_runner_cache_layout(
     runner,
     *,
@@ -79,6 +81,7 @@ def _set_runner_cache_layout(
     runner._cache_layout = MlxModelCacheLayout.from_attention_discovery(layers, attrs)
 
 
+# 内部方法_set_runner_decode_context_defaults
 def _set_runner_decode_context_defaults(runner) -> None:
     runner._aot_kernels = MlxAOTKernelSet()
     runner._attention_kv_pool = None
@@ -86,6 +89,7 @@ def _set_runner_decode_context_defaults(runner) -> None:
     runner._req_to_token_pool = None
 
 
+# 内部方法_set_dummy_server_args_for_auxiliary_state_tests
 def _set_dummy_server_args_for_auxiliary_state_tests() -> None:
     server_args = ServerArgs(model_path="dummy", page_size=1)
     server_args._mamba_cache_chunk_size = 64
@@ -93,7 +97,11 @@ def _set_dummy_server_args_for_auxiliary_state_tests() -> None:
 
 
 @unittest.skipUnless(_HAS_MLX, _SKIP_REASON)
+
+# TestMlxAttentionPatching类
 class TestMlxAttentionPatching(unittest.TestCase):
+
+    # TestMlxAttentionPatching类的测试standardattentionispatchedonce
     def test_standard_attention_is_patched_once(self):
         model = FakeModel(
             [
@@ -104,22 +112,24 @@ class TestMlxAttentionPatching(unittest.TestCase):
 
         layers, attrs = find_attention_layers(model)
 
-        self.assertEqual(len(layers), 2)
-        self.assertEqual(attrs, ["self_attn", "self_attn"])
-        self.assertEqual(patch_model_attention(model), 2)
+        self.assertEqual(len(layers), 2)  # 断言相等
+        self.assertEqual(attrs, ["self_attn", "self_attn"])  # 断言相等
+        self.assertEqual(patch_model_attention(model), 2)  # 断言相等
         self.assertIsInstance(model.layers[0].self_attn, MLXAttentionWrapper)
         self.assertIsInstance(model.layers[1].self_attn, MLXAttentionWrapper)
-        self.assertEqual(patch_model_attention(model), 0)
+        self.assertEqual(patch_model_attention(model), 0)  # 断言相等
 
+    # TestMlxAttentionPatching类的测试aliasheadnamesaresupported
     def test_alias_head_names_are_supported(self):
         model = FakeModel([FakeLayer("attention", FakeAttention(use_aliases=True))])
 
         _, attrs = find_attention_layers(model)
 
-        self.assertEqual(attrs, ["attention"])
-        self.assertEqual(patch_model_attention(model), 1)
+        self.assertEqual(attrs, ["attention"])  # 断言相等
+        self.assertEqual(patch_model_attention(model), 1)  # 断言相等
         self.assertIsInstance(model.layers[0].attention, MLXAttentionWrapper)
 
+    # TestMlxAttentionPatching类的测试aotropekernelbuildusesheadaliases
     def test_aot_rope_kernel_build_uses_head_aliases(self):
         attn = FakeAttention(use_aliases=True)
         attn.rope = SimpleNamespace(dims=2, traditional=False, base=10000.0)
@@ -136,9 +146,10 @@ class TestMlxAttentionPatching(unittest.TestCase):
         finally:
             mlx_aot._load_metal_rope_pool_fused = original_loader
 
-        self.assertTrue(kernel.enabled)
-        self.assertEqual(kernel.config["num_qo_heads"], 2)
+        self.assertTrue(kernel.enabled)  # 断言为真
+        self.assertEqual(kernel.config["num_qo_heads"], 2)  # 断言相等
 
+    # TestMlxAttentionPatching类的测试auxiliarystatemodelreturnsperlayerattentionattrs
     def test_auxiliary_state_model_returns_per_layer_attention_attrs(self):
         model = FakeModel(
             [
@@ -150,27 +161,30 @@ class TestMlxAttentionPatching(unittest.TestCase):
 
         _, attrs = find_attention_layers(model)
 
-        self.assertEqual(attrs, [None, "self_attn", None])
-        self.assertEqual(patch_model_attention(model), 1)
-        self.assertFalse(isinstance(model.layers[0].linear_attn, MLXAttentionWrapper))
+        self.assertEqual(attrs, [None, "self_attn", None])  # 断言相等
+        self.assertEqual(patch_model_attention(model), 1)  # 断言相等
+        self.assertFalse(isinstance(model.layers[0].linear_attn, MLXAttentionWrapper))  # 断言为假
         self.assertIsInstance(model.layers[1].self_attn, MLXAttentionWrapper)
 
+    # TestMlxAttentionPatching类的测试projectiononlymixerisnotattention
     def test_projection_only_mixer_is_not_attention(self):
-        self.assertFalse(is_attention_module(ProjectionOnlyMixer()))
+        self.assertFalse(is_attention_module(ProjectionOnlyMixer()))  # 断言为假
 
+    # TestMlxAttentionPatching类的测试cachelayoutseparatesattentionandauxiliarylayers
     def test_cache_layout_separates_attention_and_auxiliary_layers(self):
         layout = MlxModelCacheLayout.from_attention_discovery(
             [object(), object(), object(), object()],
             [None, "self_attn", None, "self_attn"],
         )
 
-        self.assertEqual(layout.num_layers, 4)
-        self.assertEqual(layout.attention_layer_indices, (1, 3))
-        self.assertEqual(layout.auxiliary_layer_indices, (0, 2))
-        self.assertEqual(layout.attention_pool_index(1), 0)
-        self.assertEqual(layout.attention_pool_index(3), 1)
-        self.assertTrue(layout.has_auxiliary_state)
+        self.assertEqual(layout.num_layers, 4)  # 断言相等
+        self.assertEqual(layout.attention_layer_indices, (1, 3))  # 断言相等
+        self.assertEqual(layout.auxiliary_layer_indices, (0, 2))  # 断言相等
+        self.assertEqual(layout.attention_pool_index(1), 0)  # 断言相等
+        self.assertEqual(layout.attention_pool_index(3), 1)  # 断言相等
+        self.assertTrue(layout.has_auxiliary_state)  # 断言为真
 
+    # TestMlxAttentionPatching类的测试gatedqueryprojectionkeepsattentionwidth
     def test_gated_query_projection_keeps_attention_width(self):
         inner = FakeGatedAttention()
         wrapper = MLXAttentionWrapper(inner, layer_idx=0)
@@ -186,9 +200,10 @@ class TestMlxAttentionPatching(unittest.TestCase):
         out = wrapper._batched_decode(mx.zeros((1, 1, 4), dtype=mx.float32), ctx)
         mx.eval(out)
 
-        self.assertEqual(out.shape, (1, 1, 4))
-        self.assertEqual(inner.o_proj.last_input_shape, (1, 1, 4))
+        self.assertEqual(out.shape, (1, 1, 4))  # 断言相等
+        self.assertEqual(inner.o_proj.last_input_shape, (1, 1, 4))  # 断言相等
 
+    # TestMlxAttentionPatching类的测试attnconfigusesfloatdtypeforquantizedprojection
     def test_attn_config_uses_float_dtype_for_quantized_projection(self):
         runner = object.__new__(MlxModelRunner)
         attn = FakeAttention()
@@ -202,10 +217,11 @@ class TestMlxAttentionPatching(unittest.TestCase):
 
         n_kv_heads, head_dim, dtype = MlxModelRunner._get_attn_config(runner)
 
-        self.assertEqual(n_kv_heads, 1)
-        self.assertEqual(head_dim, 2)
-        self.assertEqual(dtype, mx.float32)
+        self.assertEqual(n_kv_heads, 1)  # 断言相等
+        self.assertEqual(head_dim, 2)  # 断言相等
+        self.assertEqual(dtype, mx.float32)  # 断言相等
 
+    # TestMlxAttentionPatching类的测试attnconfigrejectsheterogeneouskvshapes
     def test_attn_config_rejects_heterogeneous_kv_shapes(self):
         runner = object.__new__(MlxModelRunner)
         first = FakeAttention()
@@ -224,6 +240,7 @@ class TestMlxAttentionPatching(unittest.TestCase):
         ):
             MlxModelRunner._get_attn_config(runner)
 
+    # TestMlxAttentionPatching类的测试attnconfigrejectsslidingwindowattention
     def test_attn_config_rejects_sliding_window_attention(self):
         runner = object.__new__(MlxModelRunner)
         _set_runner_cache_layout(
@@ -242,7 +259,11 @@ class TestMlxAttentionPatching(unittest.TestCase):
 
 
 @unittest.skipUnless(_HAS_MLX, _SKIP_REASON)
+
+# TestMlxAuxiliaryStateRunnerCache类
 class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
+
+    # TestMlxAuxiliaryStateRunnerCache类的测试denseprefillkeepspoolbackedradixpath
     def test_dense_prefill_keeps_pool_backed_radix_path(self):
         runner = object.__new__(MlxModelRunner)
         runner.model = FakeDenseModel(num_layers=2)
@@ -290,10 +311,10 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
         mx.eval(*runner._attention_kv_pool.all_buffers())
         runner.prefill_finalize(pending)
 
-        self.assertEqual(runner.model.seen_inputs, [[[13]]])
-        self.assertEqual(runner.model.seen_offsets, [[2, 2]])
-        self.assertEqual(pending.synced_offset, 3)
-        self.assertTrue(
+        self.assertEqual(runner.model.seen_inputs, [[[13]]])  # 断言相等
+        self.assertEqual(runner.model.seen_offsets, [[2, 2]])  # 断言相等
+        self.assertEqual(pending.synced_offset, 3)  # 断言相等
+        self.assertTrue(  # 断言为真
             all(isinstance(c, ContiguousAttentionKVCache) for c in pending.cache)
         )
         layer0_k, layer0_v = runner._attention_kv_pool.get_kv(
@@ -303,11 +324,12 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
             1, mx.array([4], dtype=mx.int32)
         )
         mx.eval(layer0_k, layer0_v, layer1_k, layer1_v)
-        self.assertEqual(layer0_k.tolist(), [[[1.0, 1.0]]])
-        self.assertEqual(layer0_v.tolist(), [[[2.0, 2.0]]])
-        self.assertEqual(layer1_k.tolist(), [[[2.0, 2.0]]])
-        self.assertEqual(layer1_v.tolist(), [[[4.0, 4.0]]])
+        self.assertEqual(layer0_k.tolist(), [[[1.0, 1.0]]])  # 断言相等
+        self.assertEqual(layer0_v.tolist(), [[[2.0, 2.0]]])  # 断言相等
+        self.assertEqual(layer1_k.tolist(), [[[2.0, 2.0]]])  # 断言相等
+        self.assertEqual(layer1_v.tolist(), [[[4.0, 4.0]]])  # 断言相等
 
+    # TestMlxAuxiliaryStateRunnerCache类的测试densedecodeusesbatchedattentionforsingleandmultirequest
     def test_dense_decode_uses_batched_attention_for_single_and_multi_request(self):
         for req_ids in (["r0"], ["r0", "r1"]):
             with self.subTest(req_ids=req_ids):
@@ -323,21 +345,23 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
                 }
                 calls = []
 
+                # fake_batched
                 def fake_batched(caches, batched_input, helper_req_ids):
                     calls.append(
                         (len(caches), batched_input.tolist(), list(helper_req_ids))
                     )
                     return mx.array(list(range(len(caches))), dtype=mx.int32)
 
+                # fail_native
                 def fail_native(*args, **kwargs):
-                    raise AssertionError("dense decode should use batched attention")
+                    raise AssertionError("dense decode should use batched attention")  # 抛出异常
 
                 runner._decode_with_batched_attention = fake_batched
                 runner._decode_with_native_cache = fail_native
 
                 pending = runner.decode_batch_start(req_ids)
 
-                self.assertEqual(
+                self.assertEqual(  # 断言相等
                     calls,
                     [
                         (
@@ -347,11 +371,12 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
                         )
                     ],
                 )
-                self.assertEqual(
+                self.assertEqual(  # 断言相等
                     pending.lazy_tokens.tolist(),
                     list(range(len(req_ids))),
                 )
 
+    # TestMlxAuxiliaryStateRunnerCache类的测试densechaineddecodeusesbatchedattentionforsinglerequest
     def test_dense_chained_decode_uses_batched_attention_for_single_request(self):
         runner = object.__new__(MlxModelRunner)
         _set_runner_cache_layout(
@@ -361,12 +386,14 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
         )
         calls = []
 
+        # fake_batched
         def fake_batched(caches, batched_input, helper_req_ids):
             calls.append((len(caches), batched_input.tolist(), list(helper_req_ids)))
             return mx.array([8], dtype=mx.int32)
 
+        # fail_native
         def fail_native(*args, **kwargs):
-            raise AssertionError("dense chained decode should use batched attention")
+            raise AssertionError("dense chained decode should use batched attention")  # 抛出异常
 
         runner._decode_with_batched_attention = fake_batched
         runner._decode_with_native_cache = fail_native
@@ -378,9 +405,10 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
 
         pending = runner.decode_batch_start_chained(prev)
 
-        self.assertEqual(calls, [(1, [[7]], ["r0"])])
-        self.assertEqual(pending.lazy_tokens.tolist(), [8])
+        self.assertEqual(calls, [(1, [[7]], ["r0"])])  # 断言相等
+        self.assertEqual(pending.lazy_tokens.tolist(), [8])  # 断言相等
 
+    # TestMlxAuxiliaryStateRunnerCache类的测试decodefinalizedoesnotsnapshotauxiliarystate
     def test_decode_finalize_does_not_snapshot_auxiliary_state(self):
         runner = object.__new__(MlxModelRunner)
         runner._req_token_ids = {"r0": [8]}
@@ -397,10 +425,11 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
 
         next_tokens = runner.decode_batch_finalize(pending)
 
-        self.assertEqual(next_tokens, [9])
-        self.assertEqual(runner._req_token_ids["r0"], [8, 9])
-        self.assertEqual(calls, [])
+        self.assertEqual(next_tokens, [9])  # 断言相等
+        self.assertEqual(runner._req_token_ids["r0"], [8, 9])  # 断言相等
+        self.assertEqual(calls, [])  # 断言相等
 
+    # TestMlxAuxiliaryStateRunnerCache类的测试storeauxiliarystateforrequestsnapshotsondemand
     def test_store_auxiliary_state_for_request_snapshots_on_demand(self):
         runner = object.__new__(MlxModelRunner)
         cache = [object()]
@@ -414,8 +443,9 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
         runner.store_auxiliary_state_for_request("r0")
         runner.store_auxiliary_state_for_request("missing")
 
-        self.assertEqual(calls, [(3, cache)])
+        self.assertEqual(calls, [(3, cache)])  # 断言相等
 
+    # TestMlxAuxiliaryStateRunnerCache类的测试densebatchedattentionhelpersupportssinglerequest
     def test_dense_batched_attention_helper_supports_single_request(self):
         runner = object.__new__(MlxModelRunner)
         model = FakeWrappedAttentionModel()
@@ -444,11 +474,12 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
         )
         mx.eval(lazy_tokens, *MlxModelRunner._cache_state_arrays(cache))
 
-        self.assertEqual(lazy_tokens.tolist(), [0])
-        self.assertEqual(cache[0][0].offset, 1)
-        self.assertEqual(model.seen_inputs, [[[7]]])
-        self.assertEqual(model.seen_cache_types, [["AttentionOffsetCache"]])
+        self.assertEqual(lazy_tokens.tolist(), [0])  # 断言相等
+        self.assertEqual(cache[0][0].offset, 1)  # 断言相等
+        self.assertEqual(model.seen_inputs, [[[7]]])  # 断言相等
+        self.assertEqual(model.seen_cache_types, [["AttentionOffsetCache"]])  # 断言相等
 
+    # TestMlxAuxiliaryStateRunnerCache类的测试batcheddecodecontextresolvesaotropeslotsfromrequestids
     def test_batched_decode_context_resolves_aot_rope_slots_from_request_ids(self):
         cache0 = ContiguousAttentionKVCache(
             n_kv_heads=1,
@@ -495,10 +526,11 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
             attention_layer_indices=[0],
         )
 
-        self.assertEqual(ctx.seq_lens, [1, 2])
-        self.assertIsNotNone(ctx.aot.rope)
-        self.assertEqual(ctx.aot.rope.new_token_slots.tolist(), [41, 52])
+        self.assertEqual(ctx.seq_lens, [1, 2])  # 断言相等
+        self.assertIsNotNone(ctx.aot.rope)  # 断言不为None
+        self.assertEqual(ctx.aot.rope.new_token_slots.tolist(), [41, 52])  # 断言相等
 
+    # TestMlxAuxiliaryStateRunnerCache类的测试auxiliarydecodeuseshybridbatchingformultirequest
     def test_auxiliary_decode_uses_hybrid_batching_for_multi_request(self):
         runner = object.__new__(MlxModelRunner)
         _set_runner_cache_layout(
@@ -511,12 +543,14 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
         runner._req_token_ids = {rid: [idx + 20] for idx, rid in enumerate(req_ids)}
         calls = []
 
+        # fake_hybrid
         def fake_hybrid(caches, batched_input, helper_req_ids):
             calls.append((len(caches), batched_input.tolist(), list(helper_req_ids)))
             return mx.array([4, 5], dtype=mx.int32)
 
+        # fail_batched
         def fail_batched(*args, **kwargs):
-            raise AssertionError(
+            raise AssertionError(  # 抛出异常
                 "auxiliary decode should use hybrid batching, not full batched"
             )
 
@@ -525,9 +559,10 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
 
         pending = runner.decode_batch_start(req_ids)
 
-        self.assertEqual(calls, [(2, [[20], [21]], req_ids)])
-        self.assertEqual(pending.lazy_tokens.tolist(), [4, 5])
+        self.assertEqual(calls, [(2, [[20], [21]], req_ids)])  # 断言相等
+        self.assertEqual(pending.lazy_tokens.tolist(), [4, 5])  # 断言相等
 
+    # TestMlxAuxiliaryStateRunnerCache类的测试auxiliarylayerbatchesmergeablenativecache
     def test_auxiliary_layer_batches_mergeable_native_cache(self):
         runner = object.__new__(MlxModelRunner)
         layer = FakeBatchableAuxiliaryLayer()
@@ -541,18 +576,19 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
         )
         mx.eval(out, cache0[0], cache1[0])
 
-        self.assertEqual(layer.input_layernorm.seen_shapes, [(2, 1, 4)])
-        self.assertEqual(layer.linear_attn.seen_shapes, [(2, 1, 4)])
-        self.assertEqual(layer.post_attention_layernorm.seen_shapes, [(2, 1, 4)])
-        self.assertEqual(layer.mlp.seen_shapes, [(2, 1, 4)])
-        self.assertEqual(layer.linear_attn.cache_type, "ArraysCache")
-        self.assertEqual(
+        self.assertEqual(layer.input_layernorm.seen_shapes, [(2, 1, 4)])  # 断言相等
+        self.assertEqual(layer.linear_attn.seen_shapes, [(2, 1, 4)])  # 断言相等
+        self.assertEqual(layer.post_attention_layernorm.seen_shapes, [(2, 1, 4)])  # 断言相等
+        self.assertEqual(layer.mlp.seen_shapes, [(2, 1, 4)])  # 断言相等
+        self.assertEqual(layer.linear_attn.cache_type, "ArraysCache")  # 断言相等
+        self.assertEqual(  # 断言相等
             out.tolist(),
             [[[2.0, 2.0, 2.0, 2.0]], [[2.0, 2.0, 2.0, 2.0]]],
         )
-        self.assertEqual(cache0[0].tolist(), [[0.0]])
-        self.assertEqual(cache1[0].tolist(), [[1.0]])
+        self.assertEqual(cache0[0].tolist(), [[0.0]])  # 断言相等
+        self.assertEqual(cache1[0].tolist(), [[1.0]])  # 断言相等
 
+    # TestMlxAuxiliaryStateRunnerCache类的测试arrayscacheauxiliarybatchingusesfastmerge
     def test_arrays_cache_auxiliary_batching_uses_fast_merge(self):
         runner = object.__new__(MlxModelRunner)
         layer = FakeBatchableAuxiliaryLayer()
@@ -560,8 +596,9 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
         cache1 = ArraysCache(size=1)
         original_merge = ArraysCache.merge
 
+        # fail_merge
         def fail_merge(cls, caches):
-            raise AssertionError("ArraysCache fast path should not call merge()")
+            raise AssertionError("ArraysCache fast path should not call merge()")  # 抛出异常
 
         ArraysCache.merge = classmethod(fail_merge)
         try:
@@ -574,14 +611,15 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
         finally:
             ArraysCache.merge = original_merge
 
-        self.assertEqual(layer.linear_attn.cache_type, "ArraysCache")
-        self.assertEqual(
+        self.assertEqual(layer.linear_attn.cache_type, "ArraysCache")  # 断言相等
+        self.assertEqual(  # 断言相等
             out.tolist(),
             [[[2.0, 2.0, 2.0, 2.0]], [[2.0, 2.0, 2.0, 2.0]]],
         )
-        self.assertEqual(cache0[0].tolist(), [[0.0]])
-        self.assertEqual(cache1[0].tolist(), [[1.0]])
+        self.assertEqual(cache0[0].tolist(), [[0.0]])  # 断言相等
+        self.assertEqual(cache1[0].tolist(), [[1.0]])  # 断言相等
 
+    # TestMlxAuxiliaryStateRunnerCache类的测试auxiliarylayersplitbackcopiescachemetadata
     def test_auxiliary_layer_split_back_copies_cache_metadata(self):
         runner = object.__new__(MlxModelRunner)
         layer = FakeBatchableAuxiliaryLayer()
@@ -595,14 +633,15 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
         )
         mx.eval(out, cache0[0], cache1[0])
 
-        self.assertEqual(layer.linear_attn.cache_type, "FakeMergeableAuxiliaryCache")
-        self.assertEqual(cache0.tag, "split-0")
-        self.assertEqual(cache1.tag, "split-1")
-        self.assertEqual(cache0.extra_metadata, {"idx": 0})
-        self.assertEqual(cache1.extra_metadata, {"idx": 1})
-        self.assertEqual(cache0[0].tolist(), [[0.0]])
-        self.assertEqual(cache1[0].tolist(), [[1.0]])
+        self.assertEqual(layer.linear_attn.cache_type, "FakeMergeableAuxiliaryCache")  # 断言相等
+        self.assertEqual(cache0.tag, "split-0")  # 断言相等
+        self.assertEqual(cache1.tag, "split-1")  # 断言相等
+        self.assertEqual(cache0.extra_metadata, {"idx": 0})  # 断言相等
+        self.assertEqual(cache1.extra_metadata, {"idx": 1})  # 断言相等
+        self.assertEqual(cache0[0].tolist(), [[0.0]])  # 断言相等
+        self.assertEqual(cache1[0].tolist(), [[1.0]])  # 断言相等
 
+    # TestMlxAuxiliaryStateRunnerCache类的测试auxiliarystateprefillrestoresprefixstate
     def test_auxiliary_state_prefill_restores_prefix_state(self):
         runner = object.__new__(MlxModelRunner)
         runner.model = FakeAuxiliaryStateModel()
@@ -651,17 +690,18 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
         MlxModelRunner._eval_with_cache(pending.lazy_token, pending.cache)
         runner.prefill_finalize(pending)
 
-        self.assertEqual(runner.model.seen_inputs, [[[13]]])
-        self.assertEqual(runner.model.seen_auxiliary_states, [[42.0]])
-        self.assertEqual(pending.synced_offset, 3)
+        self.assertEqual(runner.model.seen_inputs, [[[13]]])  # 断言相等
+        self.assertEqual(runner.model.seen_auxiliary_states, [[42.0]])  # 断言相等
+        self.assertEqual(pending.synced_offset, 3)  # 断言相等
         self.assertIsInstance(pending.cache[0], FakeNativeCache)
         self.assertIsInstance(pending.cache[1], ContiguousAttentionKVCache)
         restored = [FakeNativeCache(), None]
         runner._req_to_token_pool.auxiliary_state_pool.restore_cache(
             req.mamba_pool_idx, restored, [0]
         )
-        self.assertEqual(restored[0].state[0].tolist(), [1.0])
+        self.assertEqual(restored[0].state[0].tolist(), [1.0])  # 断言相等
 
+    # TestMlxAuxiliaryStateRunnerCache类的测试auxiliarystateprefilltrackschunkalignedauxiliarystate
     def test_auxiliary_state_prefill_tracks_chunk_aligned_auxiliary_state(self):
         _set_dummy_server_args_for_auxiliary_state_tests()
         runner = object.__new__(MlxModelRunner)
@@ -712,11 +752,12 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
             req.mamba_ping_pong_track_buffer[0], tracked, [0]
         )
 
-        self.assertEqual([len(x[0]) for x in runner.model.seen_inputs], [64, 6])
-        self.assertEqual(req.mamba_last_track_seqlen, 64)
-        self.assertEqual(tracked[0].state[0].tolist(), [64.0])
-        self.assertEqual(pending.synced_offset, 70)
+        self.assertEqual([len(x[0]) for x in runner.model.seen_inputs], [64, 6])  # 断言相等
+        self.assertEqual(req.mamba_last_track_seqlen, 64)  # 断言相等
+        self.assertEqual(tracked[0].state[0].tolist(), [64.0])  # 断言相等
+        self.assertEqual(pending.synced_offset, 70)  # 断言相等
 
+    # TestMlxAuxiliaryStateRunnerCache类的测试auxiliarystateprefilladvancestrackedboundaryaftercachedprefix
     def test_auxiliary_state_prefill_advances_tracked_boundary_after_cached_prefix(
         self,
     ):
@@ -774,20 +815,22 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
             req.mamba_ping_pong_track_buffer[0], tracked, [0]
         )
 
-        self.assertEqual([len(x[0]) for x in runner.model.seen_inputs], [192, 1])
-        self.assertEqual(runner.model.seen_auxiliary_states, [[64.0], [192.0]])
-        self.assertEqual(req.mamba_last_track_seqlen, 256)
-        self.assertEqual(tracked[0].state[0].tolist(), [192.0])
-        self.assertEqual(pending.synced_offset, 257)
+        self.assertEqual([len(x[0]) for x in runner.model.seen_inputs], [192, 1])  # 断言相等
+        self.assertEqual(runner.model.seen_auxiliary_states, [[64.0], [192.0]])  # 断言相等
+        self.assertEqual(req.mamba_last_track_seqlen, 256)  # 断言相等
+        self.assertEqual(tracked[0].state[0].tolist(), [192.0])  # 断言相等
+        self.assertEqual(pending.synced_offset, 257)  # 断言相等
 
+    # TestMlxAuxiliaryStateRunnerCache类的测试cachearraysflattensnativearraycachestate
     def test_cache_arrays_flattens_native_array_cache_state(self):
         cache = FakeNestedStateCache()
 
         arrays = MlxModelRunner._cache_arrays(cache)
 
-        self.assertEqual(len(arrays), 2)
-        self.assertTrue(all(isinstance(arr, mx.array) for arr in arrays))
+        self.assertEqual(len(arrays), 2)  # 断言相等
+        self.assertTrue(all(isinstance(arr, mx.array) for arr in arrays))  # 断言为真
 
+    # TestMlxAuxiliaryStateRunnerCache类的测试auxiliarystatepooltracksschedulerslotsandsnapshots
     def test_auxiliary_state_pool_tracks_scheduler_slots_and_snapshots(self):
         pool = MlxAuxiliaryStatePool(size=4, device="cpu")
 
@@ -800,11 +843,12 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
         pool.restore_cache(forked[0], restored, [0])
         pool.free(first)
 
-        self.assertEqual(first.tolist(), [1, 2])
-        self.assertEqual(forked.tolist(), [3])
-        self.assertEqual(restored[0].state[0].tolist(), [1.0])
-        self.assertEqual(pool.available_size(), 3)
+        self.assertEqual(first.tolist(), [1, 2])  # 断言相等
+        self.assertEqual(forked.tolist(), [3])  # 断言相等
+        self.assertEqual(restored[0].state[0].tolist(), [1.0])  # 断言相等
+        self.assertEqual(pool.available_size(), 3)  # 断言相等
 
+    # TestMlxAuxiliaryStateRunnerCache类的测试auxiliarystatepoolrestoresinstancemetastate
     def test_auxiliary_state_pool_restores_instance_meta_state(self):
         pool = MlxAuxiliaryStatePool(size=2, device="cpu")
         slot = pool.alloc(1)
@@ -820,8 +864,9 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
         restored = [FakeNativeCache(meta_state={})]
         pool.restore_cache(slot[0], restored, [0])
 
-        self.assertEqual(restored[0].meta_state["seen"].tolist(), [3.0])
+        self.assertEqual(restored[0].meta_state["seen"].tolist(), [3.0])  # 断言相等
 
+    # TestMlxAuxiliaryStateRunnerCache类的测试auxiliarystatereqpoolmapsrequestindices
     def test_auxiliary_state_req_pool_maps_request_indices(self):
         pool = MlxAuxiliaryStateReqToTokenPool(
             size=2,
@@ -836,16 +881,17 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
         auxiliary_state_idx = pool.get_auxiliary_state_indices(req.req_pool_idx)
         pool.free(req)
 
-        self.assertEqual(req_indices, [1])
-        self.assertIsNotNone(auxiliary_state_idx)
-        self.assertIsNone(req.req_pool_idx)
-        self.assertIsNotNone(req.mamba_pool_idx)
-        self.assertEqual(pool.auxiliary_state_pool.available_size(), 3)
+        self.assertEqual(req_indices, [1])  # 断言相等
+        self.assertIsNotNone(auxiliary_state_idx)  # 断言不为None
+        self.assertIsNone(req.req_pool_idx)  # 断言为None
+        self.assertIsNotNone(req.mamba_pool_idx)  # 断言不为None
+        self.assertEqual(pool.auxiliary_state_pool.available_size(), 3)  # 断言相等
         pool.free_auxiliary_state_cache(req)
-        self.assertIsNone(req.mamba_pool_idx)
-        self.assertEqual(pool.available_size(), 2)
-        self.assertEqual(pool.auxiliary_state_pool.available_size(), 4)
+        self.assertIsNone(req.mamba_pool_idx)  # 断言为None
+        self.assertEqual(pool.available_size(), 2)  # 断言相等
+        self.assertEqual(pool.auxiliary_state_pool.available_size(), 4)  # 断言相等
 
+    # TestMlxAuxiliaryStateRunnerCache类的测试auxiliarystatereqpoolcankeeptrackedauxiliaryslot
     def test_auxiliary_state_req_pool_can_keep_tracked_auxiliary_slot(self):
         pool = MlxAuxiliaryStateReqToTokenPool(
             size=2,
@@ -861,10 +907,11 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
 
         pool.free_auxiliary_state_cache(req, track_buffer_to_keep=0)
 
-        self.assertIsNone(req.mamba_pool_idx)
-        self.assertIsNone(req.mamba_ping_pong_track_buffer)
-        self.assertEqual(pool.auxiliary_state_pool.available_size(), 3)
+        self.assertIsNone(req.mamba_pool_idx)  # 断言为None
+        self.assertIsNone(req.mamba_ping_pong_track_buffer)  # 断言为None
+        self.assertEqual(pool.auxiliary_state_pool.available_size(), 3)  # 断言相等
 
+    # TestMlxAuxiliaryStateRunnerCache类的测试auxiliarystatecomponentinsertstrackedslotandfreesliveslot
     def test_auxiliary_state_component_inserts_tracked_slot_and_frees_live_slot(self):
         pool = MlxAuxiliaryStateReqToTokenPool(
             size=2,
@@ -897,14 +944,15 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
             insert_params=insert_params,
         )
 
-        self.assertEqual(cache_len, 64)
-        self.assertTrue(getattr(insert_params, "mlx_auxiliary_state_uses_track_slot"))
-        self.assertEqual(insert_params.mamba_value.tolist(), [2])
-        self.assertIsNone(req.mamba_pool_idx)
-        self.assertIsNone(req.mamba_ping_pong_track_buffer)
-        self.assertIsNone(req.mamba_last_track_seqlen)
-        self.assertEqual(pool.auxiliary_state_pool.available_size(), 3)
+        self.assertEqual(cache_len, 64)  # 断言相等
+        self.assertTrue(getattr(insert_params, "mlx_auxiliary_state_uses_track_slot"))  # 断言为真
+        self.assertEqual(insert_params.mamba_value.tolist(), [2])  # 断言相等
+        self.assertIsNone(req.mamba_pool_idx)  # 断言为None
+        self.assertIsNone(req.mamba_ping_pong_track_buffer)  # 断言为None
+        self.assertIsNone(req.mamba_last_track_seqlen)  # 断言为None
+        self.assertEqual(pool.auxiliary_state_pool.available_size(), 3)  # 断言相等
 
+    # TestMlxAuxiliaryStateRunnerCache类的测试auxiliarystatecomponentunfinishedfreestrackedsourceslot
     def test_auxiliary_state_component_unfinished_frees_tracked_source_slot(self):
         pool = MlxAuxiliaryStateReqToTokenPool(
             size=2,
@@ -937,13 +985,14 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
             insert_params=insert_params,
         )
 
-        self.assertEqual(cache_len, 64)
-        self.assertEqual(insert_params.mamba_value.tolist(), [3])
-        self.assertIsNotNone(req.mamba_pool_idx)
-        self.assertIsNone(req.mamba_ping_pong_track_buffer)
-        self.assertIsNone(req.mamba_last_track_seqlen)
-        self.assertEqual(pool.auxiliary_state_pool.available_size(), 2)
+        self.assertEqual(cache_len, 64)  # 断言相等
+        self.assertEqual(insert_params.mamba_value.tolist(), [3])  # 断言相等
+        self.assertIsNotNone(req.mamba_pool_idx)  # 断言不为None
+        self.assertIsNone(req.mamba_ping_pong_track_buffer)  # 断言为None
+        self.assertIsNone(req.mamba_last_track_seqlen)  # 断言为None
+        self.assertEqual(pool.auxiliary_state_pool.available_size(), 2)  # 断言相等
 
+    # TestMlxAuxiliaryStateRunnerCache类的测试auxiliarystatecomponentkeepsnewliveslotownedbyradix
     def test_auxiliary_state_component_keeps_new_live_slot_owned_by_radix(self):
         pool = MlxAuxiliaryStateReqToTokenPool(
             size=2,
@@ -973,12 +1022,13 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
             insert_params=insert_params,
         )
 
-        self.assertEqual(cache_len, 7)
-        self.assertFalse(getattr(insert_params, "mlx_auxiliary_state_uses_track_slot"))
-        self.assertEqual(insert_params.mamba_value.tolist(), [1])
-        self.assertIsNone(req.mamba_pool_idx)
-        self.assertEqual(pool.auxiliary_state_pool.available_size(), 3)
+        self.assertEqual(cache_len, 7)  # 断言相等
+        self.assertFalse(getattr(insert_params, "mlx_auxiliary_state_uses_track_slot"))  # 断言为假
+        self.assertEqual(insert_params.mamba_value.tolist(), [1])  # 断言相等
+        self.assertIsNone(req.mamba_pool_idx)  # 断言为None
+        self.assertEqual(pool.auxiliary_state_pool.available_size(), 3)  # 断言相等
 
+    # TestMlxAuxiliaryStateRunnerCache类的测试auxiliarystatecomponentfreesstaletrackslotwhenliveslotinserted
     def test_auxiliary_state_component_frees_stale_track_slot_when_live_slot_inserted(
         self,
     ):
@@ -1012,14 +1062,15 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
             insert_params=insert_params,
         )
 
-        self.assertEqual(cache_len, 7)
-        self.assertFalse(getattr(insert_params, "mlx_auxiliary_state_uses_track_slot"))
-        self.assertEqual(insert_params.mamba_value.tolist(), [1])
-        self.assertIsNone(req.mamba_pool_idx)
-        self.assertIsNone(req.mamba_ping_pong_track_buffer)
-        self.assertIsNone(req.mamba_next_track_idx)
-        self.assertEqual(pool.auxiliary_state_pool.available_size(), 3)
+        self.assertEqual(cache_len, 7)  # 断言相等
+        self.assertFalse(getattr(insert_params, "mlx_auxiliary_state_uses_track_slot"))  # 断言为假
+        self.assertEqual(insert_params.mamba_value.tolist(), [1])  # 断言相等
+        self.assertIsNone(req.mamba_pool_idx)  # 断言为None
+        self.assertIsNone(req.mamba_ping_pong_track_buffer)  # 断言为None
+        self.assertIsNone(req.mamba_next_track_idx)  # 断言为None
+        self.assertEqual(pool.auxiliary_state_pool.available_size(), 3)  # 断言相等
 
+    # TestMlxAuxiliaryStateRunnerCache类的测试auxiliarystatecomponentfreesduplicateliveslot
     def test_auxiliary_state_component_frees_duplicate_live_slot(self):
         pool = MlxAuxiliaryStateReqToTokenPool(
             size=2,
@@ -1049,12 +1100,16 @@ class TestMlxAuxiliaryStateRunnerCache(unittest.TestCase):
             insert_params=insert_params,
         )
 
-        self.assertIsNone(req.mamba_pool_idx)
-        self.assertEqual(pool.auxiliary_state_pool.available_size(), 4)
+        self.assertIsNone(req.mamba_pool_idx)  # 断言为None
+        self.assertEqual(pool.auxiliary_state_pool.available_size(), 4)  # 断言相等
 
 
 @unittest.skipUnless(_HAS_MLX, _SKIP_REASON)
+
+# TestMlxOverlapScheduler类
 class TestMlxOverlapScheduler(unittest.TestCase):
+
+    # TestMlxOverlapScheduler类的测试finalizependingjobupdatesschedulerlastbatch
     def test_finalize_pending_job_updates_scheduler_last_batch(self):
         token_ids = torch.tensor([7], dtype=torch.long)
         scheduler = FakeOverlapScheduler(token_ids)
@@ -1076,12 +1131,13 @@ class TestMlxOverlapScheduler(unittest.TestCase):
 
         scheduler._finalize_mlx_pending_job(pending)
 
-        self.assertIs(scheduler.last_batch, schedule_batch)
-        self.assertTrue(torch.equal(batch_copy.input_ids, token_ids))
-        self.assertTrue(torch.equal(schedule_batch.input_ids, token_ids))
-        self.assertIs(scheduler.processed_batch, batch_copy)
-        self.assertIs(scheduler.processed_result, scheduler.tp_worker.result)
+        self.assertIs(scheduler.last_batch, schedule_batch)  # 断言是同一对象
+        self.assertTrue(torch.equal(batch_copy.input_ids, token_ids))  # 断言为真
+        self.assertTrue(torch.equal(schedule_batch.input_ids, token_ids))  # 断言为真
+        self.assertIs(scheduler.processed_batch, batch_copy)  # 断言是同一对象
+        self.assertIs(scheduler.processed_result, scheduler.tp_worker.result)  # 断言是同一对象
 
+    # TestMlxOverlapScheduler类的测试finishedrequestsnapshotsbeforerelease
     def test_finished_request_snapshots_before_release(self):
         events = []
         tree_cache = object()
@@ -1125,9 +1181,10 @@ class TestMlxOverlapScheduler(unittest.TestCase):
         original_release = batch_result_processor_module.release_kv_cache
         original_get_indexer = batch_result_processor_module.get_global_indexer_capturer
 
+        # fake_release_kv_cache
         def fake_release_kv_cache(release_req, tree_cache):
             events.append(("release", release_req.rid))
-            self.assertIs(tree_cache, processor.tree_cache)
+            self.assertIs(tree_cache, processor.tree_cache)  # 断言是同一对象
 
         batch_result_processor_module.release_kv_cache = fake_release_kv_cache
         batch_result_processor_module.get_global_indexer_capturer = lambda: None
@@ -1141,7 +1198,7 @@ class TestMlxOverlapScheduler(unittest.TestCase):
                 original_get_indexer
             )
 
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             events,
             [
                 ("prepare", "r0"),
@@ -1153,16 +1210,23 @@ class TestMlxOverlapScheduler(unittest.TestCase):
 
 if _HAS_MLX:
 
+    # FakeProjection类
     class FakeProjection(nn.Module):
+
+        # FakeProjection类的初始化
         def __init__(self, out_dim: int = 4):
             super().__init__()
             self.weight = mx.zeros((out_dim, 4), dtype=mx.float32)
 
+        # FakeProjection类的特殊方法__call__
         def __call__(self, x):
             shape = (*x.shape[:-1], self.weight.shape[0])
             return mx.zeros(shape, dtype=x.dtype)
 
+    # FakeAttention类
     class FakeAttention(nn.Module):
+
+        # FakeAttention类的初始化
         def __init__(self, use_aliases: bool = False):
             super().__init__()
             if use_aliases:
@@ -1179,7 +1243,10 @@ if _HAS_MLX:
             self.o_proj = FakeProjection(4)
             self.rope = lambda x, offset=None: x
 
+    # ProjectionOnlyMixer类
     class ProjectionOnlyMixer(nn.Module):
+
+        # ProjectionOnlyMixer类的初始化
         def __init__(self):
             super().__init__()
             self.n_heads = 2
@@ -1189,34 +1256,53 @@ if _HAS_MLX:
             self.v_proj = FakeProjection(2)
             self.o_proj = FakeProjection(4)
 
+    # FakeLayer类
     class FakeLayer(nn.Module):
+
+        # FakeLayer类的初始化
         def __init__(self, attr_name: str, module: nn.Module):
             super().__init__()
             setattr(self, attr_name, module)
 
+    # FakeModel类
     class FakeModel(nn.Module):
+
+        # FakeModel类的初始化
         def __init__(self, layers):
             super().__init__()
             self.layers = layers
 
+    # IdentityNorm类
     class IdentityNorm(nn.Module):
+
+        # IdentityNorm类的特殊方法__call__
         def __call__(self, x):
             return x
 
+    # IdentityRope类
     class IdentityRope:
+
+        # IdentityRope类的特殊方法__call__
         def __call__(self, x, offset=None):
             return x
 
+    # CapturingOutput类
     class CapturingOutput(nn.Module):
+
+        # CapturingOutput类的初始化
         def __init__(self):
             super().__init__()
             self.last_input_shape = None
 
+        # CapturingOutput类的特殊方法__call__
         def __call__(self, x):
             self.last_input_shape = x.shape
             return x
 
+    # FakeGatedAttention类
     class FakeGatedAttention(nn.Module):
+
+        # FakeGatedAttention类的初始化
         def __init__(self):
             super().__init__()
             self.num_attention_heads = 2
@@ -1231,28 +1317,39 @@ if _HAS_MLX:
             self.k_norm = IdentityNorm()
             self.rope = IdentityRope()
 
+    # RecordingIdentity类
     class RecordingIdentity(nn.Module):
+
+        # RecordingIdentity类的初始化
         def __init__(self):
             super().__init__()
             self.seen_shapes = []
 
+        # RecordingIdentity类的特殊方法__call__
         def __call__(self, x):
             self.seen_shapes.append(x.shape)
             return x
 
+    # FakeMergeableLinearAttention类
     class FakeMergeableLinearAttention(nn.Module):
+
+        # FakeMergeableLinearAttention类的初始化
         def __init__(self):
             super().__init__()
             self.seen_shapes = []
             self.cache_type = None
 
+        # FakeMergeableLinearAttention类的特殊方法__call__
         def __call__(self, x, mask=None, cache=None):
             self.seen_shapes.append(x.shape)
             self.cache_type = type(cache).__name__
             cache[0] = mx.arange(x.shape[0], dtype=mx.float32).reshape(x.shape[0], 1)
             return x + 1
 
+    # FakeBatchableAuxiliaryLayer类
     class FakeBatchableAuxiliaryLayer(nn.Module):
+
+        # FakeBatchableAuxiliaryLayer类的初始化
         def __init__(self):
             super().__init__()
             self.is_linear = True
@@ -1261,19 +1358,26 @@ if _HAS_MLX:
             self.post_attention_layernorm = RecordingIdentity()
             self.mlp = RecordingIdentity()
 
+    # FakeMergeableAuxiliaryCache类
     class FakeMergeableAuxiliaryCache:
+
+        # FakeMergeableAuxiliaryCache类的初始化
         def __init__(self, state=None, tag="init", extra_metadata=None):
             self.cache = [state]
             self.tag = tag
             self.extra_metadata = extra_metadata or {}
 
+        # FakeMergeableAuxiliaryCache类的特殊方法__getitem__
         def __getitem__(self, idx):
             return self.cache[idx]
 
+        # FakeMergeableAuxiliaryCache类的特殊方法__setitem__
         def __setitem__(self, idx, value):
             self.cache[idx] = value
 
         @classmethod
+
+        # FakeMergeableAuxiliaryCache类的merge
         def merge(cls, caches):
             merged = cls(tag="merged")
             values = [cache[0] for cache in caches]
@@ -1292,6 +1396,7 @@ if _HAS_MLX:
             )
             return merged
 
+        # FakeMergeableAuxiliaryCache类的extract
         def extract(self, idx):
             return type(self)(
                 self.cache[0][idx : idx + 1],
@@ -1299,7 +1404,10 @@ if _HAS_MLX:
                 extra_metadata={"idx": idx},
             )
 
+    # FakeNativeCache类
     class FakeNativeCache:
+
+        # FakeNativeCache类的初始化
         def __init__(self, value=None, meta_state=None):
             self._state = [
                 value if value is not None else mx.array([0.0], dtype=mx.float32)
@@ -1310,21 +1418,30 @@ if _HAS_MLX:
             self.left_padding = None
 
         @property
+
+        # FakeNativeCache类的state
         def state(self):
             return self._state
 
         @state.setter
+
+        # FakeNativeCache类的state
         def state(self, value):
             self._state = value
 
+    # FakeAuxiliaryStateModel类
     class FakeAuxiliaryStateModel:
+
+        # FakeAuxiliaryStateModel类的初始化
         def __init__(self):
             self.seen_inputs = []
             self.seen_auxiliary_states = []
 
+        # FakeAuxiliaryStateModel类的make_cache
         def make_cache(self):
             return [FakeNativeCache(), FakeNativeCache()]
 
+        # FakeAuxiliaryStateModel类的特殊方法__call__
         def __call__(self, inputs, cache=None):
             self.seen_inputs.append(inputs.tolist())
             if cache is not None:
@@ -1335,12 +1452,16 @@ if _HAS_MLX:
                 cache[1].update_and_fetch(keys, values)
             return mx.zeros((1, inputs.shape[1], 4), dtype=mx.float32)
 
+    # FakeDenseModel类
     class FakeDenseModel:
+
+        # FakeDenseModel类的初始化
         def __init__(self, num_layers):
             self.num_layers = num_layers
             self.seen_inputs = []
             self.seen_offsets = []
 
+        # FakeDenseModel类的特殊方法__call__
         def __call__(self, inputs, cache=None):
             self.seen_inputs.append(inputs.tolist())
             if cache is not None:
@@ -1353,12 +1474,16 @@ if _HAS_MLX:
                 self.seen_offsets.append(offsets)
             return mx.zeros((1, inputs.shape[1], 4), dtype=mx.float32)
 
+    # FakeWrappedAttentionModel类
     class FakeWrappedAttentionModel:
+
+        # FakeWrappedAttentionModel类的初始化
         def __init__(self):
             self.attn = MLXAttentionWrapper(FakeAttention(), layer_idx=0)
             self.seen_inputs = []
             self.seen_cache_types = []
 
+        # FakeWrappedAttentionModel类的特殊方法__call__
         def __call__(self, inputs, cache=None):
             self.seen_inputs.append(inputs.tolist())
             self.seen_cache_types.append([type(c).__name__ for c in cache])
@@ -1366,8 +1491,11 @@ if _HAS_MLX:
             self.attn(hidden, cache=cache[0])
             return mx.zeros((*inputs.shape, 8), dtype=mx.float32)
 
+    # FakeNestedStateCache类
     class FakeNestedStateCache:
         @property
+
+        # FakeNestedStateCache类的state
         def state(self):
             return [
                 mx.array([1.0], dtype=mx.float32),
@@ -1375,29 +1503,40 @@ if _HAS_MLX:
                 {"nested": (mx.array([2.0], dtype=mx.float32),)},
             ]
 
+    # FakeRequest类
     class FakeRequest:
+
+        # FakeRequest类的初始化
         def __init__(self):
             self.req_pool_idx = None
             self.mamba_pool_idx = None
             self.inflight_middle_chunks = 0
             self.kv_committed_len = 0
 
+    # FakeTpWorker类
     class FakeTpWorker:
+
+        # FakeTpWorker类的初始化
         def __init__(self, next_token_ids):
             self.result = GenerationBatchResult(next_token_ids=next_token_ids)
             self.calls = []
 
+        # FakeTpWorker类的finalize_mlx_result
         def finalize_mlx_result(self, *args):
             self.calls.append(args)
             return self.result
 
+    # FakeOverlapScheduler类
     class FakeOverlapScheduler(SchedulerMlxOverlapMixin):
+
+        # FakeOverlapScheduler类的初始化
         def __init__(self, next_token_ids):
             self.tp_worker = FakeTpWorker(next_token_ids)
             self.last_batch = None
             self.processed_batch = None
             self.processed_result = None
 
+        # FakeOverlapScheduler类的process_batch_result
         def process_batch_result(self, batch, result):
             self.processed_batch = batch
             self.processed_result = result

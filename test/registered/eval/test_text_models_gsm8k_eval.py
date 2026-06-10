@@ -1,3 +1,4 @@
+# 文件名: test_text_models_gsm8k_eval.py - 文本模型GSM8K评估测试
 import json
 import unittest
 import warnings
@@ -51,6 +52,7 @@ MODEL_SCORE_THRESHOLDS = {
 # Do not use `CustomTestCase` since `test_gsm8k_all_models` does not want retry
 class TestNightlyGsm8KEval(unittest.TestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.models = []
         models_tp1 = parse_models(
@@ -67,6 +69,7 @@ class TestNightlyGsm8KEval(unittest.TestCase):
 
         cls.base_url = DEFAULT_URL_FOR_TEST
 
+    # 测试gsm8kallmodels
     def test_gsm8k_all_models(self):
         warnings.filterwarnings(
             "ignore", category=ResourceWarning, message="unclosed.*socket"

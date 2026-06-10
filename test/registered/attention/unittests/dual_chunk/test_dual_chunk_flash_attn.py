@@ -1,3 +1,4 @@
+# 文件名: test_dual_chunk_flash_attn.py - 双块Flash注意力测试
 import sys
 import unittest
 from pathlib import Path
@@ -33,6 +34,7 @@ from sglang.test.kits.attention_unittest.runner_modes.cuda_graph_decode_runner i
 # fails at import time inside the fallback. Skip the whole suite only when
 # that fallback path is actually broken (not on Hopper, where we never enter it).
 # Re-image the container with an SM10.3-compiled flash_attn wheel to clear.
+# 执行dualchunkfasupported
 def _dual_chunk_fa_supported() -> tuple[bool, str]:
     if not torch.cuda.is_available():
         return False, "CUDA is required"
@@ -91,16 +93,19 @@ class TestDualChunkFlashAttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试projecteddualchunkattentioncases
     def test_projected_dual_chunk_attention_cases(self):
         for case in self.CASES:
             with self.subTest(case=case.name, backend=case.backend):
                 run_dual_chunk_attention_case(self, case)
 
+    # 测试sparsedualchunkattentioncases
     def test_sparse_dual_chunk_attention_cases(self):
         for case in self.SPARSE_CASES:
             with self.subTest(case=case.name, backend=case.backend):
                 run_dual_chunk_sparse_attention_case(self, case)
 
+    # 测试sparsedualchunkthresholdgatedcases
     def test_sparse_dual_chunk_threshold_gated_cases(self):
         for case in self.SPARSE_THRESHOLD_GATED_CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -135,6 +140,7 @@ class TestDualChunkFlashAttentionBackendCorrectness(CustomTestCase):
     # path covered; sub-window correctness needs production hardening
     # before unit-test coverage is safe.
 
+    # 测试runnermodecudagraphdecodecases
     def test_runner_mode_cuda_graph_decode_cases(self):
         for case in self.CUDA_GRAPH_DECODE_CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -181,6 +187,7 @@ class TestDualChunkFlashAttentionBackendCorrectness(CustomTestCase):
         ),
     }
 
+    # 测试layoutrobustnesscases
     def test_layout_robustness_cases(self):
         for case in self.LAYOUT_ROBUSTNESS_CASES:
             for layout in ("interleaved_pages", "non_monotonic_extend"):

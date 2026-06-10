@@ -1,3 +1,4 @@
+# 文件名: test_schedule_policy.py - 调度策略测试 - 验证FCFS/LPM/LOF/routing-key等调度策略的优先级排序
 import unittest
 
 from sglang.srt.managers.schedule_batch import Req, ScheduleBatch
@@ -13,9 +14,11 @@ from sglang.test.test_utils import CustomTestCase
 
 class TestSchedulePolicy(CustomTestCase):
 
+    # setUp
     def setUp(self):
         self.tree_cache = RadixCache.create_simulated()
 
+    # 测试init with cache aware policy
     def test_init_with_cache_aware_policy(self):
         policy = SchedulePolicy(
             policy="lpm",
@@ -26,6 +29,7 @@ class TestSchedulePolicy(CustomTestCase):
         )
         self.assertEqual(policy.policy, CacheAwarePolicy.LPM)
 
+    # 测试init with cache agnostic policy
     def test_init_with_cache_agnostic_policy(self):
         policy = SchedulePolicy(
             policy="fcfs",
@@ -36,6 +40,7 @@ class TestSchedulePolicy(CustomTestCase):
         )
         self.assertEqual(policy.policy, CacheAgnosticPolicy.FCFS)
 
+    # 测试init with unknown policy
     def test_init_with_unknown_policy(self):
         with self.assertRaises(ValueError):
             SchedulePolicy(
@@ -46,6 +51,7 @@ class TestSchedulePolicy(CustomTestCase):
                 schedule_low_priority_values_first=False,
             )
 
+    # 测试init with disabled cache
     def test_init_with_disabled_cache(self):
         tree_cache = RadixCache.create_simulated(disable=True)
         policy = SchedulePolicy(
@@ -57,6 +63,7 @@ class TestSchedulePolicy(CustomTestCase):
         )
         self.assertEqual(policy.policy, CacheAgnosticPolicy.FCFS)
 
+    # 测试calc priority fcfs
     def test_calc_priority_fcfs(self):
         tree_cache = RadixCache.create_simulated()
         waiting_queue = [
@@ -78,6 +85,7 @@ class TestSchedulePolicy(CustomTestCase):
         self.assertEqual(waiting_queue[1].rid, 3)
         self.assertEqual(waiting_queue[2].rid, 2)
 
+    # 测试calc priority priority enabled fcfs scheduling
     def test_calc_priority_priority_enabled_fcfs_scheduling(self):
         tree_cache = RadixCache.create_simulated()
         r1 = Req(1, "a b", [1, 2], SamplingParams())
@@ -103,6 +111,7 @@ class TestSchedulePolicy(CustomTestCase):
         self.assertEqual(waiting_queue[1].rid, 2)
         self.assertEqual(waiting_queue[2].rid, 3)
 
+    # 测试calc priority priority enabled fcfs scheduling with low priority values first
     def test_calc_priority_priority_enabled_fcfs_scheduling_with_low_priority_values_first(
         self,
     ):
@@ -129,6 +138,7 @@ class TestSchedulePolicy(CustomTestCase):
         self.assertEqual(waiting_queue[1].rid, 2)
         self.assertEqual(waiting_queue[2].rid, 3)
 
+    # 测试calc priority longest output first scheduling
     def test_calc_priority_longest_output_first_scheduling(self):
         tree_cache = RadixCache.create_simulated()
 
@@ -151,6 +161,7 @@ class TestSchedulePolicy(CustomTestCase):
         self.assertEqual(waiting_queue[1].rid, 2)
         self.assertEqual(waiting_queue[2].rid, 3)
 
+    # 测试calc priority priority enabled longest output first scheduling
     def test_calc_priority_priority_enabled_longest_output_first_scheduling(self):
         tree_cache = RadixCache.create_simulated()
 
@@ -173,6 +184,7 @@ class TestSchedulePolicy(CustomTestCase):
         self.assertEqual(waiting_queue[1].rid, 2)
         self.assertEqual(waiting_queue[2].rid, 3)
 
+    # 测试calc priority priority enabled longest output first scheduling with low priority values first
     def test_calc_priority_priority_enabled_longest_output_first_scheduling_with_low_priority_values_first(
         self,
     ):
@@ -197,6 +209,7 @@ class TestSchedulePolicy(CustomTestCase):
         self.assertEqual(waiting_queue[1].rid, 2)
         self.assertEqual(waiting_queue[2].rid, 3)
 
+    # 测试calc priority routing key scheduling
     def test_calc_priority_routing_key_scheduling(self):
         """Test routing-key policy: prioritize by routing key frequency in running batch."""
         tree_cache = RadixCache.create_simulated()
@@ -227,6 +240,7 @@ class TestSchedulePolicy(CustomTestCase):
         self.assertEqual(waiting_queue[1].rid, "w1")
         self.assertEqual(waiting_queue[2].rid, "w3")
 
+    # 测试calc priority routing key tie break by lexicographic order
     def test_calc_priority_routing_key_tie_break_by_lexicographic_order(self):
         """Test routing-key policy: tie-break by lexicographic order."""
         tree_cache = RadixCache.create_simulated()
@@ -254,6 +268,7 @@ class TestSchedulePolicy(CustomTestCase):
         self.assertEqual(waiting_queue[0].rid, "w2")
         self.assertEqual(waiting_queue[1].rid, "w1")
 
+    # 测试calc priority routing key no match deprioritized
     def test_calc_priority_routing_key_no_match_deprioritized(self):
         """Test routing-key policy: requests without matching routing keys are deprioritized."""
         tree_cache = RadixCache.create_simulated()
@@ -284,6 +299,7 @@ class TestSchedulePolicy(CustomTestCase):
         self.assertEqual(waiting_queue[1].rid, "w1")
         self.assertEqual(waiting_queue[2].rid, "w2")
 
+    # 测试calc priority routing key empty running batch
     def test_calc_priority_routing_key_empty_running_batch(self):
         """Test routing-key policy: empty running batch keeps original order."""
         tree_cache = RadixCache.create_simulated()

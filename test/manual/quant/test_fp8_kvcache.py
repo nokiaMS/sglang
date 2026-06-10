@@ -1,3 +1,4 @@
+# 文件名: test_fp8_kvcache.py - FP8 KV缓存测试 - 验证FP8 KV缓存在Llama和Qwen模型上的准确性
 import os
 import unittest
 from types import SimpleNamespace
@@ -18,6 +19,7 @@ class TestFp8KvcacheBase(CustomTestCase):
     model_config = None
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         if cls.model_config is None:
             raise NotImplementedError("model_config must be specified in subclass")
@@ -47,9 +49,11 @@ class TestFp8KvcacheLlama(TestFp8KvcacheBase):
     }
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试mgsm en
     def test_mgsm_en(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -62,6 +66,7 @@ class TestFp8KvcacheLlama(TestFp8KvcacheBase):
         metrics = run_eval(args)
         self.assertGreater(metrics["score"], 0.80)
 
+    # 测试mmlu
     def test_mmlu(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -82,9 +87,11 @@ class TestFp8KvcacheQwen(TestFp8KvcacheBase):
     }
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试mgsm en
     def test_mgsm_en(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -97,6 +104,7 @@ class TestFp8KvcacheQwen(TestFp8KvcacheBase):
         metrics = run_eval(args)
         self.assertGreater(metrics["score"], 0.01)
 
+    # 测试mmlu
     def test_mmlu(self):
         args = SimpleNamespace(
             base_url=self.base_url,

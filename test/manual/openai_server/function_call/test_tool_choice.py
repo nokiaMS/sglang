@@ -1,3 +1,4 @@
+# 文件名: test_tool_choice.py - 测试工具选择功能（auto/required/specific function，含流式与非流式）
 """
 Test script for tool_choice functionality in SGLang
 Tests: required, auto, and specific function choices in both streaming and non-streaming modes
@@ -25,6 +26,7 @@ from sglang.test.test_utils import (
 class TestToolChoiceLlama32(CustomTestCase):
 
     @classmethod
+    # 类级别初始化，启动服务器或设置测试环境
     def setUpClass(cls):
         # Mark flaky tests for this model
         cls.flaky_tests = {
@@ -38,7 +40,7 @@ class TestToolChoiceLlama32(CustomTestCase):
         cls.api_key = "sk-123456"
 
         # Start the local OpenAI Server with tool calling support
-        cls.process = popen_launch_server(
+        cls.process = popen_launch_server(  # 启动推理服务器
             cls.model,
             cls.base_url,
             timeout=DEFAULT_TIMEOUT_FOR_SERVER_LAUNCH,
@@ -52,9 +54,11 @@ class TestToolChoiceLlama32(CustomTestCase):
         cls.tokenizer = get_tokenizer(cls.model)
 
     @classmethod
+    # 类级别清理，关闭服务器或清理资源
     def tearDownClass(cls):
-        kill_process_tree(cls.process.pid)
+        kill_process_tree(cls.process.pid)  # 终止服务器进程
 
+    # 测试方法级别初始化
     def setUp(self):
         self.client = openai.Client(base_url=self.base_url, api_key=self.api_key)
         self.model_name = self.client.models.list().data[0].id
@@ -209,7 +213,7 @@ class TestToolChoiceLlama32(CustomTestCase):
             stream=False,
         )
 
-        self.assertIsNotNone(response.choices[0].message)
+        self.assertIsNotNone(response.choices[0].message)  # 断言值不为None
         # With auto, tool calls are optional
 
     def test_tool_choice_auto_streaming(self):
@@ -257,8 +261,8 @@ class TestToolChoiceLlama32(CustomTestCase):
 
         # With required, we should get tool calls
         tool_calls = response.choices[0].message.tool_calls
-        self.assertIsNotNone(tool_calls)
-        self.assertGreater(len(tool_calls), 0)
+        self.assertIsNotNone(tool_calls)  # 断言值不为None
+        self.assertGreater(len(tool_calls), 0)  # 断言精度大于阈值
 
     def test_tool_choice_required_streaming(self):
         """Test tool_choice='required' in streaming mode"""
@@ -282,7 +286,7 @@ class TestToolChoiceLlama32(CustomTestCase):
                 tool_call_chunks.extend(chunk.choices[0].delta.tool_calls)
 
         # With required, we should get tool call chunks
-        self.assertGreater(len(tool_call_chunks), 0)
+        self.assertGreater(len(tool_call_chunks), 0)  # 断言精度大于阈值
 
     def test_tool_choice_specific_function_non_streaming(self):
         """Test tool_choice with specific function in non-streaming mode"""
@@ -302,11 +306,11 @@ class TestToolChoiceLlama32(CustomTestCase):
 
         # Should call the specific function
         tool_calls = response.choices[0].message.tool_calls
-        self.assertIsNotNone(tool_calls)
+        self.assertIsNotNone(tool_calls)  # 断言值不为None
         # Our messages ask the top 5 populated cities in the US, so the model could get 5 tool calls
-        self.assertGreaterEqual(len(tool_calls), 1)
+        self.assertGreaterEqual(len(tool_calls), 1)  # 断言精度大于等于阈值
         for tool_call in tool_calls:
-            self.assertEqual(tool_call.function.name, "get_weather")
+            self.assertEqual(tool_call.function.name, "get_weather")  # 断言值相等
 
     def test_tool_choice_specific_function_streaming(self):
         """Test tool_choice with specific function in streaming mode"""
@@ -332,7 +336,7 @@ class TestToolChoiceLlama32(CustomTestCase):
                 tool_call_chunks.extend(chunk.choices[0].delta.tool_calls)
 
         # Should get tool call chunks for the specific function
-        self.assertGreater(len(tool_call_chunks), 0)
+        self.assertGreater(len(tool_call_chunks), 0)  # 断言精度大于阈值
 
         # Find function name in chunks
         found_name = None
@@ -341,7 +345,7 @@ class TestToolChoiceLlama32(CustomTestCase):
                 found_name = chunk.function.name
                 break
 
-        self.assertEqual(found_name, "get_weather")
+        self.assertEqual(found_name, "get_weather")  # 断言值相等
 
     def test_required_streaming_arguments_chunks_json(self):
         """In streaming required mode, complete tool call arguments should be valid JSON when all chunks are combined.
@@ -389,12 +393,12 @@ class TestToolChoiceLlama32(CustomTestCase):
                             "arguments"
                         ] += tool_call_delta.function.arguments
 
-        self.assertGreater(len(tool_calls_by_index), 0)
+        self.assertGreater(len(tool_calls_by_index), 0)  # 断言精度大于阈值
 
         # Validate that complete tool calls have valid JSON arguments
         for tool_call in tool_calls_by_index.values():
-            self.assertIsNotNone(tool_call["function"]["name"])
-            self.assertIsNotNone(tool_call["function"]["arguments"])
+            self.assertIsNotNone(tool_call["function"]["name"])  # 断言值不为None
+            self.assertIsNotNone(tool_call["function"]["arguments"])  # 断言值不为None
 
             # The complete arguments should be valid JSON
             try:
@@ -470,15 +474,15 @@ class TestToolChoiceLlama32(CustomTestCase):
         )
 
         tool_calls = response.choices[0].message.tool_calls
-        self.assertIsNotNone(tool_calls)
-        self.assertGreater(len(tool_calls), 0)
+        self.assertIsNotNone(tool_calls)  # 断言值不为None
+        self.assertGreater(len(tool_calls), 0)  # 断言精度大于阈值
 
         for tool_call in tool_calls:
-            self.assertEqual(tool_call.function.name, "analyze_data")
+            self.assertEqual(tool_call.function.name, "analyze_data")  # 断言值相等
             try:
                 args = json.loads(tool_call.function.arguments)
                 self.assertIsInstance(args, dict)
-                self.assertIn("data", args)
+                self.assertIn("data", args)  # 断言值包含在集合中
                 self.assertIsInstance(args["data"], dict)
             except json.JSONDecodeError:
                 self.fail(
@@ -501,7 +505,7 @@ class TestToolChoiceLlama32(CustomTestCase):
         )
 
         # Should complete without errors
-        self.assertIsNotNone(response.choices[0].message)
+        self.assertIsNotNone(response.choices[0].message)  # 断言值不为None
 
         tool_calls = response.choices[0].message.tool_calls
         expected_functions = {"get_weather", "get_tourist_attractions"}
@@ -511,16 +515,16 @@ class TestToolChoiceLlama32(CustomTestCase):
             if tool_calls:
                 available_names = [tool["function"]["name"] for tool in tools]
                 for call in tool_calls:
-                    self.assertIn(call.function.name, available_names)
+                    self.assertIn(call.function.name, available_names)  # 断言值包含在集合中
         else:
             # For non-flaky tests, enforce strict requirements
-            self.assertIsNotNone(tool_calls, "Expected tool calls but got none")
-            self.assertEqual(
+            self.assertIsNotNone(tool_calls, "Expected tool calls but got none")  # 断言值不为None
+            self.assertEqual(  # 断言值相等
                 len(tool_calls), 2, f"Expected 2 tool calls, got {len(tool_calls)}"
             )
 
             called_functions = {call.function.name for call in tool_calls}
-            self.assertEqual(
+            self.assertEqual(  # 断言值相等
                 called_functions,
                 expected_functions,
                 f"Expected functions {expected_functions}, got {called_functions}",
@@ -543,34 +547,34 @@ class TestToolChoiceLlama32(CustomTestCase):
 
         # With required, we should get at least one tool call
         tool_calls = response.choices[0].message.tool_calls
-        self.assertIsNotNone(tool_calls)
-        self.assertGreater(len(tool_calls), 0)
+        self.assertIsNotNone(tool_calls)  # 断言值不为None
+        self.assertGreater(len(tool_calls), 0)  # 断言精度大于阈值
 
         # Verify all called functions are available tools
         available_names = [tool["function"]["name"] for tool in tools]
         expected_functions = {"get_weather", "get_tourist_attractions"}
 
         for tool_call in tool_calls:
-            self.assertIsNotNone(tool_call.function.name)
-            self.assertIsNotNone(tool_call.function.arguments)
+            self.assertIsNotNone(tool_call.function.name)  # 断言值不为None
+            self.assertIsNotNone(tool_call.function.arguments)  # 断言值不为None
 
         if self._is_flaky_test():
             # For flaky tests, just ensure basic functionality works
-            self.assertGreater(
+            self.assertGreater(  # 断言精度大于阈值
                 len(tool_calls),
                 0,
                 f"Expected at least 1 tool call, got {len(tool_calls)}",
             )
             for call in tool_calls:
-                self.assertIn(call.function.name, available_names)
+                self.assertIn(call.function.name, available_names)  # 断言值包含在集合中
         else:
             # For non-flaky tests, enforce strict requirements
-            self.assertEqual(
+            self.assertEqual(  # 断言值相等
                 len(tool_calls), 2, f"Expected 2 tool calls, got {len(tool_calls)}"
             )
 
             called_functions = {call.function.name for call in tool_calls}
-            self.assertEqual(
+            self.assertEqual(  # 断言值相等
                 called_functions,
                 expected_functions,
                 f"Expected functions {expected_functions}, got {called_functions}",
@@ -596,7 +600,7 @@ class TestToolChoiceLlama32(CustomTestCase):
             )
 
         # Verify the error message contains the expected text
-        self.assertIn(
+        self.assertIn(  # 断言值包含在集合中
             "Tool 'nonexistent_function' not found in tools list",
             str(context.exception),
         )
@@ -645,7 +649,7 @@ class TestToolChoiceLlama32(CustomTestCase):
 
         # Verify the error message indicates missing name field
         error_msg = str(context.exception).lower()
-        self.assertIn("name", error_msg)
+        self.assertIn("name", error_msg)  # 断言值包含在集合中
 
     def test_invalid_json_schema_in_tool(self):
         """Test what happens when tool function has invalid JSON schema"""
@@ -690,7 +694,7 @@ class TestToolChoiceLlama32(CustomTestCase):
 
         # Verify the error message indicates invalid JSON schema for parameters field
         error_msg = str(context.exception).lower()
-        self.assertIn("invalid 'parameters' schema", error_msg)
+        self.assertIn("invalid 'parameters' schema", error_msg)  # 断言值包含在集合中
 
     def test_conflicting_defs_required_tool_choice(self):
         """Test that conflicting $defs with required tool_choice returns 400 error"""
@@ -760,14 +764,15 @@ class TestToolChoiceLlama32(CustomTestCase):
 
         # Verify the error message indicates conflicting tool definitions
         error_msg = str(context.exception).lower()
-        self.assertIn("multiple schemas", error_msg)
-        self.assertIn("not supported", error_msg)
+        self.assertIn("multiple schemas", error_msg)  # 断言值包含在集合中
+        self.assertIn("not supported", error_msg)  # 断言值包含在集合中
 
 
 class TestToolChoiceQwen25(TestToolChoiceLlama32):
     """Test tool_choice functionality with Qwen2.5 model"""
 
     @classmethod
+    # 类级别初始化，启动服务器或设置测试环境
     def setUpClass(cls):
         cls.flaky_tests = {}
 
@@ -775,7 +780,7 @@ class TestToolChoiceQwen25(TestToolChoiceLlama32):
         cls.base_url = DEFAULT_URL_FOR_TEST
         cls.api_key = "sk-123456"
 
-        cls.process = popen_launch_server(
+        cls.process = popen_launch_server(  # 启动推理服务器
             cls.model,
             cls.base_url,
             timeout=DEFAULT_TIMEOUT_FOR_SERVER_LAUNCH,
@@ -793,6 +798,7 @@ class TestToolChoiceMistral(TestToolChoiceLlama32):
     """Test tool_choice functionality with Mistral model"""
 
     @classmethod
+    # 类级别初始化，启动服务器或设置测试环境
     def setUpClass(cls):
         # Mark flaky tests for this model
         cls.flaky_tests = {
@@ -804,7 +810,7 @@ class TestToolChoiceMistral(TestToolChoiceLlama32):
         cls.base_url = DEFAULT_URL_FOR_TEST
         cls.api_key = "sk-123456"
 
-        cls.process = popen_launch_server(
+        cls.process = popen_launch_server(  # 启动推理服务器
             cls.model,
             cls.base_url,
             timeout=DEFAULT_TIMEOUT_FOR_SERVER_LAUNCH,
@@ -866,6 +872,7 @@ class TestToolChoiceLfm2(TestToolChoiceLlama32):
     """Test tool_choice functionality with LiquidAI LFM2 model"""
 
     @classmethod
+    # 类级别初始化，启动服务器或设置测试环境
     def setUpClass(cls):
         cls.flaky_tests = {
             "test_multi_tool_scenario_auto",
@@ -876,7 +883,7 @@ class TestToolChoiceLfm2(TestToolChoiceLlama32):
         cls.base_url = DEFAULT_URL_FOR_TEST
         cls.api_key = "sk-123456"
 
-        cls.process = popen_launch_server(
+        cls.process = popen_launch_server(  # 启动推理服务器
             cls.model,
             cls.base_url,
             timeout=DEFAULT_TIMEOUT_FOR_SERVER_LAUNCH,

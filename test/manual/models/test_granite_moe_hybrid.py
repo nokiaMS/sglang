@@ -1,3 +1,4 @@
+# 文件名: test_granite_moe_hybrid.py - 测试Granite MoE混合模型（含extra_buffer策略）
 import unittest
 
 from sglang.test.kits.eval_accuracy_kit import GSM8KMixin

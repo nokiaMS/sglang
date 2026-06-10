@@ -1,3 +1,4 @@
+# 文件名: test_manually_verify.py - 手动验证测试
 """Visual comparison figure tests — CI sanity check + human verification.
 
 This file serves two purposes:
@@ -30,6 +31,7 @@ _PNG_MAGIC: bytes = b"\x89PNG"
 
 
 @pytest.fixture(scope="session")
+# 执行publishdir
 def publish_dir() -> Path:
     """Fixed output dir for human inspection — files are copied here after generation."""
     if _PUBLISH_DIR.exists():
@@ -38,6 +40,7 @@ def publish_dir() -> Path:
     return _PUBLISH_DIR
 
 
+# 执行assertvalidpng
 def _assert_valid_png(path: Path) -> None:
     assert path.exists(), f"PNG not created: {path}"
     assert path.stat().st_size > 0, f"PNG is empty: {path}"
@@ -46,6 +49,7 @@ def _assert_valid_png(path: Path) -> None:
     assert magic == _PNG_MAGIC, f"Not a valid PNG: {path}"
 
 
+# 执行generateandpublish
 def _generate_and_publish(
     *,
     baseline: torch.Tensor,
@@ -72,11 +76,13 @@ def _generate_and_publish(
 
 
 @pytest.fixture(autouse=True)
+# 执行skipifnomatplotlib
 def _skip_if_no_matplotlib() -> None:
     pytest.importorskip("matplotlib")
 
 
 class TestBundleDetailsManualVerify:
+    # 测试normalsmalldiff
     def test_normal_small_diff(self, tmp_path: Path, publish_dir: Path) -> None:
         """Two nearly-identical tensors (randn + 0.01 noise).
 
@@ -94,6 +100,7 @@ class TestBundleDetailsManualVerify:
             publish_dir=publish_dir,
         )
 
+    # 测试significantdiff
     def test_significant_diff(self, tmp_path: Path, publish_dir: Path) -> None:
         """Two tensors with larger differences (randn + 0.5 noise).
 
@@ -111,6 +118,7 @@ class TestBundleDetailsManualVerify:
             publish_dir=publish_dir,
         )
 
+    # 测试shapemismatch
     def test_shape_mismatch(self, tmp_path: Path, publish_dir: Path) -> None:
         """Baseline 32x64, target 16x32 — shapes do not match.
 
@@ -128,6 +136,7 @@ class TestBundleDetailsManualVerify:
             publish_dir=publish_dir,
         )
 
+    # 测试largetensor
     def test_large_tensor(self, tmp_path: Path, publish_dir: Path) -> None:
         """4000x4000 tensor — triggers internal downsampling.
 
@@ -145,6 +154,7 @@ class TestBundleDetailsManualVerify:
             publish_dir=publish_dir,
         )
 
+    # 测试1dtensor
     def test_1d_tensor(self, tmp_path: Path, publish_dir: Path) -> None:
         """1D tensor (256,) — internally reshaped to 2D before plotting.
 
@@ -162,6 +172,7 @@ class TestBundleDetailsManualVerify:
             publish_dir=publish_dir,
         )
 
+    # 测试constanttensor
     def test_constant_tensor(self, tmp_path: Path, publish_dir: Path) -> None:
         """All-zero baseline, tiny-valued target.
 
@@ -179,6 +190,7 @@ class TestBundleDetailsManualVerify:
             publish_dir=publish_dir,
         )
 
+    # 测试extremevalues
     def test_extreme_values(self, tmp_path: Path, publish_dir: Path) -> None:
         """Tensor containing values spanning 1e-10 to 1e10.
 
@@ -200,6 +212,7 @@ class TestBundleDetailsManualVerify:
 
 
 class TestPerTokenHeatmapManualVerify:
+    # 测试increasingdiff
     def test_increasing_diff(self, tmp_path: Path, publish_dir: Path) -> None:
         """Per-token heatmap with linearly increasing diff across token positions.
 
@@ -246,6 +259,7 @@ class TestPerTokenHeatmapManualVerify:
         _assert_valid_png(output_path)
         shutil.copy2(src=output_path, dst=publish_dir / output_path.name)
 
+    # 测试singlespike
     def test_single_spike(self, tmp_path: Path, publish_dir: Path) -> None:
         """Per-token heatmap where only one token position has large diff.
 

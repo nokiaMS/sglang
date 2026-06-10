@@ -1,54 +1,59 @@
+# Moss-VL 多模态视觉语言模型实现
+# 该文件实现了 Moss-VL 模型，结合 Qwen3VL 风格的视觉编码器和交叉注意力文本模型，
+# 支持图像和视频输入，通过交叉注意力机制实现视觉和文本的深度交互。
+
+
 """PyTorch Moss-VL model for SGLang - Qwen3VL Vision + Text with Cross Attention."""
 
-from __future__ import annotations
+from __future__ import annotations  # 导入from __future__
 
 import logging
-from array import array
-from functools import partial
-from typing import Iterable, List, Optional, Tuple
+from array import array  # 导入from array
+from functools import partial  # 导入from functools
+from typing import Iterable, List, Optional, Tuple  # 导入from typing
 
 import torch
 import torch.nn as nn
-from einops import rearrange
-from transformers.activations import ACT2FN
-from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
+from einops import rearrange  # 导入from einops
+from transformers.activations import ACT2FN  # 导入activations
+from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (  # 导入modeling_qwen2_5_vl
     Qwen2_5_VisionRotaryEmbedding,
 )
 
-from sglang.srt.distributed import (
+from sglang.srt.distributed import (  # 导入distributed
     get_tensor_model_parallel_world_size,
 )
-from sglang.srt.layers.activation import SiluAndMul
-from sglang.srt.layers.attention.vision import VisionAttention
-from sglang.srt.layers.communicator import LayerCommunicator, LayerScatterModes
-from sglang.srt.layers.conv import Conv3dLayer
-from sglang.srt.layers.dp_attention import get_attention_tp_rank, get_attention_tp_size
-from sglang.srt.layers.layernorm import RMSNorm
-from sglang.srt.layers.linear import (
+from sglang.srt.layers.activation import SiluAndMul  # 导入activation
+from sglang.srt.layers.attention.vision import VisionAttention  # 导入vision
+from sglang.srt.layers.communicator import LayerCommunicator, LayerScatterModes  # 导入communicator
+from sglang.srt.layers.conv import Conv3dLayer  # 导入conv
+from sglang.srt.layers.dp_attention import get_attention_tp_rank, get_attention_tp_size  # 导入dp_attention
+from sglang.srt.layers.layernorm import RMSNorm  # 导入layernorm
+from sglang.srt.layers.linear import (  # 导入linear
     ColumnParallelLinear,
     MergedColumnParallelLinear,
     QKVParallelLinear,
     RowParallelLinear,
 )
-from sglang.srt.layers.logits_processor import LogitsProcessor
-from sglang.srt.layers.quantization.base_config import QuantizationConfig
-from sglang.srt.layers.radix_attention import RadixAttention
-from sglang.srt.layers.rotary_embedding import (
+from sglang.srt.layers.logits_processor import LogitsProcessor  # 导入logits_processor
+from sglang.srt.layers.quantization.base_config import QuantizationConfig  # 导入base_config
+from sglang.srt.layers.radix_attention import RadixAttention  # 导入radix_attention
+from sglang.srt.layers.rotary_embedding import (  # 导入rotary_embedding
     MRotaryEmbedding,
     get_rope,
 )
-from sglang.srt.layers.rotary_embedding.mrope import apply_interleaved_rope
-from sglang.srt.layers.rotary_embedding.utils import apply_rotary_emb
-from sglang.srt.layers.vocab_parallel_embedding import (
+from sglang.srt.layers.rotary_embedding.mrope import apply_interleaved_rope  # 导入mrope
+from sglang.srt.layers.rotary_embedding.utils import apply_rotary_emb  # 导入utils
+from sglang.srt.layers.vocab_parallel_embedding import (  # 导入vocab_parallel_embedding
     ParallelLMHead,
     VocabParallelEmbedding,
 )
-from sglang.srt.managers.schedule_batch import MultimodalInputs
-from sglang.srt.model_executor.cuda_graph_runner import get_is_capture_mode
-from sglang.srt.model_executor.forward_batch_info import ForwardBatch
-from sglang.srt.model_loader.weight_utils import default_weight_loader
-from sglang.srt.server_args import get_global_server_args
-from sglang.srt.utils import add_prefix
+from sglang.srt.managers.schedule_batch import MultimodalInputs  # 导入schedule_batch
+from sglang.srt.model_executor.cuda_graph_runner import get_is_capture_mode  # 导入cuda_graph_runner
+from sglang.srt.model_executor.forward_batch_info import ForwardBatch  # 导入forward_batch_info
+from sglang.srt.model_loader.weight_utils import default_weight_loader  # 导入weight_utils
+from sglang.srt.server_args import get_global_server_args  # 导入server_args
+from sglang.srt.utils import add_prefix  # 导入utils
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +61,8 @@ logger = logging.getLogger(__name__)
 # ==================== Vision Components ====================
 
 
+# Moss-VL 视觉 MLP 模块
+# Moss-VL 视觉 MLP 模块
 class MossVLVisionMLP(nn.Module):
     def __init__(
         self,
@@ -89,6 +96,8 @@ class MossVLVisionMLP(nn.Module):
         return mlp_output
 
 
+# Moss-VL 视觉补丁嵌入模块
+# Moss-VL 视觉补丁嵌入模块
 class MossVLVisionPatchEmbed(nn.Module):
     def __init__(self, config) -> None:
         super().__init__()
@@ -121,6 +130,8 @@ class MossVLVisionPatchEmbed(nn.Module):
         return hidden_states
 
 
+# Moss-VL 视觉编码器块
+# Moss-VL 视觉编码器块
 class MossVLVisionBlock(nn.Module):
     def __init__(
         self,
@@ -178,6 +189,8 @@ class MossVLVisionBlock(nn.Module):
         return x
 
 
+# Moss-VL 视觉补丁合并器，合并空间补丁和深层堆叠特征
+# Moss-VL 视觉补丁合并器，合并空间补丁和深层堆叠特征
 class MossVLVisionPatchMerger(nn.Module):
     """Merges spatial patches and concatenates deepstack features.
 
@@ -239,6 +252,8 @@ class MossVLVisionPatchMerger(nn.Module):
         return x
 
 
+# Moss-VL 视觉编码器模型
+# Moss-VL 视觉编码器模型
 class MossVLVisionModel(nn.Module):
     """Moss-VL Vision Encoder (same architecture as Qwen3VL vision)."""
 
@@ -297,6 +312,8 @@ class MossVLVisionModel(nn.Module):
     def device(self) -> torch.device:
         return self.patch_embed.proj.weight.device
 
+    # 计算旋转位置编码
+    # 计算旋转位置编码
     def rot_pos_emb(self, grid_thw: torch.Tensor) -> torch.Tensor:
         pos_ids = []
         for t, h, w in grid_thw:
@@ -324,6 +341,8 @@ class MossVLVisionModel(nn.Module):
         rotary_pos_emb = rotary_pos_emb_full[pos_ids].flatten(1)
         return rotary_pos_emb
 
+    # 快速位置嵌入插值
+    # 快速位置嵌入插值
     def fast_pos_embed_interpolate(self, grid_thw: torch.Tensor) -> torch.Tensor:
         num_grid_per_side = int(self.num_position_embeddings**0.5)
         grid_ts, grid_hs, grid_ws = grid_thw[:, 0], grid_thw[:, 1], grid_thw[:, 2]
@@ -434,6 +453,8 @@ class MossVLVisionModel(nn.Module):
         x = self.merger(x, deepstack_features)
         return x
 
+    # 加载视觉模型权重
+    # 加载视觉模型权重
     def load_weights(self, weights: Iterable[Tuple[str, torch.Tensor]]) -> set:
         stacked_params_mapping = [
             ("attn.qkv.", "attn.q.", "q"),
@@ -463,6 +484,8 @@ class MossVLVisionModel(nn.Module):
 # ==================== Cross-Attention Components ====================
 
 
+# Moss-VL 文本交叉注意力层
+# Moss-VL 文本交叉注意力层
 class MossVLTextCrossAttention(nn.Module):
     """Cross attention layer for Moss-VL: text queries attend to vision keys/values.
 
@@ -554,6 +577,8 @@ class MossVLTextCrossAttention(nn.Module):
             prefix=add_prefix("attn", prefix),
         )
 
+    # 对单个张量应用 MRoPE 旋转位置编码
+    # 对单个张量应用 MRoPE 旋转位置编码
     def _apply_cross_attn_rotary(
         self, positions: torch.Tensor, states: torch.Tensor
     ) -> torch.Tensor:
@@ -632,6 +657,8 @@ class MossVLTextCrossAttention(nn.Module):
         return out
 
 
+# Moss-VL 交叉注意力解码器层，使用 tanh 门控
+# Moss-VL 交叉注意力解码器层，使用 tanh 门控
 class MossVLCrossAttentionDecoderLayer(nn.Module):
     """Cross-attention transformer block with tanh-gated attention and feedforward."""
 
@@ -700,6 +727,8 @@ class MossVLCrossAttentionDecoderLayer(nn.Module):
         return hidden_states
 
 
+# Moss-VL 文本 MLP 模块
+# Moss-VL 文本 MLP 模块
 class MossVLTextMLP(nn.Module):
     def __init__(
         self,
@@ -741,6 +770,8 @@ class MossVLTextMLP(nn.Module):
 # ==================== Self-Attention Decoder Layer ====================
 
 
+# Moss-VL 自注意力模块
+# Moss-VL 自注意力模块
 class MossVLSelfAttention(nn.Module):
     """Self-attention for Moss-VL text model (same structure as Qwen3Attention)."""
 
@@ -833,6 +864,8 @@ class MossVLSelfAttention(nn.Module):
         return output
 
 
+# Moss-VL 自注意力解码器层
+# Moss-VL 自注意力解码器层
 class MossVLSelfAttentionDecoderLayer(nn.Module):
     def __init__(
         self,
@@ -920,6 +953,8 @@ class MossVLSelfAttentionDecoderLayer(nn.Module):
 # ==================== Text Model ====================
 
 
+# Moss-VL 文本模型
+# Moss-VL 文本模型
 class MossVLTextModel(nn.Module):
     def __init__(
         self,
@@ -1006,6 +1041,8 @@ class MossVLTextModel(nn.Module):
         return hidden_states
 
 
+# Moss-VL 因果语言模型
+# Moss-VL 因果语言模型
 class MossVLForCausalLM(nn.Module):
     def __init__(
         self,
@@ -1053,6 +1090,8 @@ class MossVLForCausalLM(nn.Module):
 # ==================== Main Model ====================
 
 
+# Moss-VL 条件生成模型
+# Moss-VL 条件生成模型
 class MossVLForConditionalGeneration(nn.Module):
 
     def __init__(self, config, quant_config=None, prefix: str = ""):
@@ -1092,11 +1131,15 @@ class MossVLForConditionalGeneration(nn.Module):
 
         self.logits_processor = LogitsProcessor(text_config)
 
+    # 获取输入嵌入层
+    # 获取输入嵌入层
     def get_input_embeddings(self):
         return self.language_model.model.embed_tokens
 
     # ---- pad_input_ids (called at request scheduling time) ----
 
+    # 计算编码器长度
+    # 计算编码器长度
     def _get_encoder_len(self, mm_inputs: MultimodalInputs) -> int:
         if not mm_inputs.mm_items:
             return 0
@@ -1123,6 +1166,8 @@ class MossVLForConditionalGeneration(nn.Module):
 
         return total_len
 
+    # 构建编码器前缀填充 ID
+    # 构建编码器前缀填充 ID
     def _build_encoder_prefix_pad_ids(self, mm_inputs: MultimodalInputs) -> array[int]:
         encoder_len = self._get_encoder_len(mm_inputs)
         if encoder_len == 0 or not mm_inputs.mm_items:
@@ -1131,6 +1176,8 @@ class MossVLForConditionalGeneration(nn.Module):
         pad_value = mm_inputs.mm_items[0].pad_value
         return array("q", [pad_value]) * encoder_len
 
+    # 填充输入标记 ID
+    # 填充输入标记 ID
     def pad_input_ids(
         self, input_ids: array[int], mm_inputs: MultimodalInputs
     ) -> array[int]:
@@ -1143,6 +1190,8 @@ class MossVLForConditionalGeneration(nn.Module):
 
     # ---- Collect and encode vision inputs ----
 
+    # 收集未缓存请求的多模态数据
+    # 收集未缓存请求的多模态数据
     def _collect_mm_data(self, forward_batch: ForwardBatch):
         """Collect pixel_values, grid_thw, and vision_position_ids from uncached requests."""
         if forward_batch.forward_mode.is_decode() or all(forward_batch.encoder_cached):
@@ -1180,6 +1229,8 @@ class MossVLForConditionalGeneration(nn.Module):
 
         return pixel_values, grid_thw, packed_vision_pos_ids
 
+    # 通过 ViT 编码器提取视觉特征
+    # 通过 ViT 编码器提取视觉特征
     def _get_vision_features(
         self,
         pixel_values: torch.Tensor,
@@ -1190,6 +1241,8 @@ class MossVLForConditionalGeneration(nn.Module):
         # hidden_states is packed: (total_vision_tokens, hidden_size)
         return hidden_states
 
+    # 在每帧视觉标记后插入分隔符标记
+    # 在每帧视觉标记后插入分隔符标记
     def _insert_separator_tokens(
         self,
         hidden_states: torch.Tensor,
@@ -1229,6 +1282,8 @@ class MossVLForConditionalGeneration(nn.Module):
 
     # ---- prepare_forward_batch (called before attn backend init) ----
 
+    # 在注意力后端初始化前构建交叉注意力自定义掩码
+    # 在注意力后端初始化前构建交叉注意力自定义掩码
     def prepare_forward_batch(self, forward_batch: ForwardBatch):
         """Build cross-attention custom mask before attn backend init.
 
@@ -1247,6 +1302,8 @@ class MossVLForConditionalGeneration(nn.Module):
         if custom_mask is not None:
             forward_batch.cross_attention_custom_mask = custom_mask
 
+    # 构建打包的 1D 扩展阶段交叉注意力自定义掩码
+    # 构建打包的 1D 扩展阶段交叉注意力自定义掩码
     def _build_cross_attention_custom_mask(
         self, forward_batch: ForwardBatch
     ) -> Optional[torch.Tensor]:
@@ -1352,6 +1409,8 @@ class MossVLForConditionalGeneration(nn.Module):
 
     # ---- full_text_row_masked_out_mask ----
 
+    # 创建逐令牌掩码，将不可见视觉令牌的交叉注意力输出置零
+    # 创建逐令牌掩码，将不可见视觉令牌的交叉注意力输出置零
     def get_full_text_row_masked_out_mask(
         self, forward_batch: ForwardBatch
     ) -> torch.Tensor:
@@ -1534,6 +1593,8 @@ class MossVLForConditionalGeneration(nn.Module):
 
     # ---- Weight Loading ----
 
+    # 加载视觉模型权重
+    # 加载视觉模型权重
     def load_weights(self, weights: Iterable[Tuple[str, torch.Tensor]]):
         stacked_params_mapping = [
             # (param_name, shard_name, shard_id)

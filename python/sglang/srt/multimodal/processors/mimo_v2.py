@@ -1,60 +1,63 @@
-"""MiMoV2 multimodal processor -- protocol, utilities, and processor."""
+# MiMoV2多模态处理器模块
+# 实现MiMoV2模型的多模态数据处理，支持图像、视频、音频和视频音频复合输入
+# 包含MiMoProcessor核心处理逻辑和MiMoV2Processor SGLang处理器包装
+"""MiMoV2 multimodal processor -- protocol, utilities, and processor."""  # MiMoV2多模态处理器模块——协议、工具和处理器
 
-import asyncio
-import base64
-import copy
-import io
-import json
-import math
-import os
-import re
-import subprocess
-import time
-from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
-from io import BytesIO
-from typing import List, Literal, Optional, Union
+import asyncio  # 导入异步IO模块
+import base64  # 导入base64编解码模块
+import copy  # 导入深拷贝模块
+import io  # 导入IO模块
+import json  # 导入JSON模块
+import math  # 导入数学模块
+import os  # 导入操作系统模块
+import re  # 导入正则表达式模块
+import subprocess  # 导入子进程模块
+import time  # 导入时间模块
+from collections import OrderedDict  # 导入有序字典
+from concurrent.futures import ThreadPoolExecutor, as_completed  # 导入线程池执行器
+from dataclasses import dataclass, field  # 导入数据类装饰器
+from io import BytesIO  # 导入字节IO
+from typing import List, Literal, Optional, Union  # 导入类型提示
 
-import numpy as np
-import pybase64
-import requests
-import torch
-import torch.nn.functional as F
-from fastapi import HTTPException
-from PIL import Image
-from torchcodec.decoders import AudioDecoder
-from transformers.models.qwen2_5_vl.configuration_qwen2_5_vl import (
+import numpy as np  # 导入NumPy
+import pybase64  # 导入pybase64库
+import requests  # 导入HTTP请求库
+import torch  # 导入PyTorch
+import torch.nn.functional as F  # 导入PyTorch神经网络函数式模块
+from fastapi import HTTPException  # 导入FastAPI异常类
+from PIL import Image  # 导入PIL图像模块
+from torchcodec.decoders import AudioDecoder  # 导入torchcodec音频解码器
+from transformers.models.qwen2_5_vl.configuration_qwen2_5_vl import (  # 导入Qwen2.5-VL视觉配置
     Qwen2_5_VLVisionConfig,
 )
 
-from sglang.srt.environ import envs
-from sglang.srt.managers.schedule_batch import (
+from sglang.srt.environ import envs  # 导入SGLang环境变量
+from sglang.srt.managers.schedule_batch import (  # 导入调度批次相关类
     Modality,
     MultimodalDataItem,
     MultimodalProcessorOutput,
 )
-from sglang.srt.models.mimo_v2 import MiMoV2ForCausalLM
-from sglang.srt.multimodal.processors.base_processor import (
+from sglang.srt.models.mimo_v2 import MiMoV2ForCausalLM  # 导入MiMoV2模型类
+from sglang.srt.multimodal.processors.base_processor import (  # 导入基础多模态处理器和特殊令牌类
     BaseMultimodalProcessor,
     MultimodalSpecialTokens,
 )
-from sglang.srt.multimodal.processors.qwen_vl import smart_nframes
-from sglang.srt.utils import ImageData, VideoData
+from sglang.srt.multimodal.processors.qwen_vl import smart_nframes  # 导入图像/视频数据类
+from sglang.srt.utils import ImageData, VideoData  # 导入日志器
 from sglang.utils import logger
 
 try:
-    import torchaudio
+    import torchaudio  # 尝试导入torchaudio
     from torchaudio.transforms import MelSpectrogram
 except ImportError:
     logger.warning(
-        "torchaudio is not installed; audio inputs will fail at request time"
+        "torchaudio is not installed; audio inputs will fail at request time"  # torchaudio未安装警告
     )
-    torchaudio = None
+    torchaudio = None  # 设置为None以便后续检查
     MelSpectrogram = None
 
 
-@dataclass
+@dataclass  # 图像输入数据类
 class ImageInput:
     image: Image.Image | str | bytes | torch.Tensor
     max_pixels: Optional[int] = None
@@ -67,7 +70,7 @@ class ImageInput:
             )
 
 
-@dataclass
+@dataclass  # 视频输入数据类
 class VideoInput:
     video: str | bytes | tuple[torch.Tensor, torch.Tensor]
     min_pixels: Optional[int] = None
@@ -112,7 +115,7 @@ class VideoInput:
         )
 
 
-@dataclass
+@dataclass  # 音频输入数据类
 class AudioInput:
     """
     if audio is str or bytes, only load it as mel spectrogram.
@@ -151,7 +154,7 @@ class AudioInput:
             )
 
 
-@dataclass
+@dataclass  # 视频音频复合输入数据类
 class VideoAudioInput:
     video: str | bytes | tuple[torch.Tensor, torch.Tensor]
     audio: str | bytes | torch.Tensor
@@ -206,10 +209,10 @@ class VideoAudioInput:
             )
 
 
-TextInput = str | list[int]
+TextInput = str | list[int]  # 文本输入类型别名
 
 
-@dataclass
+@dataclass  # MiMo输入样本数据类
 class MiMoInputSample:
     input_ids: torch.Tensor
     labels: Optional[torch.Tensor]
@@ -223,7 +226,7 @@ class MiMoInputSample:
     extra: dict = field(default_factory=dict)
 
 
-@dataclass
+@dataclass  # 内容数据类
 class Content:
     type: Literal["text", "image", "video", "audio", "video_audio"]
     content: TextInput | ImageInput | VideoInput | AudioInput | VideoAudioInput
@@ -264,12 +267,12 @@ class Content:
                 )
 
 
-_QWEN2VL_PIXEL_MEAN = torch.Tensor([123.675, 116.28, 103.53]).view(-1, 1, 1)
-_QWEN2VL_PIXEL_STD = torch.Tensor([58.395, 57.12, 57.375]).view(-1, 1, 1)
-_mean_std_cache = {}
+_QWEN2VL_PIXEL_MEAN = torch.Tensor([123.675, 116.28, 103.53]).view(-1, 1, 1)  # Qwen2.5-VL像素均值
+_QWEN2VL_PIXEL_STD = torch.Tensor([58.395, 57.12, 57.375]).view(-1, 1, 1)  # Qwen2.5-VL像素标准差
+_mean_std_cache = {}  # 均值标准差缓存
 
 
-def _decode_frames_and_timestamps(vdw, ele):
+def _decode_frames_and_timestamps(vdw, ele):  # 解码帧和时间戳
     # Shared E/D frame-sampling recipe: smart_nframes + linspace + permute.
     total_frames, video_fps = len(vdw), vdw.avg_fps
     nframes = smart_nframes(ele, total_frames=total_frames, video_fps=video_fps)
@@ -279,7 +282,7 @@ def _decode_frames_and_timestamps(vdw, ele):
     return video_tensor, timestamps
 
 
-def _ffprobe_has_audio(src, stdin=None, label=None) -> bool:
+def _ffprobe_has_audio(src, stdin=None, label=None) -> bool:  # 仅头部音频流探测
     # Header-only audio-stream probe for HTTP URLs; avoids full download.
     try:
         r = subprocess.run(
@@ -312,8 +315,8 @@ def _ffprobe_has_audio(src, stdin=None, label=None) -> bool:
         raise
 
 
-class MiMoProcessor:
-    def __init__(
+class MiMoProcessor:  # MiMo处理器类（核心处理逻辑）
+    def __init__(  # 初始化MiMo处理器
         self,
         tokenizer,
         patch_size=14,
@@ -491,7 +494,7 @@ class MiMoProcessor:
         for k in kwargs:
             logger.info(f"[Warning] Ignored unknown parameter {k} for MiMoProcessor")
 
-    @classmethod
+    @classmethod  # 从HF配置创建MiMoProcessor
     def from_hf_config(cls, hf_config, mm_config=None, **overrides):
         # Params must come from hf_config.processor_config so E and D agree;
         # any drift shifts input_ids on the D side.
@@ -566,7 +569,7 @@ class MiMoProcessor:
         kwargs.update(overrides)
         return cls(**kwargs)
 
-    @staticmethod
+    @staticmethod  # 检查是否有音频轨道
     def has_audio_track(path_or_data) -> bool:
         # In-process probe via torchcodec for bytes/path; ffprobe range
         # request for HTTP URLs so we do not pre-download the blob here.
@@ -591,7 +594,7 @@ class MiMoProcessor:
         except Exception:
             return False
 
-    def _load_video_for_encoder(self, video_data):
+    def _load_video_for_encoder(self, video_data):  # 为编码器加载视频
         # Normalise once to bytes-or-path; reused by frame decode, audio
         # detection, and audio preprocessing without re-downloading.
         from sglang.srt.utils.common import VideoData, _normalize_video_input
@@ -622,7 +625,7 @@ class MiMoProcessor:
                 vdw.close()
         return video_blob, video_tuple
 
-    def preprocess_for_encoder(self, mm_data, modality):
+    def preprocess_for_encoder(self, mm_data, modality):  # 为编码器预处理数据
         # EPD encoder-side features. video_audio_* fields appear when any
         # video has audio; the D side uses them to rebuild input_ids.
         from sglang.srt.managers.schedule_batch import Modality
@@ -714,21 +717,21 @@ class MiMoProcessor:
 
         raise ValueError(f"Unsupported modality for EPD preprocessing: {modality}")
 
-    @property
+    @property  # Mel频谱图属性
     def mel_spectrogram(self):
         self._ensure_audio_dependencies()
         if self._mel_spectrogram is None:
             self._mel_spectrogram = MelSpectrogram(**self.mel_spectrogram_kwargs)
         return self._mel_spectrogram
 
-    @staticmethod
+    @staticmethod  # 确保音频依赖已安装
     def _ensure_audio_dependencies():
         if torchaudio is None or MelSpectrogram is None:
             raise RuntimeError(
                 "torchaudio is required for audio inputs; install torchaudio"
             )
 
-    def prepare_image_kwargs(self, image: ImageInput):
+    def prepare_image_kwargs(self, image: ImageInput):  # 准备图像处理参数
         kwargs = {}
         for k in ["min_pixels", "max_pixels"]:
             if getattr(image, k) is not None:
@@ -737,7 +740,7 @@ class MiMoProcessor:
                 kwargs[k] = self.default_image_processor_kwargs[k]
         return kwargs
 
-    def prepare_video_kwargs(self, video: VideoInput | VideoAudioInput):
+    def prepare_video_kwargs(self, video: VideoInput | VideoAudioInput):  # 准备视频处理参数
         kwargs = {}
         for k in ["min_pixels", "max_pixels", "total_max_pixels"]:
             if getattr(video, k) is not None:
@@ -764,7 +767,7 @@ class MiMoProcessor:
             raise ValueError("Video sampling strategy not specified")
         return kwargs
 
-    def preprocess_audio(self, audio: str | bytes):
+    def preprocess_audio(self, audio: str | bytes):  # 预处理音频数据
         self._ensure_audio_dependencies()
         """
         - Input: audio filename string, bytes, or tuple of (waveform, original_sr)
@@ -853,7 +856,7 @@ class MiMoProcessor:
 
         return spec, audio_token_len
 
-    def process_image(self, image: ImageInput):
+    def process_image(self, image: ImageInput):  # 处理图像
         kwargs = self.prepare_image_kwargs(image)
         image = image.image
         if isinstance(image, (str, bytes)):
@@ -867,7 +870,7 @@ class MiMoProcessor:
         )
         return image_transformed_tensor
 
-    def process_video(
+    def process_video(  # 处理视频
         self, video_input: VideoInput | VideoAudioInput, temporal_padding_factor=None
     ):
 
@@ -1014,7 +1017,7 @@ class MiMoProcessor:
         )
         return visual_patches, thw_grid, aligned_timestamps, video_meta
 
-    def process_audio(self, audio: AudioInput):
+    def process_audio(self, audio: AudioInput):  # 处理音频
         audio = audio.audio
         if isinstance(audio, np.ndarray):
             waveform = torch.from_numpy(audio).float()
@@ -1048,7 +1051,7 @@ class MiMoProcessor:
         )
         return padded_audio
 
-    def _process_videos_parallel(self, contents):
+    def _process_videos_parallel(self, contents):  # 并行处理多个视频
         video_contents_info = []
         for idx, content in enumerate(contents):
             if content.type in ("video", "video_audio"):
@@ -1078,7 +1081,7 @@ class MiMoProcessor:
                 video_results[idx] = self.process_video(video_input)
         return video_results
 
-    def _process_text_content(self, content, verbose):
+    def _process_text_content(self, content, verbose):  # 处理文本内容
         if isinstance(content.content, str):
             _input_ids = self.tokenizer.encode(content.content)
         else:
@@ -1094,7 +1097,7 @@ class MiMoProcessor:
 
         return {"input_ids": _input_ids, "labels": _labels, "verbose": verbose_str}
 
-    def _process_image_content(self, content, verbose):
+    def _process_image_content(self, content, verbose):  # 处理图像内容
         image_tensor = self.process_image(content.content)
         visual_patches, thw_grid = self._flatten_visual_inputs(image_tensor, "image")
         grid_t, grid_h, grid_w = thw_grid
@@ -1116,7 +1119,7 @@ class MiMoProcessor:
             "verbose": verbose_str,
         }
 
-    def _process_video_content(self, content_idx, video_results, verbose):
+    def _process_video_content(self, content_idx, video_results, verbose):  # 处理视频内容
         visual_patches, thw_grid, timestamps, video_meta = video_results[content_idx]
         grid_t, grid_h, grid_w = thw_grid
         num_media_tokens = (
@@ -1170,7 +1173,7 @@ class MiMoProcessor:
             "verbose": verbose_str,
         }
 
-    def _process_audio_content(self, content, verbose):
+    def _process_audio_content(self, content, verbose):  # 处理音频内容
         processed_audio = self.process_audio(content.content)
         if isinstance(processed_audio, tuple):
             is_tokenized = False
@@ -1197,7 +1200,7 @@ class MiMoProcessor:
             "verbose": verbose_str,
         }
 
-    def _build_video_audio_units(
+    def _build_video_audio_units(  # 构建视频音频单元
         self,
         thw_grid,
         timestamps,
@@ -1253,7 +1256,7 @@ class MiMoProcessor:
             )
         return units
 
-    def _build_video_audio_input_ids(
+    def _build_video_audio_input_ids(  # 构建视频音频输入ID
         self,
         units,
         thw_grid,
@@ -1359,7 +1362,7 @@ class MiMoProcessor:
             "verbose": verbose_str,
         }
 
-    def _process_video_audio_content(
+    def _process_video_audio_content(  # 处理视频音频复合内容
         self, content_idx, content, video_results, verbose
     ):
         visual_patches, thw_grid, timestamps, video_meta = video_results[content_idx]
@@ -1406,7 +1409,7 @@ class MiMoProcessor:
             "verbose": built["verbose"],
         }
 
-    def process(self, contents: list[Content], verbose: bool = False):
+    def process(self, contents: list[Content], verbose: bool = False):  # 综合处理所有内容
         input_ids, labels = [], []
         image_pixel_values, image_thw_grids = [], []
         video_pixel_values, video_thw_grids = [], []
@@ -1506,7 +1509,7 @@ class MiMoProcessor:
             extra=extra,
         )
 
-    def _flatten_visual_inputs(self, visual: torch.Tensor, visual_type: str):
+    def _flatten_visual_inputs(self, visual: torch.Tensor, visual_type: str):  # 展平视觉输入
         if visual_type == "image":
             resized_height, resized_width = visual.shape[-2:]
             patches = visual.unsqueeze(0).repeat(self.temporal_patch_size, 1, 1, 1)
@@ -1548,14 +1551,14 @@ class MiMoProcessor:
 
         return flatten_patches, thw_grids
 
-    @staticmethod
+    @staticmethod  # 格式化时间戳
     def format_timestamp(timestamp: float):
         minutes = int(timestamp // 60)
         seconds = int(timestamp % 60)
         return f"{minutes:02d}:{seconds:02d}"
 
     @staticmethod
-    def smart_resize(
+    def smart_resize(  # 智能调整图像尺寸
         height: int, width: int, factor: int, min_pixels: int, max_pixels: int
     ):
         """Rescales the image so that the following conditions are met:
@@ -1585,7 +1588,7 @@ class MiMoProcessor:
         return int(h_bar), int(w_bar)
 
     @staticmethod
-    def to_rgb(pil_image: Image.Image) -> Image.Image:
+    def to_rgb(pil_image: Image.Image) -> Image.Image:  # 转为RGB
         if pil_image.mode == "RGBA":
             white_background = Image.new("RGB", pil_image.size, (255, 255, 255))
             white_background.paste(pil_image, mask=pil_image.split()[3])
@@ -1594,7 +1597,7 @@ class MiMoProcessor:
             return pil_image.convert("RGB")
 
     @staticmethod
-    def standardize_batch(images: torch.Tensor) -> torch.Tensor:
+    def standardize_batch(images: torch.Tensor) -> torch.Tensor:  # 标准化批次
         device_key = str(images.device)
         if device_key not in _mean_std_cache:
             _mean_std_cache[device_key] = (
@@ -1608,7 +1611,7 @@ class MiMoProcessor:
         return (images - mean) / std
 
     @classmethod
-    def get_visual_transform_batch(
+    def get_visual_transform_batch(  # 获取视觉变换（批次）
         cls,
         frames: torch.Tensor,
         factor: int,
@@ -1633,7 +1636,7 @@ class MiMoProcessor:
         return standardized, w_bar, h_bar
 
     @classmethod
-    def get_visual_transform(
+    def get_visual_transform(  # 获取视觉变换（单张）
         cls,
         img: torch.Tensor | Image.Image,
         factor: int,
@@ -1670,7 +1673,7 @@ class MiMoProcessor:
         return img_standardized, w_bar, h_bar
 
     @classmethod
-    def fetch_image(cls, image: Image.Image | str | bytes):
+    def fetch_image(cls, image: Image.Image | str | bytes):  # 获取图像
         image_obj = None
         if isinstance(image, Image.Image):
             image_obj = image
@@ -1700,11 +1703,11 @@ class MiMoProcessor:
         return image
 
 
-class MiMoV2Processor(BaseMultimodalProcessor):
-    models = [MiMoV2ForCausalLM]
+class MiMoV2Processor(BaseMultimodalProcessor):  # MiMoV2多模态处理器类，继承自基础多模态处理器
+    models = [MiMoV2ForCausalLM]  # 关联的模型列表
 
     @staticmethod
-    def _normalize_config_dict(config, name: str) -> dict:
+    def _normalize_config_dict(config, name: str) -> dict:  # 规范化配置字典
         if config is None:
             return {}
         if isinstance(config, dict):
@@ -1714,13 +1717,13 @@ class MiMoV2Processor(BaseMultimodalProcessor):
         raise ValueError(f"{name} must be a dict-like config, got {type(config)}")
 
     @staticmethod
-    def _require_config_value(config: dict, key: str):
+    def _require_config_value(config: dict, key: str):  # 获取必需的配置值
         value = config.get(key)
         if value is None:
             raise ValueError(f"processor_config.{key} must be set for MiMo-V2")
         return value
 
-    def _validate_placeholder_counts(
+    def _validate_placeholder_counts(  # 验证占位符数量
         self,
         text_parts,
         multimodal_tokens_pattern,
@@ -1751,7 +1754,7 @@ class MiMoV2Processor(BaseMultimodalProcessor):
                     f"{placeholder_count} placeholders vs {data_count} {name}s"
                 )
 
-    def __init__(self, hf_config, server_args, _processor, *args, **kwargs):
+    def __init__(self, hf_config, server_args, _processor, *args, **kwargs):  # 初始化MiMoV2处理器
         super().__init__(hf_config, server_args, _processor, *args, **kwargs)
         self.vision_config = Qwen2_5_VLVisionConfig.from_dict(hf_config.vision_config)
 
@@ -1879,11 +1882,11 @@ class MiMoV2Processor(BaseMultimodalProcessor):
             audio_token_regex=self.AUDIO_TOKEN_REGEX,
         ).build(_processor)
 
-    @property
+    @property  # 空间合并大小属性
     def spatial_merge_size(self):
         return self.vision_config.spatial_merge_size
 
-    def _preprocess_video_sync(self, vdw, preprocess_kwargs=None):
+    def _preprocess_video_sync(self, vdw, preprocess_kwargs=None):  # 同步预处理视频
         # Seed with processor_config defaults so E/D agree on fps/min/max.
         default_kwargs = {
             k: v
@@ -1899,7 +1902,7 @@ class MiMoV2Processor(BaseMultimodalProcessor):
                 status_code=432, detail="Video file is corrupted or cannot be decoded"
             )
 
-    def process_mm_data(
+    def process_mm_data(  # 同步处理多模态数据
         self, input_text, images=None, videos=None, audios=None, **kwargs
     ) -> dict:
         if audios and not self.AUDIO_TOKEN_REGEX.search(input_text or ""):
@@ -2091,7 +2094,7 @@ class MiMoV2Processor(BaseMultimodalProcessor):
 
         return ret
 
-    async def process_mm_data_async(
+    async def process_mm_data_async(  # 异步处理多模态数据
         self,
         image_data: List[Union[str, bytes]],
         audio_data: List[Union[str, bytes]],
@@ -2299,7 +2302,7 @@ class MiMoV2Processor(BaseMultimodalProcessor):
             mrope_position_delta=input_sample.rope_deltas,
         )
 
-    def get_mm_data(self, prompt, embeddings, **kwargs):
+    def get_mm_data(self, prompt, embeddings, **kwargs):  # 获取多模态数据（EPD模式）
         # EPD: rebuild input_ids from E-side embeddings + segment metadata;
         # video+audio reuses _build_video_audio_input_ids for layout parity.
         img_grid_thw = kwargs.get("img_grid_thw")
@@ -2483,7 +2486,7 @@ class MiMoV2Processor(BaseMultimodalProcessor):
         )
 
     @staticmethod
-    def _make_video_content(
+    def _make_video_content(  # 构建视频内容
         processed_video, use_audio, audio_source, preprocess_kwargs
     ):
         video_kwargs = {

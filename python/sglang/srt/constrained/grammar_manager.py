@@ -1,3 +1,4 @@
+# 本文件实现了语法管理器，负责管理约束解码请求的语法编译队列、缓存查询、跨rank同步以及超时处理。
 from __future__ import annotations
 
 import logging
@@ -22,10 +23,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# 语法管理器，管理约束解码请求的语法编译、队列和跨rank同步
 class GrammarManager:
     def __init__(self, scheduler: Scheduler):
         self.scheduler = scheduler
         self.server_args = scheduler.server_args
+        # 等待语法编译完成的请求队列
         self.grammar_queue: List[Req] = []
         if not self.server_args.skip_tokenizer_init:
             self.grammar_backend = create_grammar_backend(
@@ -44,11 +47,13 @@ class GrammarManager:
             else False
         )
 
+        # 跨rank同步语法编译状态所需的通信组和配置
         self.grammar_sync_group = scheduler.dp_tp_cpu_group
         self.grammar_sync_size = scheduler.dp_tp_group.world_size
         self.grammar_sync_entry = scheduler.dp_tp_group.first_rank
         self.is_grammar_sync_entry = scheduler.dp_tp_group.is_first_rank
 
+        # 语法轮询间隔和最大轮询次数配置
         self.SGLANG_GRAMMAR_POLL_INTERVAL = envs.SGLANG_GRAMMAR_POLL_INTERVAL.get()
         self.SGLANG_GRAMMAR_MAX_POLL_ITERATIONS = (
             envs.SGLANG_GRAMMAR_MAX_POLL_ITERATIONS.get()
@@ -57,13 +62,16 @@ class GrammarManager:
     def __len__(self):
         return len(self.grammar_queue)
 
+    # 清除语法后端缓存
     def clear(self):
         if self.grammar_backend:
             self.grammar_backend.reset()
 
+    # 是否有待编译的语法请求
     def has_waiting_grammars(self) -> bool:
         return len(self.grammar_queue) > 0
 
+    # 中止指定请求的语法编译
     def abort_requests(self, recv_req: AbortReq):
         for req in self.grammar_queue:
             if recv_req.abort_all or req.rid.startswith(recv_req.rid):
@@ -72,6 +80,7 @@ class GrammarManager:
                     req.grammar.cancel()
                 req.set_finish_with_abort("Aborted by AbortReq.")
 
+    # 获取请求的推理预算（最大思考token数）
     def _get_request_thinking_budget(self, req: Req) -> int | None:
         custom_params = req.sampling_params.custom_params
         if not isinstance(custom_params, dict):
@@ -79,6 +88,7 @@ class GrammarManager:
         thinking_budget = custom_params.get("thinking_budget")
         return thinking_budget if isinstance(thinking_budget, int) else None
 
+    # 将请求级别的推理预算应用到语法对象上
     def _apply_request_reasoning_budget(self, req: Req) -> None:
         thinking_budget = self._get_request_thinking_budget(req)
         if thinking_budget is None:
@@ -86,8 +96,10 @@ class GrammarManager:
         if isinstance(req.grammar, ReasonerGrammarObject):
             req.grammar.max_think_tokens = thinking_budget
 
+    # 处理带有语法约束的请求，初始化语法缓存并加入编译队列
     def process_req_with_grammar(self, req: Req) -> bool:
         # Init grammar cache for this request
+        # 初始化此请求的语法缓存
         add_to_grammar_queue = False
         if (
             req.sampling_params.json_schema is not None
@@ -99,6 +111,7 @@ class GrammarManager:
                 error_msg = "Grammar-based generation (json_schema, regex, ebnf, structural_tag) is not supported when the server is launched with --grammar-backend none"
                 req.set_finish_with_abort(error_msg)
             else:
+                # 根据采样参数确定语法类型和键
                 if req.sampling_params.json_schema is not None:
                     key = ("json", req.sampling_params.json_schema)
                 elif req.sampling_params.regex is not None:
@@ -114,12 +127,14 @@ class GrammarManager:
                 req.grammar = value
 
                 if not cache_hit:
+                    # 缓存未命中，需要异步编译
                     req.grammar_key = key
                     add_to_grammar_queue = True
                 else:
                     if isinstance(
                         value, InvalidGrammarObject
                     ):  # We hit a cached invalid grammar.
+                        # 命中了缓存中的无效语法对象
                         error_msg = (
                             f"Failed to compile {key[0]} grammar: {value.error_message}"
                         )
@@ -127,6 +142,7 @@ class GrammarManager:
                     else:
                         self._apply_request_reasoning_budget(req)
         elif self._enable_strict_thinking:
+            # 严格思考模式下，即使无语法约束也初始化推理语法对象
             grammar_obj = self.grammar_backend.init_strict_reasoning_grammar(
                 req.require_reasoning
             )
@@ -139,6 +155,7 @@ class GrammarManager:
 
         return add_to_grammar_queue
 
+    # 获取语法编译已就绪的请求，支持跨rank同步就绪和失败状态
     def get_ready_grammar_requests(self) -> List[Req]:
         """
         Move requests whose grammar objects are ready from grammar_queue to waiting_queue.
@@ -155,6 +172,7 @@ class GrammarManager:
         failed_req_idxs: set[int] = set()
 
         # Poll for ready requests
+        # 轮询检查已就绪的请求
         start_time = time.perf_counter()
         while time.perf_counter() - start_time < self.SGLANG_GRAMMAR_POLL_INTERVAL:
             for i, req in enumerate(self.grammar_queue):
@@ -162,6 +180,7 @@ class GrammarManager:
                     continue
 
                 if req.finished() or req.grammar is None:  # It is aborted by AbortReq
+                    # 请求已被中止
                     ready_req_idxs.add(i)
                     continue
 
@@ -170,9 +189,11 @@ class GrammarManager:
                     ready_req_idxs.add(i)
 
             # Sleep a bit to avoid busy waiting
+            # 短暂休眠避免忙等待
             time.sleep(self.SGLANG_GRAMMAR_POLL_INTERVAL / 10)
 
         # Check failed requests
+        # 检查超时失败的请求
         for i, req in enumerate(self.grammar_queue):
             if i not in ready_req_idxs:
                 self.grammar_queue[i].grammar_wait_ct += 1
@@ -181,10 +202,12 @@ class GrammarManager:
                     >= self.SGLANG_GRAMMAR_MAX_POLL_ITERATIONS
                 ):
                     # Timeout after max poll iterations
+                    # 超过最大轮询次数后超时
                     # The actual waiting time is SGLANG_GRAMMAR_MAX_POLL_ITERATIONS * max(SGLANG_GRAMMAR_POLL_INTERVAL, GPU_forward_batch_latency)
                     failed_req_idxs.add(i)
 
         # Sync ready and failed requests across all ranks
+        # 跨所有rank同步就绪和失败的请求索引
         if self.grammar_sync_size == 1:
             synced_ready_req_idxs = ready_req_idxs
             synced_failed_req_idxs = failed_req_idxs
@@ -195,10 +218,12 @@ class GrammarManager:
                 (ready_req_idxs, failed_req_idxs),
                 group=self.grammar_sync_group,
             )
+            # 就绪请求取交集（所有rank都就绪才算就绪），失败请求取并集
             synced_ready_req_idxs = set.intersection(*[x[0] for x in all_gather_output])
             synced_failed_req_idxs = set.union(*[x[1] for x in all_gather_output])
 
         # Return ready requests
+        # 处理已就绪的请求
         return_reqs: List[Req] = []
         for i in synced_ready_req_idxs:
             req = self.grammar_queue[i]
@@ -208,6 +233,7 @@ class GrammarManager:
 
             assert isinstance(req.grammar, futures.Future) and req.grammar_key
             try:
+                # 获取异步编译结果
                 req.grammar = req.grammar.result()
             except Exception as e:
                 logger.error(
@@ -215,6 +241,7 @@ class GrammarManager:
                     f"grammar_key={req.grammar_key}"
                 )
                 req.grammar = InvalidGrammarObject(f"Grammar compilation failed: {e}")
+            # 将编译结果写入缓存
             self.grammar_backend.set_cache(req.grammar_key, req.grammar.copy())
             self._apply_request_reasoning_budget(req)
             if isinstance(req.grammar, InvalidGrammarObject):
@@ -222,6 +249,7 @@ class GrammarManager:
                 req.set_finish_with_abort(error_msg)
 
         # Return failed requests
+        # 处理超时失败的请求
         for i in synced_failed_req_idxs:
             req = self.grammar_queue[i]
             return_reqs.append(req)
@@ -235,6 +263,7 @@ class GrammarManager:
             req.set_finish_with_abort(error_msg)
 
         # Remove finished requests from grammar_queue
+        # 从语法队列中移除已处理完毕的请求
         self.grammar_queue = [
             req
             for i, req in enumerate(self.grammar_queue)

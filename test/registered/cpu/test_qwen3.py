@@ -1,3 +1,4 @@
+# 文件名: test_qwen3.py - Qwen3 CPU测试
 import unittest
 
 import torch
@@ -11,6 +12,7 @@ register_cpu_ci(est_time=10, suite="base-b-test-cpu")
 torch.manual_seed(1234)
 
 
+# 执行fixquerykeyvalueorderingreshapecat
 def fix_query_key_value_ordering_reshape_cat(
     mixed_qkvz, mixed_ba, num_k_heads, num_v_heads, attn_tp_size, head_k_dim, head_v_dim
 ):
@@ -56,6 +58,7 @@ def fix_query_key_value_ordering_reshape_cat(
     return mixed_qkv, z, b, a
 
 
+# 执行fixquerykeyvalueorderingreshapecatcontiguous
 def fix_query_key_value_ordering_reshape_cat_contiguous(
     mixed_qkvz: torch.Tensor,
     mixed_ba: torch.Tensor,
@@ -85,6 +88,7 @@ def fix_query_key_value_ordering_reshape_cat_contiguous(
 
 
 class TestQwen3(CustomTestCase):
+    # 测试fusedqkvzbasplitreshapecat
     def test_fused_qkvzba_split_reshape_cat(self):
         mixed_qkvz = torch.rand(1024, 12288, dtype=torch.bfloat16)
         mixed_ba = torch.rand(1024, 64, dtype=torch.bfloat16)
@@ -113,6 +117,7 @@ class TestQwen3(CustomTestCase):
         torch.testing.assert_close(b, b_ref, atol=atol, rtol=rtol)
         torch.testing.assert_close(a, a_ref, atol=atol, rtol=rtol)
 
+    # 测试fusedqkvzbasplitreshapecatcontiguous
     def test_fused_qkvzba_split_reshape_cat_contiguous(self):
         mixed_qkvz = torch.rand(1, 12288, dtype=torch.bfloat16)
         mixed_ba = torch.rand(1, 64, dtype=torch.bfloat16)

@@ -1,3 +1,4 @@
+# 文件名: test_tokenspeed_mla.py - TokenSpeed MLA注意力测试
 import importlib.util
 import sys
 import unittest
@@ -30,6 +31,7 @@ from sglang.test.kits.attention_unittest.attention_methods.mla_attention import 
 _MIN_SM = 100
 
 
+# 执行supported
 def _supported() -> tuple[bool, str]:
     if not torch.cuda.is_available():
         return False, "CUDA is required"
@@ -169,6 +171,7 @@ class TestTokenspeedMLAAttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试projectedmlaattentioncases
     def test_projected_mla_attention_cases(self):
         for case in self.CASES:
             with self.subTest(case=case.name, backend=case.backend):

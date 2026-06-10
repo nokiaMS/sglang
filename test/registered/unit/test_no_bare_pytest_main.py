@@ -1,3 +1,4 @@
+# 文件名: test_no_bare_pytest_main.py - 单元测试
 import ast
 import pathlib
 import unittest
@@ -12,7 +13,10 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 _SCAN_ROOTS = [_REPO_ROOT / "python", _REPO_ROOT / "test"]
 
 
+# TestNoBarePytestMain类
 class TestNoBarePytestMain(CustomTestCase):
+
+    # TestNoBarePytestMain类的测试nobarepytestmaininrepo
     def test_no_bare_pytest_main_in_repo(self):
         offenders = []
         for root in _SCAN_ROOTS:
@@ -23,7 +27,7 @@ class TestNoBarePytestMain(CustomTestCase):
                 if violation is not None:
                     offenders.append(violation)
 
-        self.assertFalse(
+        self.assertFalse(  # 断言为假
             offenders,
             msg=(
                 "Found bare `pytest.main(...)` in __main__ blocks (must be "
@@ -33,6 +37,7 @@ class TestNoBarePytestMain(CustomTestCase):
         )
 
 
+# 内部方法_find_bare_pytest_main
 def _find_bare_pytest_main(path: pathlib.Path):
     """Return `<rel_path>:<lineno>` if `path` has a bare pytest.main(...) call
     inside `if __name__ == "__main__":`, else None."""
@@ -57,6 +62,7 @@ def _find_bare_pytest_main(path: pathlib.Path):
     return None
 
 
+# 内部方法_is_main_guard
 def _is_main_guard(test: ast.expr) -> bool:
     """Match `__name__ == "__main__"` (either side)."""
     if not isinstance(test, ast.Compare) or len(test.ops) != 1:
@@ -69,6 +75,7 @@ def _is_main_guard(test: ast.expr) -> bool:
     return has_name and has_main
 
 
+# 内部方法_is_bare_pytest_main_call
 def _is_bare_pytest_main_call(stmt: ast.stmt) -> bool:
     """Match `pytest.main(...)` whose return value is discarded.
     `sys.exit(pytest.main(...))` and `code = pytest.main(...)` are fine."""

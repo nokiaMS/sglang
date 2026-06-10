@@ -1,3 +1,4 @@
+# 文件名: test_crash_dump.py - 崩溃转储测试
 import glob
 import os
 import pickle
@@ -32,6 +33,7 @@ class TestCrashDump(CustomTestCase):
     NUM_REQUESTS_BEFORE_CRASH = 5
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.crash_dump_folder = tempfile.mkdtemp(prefix="crash_dump_test_")
 
@@ -50,9 +52,11 @@ class TestCrashDump(CustomTestCase):
             )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试crashdumpgenerated
     def test_crash_dump_generated(self):
         """Test that crash dump file is generated after server crash."""
         # Send multiple requests to trigger the crash

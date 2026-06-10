@@ -1,3 +1,4 @@
+# 文件名: test_formatter.py - 格式化器测试
 import sys
 
 import pytest
@@ -82,6 +83,7 @@ _DEFAULT_PERCENTILE_LINES: list[str] = [
 # each test self-contained makes failures immediately readable without chasing
 # helper functions.  Do not extract common fragments.
 class TestFormatComparison:
+    # 测试normal
     def test_normal(self):
         info = TensorComparisonInfo(
             name="test",
@@ -117,6 +119,7 @@ class TestFormatComparison:
             "[abs_diff] p1=0.0001 p5=0.0001 p50=0.0002 p95=0.0004 p99=0.0005"
         )
 
+    # 测试shapemismatch
     def test_shape_mismatch(self):
         info = TensorComparisonInfo(
             name="mismatch",
@@ -144,6 +147,7 @@ class TestFormatComparison:
             "⚠️ Shape mismatch"
         )
 
+    # 测试withdowncast
     def test_with_downcast(self):
         info = TensorComparisonInfo(
             name="downcast",
@@ -186,6 +190,7 @@ class TestFormatComparison:
             "[abs_diff] p1=0.0001 p5=0.0001 p50=0.0002 p95=0.0004 p99=0.0005"
         )
 
+    # 测试withshapeunification
     def test_with_shape_unification(self):
         info = TensorComparisonInfo(
             name="unify",
@@ -219,6 +224,7 @@ class TestFormatComparison:
             "[abs_diff] p1=0.0001 p5=0.0001 p50=0.0002 p95=0.0004 p99=0.0005"
         )
 
+    # 测试withsamples
     def test_with_samples(self):
         info = TensorComparisonInfo(
             name="samples",
@@ -252,6 +258,7 @@ class TestFormatComparison:
             "x_target(sample)=tensor([0.1, 0.3, ...])"
         )
 
+    # 测试emptypercentiles
     def test_empty_percentiles(self):
         stats_no_quantiles = _make_stats(percentiles={})
 
@@ -280,6 +287,7 @@ class TestFormatComparison:
         )
 
 
+# 执行makecomparisonrecord
 def _make_comparison_record(
     name: str = "hidden_states",
     shape: list[int] | None = None,
@@ -309,6 +317,7 @@ def _make_comparison_record(
     )
 
 
+# 执行makebundlesideinfo
 def _make_bundle_side_info(
     num_files: int = 2,
     shape: list[int] | None = None,
@@ -326,6 +335,7 @@ def _make_bundle_side_info(
     return BundleSideInfo(num_files=num_files, files=files, dims=dims)
 
 
+# 执行makesimplealignerplan
 def _make_simple_aligner_plan(
     *,
     with_unsharder: bool = False,
@@ -383,6 +393,7 @@ def _make_simple_aligner_plan(
     )
 
 
+# 执行maketracedplan
 def _make_traced_plan(
     plan: AlignerPlan,
     *,
@@ -435,6 +446,7 @@ def _make_traced_plan(
 class TestFormatComparisonRichMinimal:
     """format_comparison_rich() with verbosity='minimal'."""
 
+    # 测试passed
     def test_passed(self) -> None:
         record: ComparisonTensorRecord = _make_comparison_record(
             diff=_make_diff(rel_diff=1e-4, passed=True),
@@ -447,6 +459,7 @@ class TestFormatComparisonRichMinimal:
             "rel_diff=1.00e-04"
         )
 
+    # 测试failed
     def test_failed(self) -> None:
         record: ComparisonTensorRecord = _make_comparison_record(
             diff=_make_diff(rel_diff=0.5, passed=False),
@@ -459,6 +472,7 @@ class TestFormatComparisonRichMinimal:
             "rel_diff=5.00e-01"
         )
 
+    # 测试shapemismatch
     def test_shape_mismatch(self) -> None:
         record: ComparisonTensorRecord = _make_comparison_record(
             shape_mismatch=True,
@@ -471,6 +485,7 @@ class TestFormatComparisonRichMinimal:
             "[yellow]shape mismatch[/]"
         )
 
+    # 测试nodiff
     def test_no_diff(self) -> None:
         record: ComparisonTensorRecord = _make_comparison_record()
         result: str = format_comparison_rich(record, verbosity="minimal")
@@ -482,6 +497,7 @@ class TestFormatComparisonRichMinimal:
 class TestFormatComparisonRichNormal:
     """format_comparison_rich() with verbosity='normal'."""
 
+    # 测试passed
     def test_passed(self) -> None:
         record: ComparisonTensorRecord = _make_comparison_record(
             diff=_make_diff(rel_diff=1e-4, passed=True),
@@ -506,6 +522,7 @@ class TestFormatComparisonRichNormal:
             "      [blue]p99       [/]     1.8000       1.8000   [dim]+0.00e+00[/]"
         )
 
+    # 测试failed
     def test_failed(self) -> None:
         record: ComparisonTensorRecord = _make_comparison_record(
             diff=_make_diff(
@@ -535,6 +552,7 @@ class TestFormatComparisonRichNormal:
             "      p1=1.00e-04  p5=1.00e-04  p50=2.00e-04  p95=4.00e-04  p99=5.00e-04"
         )
 
+    # 测试shapemismatch
     def test_shape_mismatch(self) -> None:
         record: ComparisonTensorRecord = _make_comparison_record(
             shape_mismatch=True,
@@ -559,6 +577,7 @@ class TestFormatComparisonRichNormal:
             "      [blue]p99       [/]     1.8000       1.8000   [dim]+0.00e+00[/]"
         )
 
+    # 测试withdowncast
     def test_with_downcast(self) -> None:
         record: ComparisonTensorRecord = _make_comparison_record(
             diff=_make_diff(rel_diff=0.01, passed=False),
@@ -589,6 +608,7 @@ class TestFormatComparisonRichNormal:
             "      p1=1.00e-04  p5=1.00e-04  p50=2.00e-04  p95=4.00e-04  p99=5.00e-04"
         )
 
+    # 测试withbundleinfo
     def test_with_bundle_info(self) -> None:
         bundle_info: Pair[BundleSideInfo] = Pair(
             x=_make_bundle_side_info(num_files=2, dims="b s h(tp) d"),
@@ -621,6 +641,7 @@ class TestFormatComparisonRichNormal:
             "      [blue]p99       [/]     1.8000       1.8000   [dim]+0.00e+00[/]"
         )
 
+    # 测试withplan
     def test_with_plan(self) -> None:
         plan: AlignerPlan = _make_simple_aligner_plan(with_unsharder=True)
         record: ComparisonTensorRecord = _make_comparison_record(
@@ -654,6 +675,7 @@ class TestFormatComparisonRichNormal:
 class TestFormatComparisonRichVerbose:
     """format_comparison_rich() with verbosity='verbose'."""
 
+    # 测试passedfulldetail
     def test_passed_full_detail(self) -> None:
         record: ComparisonTensorRecord = _make_comparison_record(
             diff=_make_diff(rel_diff=1e-4, passed=True),
@@ -686,6 +708,7 @@ class TestFormatComparisonRichVerbose:
             "      target    tensor([0.1, 0.2, ...])"
         )
 
+    # 测试withbundleverbose
     def test_with_bundle_verbose(self) -> None:
         bundle_info: Pair[BundleSideInfo] = Pair(
             x=_make_bundle_side_info(num_files=2, with_parallel_info=True),
@@ -726,6 +749,7 @@ class TestFormatComparisonRichVerbose:
             "      p1=1.00e-04  p5=1.00e-04  p50=2.00e-04  p95=4.00e-04  p99=5.00e-04"
         )
 
+    # 测试withplanandtraces
     def test_with_plan_and_traces(self) -> None:
         plan: AlignerPlan = _make_simple_aligner_plan(with_unsharder=True)
         record: ComparisonTensorRecord = _make_comparison_record(
@@ -767,6 +791,7 @@ class TestFormatComparisonRichVerbose:
 class TestFormatBundleSection:
     """_format_bundle_section() snapshot tests."""
 
+    # 测试singleshape
     def test_single_shape(self) -> None:
         bundle: Pair[BundleSideInfo] = Pair(
             x=_make_bundle_side_info(num_files=2, shape=[2, 4096]),
@@ -779,6 +804,7 @@ class TestFormatBundleSection:
             "      target    [cyan]2 files[/] × [2, 4096] float32",
         ]
 
+    # 测试mixedshapes
     def test_mixed_shapes(self) -> None:
         side: BundleSideInfo = BundleSideInfo(
             num_files=2,
@@ -795,6 +821,7 @@ class TestFormatBundleSection:
             "      target    [cyan]2 files[/] × mixed shapes float32",
         ]
 
+    # 测试nofiles
     def test_no_files(self) -> None:
         empty: BundleSideInfo = BundleSideInfo(num_files=0, files=[])
         bundle: Pair[BundleSideInfo] = Pair(x=empty, y=empty)
@@ -805,6 +832,7 @@ class TestFormatBundleSection:
             "      target    [dim](no files)[/]",
         ]
 
+    # 测试withdims
     def test_with_dims(self) -> None:
         bundle: Pair[BundleSideInfo] = Pair(
             x=_make_bundle_side_info(num_files=1, dims="b s h(tp) d"),
@@ -821,6 +849,7 @@ class TestFormatBundleSection:
 class TestFormatBundleSectionVerbose:
     """_format_bundle_section(verbose=True) snapshot tests."""
 
+    # 测试perfilelisting
     def test_per_file_listing(self) -> None:
         bundle: Pair[BundleSideInfo] = Pair(
             x=_make_bundle_side_info(num_files=2, with_parallel_info=True),
@@ -837,6 +866,7 @@ class TestFormatBundleSectionVerbose:
             "         [1] [2, 4096]  rank=1 tp=1/2",
         ]
 
+    # 测试nofiles
     def test_no_files(self) -> None:
         empty: BundleSideInfo = BundleSideInfo(num_files=0, files=[])
         bundle: Pair[BundleSideInfo] = Pair(x=empty, y=empty)
@@ -851,6 +881,7 @@ class TestFormatBundleSectionVerbose:
 class TestFormatPlanSectionRich:
     """_format_plan_section_rich() snapshot tests."""
 
+    # 测试passthrough
     def test_passthrough(self) -> None:
         plan: AlignerPlan = _make_simple_aligner_plan()
         traced: TracedAlignerPlan = _make_traced_plan(plan)
@@ -861,6 +892,7 @@ class TestFormatPlanSectionRich:
             "      target    [dim](passthrough)[/]",
         ]
 
+    # 测试unsharderop
     def test_unsharder_op(self) -> None:
         plan: AlignerPlan = _make_simple_aligner_plan(with_unsharder=True)
         traced: TracedAlignerPlan = _make_traced_plan(plan)
@@ -871,6 +903,7 @@ class TestFormatPlanSectionRich:
             "      target    [magenta]unsharder(tp)[/]",
         ]
 
+    # 测试reordererop
     def test_reorderer_op(self) -> None:
         plan: AlignerPlan = _make_simple_aligner_plan(with_reorderer=True)
         traced: TracedAlignerPlan = _make_traced_plan(plan)
@@ -881,6 +914,7 @@ class TestFormatPlanSectionRich:
             "      target    [magenta]reorderer(zigzag_to_natural)[/]",
         ]
 
+    # 测试withshapetraces
     def test_with_shape_traces(self) -> None:
         plan: AlignerPlan = _make_simple_aligner_plan(with_unsharder=True)
         traced: TracedAlignerPlan = _make_traced_plan(
@@ -895,6 +929,7 @@ class TestFormatPlanSectionRich:
             "      target    [magenta]unsharder(tp)[/] (2×[2, 4096] → 1×[4, 4096])",
         ]
 
+    # 测试withtokenaligner
     def test_with_token_aligner(self) -> None:
         plan: AlignerPlan = _make_simple_aligner_plan(with_token_aligner=True)
         traced: TracedAlignerPlan = _make_traced_plan(plan)
@@ -906,6 +941,7 @@ class TestFormatPlanSectionRich:
             "      token_aligner  [dim]3 tokens[/]",
         ]
 
+    # 测试withaxisaligner
     def test_with_axis_aligner(self) -> None:
         plan: AlignerPlan = _make_simple_aligner_plan(with_axis_aligner=True)
         traced: TracedAlignerPlan = _make_traced_plan(plan)
@@ -917,6 +953,7 @@ class TestFormatPlanSectionRich:
             "      axis_aligner  [dim]x=b s d -> s b d[/]",
         ]
 
+    # 测试axisalignernoop
     def test_axis_aligner_noop(self) -> None:
         plan: AlignerPlan = _make_simple_aligner_plan(
             with_axis_aligner=True, axis_aligner_noop=True
@@ -934,6 +971,7 @@ class TestFormatPlanSectionRich:
 class TestFormatStatsRich:
     """_format_stats_rich() snapshot tests."""
 
+    # 测试基本功能
     def test_basic(self) -> None:
         baseline: TensorStats = _make_stats(mean=0.0, std=1.0, min=-2.0, max=2.0)
         target: TensorStats = _make_stats(
@@ -950,6 +988,7 @@ class TestFormatStatsRich:
             *_DEFAULT_PERCENTILE_LINES,
         ]
 
+    # 测试largedelta
     def test_large_delta(self) -> None:
         baseline: TensorStats = _make_stats(mean=0.0)
         target: TensorStats = _make_stats(mean=1.0)
@@ -964,6 +1003,7 @@ class TestFormatStatsRich:
             *_DEFAULT_PERCENTILE_LINES,
         ]
 
+    # 测试smalldelta
     def test_small_delta(self) -> None:
         baseline: TensorStats = _make_stats(mean=0.0)
         target: TensorStats = _make_stats(mean=0.001)
@@ -982,6 +1022,7 @@ class TestFormatStatsRich:
 class TestFormatStatsRichVerbose:
     """_format_stats_rich(verbose=True) snapshot tests."""
 
+    # 测试allstatswithpercentiles
     def test_all_stats_with_percentiles(self) -> None:
         baseline: TensorStats = _make_stats()
         target: TensorStats = _make_stats()
@@ -1003,6 +1044,7 @@ class TestFormatStatsRichVerbose:
             "      [blue]p99       [/]     1.8000       1.8000   [dim]+0.00e+00[/]",
         ]
 
+    # 测试nopercentiles
     def test_no_percentiles(self) -> None:
         baseline: TensorStats = _make_stats(percentiles={})
         target: TensorStats = _make_stats(percentiles={})
@@ -1023,6 +1065,7 @@ class TestFormatStatsRichVerbose:
 class TestFormatAbsDiffPercentilesRich:
     """_format_abs_diff_percentiles_rich() snapshot tests."""
 
+    # 测试normalvalues
     def test_normal_values(self) -> None:
         diff: DiffInfo = _make_diff()
         result: str = _format_abs_diff_percentiles_rich(diff)
@@ -1031,6 +1074,7 @@ class TestFormatAbsDiffPercentilesRich:
             "p1=1.00e-04  p5=1.00e-04  p50=2.00e-04  " "p95=4.00e-04  p99=5.00e-04"
         )
 
+    # 测试highp99coloring
     def test_high_p99_coloring(self) -> None:
         diff: DiffInfo = _make_diff(
             abs_diff_percentiles={99: 0.5},
@@ -1039,6 +1083,7 @@ class TestFormatAbsDiffPercentilesRich:
 
         assert result == "[yellow]p99=5.00e-01[/]"
 
+    # 测试lowp99nocoloring
     def test_low_p99_no_coloring(self) -> None:
         diff: DiffInfo = _make_diff(
             abs_diff_percentiles={99: 0.01},
@@ -1051,6 +1096,7 @@ class TestFormatAbsDiffPercentilesRich:
 class TestFormatReplicatedChecks:
     """format_replicated_checks() snapshot tests."""
 
+    # 测试allpassed
     def test_all_passed(self) -> None:
         checks: list[ReplicatedCheckResult] = [
             ReplicatedCheckResult(
@@ -1071,6 +1117,7 @@ class TestFormatReplicatedChecks:
             "rel_diff=1.000000e-06 max_abs_diff=1.000000e-05 mean_abs_diff=1.000000e-06"
         )
 
+    # 测试onefailed
     def test_one_failed(self) -> None:
         checks: list[ReplicatedCheckResult] = [
             ReplicatedCheckResult(
@@ -1091,6 +1138,7 @@ class TestFormatReplicatedChecks:
             "rel_diff=5.000000e-01 max_abs_diff=1.000000e+00 mean_abs_diff=3.000000e-01"
         )
 
+    # 测试nodiff
     def test_no_diff(self) -> None:
         checks: list[ReplicatedCheckResult] = [
             ReplicatedCheckResult(

@@ -1,3 +1,4 @@
+# 文件名: test_two_batch_overlap.py - 双批次重叠测试 - 验证two-batch-overlap功能的正确性和MMLU准确性
 import unittest
 from types import SimpleNamespace
 
@@ -22,6 +23,7 @@ from sglang.test.test_utils import (
 
 class TestTwoBatchOverlap(unittest.TestCase):
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         cls.model = DEFAULT_MLA_MODEL_NAME_FOR_TEST
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -47,9 +49,11 @@ class TestTwoBatchOverlap(unittest.TestCase):
             )
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试generate single prompt
     def test_generate_single_prompt(self):
         response = requests.post(
             self.base_url + "/generate",
@@ -62,6 +66,7 @@ class TestTwoBatchOverlap(unittest.TestCase):
         print(f"{response.json()=}")
         self.assertEqual(response.json()["text"], "5, 1+5=6")
 
+    # 测试mmlu
     def test_mmlu(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -76,6 +81,7 @@ class TestTwoBatchOverlap(unittest.TestCase):
 
 
 class TestTwoBatchOverlapUnitTest(unittest.TestCase):
+    # 测试compute split seq and token index
     def test_compute_split_seq_and_token_index(self):
         for num_tokens, expect in [
             (0, 0),
@@ -122,6 +128,7 @@ class TestTwoBatchOverlapUnitTest(unittest.TestCase):
 
 class TestQwen3TwoBatchOverlap(TestTwoBatchOverlap):
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         cls.model = DEFAULT_ENABLE_THINKING_MODEL_NAME_FOR_TEST
         cls.base_url = DEFAULT_URL_FOR_TEST

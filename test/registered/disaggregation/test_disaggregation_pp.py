@@ -1,3 +1,4 @@
+# 文件名: test_disaggregation_pp.py - 流水线并行分离式部署测试
 import time
 import unittest
 from types import SimpleNamespace
@@ -19,6 +20,7 @@ register_cuda_ci(est_time=216, stage="base-c", runner_config="8-gpu-h20")
 
 class TestDisaggregationPrefillPPAccuracy(PDDisaggregationServerBase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
         cls.model = try_cached_model(DEFAULT_MODEL_NAME_FOR_TEST)
@@ -34,6 +36,7 @@ class TestDisaggregationPrefillPPAccuracy(PDDisaggregationServerBase):
         cls.launch_lb()
 
     @classmethod
+    # 执行startprefill
     def start_prefill(cls):
         prefill_args = [
             "--trust-remote-code",
@@ -56,6 +59,7 @@ class TestDisaggregationPrefillPPAccuracy(PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 执行startdecode
     def start_decode(cls):
         decode_args = [
             "--trust-remote-code",
@@ -76,6 +80,7 @@ class TestDisaggregationPrefillPPAccuracy(PDDisaggregationServerBase):
             other_args=decode_args,
         )
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -96,6 +101,7 @@ class TestDisaggregationPrefillPPAccuracy(PDDisaggregationServerBase):
 
 class TestDisaggregationPrefillPPDynamicChunkAccuracy(PDDisaggregationServerBase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
         cls.model = try_cached_model(DEFAULT_MODEL_NAME_FOR_TEST)
@@ -111,6 +117,7 @@ class TestDisaggregationPrefillPPDynamicChunkAccuracy(PDDisaggregationServerBase
         cls.launch_lb()
 
     @classmethod
+    # 执行startprefill
     def start_prefill(cls):
         prefill_args = [
             "--trust-remote-code",
@@ -134,6 +141,7 @@ class TestDisaggregationPrefillPPDynamicChunkAccuracy(PDDisaggregationServerBase
         )
 
     @classmethod
+    # 执行startdecode
     def start_decode(cls):
         decode_args = [
             "--trust-remote-code",
@@ -154,6 +162,7 @@ class TestDisaggregationPrefillPPDynamicChunkAccuracy(PDDisaggregationServerBase
             other_args=decode_args,
         )
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -174,6 +183,7 @@ class TestDisaggregationPrefillPPDynamicChunkAccuracy(PDDisaggregationServerBase
 
 class TestDisaggregationDecodePPAccuracy(PDDisaggregationServerBase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
         cls.model = try_cached_model(DEFAULT_MODEL_NAME_FOR_TEST)
@@ -189,6 +199,7 @@ class TestDisaggregationDecodePPAccuracy(PDDisaggregationServerBase):
         cls.launch_lb()
 
     @classmethod
+    # 执行startprefill
     def start_prefill(cls):
         prefill_args = [
             "--trust-remote-code",
@@ -211,6 +222,7 @@ class TestDisaggregationDecodePPAccuracy(PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 执行startdecode
     def start_decode(cls):
         decode_args = [
             "--trust-remote-code",
@@ -233,6 +245,7 @@ class TestDisaggregationDecodePPAccuracy(PDDisaggregationServerBase):
             other_args=decode_args,
         )
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,

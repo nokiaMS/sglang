@@ -1,3 +1,4 @@
+# 文件名: test_normal_decode_set_metadata.py - 正常解码设置元数据测试
 """
 Unit tests for the fused Triton kernel in normal_decode_set_metadata.
 
@@ -24,6 +25,7 @@ from sglang.test.test_utils import CustomTestCase
 register_cuda_ci(est_time=11, stage="base-b", runner_config="1-gpu-large")
 
 
+# 执行referencenormaldecodesetmetadata
 def reference_normal_decode_set_metadata(
     cache_seqlens_int32: torch.Tensor,
     cu_seqlens_k: torch.Tensor,
@@ -59,10 +61,12 @@ def reference_normal_decode_set_metadata(
 class TestNormalDecodeSetMetadata(CustomTestCase):
     """Test fused Triton kernel in normal_decode_set_metadata."""
 
+    # 初始化设置
     def setUp(self):
         self.device = "cuda"
         self.dtype = torch.int32
 
+    # 执行createtestdata
     def _create_test_data(
         self,
         batch_size: int,
@@ -82,7 +86,7 @@ class TestNormalDecodeSetMetadata(CustomTestCase):
         )
 
         # Calculate max_seq_pages
-        max_len = seq_lens.max().item()
+        max_len = seq_lens.max().item()  # 获取标量值
         max_seq_pages = (max_len + seq_len_delta + page_size - 1) // page_size
 
         # Create req_pool_indices (maps batch index to pool index)
@@ -143,11 +147,13 @@ class TestNormalDecodeSetMetadata(CustomTestCase):
             "token_to_kv_pool": token_to_kv_pool,
         }
 
+    # 执行createswakvpool
     def _create_swa_kv_pool(self, size: int, page_size: int):
         """Create a mock SWA KV pool for testing that inherits from SWAKVPool."""
 
         # Create a minimal mock that inherits from SWAKVPool to pass isinstance check
         class MinimalSWAKVPool(SWAKVPool):
+            # 执行init
             def __init__(self, size, device):
                 # Don't call super().__init__() to avoid complex initialization
                 # Just set the minimal attributes needed for the test
@@ -161,12 +167,14 @@ class TestNormalDecodeSetMetadata(CustomTestCase):
                 ) % size
                 self.device = device
 
+            # 执行translatelocfromfulltoswa
             def translate_loc_from_full_to_swa(self, page_indices):
                 """Mock translation method."""
                 return self.full_to_swa_index_mapping[page_indices]
 
         return MinimalSWAKVPool(size, self.device)
 
+    # 执行runtest
     def _run_test(
         self,
         batch_size: int,
@@ -246,18 +254,22 @@ class TestNormalDecodeSetMetadata(CustomTestCase):
             )
 
     # Test cases for page_size=1 (uses specialized kernel _fused_metadata_kernel_ps1_no_swa)
+    # 测试pagesize1smallbatch
     def test_page_size_1_small_batch(self):
         """Test with page_size=1, small batch."""
         self._run_test(batch_size=2, max_seq_len=128, page_size=1, has_swa=False)
 
+    # 测试pagesize1mediumbatch
     def test_page_size_1_medium_batch(self):
         """Test with page_size=1, medium batch."""
         self._run_test(batch_size=16, max_seq_len=256, page_size=1, has_swa=False)
 
+    # 测试pagesize1largebatch
     def test_page_size_1_large_batch(self):
         """Test with page_size=1, large batch."""
         self._run_test(batch_size=64, max_seq_len=512, page_size=1, has_swa=False)
 
+    # 测试pagesize1withseqlendelta
     def test_page_size_1_with_seq_len_delta(self):
         """Test with page_size=1 and seq_len_delta > 0."""
         self._run_test(
@@ -265,22 +277,27 @@ class TestNormalDecodeSetMetadata(CustomTestCase):
         )
 
     # Test cases for page_size > 1 (uses general kernel _fused_metadata_kernel_general)
+    # 测试pagesize16smallbatch
     def test_page_size_16_small_batch(self):
         """Test with page_size=16, small batch."""
         self._run_test(batch_size=4, max_seq_len=256, page_size=16, has_swa=False)
 
+    # 测试pagesize16mediumbatch
     def test_page_size_16_medium_batch(self):
         """Test with page_size=16, medium batch."""
         self._run_test(batch_size=16, max_seq_len=512, page_size=16, has_swa=False)
 
+    # 测试pagesize64smallbatch
     def test_page_size_64_small_batch(self):
         """Test with page_size=64, small batch."""
         self._run_test(batch_size=4, max_seq_len=512, page_size=64, has_swa=False)
 
+    # 测试pagesize64mediumbatch
     def test_page_size_64_medium_batch(self):
         """Test with page_size=64, medium batch."""
         self._run_test(batch_size=32, max_seq_len=1024, page_size=64, has_swa=False)
 
+    # 测试pagesize64withseqlendelta
     def test_page_size_64_with_seq_len_delta(self):
         """Test with page_size=64 and seq_len_delta > 0."""
         self._run_test(
@@ -288,14 +305,17 @@ class TestNormalDecodeSetMetadata(CustomTestCase):
         )
 
     # Test cases with Sliding Window Attention (SWA)
+    # 测试pagesize16withswa
     def test_page_size_16_with_swa(self):
         """Test with page_size=16 and SWA enabled."""
         self._run_test(batch_size=8, max_seq_len=256, page_size=16, has_swa=True)
 
+    # 测试pagesize64withswa
     def test_page_size_64_with_swa(self):
         """Test with page_size=64 and SWA enabled."""
         self._run_test(batch_size=16, max_seq_len=512, page_size=64, has_swa=True)
 
+    # 测试pagesize64withswaanddelta
     def test_page_size_64_with_swa_and_delta(self):
         """Test with page_size=64, SWA, and seq_len_delta."""
         self._run_test(
@@ -303,11 +323,13 @@ class TestNormalDecodeSetMetadata(CustomTestCase):
         )
 
     # Edge cases
+    # 测试batchsize1
     def test_batch_size_1(self):
         """Test with single batch."""
         self._run_test(batch_size=1, max_seq_len=128, page_size=1, has_swa=False)
         self._run_test(batch_size=1, max_seq_len=256, page_size=64, has_swa=False)
 
+    # 测试maxseqpagessmall
     def test_max_seq_pages_small(self):
         """Test edge case where max_seq_pages could be very small."""
         # This tests when sequences are very short
@@ -333,10 +355,11 @@ class TestNormalDecodeSetMetadata(CustomTestCase):
 
         # Verify no crashes and basic properties
         self.assertEqual(
-            test_data["cache_seqlens_int32"].sum().item(),
-            test_data["seq_lens"].sum().item(),
+            test_data["cache_seqlens_int32"].sum().item(),  # 获取标量值
+            test_data["seq_lens"].sum().item(),  # 获取标量值
         )
 
+    # 测试poweroftwopagesizes
     def test_power_of_two_page_sizes(self):
         """Test various power-of-2 page sizes."""
         page_sizes = [1, 2, 4, 8, 16, 32, 64, 128]
@@ -346,6 +369,7 @@ class TestNormalDecodeSetMetadata(CustomTestCase):
                     batch_size=4, max_seq_len=256, page_size=page_size, has_swa=False
                 )
 
+    # 测试variedsequencelengths
     def test_varied_sequence_lengths(self):
         """Test with highly varied sequence lengths in the same batch."""
         batch_size = 8
@@ -363,7 +387,7 @@ class TestNormalDecodeSetMetadata(CustomTestCase):
             device=self.device,
         )
         test_data["max_seq_pages"] = (
-            test_data["seq_lens"].max().item() + page_size - 1
+            test_data["seq_lens"].max().item() + page_size - 1  # 获取标量值
         ) // page_size
 
         # Run both implementations

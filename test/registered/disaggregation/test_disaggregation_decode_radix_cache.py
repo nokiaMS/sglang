@@ -1,3 +1,4 @@
+# 文件名: test_disaggregation_decode_radix_cache.py - 解码基数缓存分离式部署测试
 import time
 import unittest
 from types import SimpleNamespace
@@ -19,6 +20,7 @@ from sglang.test.test_utils import (
 register_cuda_ci(est_time=300, stage="base-c", runner_config="8-gpu-h20")
 
 
+# 执行hasnixl
 def _has_nixl():
     try:
         import nixl._api  # noqa: F401
@@ -27,6 +29,7 @@ def _has_nixl():
     return True
 
 
+# 执行hasmooncake
 def _has_mooncake():
     try:
         import mooncake.engine  # noqa: F401
@@ -40,6 +43,7 @@ class DisaggregationDecodeRadixCacheTestMixin:
     transfer_backend_name = None
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
         cls.model = try_cached_model(DEFAULT_MODEL_NAME_FOR_TEST)
@@ -49,6 +53,7 @@ class DisaggregationDecodeRadixCacheTestMixin:
         ]
         cls.launch_all()
 
+    # 执行assertprocesshealthy
     def _assert_process_healthy(self, name, process, url):
         self.assertIsNotNone(process, f"{name} process was not started")
         self.assertIsNone(
@@ -58,6 +63,7 @@ class DisaggregationDecodeRadixCacheTestMixin:
         response = requests.get(f"{url}/health", timeout=10)
         response.raise_for_status()
 
+    # 测试decoderadixcachehitsandworkersstayalive
     def test_decode_radix_cache_hits_and_workers_stay_alive(self):
         decode_info = requests.get(f"{self.decode_url}/server_info", timeout=10).json()
         self.assertFalse(
@@ -88,6 +94,7 @@ class DisaggregationDecodeRadixCacheTestMixin:
         self._assert_process_healthy("prefill", self.process_prefill, self.prefill_url)
         self._assert_process_healthy("decode", self.process_decode, self.decode_url)
 
+    # 测试gsm8kaccuracytwopasses
     def test_gsm8k_accuracy_two_passes(self):
         """Run GSM8K twice to verify decode radix cache does not degrade accuracy."""
         args = SimpleNamespace(

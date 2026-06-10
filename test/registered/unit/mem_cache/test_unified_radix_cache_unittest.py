@@ -1,3 +1,4 @@
+# 文件名: test_unified_radix_cache_unittest.py - 统一基数缓存单元
 """Unit tests for UnifiedRadixCache"""
 
 import unittest
@@ -64,6 +65,8 @@ register_cuda_ci(est_time=10, stage="base-b", runner_config="1-gpu-small")
 
 
 @dataclass(frozen=True)
+
+# CacheConfig类
 class CacheConfig:
     # Tree
     page_size: int = 1
@@ -96,19 +99,27 @@ class CacheConfig:
     eviction_policy: str = "lru"
 
     @property
+
+    # CacheConfig类的has_mamba
     def has_mamba(self) -> bool:
         return ComponentType.MAMBA in self.components
 
     @property
+
+    # CacheConfig类的has_swa
     def has_swa(self) -> bool:
         return ComponentType.SWA in self.components
 
     @property
+
+    # CacheConfig类的non_full_layer_ids
     def non_full_layer_ids(self) -> list[int]:
         full = set(self.full_attention_layer_ids)
         return [i for i in range(self.num_layers) if i not in full]
 
     @property
+
+    # CacheConfig类的label
     def label(self) -> str:
         comp = "_".join(c.name for c in self.components)
         parts = [f"{comp}_ps{self.page_size}"]
@@ -123,31 +134,41 @@ class CacheConfig:
         return "_".join(parts)
 
 
+# _FakeFullComponent类
 class _FakeFullComponent(TreeComponent):
     component_type = ComponentType.FULL
 
+    # _FakeFullComponent类的create_match_validator
     def create_match_validator(self, match_device_only: bool = False):
         return lambda node: True
 
+    # _FakeFullComponent类的redistribute_on_node_split
     def redistribute_on_node_split(self, new_parent, child):
         return None
 
+    # _FakeFullComponent类的evict_component
     def evict_component(
         self, node, target: EvictLayer = EvictLayer.DEVICE
     ) -> tuple[int, int]:
         return 0, 0
 
+    # _FakeFullComponent类的drive_eviction
     def drive_eviction(self, params: EvictParams, tracker: dict[ComponentType, int]):
         return None
 
+    # _FakeFullComponent类的acquire_component_lock
     def acquire_component_lock(self, node, result):
         return result
 
+    # _FakeFullComponent类的release_component_lock
     def release_component_lock(self, node, params):
         return None
 
 
+# TestUnifiedRadixComponentRegistryOverride类
 class TestUnifiedRadixComponentRegistryOverride(CustomTestCase):
+
+    # TestUnifiedRadixComponentRegistryOverride类的测试componentregistryoverrideisinstancelocal
     def test_component_registry_override_is_instance_local(self):
         params = CacheInitParams(
             req_to_token_pool=ReqToTokenPool(
@@ -166,10 +187,13 @@ class TestUnifiedRadixComponentRegistryOverride(CustomTestCase):
         tree = UnifiedRadixCache(params=params)
 
         self.assertIsInstance(tree.components[ComponentType.FULL], _FakeFullComponent)
-        self.assertIsNot(COMPONENT_REGISTRY[ComponentType.FULL], _FakeFullComponent)
+        self.assertIsNot(COMPONENT_REGISTRY[ComponentType.FULL], _FakeFullComponent)  # 断言不是同一对象
 
 
+# TestUnifiedTreeNodeGetPrefixHashValues类
 class TestUnifiedTreeNodeGetPrefixHashValues(CustomTestCase):
+
+    # TestUnifiedTreeNodeGetPrefixHashValues类的测试getprefixhashvaluesnotsharedacrosscalls
     def test_get_prefix_hash_values_not_shared_across_calls(self):
         """Regression guard for cached mutable prefix hash lists (#26177)."""
 
@@ -188,21 +212,22 @@ class TestUnifiedTreeNodeGetPrefixHashValues(CustomTestCase):
         n3.hash_value = ["h3"]
 
         first = n3.get_prefix_hash_values(n2)
-        self.assertEqual(first, ["h1", "h2"])
+        self.assertEqual(first, ["h1", "h2"])  # 断言相等
 
         # Mimic downstream storage code that extends `prefix_keys` in place.
         first += ["h3"]
 
         second = n3.get_prefix_hash_values(n2)
-        self.assertEqual(second, ["h1", "h2"])
-        self.assertIsNot(second, first)
+        self.assertEqual(second, ["h1", "h2"])  # 断言相等
+        self.assertIsNot(second, first)  # 断言不是同一对象
 
         n4 = make_node()
         n4.parent = n3
         n4.hash_value = ["h4"]
-        self.assertEqual(n4.get_prefix_hash_values(n3), ["h1", "h2", "h3"])
+        self.assertEqual(n4.get_prefix_hash_values(n3), ["h1", "h2", "h3"])  # 断言相等
 
 
+# build_fixture
 def build_fixture(cfg: CacheConfig, *, enable_kv_cache_events: bool = False):
     """Create (tree, allocator, req_to_token_pool) from a CacheConfig."""
     server_args = ServerArgs(model_path="dummy", page_size=cfg.page_size)
@@ -326,37 +351,44 @@ def build_fixture(cfg: CacheConfig, *, enable_kv_cache_events: bool = False):
     return tree, allocator, req_to_token_pool
 
 
+# TestUnifiedRadixCacheKVEvents类
 class TestUnifiedRadixCacheKVEvents(CustomTestCase):
     cfg = CacheConfig(page_size=2, kv_size=64, max_context_len=64)
 
+    # TestUnifiedRadixCacheKVEvents类的内部方法_insert
     def _insert(self, tree, allocator, tokens):
         key = RadixKey(array("q", tokens))
         value = allocator.alloc(len(tokens))
-        self.assertIsNotNone(value)
+        self.assertIsNotNone(value)  # 断言不为None
         return tree.insert(InsertParams(key=key, value=value[: len(key)]))
 
+    # TestUnifiedRadixCacheKVEvents类的内部方法_stored_events
     def _stored_events(self, tree, medium=None):
         events = [e for e in tree.take_events() if isinstance(e, BlockStored)]
         if medium is not None:
             events = [e for e in events if e.medium == medium]
         return events
 
+    # TestUnifiedRadixCacheKVEvents类的内部方法_removed_events
     def _removed_events(self, tree, medium=None):
         events = [e for e in tree.take_events() if isinstance(e, BlockRemoved)]
         if medium is not None:
             events = [e for e in events if e.medium == medium]
         return events
 
+    # TestUnifiedRadixCacheKVEvents类的内部方法_leaf_for
     def _leaf_for(self, tree, tokens):
         match = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", tokens))))
-        self.assertIsNot(match.last_device_node, tree.root_node)
+        self.assertIsNot(match.last_device_node, tree.root_node)  # 断言不是同一对象
         return match.last_device_node
 
+    # TestUnifiedRadixCacheKVEvents类的内部方法_init_hicache
     def _init_hicache(self, tree, *, write_policy: str = "write_through"):
         import sglang.srt.mem_cache.hybrid_cache.hybrid_pool_assembler as assembler
 
         orig_kv_host_pool = assembler.MHATokenToKVPoolHost
 
+        # kv_host_pool_wrapper
         def kv_host_pool_wrapper(*args, **kwargs):
             kwargs["pin_memory"] = False
             return orig_kv_host_pool(*args, **kwargs)
@@ -380,20 +412,23 @@ class TestUnifiedRadixCacheKVEvents(CustomTestCase):
         tree.write_through_threshold = 1 << 30
         tree.load_back_threshold = 0
 
+    # TestUnifiedRadixCacheKVEvents类的内部方法_backup_node
     def _backup_node(self, tree, node):
         backed_up = tree.write_backup(node, write_back=True)
-        self.assertGreater(backed_up, 0)
+        self.assertGreater(backed_up, 0)  # 断言大于
         tree.writing_check(write_back=True)
 
+    # TestUnifiedRadixCacheKVEvents类的内部方法_load_back_node
     def _load_back_node(self, tree, node):
         loaded = tree.load_back(node)
-        self.assertTrue(loaded)
+        self.assertTrue(loaded)  # 断言为真
         producer_id = tree.ready_to_load_host_cache()
-        self.assertNotEqual(producer_id, -1)
+        self.assertNotEqual(producer_id, -1)  # 断言不相等
         for _, finish_event, _ in list(tree.cache_controller.ack_load_queue):
             finish_event.synchronize()
         tree.loading_check()
 
+    # TestUnifiedRadixCacheKVEvents类的测试kveventsstoreandremovefullblocks
     def test_kv_events_store_and_remove_full_blocks(self):
         tree, allocator, _ = build_fixture(self.cfg, enable_kv_cache_events=True)
         tree.take_events()  # Clear the reset event.
@@ -401,8 +436,8 @@ class TestUnifiedRadixCacheKVEvents(CustomTestCase):
         seq = [1, 2, 3, 4]
         self._insert(tree, allocator, seq)
         stored = self._stored_events(tree, StorageMedium.GPU)
-        self.assertEqual(len(stored), 2)
-        self.assertEqual([list(e.token_ids) for e in stored], [[1, 2], [3, 4]])
+        self.assertEqual(len(stored), 2)  # 断言相等
+        self.assertEqual([list(e.token_ids) for e in stored], [[1, 2], [3, 4]])  # 断言相等
         stored_hashes = [e.block_hashes[0] for e in stored]
 
         result = tree.evict(EvictParams(num_tokens=len(seq)))
@@ -410,28 +445,30 @@ class TestUnifiedRadixCacheKVEvents(CustomTestCase):
         removed = self._removed_events(tree, StorageMedium.GPU)
         self.assertCountEqual([e.block_hashes[0] for e in removed], stored_hashes)
 
+    # TestUnifiedRadixCacheKVEvents类的测试kveventssplitpreservesblockhashparentage
     def test_kv_events_split_preserves_block_hash_parentage(self):
         tree, allocator, _ = build_fixture(self.cfg, enable_kv_cache_events=True)
         tree.take_events()  # Clear the reset event.
 
         self._insert(tree, allocator, [1, 2, 3, 4])
         first_insert = self._stored_events(tree, StorageMedium.GPU)
-        self.assertEqual(len(first_insert), 2)
+        self.assertEqual(len(first_insert), 2)  # 断言相等
         split_parent_hash = first_insert[0].block_hashes[0]
 
         self._insert(tree, allocator, [1, 2, 5, 6])
         second_insert = self._stored_events(tree, StorageMedium.GPU)
-        self.assertEqual(len(second_insert), 1)
-        self.assertEqual(list(second_insert[0].token_ids), [5, 6])
-        self.assertEqual(second_insert[0].parent_block_hash, split_parent_hash)
+        self.assertEqual(len(second_insert), 1)  # 断言相等
+        self.assertEqual(list(second_insert[0].token_ids), [5, 6])  # 断言相等
+        self.assertEqual(second_insert[0].parent_block_hash, split_parent_hash)  # 断言相等
 
         split_parent = next(iter(tree.root_node.children.values()))
         split_child = split_parent.children.get((3, 4))
-        self.assertIsNotNone(split_child)
-        self.assertEqual(len(split_parent.hash_value), 1)
-        self.assertIsNotNone(split_child.hash_value)
-        self.assertEqual(len(split_child.hash_value), 1)
+        self.assertIsNotNone(split_child)  # 断言不为None
+        self.assertEqual(len(split_parent.hash_value), 1)  # 断言相等
+        self.assertIsNotNone(split_child.hash_value)  # 断言不为None
+        self.assertEqual(len(split_child.hash_value), 1)  # 断言相等
 
+    # TestUnifiedRadixCacheKVEvents类的测试hicachekveventstrackgpucputransitions
     def test_hicache_kv_events_track_gpu_cpu_transitions(self):
         tree, allocator, _ = build_fixture(self.cfg, enable_kv_cache_events=True)
         self._init_hicache(tree)
@@ -440,7 +477,7 @@ class TestUnifiedRadixCacheKVEvents(CustomTestCase):
         seq = [1, 2, 3, 4]
         self._insert(tree, allocator, seq)
         stored_gpu = self._stored_events(tree, StorageMedium.GPU)
-        self.assertEqual(len(stored_gpu), 2)
+        self.assertEqual(len(stored_gpu), 2)  # 断言相等
         stored_hashes = [e.block_hashes[0] for e in stored_gpu]
 
         node = self._leaf_for(tree, seq)
@@ -462,6 +499,7 @@ class TestUnifiedRadixCacheKVEvents(CustomTestCase):
         removed_cpu = self._removed_events(tree, StorageMedium.CPU)
         self.assertCountEqual([e.block_hashes[0] for e in removed_cpu], stored_hashes)
 
+    # TestUnifiedRadixCacheKVEvents类的测试hicachereinsertevictednodeemitsgpustore
     def test_hicache_reinsert_evicted_node_emits_gpu_store(self):
         tree, allocator, _ = build_fixture(self.cfg, enable_kv_cache_events=True)
         self._init_hicache(tree)
@@ -470,7 +508,7 @@ class TestUnifiedRadixCacheKVEvents(CustomTestCase):
         seq = [1, 2, 3, 4]
         self._insert(tree, allocator, seq)
         stored_gpu = self._stored_events(tree, StorageMedium.GPU)
-        self.assertEqual(len(stored_gpu), 2)
+        self.assertEqual(len(stored_gpu), 2)  # 断言相等
         stored_hashes = [e.block_hashes[0] for e in stored_gpu]
 
         node = self._leaf_for(tree, seq)
@@ -479,20 +517,22 @@ class TestUnifiedRadixCacheKVEvents(CustomTestCase):
 
         tree.evict(EvictParams(num_tokens=len(seq)))
         self._removed_events(tree, StorageMedium.GPU)
-        self.assertTrue(node.evicted)
-        self.assertTrue(node.backuped)
+        self.assertTrue(node.evicted)  # 断言为真
+        self.assertTrue(node.backuped)  # 断言为真
 
         self._insert(tree, allocator, seq)
         restored_gpu = self._stored_events(tree, StorageMedium.GPU)
-        self.assertFalse(node.evicted)
+        self.assertFalse(node.evicted)  # 断言为假
         self.assertCountEqual([e.block_hashes[0] for e in restored_gpu], stored_hashes)
 
 
+# UnifiedRadixCacheSuite类
 class UnifiedRadixCacheSuite:
 
     cfg: CacheConfig
     _rid: int = 0
 
+    # UnifiedRadixCacheSuite类的内部方法_make_req
     def _make_req(self, req_to_token_pool):
         sp = SamplingParams(temperature=0, max_new_tokens=1)
         req = Req(
@@ -505,11 +545,13 @@ class UnifiedRadixCacheSuite:
         req_to_token_pool.alloc([req])
         return req
 
+    # UnifiedRadixCacheSuite类的内部方法_make_seq
     def _make_seq(self, start: int, num_pages: int) -> list[int]:
         """Page-aligned token sequence of num_pages pages."""
         page_size = self.cfg.page_size
         return list(range(start, start + num_pages * page_size))
 
+    # UnifiedRadixCacheSuite类的内部方法_alloc
     def _alloc(self, allocator, need_size):
         if not (self.cfg.has_swa and self.cfg.page_size > 1):
             return allocator.alloc(need_size)
@@ -529,6 +571,7 @@ class UnifiedRadixCacheSuite:
         allocator.full_to_swa_index_mapping[full_indices] = swa_indices
         return full_indices[:need_size]
 
+    # UnifiedRadixCacheSuite类的内部方法_insert
     def _insert(self, tree, allocator, req_to_token_pool, tokens, priority=0):
         """Insert tokens, attaching mamba data when the config has mamba."""
         key = RadixKey(array("q", tokens))
@@ -539,6 +582,7 @@ class UnifiedRadixCacheSuite:
             params.mamba_value = req.mamba_pool_idx.unsqueeze(0)
         return tree.insert(params)
 
+    # UnifiedRadixCacheSuite类的测试insertandmatchbasic
     def test_insert_and_match_basic(self):
         tree, allocator, req_to_token_pool = build_fixture(self.cfg)
 
@@ -547,23 +591,24 @@ class UnifiedRadixCacheSuite:
 
         self._insert(tree, allocator, req_to_token_pool, seq_a)
         result = self._insert(tree, allocator, req_to_token_pool, seq_b)
-        self.assertEqual(result.prefix_len, len(seq_a))
+        self.assertEqual(result.prefix_len, len(seq_a))  # 断言相等
 
         m = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", seq_b))))
-        self.assertEqual(len(m.device_indices), len(seq_b))
+        self.assertEqual(len(m.device_indices), len(seq_b))  # 断言相等
 
         m = tree.match_prefix(
             MatchPrefixParams(key=RadixKey(array("q", seq_a + self._make_seq(9000, 1))))
         )
-        self.assertEqual(len(m.device_indices), len(seq_a))
+        self.assertEqual(len(m.device_indices), len(seq_a))  # 断言相等
 
         m = tree.match_prefix(
             MatchPrefixParams(key=RadixKey(array("q", self._make_seq(5000, 2))))
         )
-        self.assertEqual(len(m.device_indices), 0)
+        self.assertEqual(len(m.device_indices), 0)  # 断言相等
 
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试sharedprefixsplit
     def test_shared_prefix_split(self):
         tree, allocator, req_to_token_pool = build_fixture(self.cfg)
         base = self._make_seq(1, 2)
@@ -573,20 +618,21 @@ class UnifiedRadixCacheSuite:
         branch_b = base + self._make_seq(200, 2)
 
         result_a = self._insert(tree, allocator, req_to_token_pool, branch_a)
-        self.assertEqual(result_a.prefix_len, len(base))
+        self.assertEqual(result_a.prefix_len, len(base))  # 断言相等
         result_b = self._insert(tree, allocator, req_to_token_pool, branch_b)
-        self.assertEqual(result_b.prefix_len, len(base))
+        self.assertEqual(result_b.prefix_len, len(base))  # 断言相等
 
         for seq in (branch_a, branch_b):
             m = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", seq))))
-            self.assertEqual(len(m.device_indices), len(seq))
+            self.assertEqual(len(m.device_indices), len(seq))  # 断言相等
 
         m = tree.match_prefix(
             MatchPrefixParams(key=RadixKey(array("q", base + self._make_seq(999, 1))))
         )
-        self.assertEqual(len(m.device_indices), len(base))
+        self.assertEqual(len(m.device_indices), len(base))  # 断言相等
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试evictbasic
     def test_evict_basic(self):
         tree, allocator, req_to_token_pool = build_fixture(self.cfg)
         seq_a = self._make_seq(1, 2)
@@ -595,14 +641,15 @@ class UnifiedRadixCacheSuite:
         self._insert(tree, allocator, req_to_token_pool, seq_a)
         self._insert(tree, allocator, req_to_token_pool, seq_b)
         total = len(seq_a) + len(seq_b)
-        self.assertEqual(tree.full_evictable_size(), total)
+        self.assertEqual(tree.full_evictable_size(), total)  # 断言相等
 
         result = tree.evict(EvictParams(num_tokens=len(seq_a)))
         self.assertIsInstance(result, EvictResult)
         self.assertGreaterEqual(result.num_tokens_evicted, len(seq_a))
-        self.assertTrue(tree.full_evictable_size() <= len(seq_b))
+        self.assertTrue(tree.full_evictable_size() <= len(seq_b))  # 断言为真
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试evictrespectslockref
     def test_evict_respects_lock_ref(self):
         """Lock protects from eviction; unlock allows re-eviction."""
         tree, allocator, req_to_token_pool = build_fixture(self.cfg)
@@ -618,7 +665,7 @@ class UnifiedRadixCacheSuite:
         self.assertGreaterEqual(result.num_tokens_evicted, len(seq_b))
 
         m = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", seq_a))))
-        self.assertEqual(len(m.device_indices), len(seq_a))
+        self.assertEqual(len(m.device_indices), len(seq_a))  # 断言相等
 
         # Unlock -> should now be evictable
         tree.dec_lock_ref(
@@ -631,35 +678,38 @@ class UnifiedRadixCacheSuite:
         self.assertGreaterEqual(result.num_tokens_evicted, len(seq_a))
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试evictemptytree
     def test_evict_empty_tree(self):
         tree, _, _ = build_fixture(self.cfg)
         evict_params = EvictParams(num_tokens=10)
         if self.cfg.has_mamba:
             evict_params.mamba_num = 5
         result = tree.evict(evict_params)
-        self.assertEqual(result.num_tokens_evicted, 0)
+        self.assertEqual(result.num_tokens_evicted, 0)  # 断言相等
         if self.cfg.has_mamba:
-            self.assertEqual(result.mamba_num_evicted, 0)
+            self.assertEqual(result.mamba_num_evicted, 0)  # 断言相等
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试evictuntilempty
     def test_evict_until_empty(self):
         tree, allocator, req_to_token_pool = build_fixture(self.cfg)
         seqs = [self._make_seq(i * 100, 2) for i in range(5)]
         for s in seqs:
             self._insert(tree, allocator, req_to_token_pool, s)
         total = sum(len(s) for s in seqs)
-        self.assertEqual(tree.full_evictable_size(), total)
+        self.assertEqual(tree.full_evictable_size(), total)  # 断言相等
 
         result = tree.evict(EvictParams(num_tokens=total * 2))
         self.assertGreaterEqual(result.num_tokens_evicted, total)
-        self.assertEqual(tree.full_evictable_size(), 0)
+        self.assertEqual(tree.full_evictable_size(), 0)  # 断言相等
         if self.cfg.has_mamba:
-            self.assertEqual(tree.mamba_evictable_size(), 0)
+            self.assertEqual(tree.mamba_evictable_size(), 0)  # 断言相等
 
         m = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", seqs[0]))))
-        self.assertEqual(len(m.device_indices), 0)
+        self.assertEqual(len(m.device_indices), 0)  # 断言相等
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试prevprefixlen
     def test_prev_prefix_len(self):
         """Three-step test: free overlap, free partial, no free."""
         tree, allocator, req_to_token_pool = build_fixture(self.cfg)
@@ -671,7 +721,7 @@ class UnifiedRadixCacheSuite:
 
         # Step 1: insert 1 page
         self._insert(tree, allocator, req_to_token_pool, seq_1p)
-        self.assertEqual(allocator.available_size(), initial_avail - len(seq_1p))
+        self.assertEqual(allocator.available_size(), initial_avail - len(seq_1p))  # 断言相等
 
         # Step 2: insert 2 pages with prev_prefix_len=0 → frees overlap of 1 page
         key_2p = RadixKey(array("q", seq_2p))
@@ -685,8 +735,8 @@ class UnifiedRadixCacheSuite:
             req = self._make_req(req_to_token_pool)
             params.mamba_value = req.mamba_pool_idx.unsqueeze(0)
         result = tree.insert(params)
-        self.assertEqual(result.prefix_len, len(seq_1p))
-        self.assertEqual(
+        self.assertEqual(result.prefix_len, len(seq_1p))  # 断言相等
+        self.assertEqual(  # 断言相等
             allocator.available_size(),
             initial_avail - len(seq_1p) - (len(seq_2p) - len(seq_1p)),
         )
@@ -704,11 +754,12 @@ class UnifiedRadixCacheSuite:
             req = self._make_req(req_to_token_pool)
             params.mamba_value = req.mamba_pool_idx.unsqueeze(0)
         result = tree.insert(params)
-        self.assertEqual(result.prefix_len, len(seq_2p))
+        self.assertEqual(result.prefix_len, len(seq_2p))  # 断言相等
         # alloc(3p), freed 0 (prev_prefix_len covers entire overlap), stored 1p new → net -3p
-        self.assertEqual(allocator.available_size(), avail_before - len(seq_3p))
+        self.assertEqual(allocator.available_size(), avail_before - len(seq_3p))  # 断言相等
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试nodesplitatboundary
     def test_node_split_at_boundary(self):
         tree, allocator, req_to_token_pool = build_fixture(self.cfg)
         base = self._make_seq(1, 3)
@@ -719,18 +770,19 @@ class UnifiedRadixCacheSuite:
 
         self._insert(tree, allocator, req_to_token_pool, fork_a)
         result = self._insert(tree, allocator, req_to_token_pool, fork_b)
-        self.assertEqual(result.prefix_len, len(base))
+        self.assertEqual(result.prefix_len, len(base))  # 断言相等
 
         for seq in (fork_a, fork_b):
             m = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", seq))))
-            self.assertEqual(len(m.device_indices), len(seq))
+            self.assertEqual(len(m.device_indices), len(seq))  # 断言相等
 
         m = tree.match_prefix(
             MatchPrefixParams(key=RadixKey(array("q", base + self._make_seq(999, 1))))
         )
-        self.assertEqual(len(m.device_indices), len(base))
+        self.assertEqual(len(m.device_indices), len(base))  # 断言相等
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试cachefinishedreqinsert
     def test_cache_finished_req_insert(self):
         tree, allocator, req_to_token_pool = build_fixture(self.cfg)
         ps = self.cfg.page_size
@@ -759,9 +811,10 @@ class UnifiedRadixCacheSuite:
         m = tree.match_prefix(
             MatchPrefixParams(key=RadixKey(array("q", all_ids[:aligned_len])))
         )
-        self.assertEqual(len(m.device_indices), aligned_len)
+        self.assertEqual(len(m.device_indices), aligned_len)  # 断言相等
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试cachefinishedreqstripsthinking
     def test_cache_finished_req_strips_thinking(self):
         tree, allocator, req_to_token_pool = build_fixture(self.cfg)
         ps = self.cfg.page_size
@@ -804,13 +857,14 @@ class UnifiedRadixCacheSuite:
         m = tree.match_prefix(
             MatchPrefixParams(key=RadixKey(array("q", prompt_ids + output_ids)))
         )
-        self.assertEqual(len(m.device_indices), prompt_aligned)
+        self.assertEqual(len(m.device_indices), prompt_aligned)  # 断言相等
         # Only prompt-aligned pages remain owned by the tree.
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             allocator.available_size(), avail_before + kv_len - prompt_aligned
         )
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试cachefinishedreqnoinsert
     def test_cache_finished_req_no_insert(self):
         tree, allocator, req_to_token_pool = build_fixture(self.cfg)
         req = self._make_req(req_to_token_pool)
@@ -830,11 +884,12 @@ class UnifiedRadixCacheSuite:
         avail_before = allocator.available_size()
         tree.cache_finished_req(req, is_insert=False)
 
-        self.assertEqual(allocator.available_size(), avail_before + kv_len)
+        self.assertEqual(allocator.available_size(), avail_before + kv_len)  # 断言相等
         m = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", tokens))))
-        self.assertEqual(len(m.device_indices), 0)
+        self.assertEqual(len(m.device_indices), 0)  # 断言相等
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试cacheunfinishedreq
     def test_cache_unfinished_req(self):
         tree, allocator, req_to_token_pool = build_fixture(self.cfg)
 
@@ -856,9 +911,9 @@ class UnifiedRadixCacheSuite:
 
         tree.cache_unfinished_req(req)
 
-        self.assertGreater(len(req.prefix_indices), 0)
-        self.assertEqual(req.cache_protected_len, len(req.prefix_indices))
-        self.assertIsNotNone(req.last_node)
+        self.assertGreater(len(req.prefix_indices), 0)  # 断言大于
+        self.assertEqual(req.cache_protected_len, len(req.prefix_indices))  # 断言相等
+        self.assertIsNotNone(req.last_node)  # 断言不为None
 
         tree.dec_lock_ref(
             req.last_node,
@@ -866,22 +921,24 @@ class UnifiedRadixCacheSuite:
         )
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试diagnostics
     def test_diagnostics(self):
         tree, allocator, req_to_token_pool = build_fixture(self.cfg)
         self._insert(tree, allocator, req_to_token_pool, self._make_seq(1, 2))
 
         diag = tree.available_and_evictable_str()
-        self.assertIn("Available full tokens", diag)
+        self.assertIn("Available full tokens", diag)  # 断言包含
         if self.cfg.has_mamba:
-            self.assertIn("mamba", diag.lower())
+            self.assertIn("mamba", diag.lower())  # 断言包含
         if self.cfg.has_swa:
-            self.assertIn("swa", diag.lower())
+            self.assertIn("swa", diag.lower())  # 断言包含
 
         diag2 = available_and_evictable_str(tree)
-        self.assertIn("Available full tokens", diag2)
+        self.assertIn("Available full tokens", diag2)  # 断言包含
         tree.pretty_print()
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试multibranchtree
     def test_multi_branch_tree(self):
         tree, allocator, req_to_token_pool = build_fixture(self.cfg)
         base = self._make_seq(1, 2)
@@ -894,14 +951,15 @@ class UnifiedRadixCacheSuite:
         for suffix_start in [100, 200, 300]:
             seq = base + self._make_seq(suffix_start, 2)
             m = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", seq))))
-            self.assertEqual(len(m.device_indices), len(seq))
+            self.assertEqual(len(m.device_indices), len(seq))  # 断言相等
 
         m = tree.match_prefix(
             MatchPrefixParams(key=RadixKey(array("q", base + self._make_seq(999, 1))))
         )
-        self.assertEqual(len(m.device_indices), len(base))
+        self.assertEqual(len(m.device_indices), len(base))  # 断言相等
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试pagedchildkeyistuple
     def test_paged_child_key_is_tuple(self):
         if self.cfg.page_size == 1:
             self.skipTest("page_size > 1 only")
@@ -910,6 +968,7 @@ class UnifiedRadixCacheSuite:
         child_key = key.child_key(tree.page_size)
         self.assertIsInstance(child_key, tuple)
 
+    # UnifiedRadixCacheSuite类的测试pagedmatchtruncatesunalignedkey
     def test_paged_match_truncates_unaligned_key(self):
         """match_prefix internally aligns keys to page boundary."""
         if self.cfg.page_size == 1:
@@ -922,16 +981,17 @@ class UnifiedRadixCacheSuite:
         # Tree truncates unaligned tail internally, so it matches the seq prefix.
         unaligned = seq + list(range(9000, 9000 + ps - 1))
         m = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", unaligned))))
-        self.assertEqual(len(m.device_indices), len(seq))
+        self.assertEqual(len(m.device_indices), len(seq))  # 断言相等
 
         # Below-page-size key aligns to 0 -> no match.
         m = tree.match_prefix(
             MatchPrefixParams(key=RadixKey(array("q", seq[: ps - 1])))
         )
-        self.assertEqual(len(m.device_indices), 0)
+        self.assertEqual(len(m.device_indices), 0)  # 断言相等
 
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试pagedpageboundarymismatch
     def test_paged_page_boundary_mismatch(self):
         if self.cfg.page_size == 1:
             self.skipTest("page_size > 1 only")
@@ -947,14 +1007,15 @@ class UnifiedRadixCacheSuite:
         # Mismatch in second page → only first page matches
         bad_page2 = seq[:ps] + [9999] * ps
         m = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", bad_page2))))
-        self.assertEqual(len(m.device_indices), ps)
+        self.assertEqual(len(m.device_indices), ps)  # 断言相等
 
         # Mismatch in first page → 0 match
         bad_page1 = [9999] + seq[1:]
         m = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", bad_page1))))
-        self.assertEqual(len(m.device_indices), 0)
+        self.assertEqual(len(m.device_indices), 0)  # 断言相等
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试pagedcachefinishedunalignedtailfreed
     def test_paged_cache_finished_unaligned_tail_freed(self):
         if self.cfg.page_size == 1:
             self.skipTest("page_size > 1 only")
@@ -983,12 +1044,13 @@ class UnifiedRadixCacheSuite:
         avail_before = allocator.available_size()
         tree.cache_finished_req(req, is_insert=True)
 
-        self.assertEqual(allocator.available_size(), avail_before + tail_extra)
+        self.assertEqual(allocator.available_size(), avail_before + tail_extra)  # 断言相等
         aligned = input_ids[: (len(input_ids) // ps) * ps]
         m = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", aligned))))
-        self.assertEqual(len(m.device_indices), len(aligned))
+        self.assertEqual(len(m.device_indices), len(aligned))  # 断言相等
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试mambaevictonly
     def test_mamba_evict_only(self):
         if not self.cfg.has_mamba:
             self.skipTest("requires Mamba component")
@@ -997,13 +1059,14 @@ class UnifiedRadixCacheSuite:
         seq_long = seq_short + self._make_seq(500, 2)
         self._insert(tree, allocator, req_to_token_pool, seq_short)
         self._insert(tree, allocator, req_to_token_pool, seq_long)
-        self.assertEqual(tree.mamba_evictable_size(), 2)
+        self.assertEqual(tree.mamba_evictable_size(), 2)  # 断言相等
 
         result = tree.evict(EvictParams(num_tokens=0, mamba_num=1))
         self.assertGreaterEqual(result.mamba_num_evicted, 1)
         self.assertGreaterEqual(tree.full_evictable_size(), 0)
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试mambaevictbreaksmatch
     def test_mamba_evict_breaks_match(self):
         if not self.cfg.has_mamba:
             self.skipTest("requires Mamba component")
@@ -1014,12 +1077,13 @@ class UnifiedRadixCacheSuite:
         self._insert(tree, allocator, req_to_token_pool, seq_long)
 
         tree.evict(EvictParams(num_tokens=0, mamba_num=10))
-        self.assertEqual(tree.mamba_evictable_size(), 0)
+        self.assertEqual(tree.mamba_evictable_size(), 0)  # 断言相等
 
         m = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", seq_long))))
-        self.assertEqual(len(m.device_indices), 0)
+        self.assertEqual(len(m.device_indices), 0)  # 断言相等
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试mambaevictresultaccounting
     def test_mamba_evict_result_accounting(self):
         if not self.cfg.has_mamba:
             self.skipTest("requires Mamba component")
@@ -1032,6 +1096,7 @@ class UnifiedRadixCacheSuite:
         self.assertGreaterEqual(result.mamba_num_evicted, 1)
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试mambaevictcascadesonfullleaf
     def test_mamba_evict_cascades_on_full_leaf(self):
         if not self.cfg.has_mamba:
             self.skipTest("requires Mamba component")
@@ -1044,6 +1109,7 @@ class UnifiedRadixCacheSuite:
         self.assertGreaterEqual(result.mamba_num_evicted, 1)
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试mambacowonmatch
     def test_mamba_cow_on_match(self):
         if not self.cfg.has_mamba:
             self.skipTest("requires Mamba component")
@@ -1057,11 +1123,11 @@ class UnifiedRadixCacheSuite:
         m = tree.match_prefix(
             MatchPrefixParams(key=RadixKey(array("q", seq)), cow_mamba=True, req=req2)
         )
-        self.assertEqual(len(m.device_indices), len(seq))
-        self.assertIsNotNone(req2.mamba_pool_idx)
+        self.assertEqual(len(m.device_indices), len(seq))  # 断言相等
+        self.assertIsNotNone(req2.mamba_pool_idx)  # 断言不为None
 
         src_value = m.last_device_node.component_data[ComponentType.MAMBA].value
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             torch.all(
                 mamba_pool.mamba_cache.conv[0][:, req2.mamba_pool_idx]
                 == mamba_pool.mamba_cache.conv[0][:, src_value]
@@ -1069,6 +1135,7 @@ class UnifiedRadixCacheSuite:
         )
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试swainsertandmatch
     def test_swa_insert_and_match(self):
         if not self.cfg.has_swa:
             self.skipTest("requires SWA component")
@@ -1077,9 +1144,10 @@ class UnifiedRadixCacheSuite:
         self._insert(tree, allocator, req_to_token_pool, seq)
 
         m = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", seq))))
-        self.assertEqual(len(m.device_indices), len(seq))
+        self.assertEqual(len(m.device_indices), len(seq))  # 断言相等
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试swaevictcascades
     def test_swa_evict_cascades(self):
         """Evict SWA tokens via swa_num_tokens — cascades to lower-priority components."""
         if not self.cfg.has_swa:
@@ -1091,9 +1159,10 @@ class UnifiedRadixCacheSuite:
         self._insert(tree, allocator, req_to_token_pool, seq_long)
 
         result = tree.evict(EvictParams(num_tokens=0, swa_num_tokens=len(seq_short)))
-        self.assertGreater(result.swa_num_tokens_evicted, 0)
+        self.assertGreater(result.swa_num_tokens_evicted, 0)  # 断言大于
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试swaevictcascadesmamba
     def test_swa_evict_cascades_mamba(self):
         """SWA eviction on an internal node cascades to Mamba."""
         if not self.cfg.has_swa or not self.cfg.has_mamba:
@@ -1108,6 +1177,7 @@ class UnifiedRadixCacheSuite:
         self.assertGreaterEqual(result.swa_num_tokens_evicted, 0)
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试swaevictfullleafcascadesall
     def test_swa_evict_full_leaf_cascades_all(self):
         if not self.cfg.has_swa:
             self.skipTest("requires SWA component")
@@ -1119,11 +1189,12 @@ class UnifiedRadixCacheSuite:
 
         result = tree.evict(EvictParams(num_tokens=len(seq_a)))
         self.assertGreaterEqual(result.num_tokens_evicted, len(seq_a))
-        self.assertGreater(result.swa_num_tokens_evicted, 0)
+        self.assertGreater(result.swa_num_tokens_evicted, 0)  # 断言大于
         if self.cfg.has_mamba:
             self.assertGreaterEqual(result.mamba_num_evicted, 1)
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试swalockprotectsfromeviction
     def test_swa_lock_protects_from_eviction(self):
         if not self.cfg.has_swa:
             self.skipTest("requires SWA component")
@@ -1140,7 +1211,7 @@ class UnifiedRadixCacheSuite:
         self.assertGreaterEqual(result.num_tokens_evicted, len(seq_b))
 
         m = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", seq_a))))
-        self.assertEqual(len(m.device_indices), len(seq_a))
+        self.assertEqual(len(m.device_indices), len(seq_a))  # 断言相等
 
         tree.dec_lock_ref(
             m.last_device_node,
@@ -1148,6 +1219,7 @@ class UnifiedRadixCacheSuite:
         )
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试swaleafcappedtowindowoninsert
     def test_swa_leaf_capped_to_window_on_insert(self):
         """A long SWA leaf is split so locking it protects one window of SWA
         while full attention still protects the whole sequence."""
@@ -1171,21 +1243,21 @@ class UnifiedRadixCacheSuite:
                     MatchPrefixParams(key=RadixKey(array("q", seq)))
                 ).last_device_node
                 swa_val = leaf.component_data[ComponentType.SWA].value
-                self.assertIsNotNone(swa_val)
+                self.assertIsNotNone(swa_val)  # 断言不为None
 
                 if case == "long_splits":
                     # Capped to one page-aligned window; prefix is a real ancestor.
-                    self.assertEqual(len(swa_val), tail_size)
-                    self.assertIsNot(leaf.parent, tree.root_node)
+                    self.assertEqual(len(swa_val), tail_size)  # 断言相等
+                    self.assertIsNot(leaf.parent, tree.root_node)  # 断言不是同一对象
                 else:
                     # Already within one window — no split.
-                    self.assertEqual(len(swa_val), len(seq))
-                    self.assertIs(leaf.parent, tree.root_node)
+                    self.assertEqual(len(swa_val), len(seq))  # 断言相等
+                    self.assertIs(leaf.parent, tree.root_node)  # 断言是同一对象
 
                 lock_result = tree.inc_lock_ref(leaf)
                 # SWA pins one window; full attention pins everything.
-                self.assertEqual(tree.swa_protected_size(), len(swa_val))
-                self.assertEqual(tree.full_protected_size(), len(seq))
+                self.assertEqual(tree.swa_protected_size(), len(swa_val))  # 断言相等
+                self.assertEqual(tree.full_protected_size(), len(seq))  # 断言相等
                 tree.sanity_check()
                 tree.dec_lock_ref(
                     leaf,
@@ -1193,6 +1265,7 @@ class UnifiedRadixCacheSuite:
                 )
                 tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的内部方法_swa_lru_order
     def _swa_lru_order(self, tree):
         lru = tree.lru_lists[ComponentType.SWA]
         pt = lru._pt
@@ -1203,6 +1276,7 @@ class UnifiedRadixCacheSuite:
             cur = cur.lru_next[pt]
         return nodes
 
+    # UnifiedRadixCacheSuite类的内部方法_swa_pinning_cfg_supported
     def _swa_pinning_cfg_supported(self) -> bool:
         if not self.cfg.has_swa or self.cfg.has_mamba:
             return False
@@ -1216,6 +1290,7 @@ class UnifiedRadixCacheSuite:
             return False
         return True
 
+    # UnifiedRadixCacheSuite类的测试swalruwalkdowndoesnotrefreshancestorsduringinsert
     def test_swa_lru_walk_down_does_not_refresh_ancestors_during_insert(self):
         if not self._swa_pinning_cfg_supported():
             self.skipTest("requires SWA-only config with node size >= cushion")
@@ -1234,7 +1309,7 @@ class UnifiedRadixCacheSuite:
         pre = self._swa_lru_order(tree)
         # Each 8-page segment is cap-split into [prefix, tail]; the tail leads
         # the pair in MRU order, so segment tails sit at even indices.
-        self.assertEqual(len(pre), 8)
+        self.assertEqual(len(pre), 8)  # 断言相等
         side_node, c_node, b_node, a_node = pre[0], pre[2], pre[4], pre[6]
 
         seq_abcd = seq_abc + self._make_seq(300, 8)
@@ -1242,17 +1317,17 @@ class UnifiedRadixCacheSuite:
 
         post = self._swa_lru_order(tree)
         # New segment E adds two nodes (prefix + tail).
-        self.assertEqual(len(post), 10)
+        self.assertEqual(len(post), 10)  # 断言相等
         # side branch must still appear BEFORE B and A in MRU->LRU order:
         # walk-down on the new segment must not refresh old ancestors.
         side_pos = post.index(side_node)
-        self.assertLess(
+        self.assertLess(  # 断言小于
             side_pos,
             post.index(b_node),
             f"side branch must remain ahead of B (no walk-down refresh); "
             f"post={[n.id for n in post]}, side={side_node.id}, B={b_node.id}",
         )
-        self.assertLess(
+        self.assertLess(  # 断言小于
             side_pos,
             post.index(a_node),
             f"side branch must remain ahead of A (no walk-down refresh); "
@@ -1260,6 +1335,7 @@ class UnifiedRadixCacheSuite:
         )
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试swalrumatchonlyrefresheswindowcushion
     def test_swa_lru_match_only_refreshes_window_cushion(self):
         if not self._swa_pinning_cfg_supported():
             self.skipTest("requires SWA-only config with node size >= cushion")
@@ -1278,24 +1354,24 @@ class UnifiedRadixCacheSuite:
         pre = self._swa_lru_order(tree)
         # Each 8-page segment is cap-split into [prefix, tail]; tails lead in
         # MRU order, so segment tails sit at even indices.
-        self.assertEqual(len(pre), 8)
+        self.assertEqual(len(pre), 8)  # 断言相等
         side_node, c_node, b_node, a_node = pre[0], pre[2], pre[4], pre[6]
 
         m = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", seq_abc))))
-        self.assertEqual(len(m.device_indices), len(seq_abc))
+        self.assertEqual(len(m.device_indices), len(seq_abc))  # 断言相等
 
         post = self._swa_lru_order(tree)
         # Matching seq_abc refreshes only the window cushion (C's capped nodes)
         # to the MRU side; out-of-cushion ancestors B and A keep their order.
-        self.assertIn(
+        self.assertIn(  # 断言包含
             c_node, post[:2], f"C must be refreshed to MRU; post={[n.id for n in post]}"
         )
-        self.assertLess(
+        self.assertLess(  # 断言小于
             post.index(side_node),
             post.index(b_node),
             "Side branch must NOT be pushed below ancestors after deep match",
         )
-        self.assertLess(post.index(b_node), post.index(a_node), "B must stay above A")
+        self.assertLess(post.index(b_node), post.index(a_node), "B must stay above A")  # 断言小于
         self.assertGreaterEqual(
             post.index(a_node),
             len(post) - 2,
@@ -1303,6 +1379,7 @@ class UnifiedRadixCacheSuite:
         )
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试swalruoldancestorsevictfirstunderpressure
     def test_swa_lru_old_ancestors_evict_first_under_pressure(self):
         if not self._swa_pinning_cfg_supported():
             self.skipTest("requires SWA-only config with node size >= cushion")
@@ -1319,19 +1396,19 @@ class UnifiedRadixCacheSuite:
         self._insert(tree, allocator, req_to_token_pool, seq_side)
 
         m = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", seq_abc))))
-        self.assertEqual(len(m.device_indices), len(seq_abc))
+        self.assertEqual(len(m.device_indices), len(seq_abc))  # 断言相等
 
         m_side_before = tree.match_prefix(
             MatchPrefixParams(key=RadixKey(array("q", seq_side)))
         )
-        self.assertEqual(len(m_side_before.device_indices), len(seq_side))
+        self.assertEqual(len(m_side_before.device_indices), len(seq_side))  # 断言相等
 
         tree.evict(EvictParams(num_tokens=0, swa_num_tokens=self.cfg.page_size))
 
         m_side_after = tree.match_prefix(
             MatchPrefixParams(key=RadixKey(array("q", seq_side)))
         )
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             len(m_side_after.device_indices),
             len(seq_side),
             "Side branch SWA must survive eviction; oldest ancestors (A) "
@@ -1339,6 +1416,7 @@ class UnifiedRadixCacheSuite:
         )
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试swalrucushionboundisslidingwindowpluspagesize
     def test_swa_lru_cushion_bound_is_sliding_window_plus_page_size(self):
         if not self._swa_pinning_cfg_supported():
             self.skipTest("requires SWA-only config with node size >= cushion")
@@ -1355,28 +1433,29 @@ class UnifiedRadixCacheSuite:
         self._insert(tree, allocator, req_to_token_pool, seq_side)
 
         pre = self._swa_lru_order(tree)
-        self.assertEqual(len(pre), 8)
+        self.assertEqual(len(pre), 8)  # 断言相等
         side_node, c_node, b_node, a_node = pre[0], pre[2], pre[4], pre[6]
         c_prefix = pre[3]  # C's prefix pairs with its tail (c_node) at pre[2:4]
 
         m = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", seq_abc))))
-        self.assertEqual(len(m.device_indices), len(seq_abc))
+        self.assertEqual(len(m.device_indices), len(seq_abc))  # 断言相等
         post = self._swa_lru_order(tree)
 
         cushion = self.cfg.sliding_window_size + self.cfg.page_size
         # Under leaf-cap no single node exceeds the cushion; it spans C's capped
         # tail plus its prefix, so both of C's nodes are refreshed to the MRU
         # side while B and A keep their relative order below.
-        self.assertLess(len(c_node.key), cushion)
-        self.assertIn(c_node, post[:2])
-        self.assertIn(c_prefix, post[:2])
+        self.assertLess(len(c_node.key), cushion)  # 断言小于
+        self.assertIn(c_node, post[:2])  # 断言包含
+        self.assertIn(c_prefix, post[:2])  # 断言包含
         side_pos = post.index(side_node)
         b_pos = post.index(b_node)
         a_pos = post.index(a_node)
-        self.assertLess(side_pos, b_pos, "B was below side in pre, must stay below")
-        self.assertLess(b_pos, a_pos, "A was below B in pre, must stay below")
+        self.assertLess(side_pos, b_pos, "B was below side in pre, must stay below")  # 断言小于
+        self.assertLess(b_pos, a_pos, "A was below B in pre, must stay below")  # 断言小于
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试swasanitycheckpassesafterdeepmatch
     def test_swa_sanity_check_passes_after_deep_match(self):
         if not self._swa_pinning_cfg_supported():
             self.skipTest("requires SWA-only config with node size >= cushion")
@@ -1392,9 +1471,10 @@ class UnifiedRadixCacheSuite:
 
         for _ in range(3):
             m = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", seq_abc))))
-            self.assertEqual(len(m.device_indices), len(seq_abc))
+            self.assertEqual(len(m.device_indices), len(seq_abc))  # 断言相等
             tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试tombstonecleanuprespectslockedparent
     def test_tombstone_cleanup_respects_locked_parent(self):
         tree, _, _ = build_fixture(self.cfg)
         parent = UnifiedTreeNode(self.cfg.components)
@@ -1415,10 +1495,11 @@ class UnifiedRadixCacheSuite:
 
         tree._iteratively_delete_tombstone_leaf(deleted, tracker)
 
-        self.assertIn(parent_key, tree.root_node.children)
-        self.assertIs(tree.root_node.children[parent_key], parent)
-        self.assertTrue(all(evicted == 0 for evicted in tracker.values()))
+        self.assertIn(parent_key, tree.root_node.children)  # 断言包含
+        self.assertIs(tree.root_node.children[parent_key], parent)  # 断言是同一对象
+        self.assertTrue(all(evicted == 0 for evicted in tracker.values()))  # 断言为真
 
+    # UnifiedRadixCacheSuite类的测试internalreadonlydoesnotmodifytree
     def test_internal_readonly_does_not_modify_tree(self):
         """Verify readonly match does not modify tree structure (no split)."""
         if self.cfg.page_size > 1 or self.cfg.has_mamba or self.cfg.has_swa:
@@ -1429,6 +1510,7 @@ class UnifiedRadixCacheSuite:
 
         self._insert(tree, allocator, req_to_token_pool, [1, 2, 3, 4, 5])
 
+        # count_nodes
         def count_nodes(node):
             count = 1
             for child in node.children.values():
@@ -1436,7 +1518,7 @@ class UnifiedRadixCacheSuite:
             return count
 
         node_count_before = count_nodes(tree.root_node)
-        self.assertEqual(node_count_before, 2)
+        self.assertEqual(node_count_before, 2)  # 断言相等
 
         tree._match_prefix_helper(RadixKey(array("q", [1, 2])))
         (
@@ -1445,11 +1527,11 @@ class UnifiedRadixCacheSuite:
             best_match_device_node,
             best_value_len,
         ) = tree._match_prefix_helper(RadixKey(array("q", [1, 2, 3, 4])))
-        self.assertEqual(best_value_len, 2)
-        self.assertEqual(list(best_match_node.key.token_ids), [3, 4])
-        self.assertIs(best_match_device_node, best_match_node)
+        self.assertEqual(best_value_len, 2)  # 断言相等
+        self.assertEqual(list(best_match_node.key.token_ids), [3, 4])  # 断言相等
+        self.assertIs(best_match_device_node, best_match_node)  # 断言是同一对象
         node_count_after_regular = count_nodes(tree.root_node)
-        self.assertEqual(node_count_after_regular, node_count_before + 2)
+        self.assertEqual(node_count_after_regular, node_count_before + 2)  # 断言相等
 
         (
             value,
@@ -1457,11 +1539,11 @@ class UnifiedRadixCacheSuite:
             best_match_device_node,
             best_value_len,
         ) = tree._match_prefix_helper_readonly(RadixKey(array("q", [1, 2, 3])))
-        self.assertEqual(best_value_len, 1)
-        self.assertEqual(list(best_match_node.key.token_ids), [1, 2])
-        self.assertIs(best_match_device_node, best_match_node)
+        self.assertEqual(best_value_len, 1)  # 断言相等
+        self.assertEqual(list(best_match_node.key.token_ids), [1, 2])  # 断言相等
+        self.assertIs(best_match_device_node, best_match_node)  # 断言是同一对象
         node_count_after_readonly = count_nodes(tree.root_node)
-        self.assertEqual(node_count_after_readonly, node_count_after_regular)
+        self.assertEqual(node_count_after_readonly, node_count_after_regular)  # 断言相等
 
         tree.sanity_check()
 
@@ -1490,19 +1572,19 @@ class UnifiedRadixCacheSuite:
         node = match.last_device_node
         full_cd = node.component_data[ComponentType.FULL]
         aux_cd = node.component_data[aux]
-        self.assertEqual(len(node.children), 0)
-        self.assertIsNotNone(full_cd.value)
-        self.assertIsNotNone(aux_cd.value)
+        self.assertEqual(len(node.children), 0)  # 断言相等
+        self.assertIsNotNone(full_cd.value)  # 断言不为None
+        self.assertIsNotNone(aux_cd.value)  # 断言不为None
 
         lock_result = tree.inc_lock_ref(node)
-        self.assertGreater(full_cd.lock_ref, 0)
-        self.assertGreater(aux_cd.lock_ref, 0)
+        self.assertGreater(full_cd.lock_ref, 0)  # 断言大于
+        self.assertGreater(aux_cd.lock_ref, 0)  # 断言大于
 
         aux_len = len(aux_cd.value)
         tree.component_protected_size_[aux] -= aux_len
         tree.component_evictable_size_[aux] += aux_len
         aux_cd.lock_ref = 0
-        self.assertNotIn(node, tree.evictable_device_leaves)
+        self.assertNotIn(node, tree.evictable_device_leaves)  # 断言不包含
 
         evict_params = EvictParams(num_tokens=0)
         if aux == ComponentType.SWA:
@@ -1511,14 +1593,14 @@ class UnifiedRadixCacheSuite:
             evict_params.mamba_num = aux_len
         result = tree.evict(evict_params)
 
-        self.assertEqual(result.num_tokens_evicted, 0)
+        self.assertEqual(result.num_tokens_evicted, 0)  # 断言相等
         if aux == ComponentType.SWA:
-            self.assertEqual(result.swa_num_tokens_evicted, aux_len)
+            self.assertEqual(result.swa_num_tokens_evicted, aux_len)  # 断言相等
         else:
-            self.assertEqual(result.mamba_num_evicted, aux_len)
-        self.assertIsNotNone(full_cd.value)
-        self.assertIsNone(aux_cd.value)
-        self.assertFalse(tree.lru_lists[aux].in_list(node))
+            self.assertEqual(result.mamba_num_evicted, aux_len)  # 断言相等
+        self.assertIsNotNone(full_cd.value)  # 断言不为None
+        self.assertIsNone(aux_cd.value)  # 断言为None
+        self.assertFalse(tree.lru_lists[aux].in_list(node))  # 断言为假
 
         tree.dec_lock_ref(
             node,
@@ -1526,6 +1608,7 @@ class UnifiedRadixCacheSuite:
         )
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试evictleaffreesallcomponents
     def test_evict_leaf_frees_all_components(self):
         """Evicting a device leaf frees Full and all aux components atomically."""
         tree, allocator, req_to_token_pool = build_fixture(self.cfg)
@@ -1535,17 +1618,18 @@ class UnifiedRadixCacheSuite:
         full_before = tree.full_evictable_size()
         mamba_before = tree.mamba_evictable_size() if self.cfg.has_mamba else 0
         swa_before = tree.swa_evictable_size() if self.cfg.has_swa else 0
-        self.assertGreater(full_before, 0)
+        self.assertGreater(full_before, 0)  # 断言大于
 
         result = tree.evict(EvictParams(num_tokens=full_before * 2))
         self.assertGreaterEqual(result.num_tokens_evicted, full_before)
-        self.assertEqual(tree.full_evictable_size(), 0)
+        self.assertEqual(tree.full_evictable_size(), 0)  # 断言相等
         if self.cfg.has_mamba:
-            self.assertEqual(tree.mamba_evictable_size(), 0)
+            self.assertEqual(tree.mamba_evictable_size(), 0)  # 断言相等
         if self.cfg.has_swa:
-            self.assertEqual(tree.swa_evictable_size(), 0)
+            self.assertEqual(tree.swa_evictable_size(), 0)  # 断言相等
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试evictcascadeparentbecomesdleaf
     def test_evict_cascade_parent_becomes_d_leaf(self):
         """After evicting a D-leaf child, parent may become a new D-leaf."""
         tree, allocator, req_to_token_pool = build_fixture(self.cfg)
@@ -1569,9 +1653,10 @@ class UnifiedRadixCacheSuite:
             ),
         )
         # After unlock, base should be in evictable_device_leaves
-        self.assertIn(m_base.last_device_node, tree.evictable_device_leaves)
+        self.assertIn(m_base.last_device_node, tree.evictable_device_leaves)  # 断言包含
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试evictiterativetombstonecleanup
     def test_evict_iterative_tombstone_cleanup(self):
         """Tombstone cascade: evicting a leaf triggers cleanup up the tree."""
         tree, allocator, req_to_token_pool = build_fixture(self.cfg)
@@ -1583,16 +1668,17 @@ class UnifiedRadixCacheSuite:
         self._insert(tree, allocator, req_to_token_pool, chain)
 
         initial_evictable = tree.full_evictable_size()
-        self.assertGreater(initial_evictable, 0)
+        self.assertGreater(initial_evictable, 0)  # 断言大于
 
         # Evict everything — tombstone cascade should clean up all
         result = tree.evict(EvictParams(num_tokens=initial_evictable * 2))
         self.assertGreaterEqual(result.num_tokens_evicted, initial_evictable)
-        self.assertEqual(tree.full_evictable_size(), 0)
+        self.assertEqual(tree.full_evictable_size(), 0)  # 断言相等
         # Only root should remain
-        self.assertEqual(len(tree.root_node.children), 0)
+        self.assertEqual(len(tree.root_node.children), 0)  # 断言相等
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试evictrespectslruorder
     def test_evict_respects_lru_order(self):
         """Older (less recently accessed) nodes are evicted first."""
         tree, allocator, req_to_token_pool = build_fixture(self.cfg)
@@ -1612,10 +1698,11 @@ class UnifiedRadixCacheSuite:
         # seq_old should be gone (LRU), seq_new should remain
         m_old = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", seq_old))))
         m_new = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", seq_new))))
-        self.assertEqual(len(m_old.device_indices), 0)
-        self.assertEqual(len(m_new.device_indices), len(seq_new))
+        self.assertEqual(len(m_old.device_indices), 0)  # 断言相等
+        self.assertEqual(len(m_new.device_indices), len(seq_new))  # 断言相等
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试evictrespectsprioritypolicy
     def test_evict_respects_priority_policy(self):
         if self.cfg.components != (ComponentType.FULL,):
             self.skipTest("priority policy ordering is covered on Full-only configs")
@@ -1633,10 +1720,11 @@ class UnifiedRadixCacheSuite:
             MatchPrefixParams(key=RadixKey(array("q", seq_high)))
         )
         m_low = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", seq_low))))
-        self.assertEqual(len(m_high.device_indices), len(seq_high))
-        self.assertEqual(len(m_low.device_indices), 0)
+        self.assertEqual(len(m_high.device_indices), len(seq_high))  # 断言相等
+        self.assertEqual(len(m_low.device_indices), 0)  # 断言相等
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试evictmultipleindependentleaves
     def test_evict_multiple_independent_leaves(self):
         """Evicting multiple independent leaves works correctly."""
         tree, allocator, req_to_token_pool = build_fixture(self.cfg)
@@ -1645,7 +1733,7 @@ class UnifiedRadixCacheSuite:
             self._insert(tree, allocator, req_to_token_pool, s)
 
         total = sum(len(s) for s in seqs)
-        self.assertEqual(tree.full_evictable_size(), total)
+        self.assertEqual(tree.full_evictable_size(), total)  # 断言相等
 
         # Evict half
         half = total // 2
@@ -1658,9 +1746,10 @@ class UnifiedRadixCacheSuite:
         remaining = tree.full_evictable_size()
         result = tree.evict(EvictParams(num_tokens=remaining * 2))
         self.assertGreaterEqual(result.num_tokens_evicted, remaining)
-        self.assertEqual(tree.full_evictable_size(), 0)
+        self.assertEqual(tree.full_evictable_size(), 0)  # 断言相等
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试evictsharedprefixkeepscommonpath
     def test_evict_shared_prefix_keeps_common_path(self):
         """Evicting one branch preserves the shared prefix for other branch."""
         tree, allocator, req_to_token_pool = build_fixture(self.cfg)
@@ -1679,7 +1768,7 @@ class UnifiedRadixCacheSuite:
         tree.evict(EvictParams(num_tokens=len(branch_a)))
 
         m_b = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", branch_b))))
-        self.assertEqual(len(m_b.device_indices), len(branch_b))
+        self.assertEqual(len(m_b.device_indices), len(branch_b))  # 断言相等
 
         tree.dec_lock_ref(
             m.last_device_node,
@@ -1687,6 +1776,7 @@ class UnifiedRadixCacheSuite:
         )
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试evictresultaccountingmatchesactual
     def test_evict_result_accounting_matches_actual(self):
         """EvictResult.num_tokens_evicted matches actual size change."""
         tree, allocator, req_to_token_pool = build_fixture(self.cfg)
@@ -1697,9 +1787,10 @@ class UnifiedRadixCacheSuite:
         before = tree.full_evictable_size()
         result = tree.evict(EvictParams(num_tokens=before))
         after = tree.full_evictable_size()
-        self.assertEqual(result.num_tokens_evicted, before - after)
+        self.assertEqual(result.num_tokens_evicted, before - after)  # 断言相等
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试evictlockedsubtreeskipped
     def test_evict_locked_subtree_skipped(self):
         """All nodes in a locked path are skipped during eviction."""
         tree, allocator, req_to_token_pool = build_fixture(self.cfg)
@@ -1718,7 +1809,7 @@ class UnifiedRadixCacheSuite:
 
         # seq_a should still be matchable (protected)
         m2 = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", seq_a))))
-        self.assertEqual(len(m2.device_indices), len(seq_a))
+        self.assertEqual(len(m2.device_indices), len(seq_a))  # 断言相等
 
         tree.dec_lock_ref(
             m.last_device_node,
@@ -1726,6 +1817,7 @@ class UnifiedRadixCacheSuite:
         )
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试mambainternaltombstoneevict
     def test_mamba_internal_tombstone_evict(self):
         """Mamba eviction on internal node tombstones mamba only, keeps Full."""
         if not self.cfg.has_mamba:
@@ -1739,27 +1831,29 @@ class UnifiedRadixCacheSuite:
 
         # Evict only mamba
         result = tree.evict(EvictParams(num_tokens=0, mamba_num=10))
-        self.assertEqual(tree.mamba_evictable_size(), 0)
+        self.assertEqual(tree.mamba_evictable_size(), 0)  # 断言相等
 
         # Full should still be accessible for at least the long seq base
         # (mamba gone breaks match, but full data might still be in tree)
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试evictreinsertafterfulleviction
     def test_evict_reinsert_after_full_eviction(self):
         """After evicting everything, new inserts work correctly."""
         tree, allocator, req_to_token_pool = build_fixture(self.cfg)
         seq_a = self._make_seq(1, 2)
         self._insert(tree, allocator, req_to_token_pool, seq_a)
         tree.evict(EvictParams(num_tokens=len(seq_a) * 2))
-        self.assertEqual(tree.full_evictable_size(), 0)
+        self.assertEqual(tree.full_evictable_size(), 0)  # 断言相等
 
         # Re-insert
         seq_b = self._make_seq(500, 2)
         self._insert(tree, allocator, req_to_token_pool, seq_b)
         m = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", seq_b))))
-        self.assertEqual(len(m.device_indices), len(seq_b))
+        self.assertEqual(len(m.device_indices), len(seq_b))  # 断言相等
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试swaevictinternaltombstone
     def test_swa_evict_internal_tombstone(self):
         """SWA eviction on internal node cascades to lower-priority components."""
         if not self.cfg.has_swa:
@@ -1772,9 +1866,10 @@ class UnifiedRadixCacheSuite:
 
         swa_before = tree.swa_evictable_size()
         result = tree.evict(EvictParams(num_tokens=0, swa_num_tokens=swa_before * 2))
-        self.assertEqual(tree.swa_evictable_size(), 0)
+        self.assertEqual(tree.swa_evictable_size(), 0)  # 断言相等
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试evictdleafsetconsistency
     def test_evict_d_leaf_set_consistency(self):
         """evictable_device_leaves is consistent after mixed operations."""
         tree, allocator, req_to_token_pool = build_fixture(self.cfg)
@@ -1809,6 +1904,7 @@ class UnifiedRadixCacheSuite:
             self.skipTest("HiCache unit fixture does not support SWA + Mamba stacks")
         return False
 
+    # UnifiedRadixCacheSuite类的内部方法_simulate_backup
     def _simulate_backup(self, tree, node):
         """Simulate D->H backup over the whole root->node path (parent-first)."""
         chain = []
@@ -1824,6 +1920,7 @@ class UnifiedRadixCacheSuite:
                 if cd.value is not None and cd.host_value is None:
                     cd.host_value = cd.value.clone()
 
+    # UnifiedRadixCacheSuite类的内部方法_simulate_backup_tree
     def _simulate_backup_tree(self, tree):
         """Backup all non-root nodes (simulates write-through)."""
         stack = [tree.root_node]
@@ -1833,16 +1930,19 @@ class UnifiedRadixCacheSuite:
                 self._simulate_backup(tree, node)
             stack.extend(node.children.values())
 
+    # UnifiedRadixCacheSuite类的内部方法_init_hicache
     def _init_hicache(self, tree, *, write_policy: str = "write_through"):
         import sglang.srt.mem_cache.hybrid_cache.hybrid_pool_assembler as assembler
 
         orig_kv_host_pool = assembler.MHATokenToKVPoolHost
         orig_mamba_host_pool = assembler.MambaPoolHost
 
+        # kv_host_pool_wrapper
         def kv_host_pool_wrapper(*args, **kwargs):
             kwargs["pin_memory"] = False
             return orig_kv_host_pool(*args, **kwargs)
 
+        # mamba_host_pool_wrapper
         def mamba_host_pool_wrapper(*args, **kwargs):
             kwargs["pin_memory"] = False
             return orig_mamba_host_pool(*args, **kwargs)
@@ -1876,12 +1976,14 @@ class UnifiedRadixCacheSuite:
         tree.write_through_threshold = 1 << 30
         tree.load_back_threshold = 0
 
+    # UnifiedRadixCacheSuite类的内部方法_build_hicache_fixture
     def _build_hicache_fixture(self):
         fixture = build_fixture(self.cfg)
         tree, _, _ = fixture
         self._init_hicache(tree)
         return fixture
 
+    # UnifiedRadixCacheSuite类的内部方法_backup_node
     def _backup_node(self, tree, node):
         # Parent-first backup over the whole path: one insert can span several
         # nodes, so a single-node backup would leave an unbacked ancestor.
@@ -1895,11 +1997,12 @@ class UnifiedRadixCacheSuite:
             if ancestor.backuped:
                 continue
             backed_up = tree.write_backup(ancestor, write_back=True)
-            self.assertGreater(backed_up, 0)
+            self.assertGreater(backed_up, 0)  # 断言大于
         tree.writing_check(write_back=True)
-        self.assertTrue(node.backuped)
+        self.assertTrue(node.backuped)  # 断言为真
         return backed_up
 
+    # UnifiedRadixCacheSuite类的内部方法_backup_tree
     def _backup_tree(self, tree):
         stack = [tree.root_node]
         while stack:
@@ -1909,20 +2012,23 @@ class UnifiedRadixCacheSuite:
             if node is not tree.root_node:
                 self._backup_node(tree, node)
 
+    # UnifiedRadixCacheSuite类的内部方法_load_back_node
     def _load_back_node(self, tree, node):
         loaded = tree.load_back(node)
-        self.assertTrue(loaded)
+        self.assertTrue(loaded)  # 断言为真
         producer_id = tree.ready_to_load_host_cache()
-        self.assertNotEqual(producer_id, -1)
+        self.assertNotEqual(producer_id, -1)  # 断言不相等
         for _, finish_event, _ in list(tree.cache_controller.ack_load_queue):
             finish_event.synchronize()
         tree.loading_check()
         return node.component_data[ComponentType.FULL].value
 
+    # UnifiedRadixCacheSuite类的内部方法_get_full_kv_pool
     def _get_full_kv_pool(self, allocator):
         kv_pool = allocator.get_kvcache()
         return getattr(kv_pool, "full_kv_pool", kv_pool)
 
+    # UnifiedRadixCacheSuite类的内部方法_fill_full_kv
     def _fill_full_kv(self, allocator, indices, marker):
         kv_pool = self._get_full_kv_pool(allocator)
         layer_id = kv_pool.start_layer
@@ -1931,6 +2037,7 @@ class UnifiedRadixCacheSuite:
         k_buf[indices].fill_(marker)
         v_buf[indices].fill_(marker + 1)
 
+    # UnifiedRadixCacheSuite类的内部方法_snapshot_full_kv
     def _snapshot_full_kv(self, allocator, indices):
         kv_pool = self._get_full_kv_pool(allocator)
         layer_id = kv_pool.start_layer
@@ -1939,6 +2046,7 @@ class UnifiedRadixCacheSuite:
             kv_pool.get_value_buffer(layer_id)[indices].float().cpu().clone(),
         )
 
+    # UnifiedRadixCacheSuite类的内部方法_fill_mamba_state
     def _fill_mamba_state(self, req_to_token_pool, indices, marker):
         if not self.cfg.has_mamba:
             return
@@ -1948,6 +2056,7 @@ class UnifiedRadixCacheSuite:
         for offset, conv_buf in enumerate(mamba_cache.conv, start=1):
             conv_buf[:, mamba_indices].fill_(marker + offset)
 
+    # UnifiedRadixCacheSuite类的内部方法_snapshot_mamba_state
     def _snapshot_mamba_state(self, req_to_token_pool, indices):
         mamba_indices = indices.reshape(-1)
         mamba_cache = req_to_token_pool.mamba_pool.mamba_cache
@@ -1956,6 +2065,7 @@ class UnifiedRadixCacheSuite:
             [conv[:, mamba_indices].float().cpu().clone() for conv in mamba_cache.conv],
         )
 
+    # UnifiedRadixCacheSuite类的测试hicachenodestates
     def test_hicache_node_states(self):
         """Verify device-only to device+host transition after real backup."""
         if self._skip_unsupported_hicache_test():
@@ -1967,22 +2077,23 @@ class UnifiedRadixCacheSuite:
         # Find the leaf node
         m = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", seq))))
         node = m.last_device_node
-        self.assertIsNot(node, tree.root_node)
+        self.assertIsNot(node, tree.root_node)  # 断言不是同一对象
 
         ct = ComponentType.FULL
         # S1: device only
-        self.assertIsNotNone(node.component_data[ct].value)
-        self.assertIsNone(node.component_data[ct].host_value)
-        self.assertFalse(node.backuped)
-        self.assertFalse(node.evicted)
+        self.assertIsNotNone(node.component_data[ct].value)  # 断言不为None
+        self.assertIsNone(node.component_data[ct].host_value)  # 断言为None
+        self.assertFalse(node.backuped)  # 断言为假
+        self.assertFalse(node.evicted)  # 断言为假
 
         self._backup_node(tree, node)
-        self.assertIsNotNone(node.component_data[ct].value)
-        self.assertIsNotNone(node.component_data[ct].host_value)
-        self.assertTrue(node.backuped)
-        self.assertFalse(node.evicted)
+        self.assertIsNotNone(node.component_data[ct].value)  # 断言不为None
+        self.assertIsNotNone(node.component_data[ct].host_value)  # 断言不为None
+        self.assertTrue(node.backuped)  # 断言为真
+        self.assertFalse(node.evicted)  # 断言为假
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试hicacheevicttohost
     def test_hicache_evict_to_host(self):
         """Evicting a backed-up device leaf demotes it to host-only state."""
         if self._skip_unsupported_hicache_test():
@@ -1995,23 +2106,24 @@ class UnifiedRadixCacheSuite:
         node = m.last_device_node
 
         self._backup_node(tree, node)
-        self.assertTrue(node.backuped)
+        self.assertTrue(node.backuped)  # 断言为真
 
         # Evict -> should demote to host (S3)
         result = tree.evict(EvictParams(num_tokens=len(seq)))
         self.assertGreaterEqual(result.num_tokens_evicted, len(seq))
 
         # Node should now be evicted (S3)
-        self.assertTrue(node.evicted)
-        self.assertTrue(node.backuped)
-        self.assertIsNone(node.component_data[ComponentType.FULL].value)
-        self.assertIsNotNone(node.component_data[ComponentType.FULL].host_value)
+        self.assertTrue(node.evicted)  # 断言为真
+        self.assertTrue(node.backuped)  # 断言为真
+        self.assertIsNone(node.component_data[ComponentType.FULL].value)  # 断言为None
+        self.assertIsNotNone(node.component_data[ComponentType.FULL].host_value)  # 断言不为None
 
         # Should be in host_leaves, not device_leaves
-        self.assertNotIn(node, tree.evictable_device_leaves)
-        self.assertIn(node, tree.evictable_host_leaves)
+        self.assertNotIn(node, tree.evictable_device_leaves)  # 断言不包含
+        self.assertIn(node, tree.evictable_host_leaves)  # 断言包含
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试hicachematchthroughevictednode
     def test_hicache_match_through_evicted_node(self):
         """Match can traverse evicted (S3) nodes using host_value."""
         if self._skip_unsupported_hicache_test():
@@ -2039,6 +2151,7 @@ class UnifiedRadixCacheSuite:
         self.assertGreaterEqual(len(m.device_indices), len(base))
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试hicachepartialmatchsplitsevictedbackedupnode
     def test_hicache_partial_match_splits_evicted_backed_up_node(self):
         """Partial matches on host-only nodes must keep the host prefix usable."""
         if self._skip_unsupported_hicache_test():
@@ -2056,25 +2169,25 @@ class UnifiedRadixCacheSuite:
         self._backup_node(tree, node)
 
         tree.evict(EvictParams(num_tokens=len(seq)))
-        self.assertTrue(node.evicted)
-        self.assertTrue(node.backuped)
+        self.assertTrue(node.evicted)  # 断言为真
+        self.assertTrue(node.backuped)  # 断言为真
 
         m = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", query))))
 
-        self.assertEqual(len(m.device_indices), 0)
-        self.assertIs(m.last_device_node, tree.root_node)
+        self.assertEqual(len(m.device_indices), 0)  # 断言相等
+        self.assertIs(m.last_device_node, tree.root_node)  # 断言是同一对象
 
         # Locate the host prefix via last_host_node and rebuild prefix/suffix
         # from path keys (a leaf may span several nodes).
         if self.cfg.has_mamba:
-            self.assertEqual(m.host_hit_length, 0)
-            self.assertIs(m.last_host_node, tree.root_node)
+            self.assertEqual(m.host_hit_length, 0)  # 断言相等
+            self.assertIs(m.last_host_node, tree.root_node)  # 断言是同一对象
         else:
-            self.assertEqual(m.host_hit_length, len(expected_prefix))
+            self.assertEqual(m.host_hit_length, len(expected_prefix))  # 断言相等
             split_parent = m.last_host_node
-            self.assertIsNot(split_parent, tree.root_node)
-            self.assertTrue(split_parent.evicted)
-            self.assertTrue(split_parent.backuped)
+            self.assertIsNot(split_parent, tree.root_node)  # 断言不是同一对象
+            self.assertTrue(split_parent.evicted)  # 断言为真
+            self.assertTrue(split_parent.backuped)  # 断言为真
             # root -> split_parent keys reconstruct expected_prefix
             prefix_tokens: list[int] = []
             chain = []
@@ -2084,18 +2197,19 @@ class UnifiedRadixCacheSuite:
                 cur = cur.parent
             for n in reversed(chain):
                 prefix_tokens.extend(n.key.token_ids)
-            self.assertEqual(prefix_tokens, expected_prefix)
+            self.assertEqual(prefix_tokens, expected_prefix)  # 断言相等
             # the diverged suffix stays as evicted+backuped descendant(s)
             suffix_tokens: list[int] = []
             cur = split_parent
             while cur.children:
-                self.assertEqual(len(cur.children), 1)
+                self.assertEqual(len(cur.children), 1)  # 断言相等
                 cur = next(iter(cur.children.values()))
                 suffix_tokens.extend(cur.key.token_ids)
-            self.assertEqual(suffix_tokens, expected_suffix)
-            self.assertTrue(cur.evicted and cur.backuped)
+            self.assertEqual(suffix_tokens, expected_suffix)  # 断言相等
+            self.assertTrue(cur.evicted and cur.backuped)  # 断言为真
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试hicachedleafhleafmutualexclusion
     def test_hicache_d_leaf_h_leaf_mutual_exclusion(self):
         """D-leaf and H-leaf sets are always disjoint."""
         if self._skip_unsupported_hicache_test():
@@ -2114,9 +2228,10 @@ class UnifiedRadixCacheSuite:
 
         # Check mutual exclusion
         overlap = tree.evictable_device_leaves & tree.evictable_host_leaves
-        self.assertEqual(len(overlap), 0)
+        self.assertEqual(len(overlap), 0)  # 断言相等
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试hicachehostleafeviction
     def test_hicache_host_leaf_eviction(self):
         """Evicting a host leaf removes the node from the tree entirely."""
         if self._skip_unsupported_hicache_test():
@@ -2131,17 +2246,18 @@ class UnifiedRadixCacheSuite:
         self._backup_node(tree, node)
         tree.evict(EvictParams(num_tokens=len(seq)))
 
-        self.assertTrue(node.evicted)
-        self.assertIn(node, tree.evictable_host_leaves)
+        self.assertTrue(node.evicted)  # 断言为真
+        self.assertIn(node, tree.evictable_host_leaves)  # 断言包含
 
         # Now evict host
         tree.evict_host(len(seq))
 
         # Node should be removed from tree
-        self.assertNotIn(node, tree.evictable_host_leaves)
-        self.assertEqual(len(tree.root_node.children), 0)
+        self.assertNotIn(node, tree.evictable_host_leaves)  # 断言不包含
+        self.assertEqual(len(tree.root_node.children), 0)  # 断言相等
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试hicacheloadbackrestoresdata
     def test_hicache_load_back_restores_data(self):
         """Loading back an evicted node restores the backed-up cache data."""
         if self._skip_unsupported_hicache_test():
@@ -2171,32 +2287,33 @@ class UnifiedRadixCacheSuite:
 
         self._backup_node(tree, node)
         tree.evict(EvictParams(num_tokens=len(base)))
-        self.assertTrue(node.evicted)
+        self.assertTrue(node.evicted)  # 断言为真
         self._fill_full_kv(allocator, original_device_indices, marker=9)
         if original_mamba_indices is not None:
             self._fill_mamba_state(req_to_token_pool, original_mamba_indices, marker=21)
 
         self._load_back_node(tree, node)
-        self.assertFalse(node.evicted)
-        self.assertIsNotNone(node.component_data[ComponentType.FULL].value)
+        self.assertFalse(node.evicted)  # 断言为假
+        self.assertIsNotNone(node.component_data[ComponentType.FULL].value)  # 断言不为None
         # Gather the whole reloaded prefix via match (a leaf may be split).
         loaded_indices = tree.match_prefix(
             MatchPrefixParams(key=RadixKey(array("q", base)))
         ).device_indices
         loaded_k, loaded_v = self._snapshot_full_kv(allocator, loaded_indices)
-        self.assertTrue(torch.equal(loaded_k, expected_k))
-        self.assertTrue(torch.equal(loaded_v, expected_v))
+        self.assertTrue(torch.equal(loaded_k, expected_k))  # 断言为真
+        self.assertTrue(torch.equal(loaded_v, expected_v))  # 断言为真
         if self.cfg.has_mamba:
             loaded_mamba_indices = node.component_data[ComponentType.MAMBA].value
             loaded_temporal, loaded_conv = self._snapshot_mamba_state(
                 req_to_token_pool, loaded_mamba_indices
             )
-            self.assertTrue(torch.equal(loaded_temporal, expected_temporal))
-            self.assertEqual(len(loaded_conv), len(expected_conv))
+            self.assertTrue(torch.equal(loaded_temporal, expected_temporal))  # 断言为真
+            self.assertEqual(len(loaded_conv), len(expected_conv))  # 断言相等
             for actual_conv, expected_conv_buf in zip(loaded_conv, expected_conv):
-                self.assertTrue(torch.equal(actual_conv, expected_conv_buf))
+                self.assertTrue(torch.equal(actual_conv, expected_conv_buf))  # 断言为真
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试hicachebackupcontinuity
     def test_hicache_backup_continuity(self):
         """Backed-up nodes form a continuous prefix from the root."""
         if self._skip_unsupported_hicache_test():
@@ -2216,12 +2333,13 @@ class UnifiedRadixCacheSuite:
                 continue
             if node.backuped:
                 parent = node.parent
-                self.assertTrue(
+                self.assertTrue(  # 断言为真
                     parent is tree.root_node or parent.backuped,
                     f"Backup continuity violated: node {node.id} backed up but parent {parent.id} not",
                 )
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试hicachewritethroughoffloadsswasplitleaf
     def test_hicache_write_through_offloads_swa_split_leaf(self):
         """A SWA boundary-split leaf should offload normally under write-through."""
         if not self.cfg.has_swa:
@@ -2243,20 +2361,21 @@ class UnifiedRadixCacheSuite:
                 swa_evicted_seqlen=ps,
             )
         )
-        self.assertEqual(result.prefix_len, 0)
+        self.assertEqual(result.prefix_len, 0)  # 断言相等
 
-        self.assertEqual(len(tree.root_node.children), 1)
+        self.assertEqual(len(tree.root_node.children), 1)  # 断言相等
         split_parent = next(iter(tree.root_node.children.values()))
-        self.assertEqual(len(split_parent.children), 1)
+        self.assertEqual(len(split_parent.children), 1)  # 断言相等
         split_leaf = next(iter(split_parent.children.values()))
 
         tree.writing_check(write_back=True)
         tree.evict(EvictParams(num_tokens=len(seq)))
-        self.assertTrue(split_leaf.evicted)
-        self.assertTrue(split_leaf.backuped)
-        self.assertIn(split_leaf, tree.evictable_host_leaves)
+        self.assertTrue(split_leaf.evicted)  # 断言为真
+        self.assertTrue(split_leaf.backuped)  # 断言为真
+        self.assertIn(split_leaf, tree.evictable_host_leaves)  # 断言包含
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试swadeeptreebackupevictloadbackstress
     def test_swa_deep_tree_backup_evict_loadback_stress(self):
         """Deep multi-node SWA tree (long leaves, decode-evict tombstones,
         shared-prefix branches) through write-through backup -> evict ->
@@ -2275,6 +2394,7 @@ class UnifiedRadixCacheSuite:
         tail_size = ((self.cfg.sliding_window_size + ps - 1) // ps) * ps
         wp = max(1, tail_size // ps)
 
+        # insert_swa
         def insert_swa(tokens, swa_ev):
             value = self._alloc(allocator, len(tokens))
             if value is None:
@@ -2326,6 +2446,7 @@ class UnifiedRadixCacheSuite:
 
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试hicacheevicttohostupdatesauxlru
     def test_hicache_evict_to_host_updates_aux_lru(self):
         """Aux components (MAMBA / SWA) move from device LRU to host LRU on D->H eviction."""
         aux_types = [
@@ -2344,18 +2465,19 @@ class UnifiedRadixCacheSuite:
         node = m.last_device_node
 
         for aux in aux_types:
-            self.assertTrue(tree.lru_lists[aux].in_list(node))
-            self.assertFalse(tree.host_lru_lists[aux].in_list(node))
+            self.assertTrue(tree.lru_lists[aux].in_list(node))  # 断言为真
+            self.assertFalse(tree.host_lru_lists[aux].in_list(node))  # 断言为假
 
         self._simulate_backup(tree, node)
         tree.evict(EvictParams(num_tokens=len(seq)))
 
         for aux in aux_types:
-            self.assertFalse(tree.lru_lists[aux].in_list(node))
+            self.assertFalse(tree.lru_lists[aux].in_list(node))  # 断言为假
             if node.component_data[aux].host_value is not None:
-                self.assertTrue(tree.host_lru_lists[aux].in_list(node))
+                self.assertTrue(tree.host_lru_lists[aux].in_list(node))  # 断言为真
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的内部方法_build_chain_pages
     def _build_chain_pages(self, tree, allocator, req_to_token_pool, num_pages):
         """Insert an incremental chain of single-page extensions.
 
@@ -2375,27 +2497,31 @@ class UnifiedRadixCacheSuite:
         chain.reverse()
         return chain
 
+    # UnifiedRadixCacheSuite类的内部方法_release_ongoing_load_back_locks
     def _release_ongoing_load_back_locks(self, tree):
         for node, lock_params in list(tree.ongoing_load_back.values()):
             tree.dec_lock_ref(node, lock_params)
         tree.ongoing_load_back.clear()
 
+    # UnifiedRadixCacheSuite类的内部方法_finish_pending_loads
     def _finish_pending_loads(self, tree):
         producer_id = tree.ready_to_load_host_cache()
-        self.assertNotEqual(producer_id, -1)
+        self.assertNotEqual(producer_id, -1)  # 断言不相等
         for _, finish_event, _ in list(tree.cache_controller.ack_load_queue):
             finish_event.synchronize()
         tree.loading_check()
 
+    # UnifiedRadixCacheSuite类的内部方法_match_tokens_for_chain
     def _match_tokens_for_chain(self, chain):
         tokens: list[int] = []
         for node in chain:
             tokens.extend(node.key.token_ids)
         return tokens
 
+    # UnifiedRadixCacheSuite类的内部方法_set_aux_host_tombstone
     def _set_aux_host_tombstone(self, tree, node, component_type):
         cd = node.component_data[component_type]
-        self.assertIsNotNone(cd.value)
+        self.assertIsNotNone(cd.value)  # 断言不为None
         if cd.host_value is None:
             cd.host_value = cd.value.clone()
         old_value = cd.value
@@ -2407,6 +2533,7 @@ class UnifiedRadixCacheSuite:
         tree.host_lru_lists[component_type].insert_mru(node)
         tree.component_evictable_size_[component_type] -= len(old_value)
 
+    # UnifiedRadixCacheSuite类的测试matchprefixbestanddevicenodewithouthicache
     def test_match_prefix_best_and_device_node_without_hicache(self):
         tree, allocator, req_to_token_pool = build_fixture(self.cfg)
         ps = self.cfg.page_size
@@ -2418,11 +2545,12 @@ class UnifiedRadixCacheSuite:
 
         result = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", seq))))
 
-        self.assertEqual(len(result.device_indices), len(seq))
-        self.assertIs(result.best_match_node, result.last_device_node)
-        self.assertIs(result.last_host_node, result.last_device_node)
-        self.assertEqual(result.host_hit_length, 0)
+        self.assertEqual(len(result.device_indices), len(seq))  # 断言相等
+        self.assertIs(result.best_match_node, result.last_device_node)  # 断言是同一对象
+        self.assertIs(result.last_host_node, result.last_device_node)  # 断言是同一对象
+        self.assertEqual(result.host_hit_length, 0)  # 断言相等
 
+    # UnifiedRadixCacheSuite类的测试hicachemambahostbestmatchkeepsdeviceanchor
     def test_hicache_mamba_host_best_match_keeps_device_anchor(self):
         if not self.cfg.has_mamba or self.cfg.has_swa or self.cfg.page_size != 1:
             self.skipTest("requires page_size=1 Full+Mamba")
@@ -2436,15 +2564,16 @@ class UnifiedRadixCacheSuite:
 
         self._backup_node(tree, leaf)
         tree.evict(EvictParams(num_tokens=len(leaf.key)))
-        self.assertTrue(leaf.evicted)
+        self.assertTrue(leaf.evicted)  # 断言为真
 
         result = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", tokens))))
 
-        self.assertIs(result.best_match_node, leaf)
-        self.assertIs(result.last_device_node, parent)
-        self.assertEqual(len(result.device_indices), len(tokens) - len(leaf.key))
-        self.assertEqual(result.host_hit_length, len(leaf.key))
+        self.assertIs(result.best_match_node, leaf)  # 断言是同一对象
+        self.assertIs(result.last_device_node, parent)  # 断言是同一对象
+        self.assertEqual(len(result.device_indices), len(tokens) - len(leaf.key))  # 断言相等
+        self.assertEqual(result.host_hit_length, len(leaf.key))  # 断言相等
 
+    # UnifiedRadixCacheSuite类的测试hicacheswahostbestmatchkeepsdeviceanchor
     def test_hicache_swa_host_best_match_keeps_device_anchor(self):
         if not self.cfg.has_swa or self.cfg.has_mamba or self.cfg.page_size != 1:
             self.skipTest("requires page_size=1 Full+SWA")
@@ -2458,15 +2587,16 @@ class UnifiedRadixCacheSuite:
 
         self._backup_node(tree, leaf)
         tree.evict(EvictParams(num_tokens=len(leaf.key)))
-        self.assertTrue(leaf.evicted)
+        self.assertTrue(leaf.evicted)  # 断言为真
 
         result = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", tokens))))
 
-        self.assertIs(result.best_match_node, leaf)
-        self.assertIs(result.last_device_node, parent)
-        self.assertEqual(len(result.device_indices), len(tokens) - len(leaf.key))
-        self.assertEqual(result.host_hit_length, 1)
+        self.assertIs(result.best_match_node, leaf)  # 断言是同一对象
+        self.assertIs(result.last_device_node, parent)  # 断言是同一对象
+        self.assertEqual(len(result.device_indices), len(tokens) - len(leaf.key))  # 断言相等
+        self.assertEqual(result.host_hit_length, 1)  # 断言相等
 
+    # UnifiedRadixCacheSuite类的测试mambabranchingseqlendisabledunderhicache
     def test_mamba_branching_seqlen_disabled_under_hicache(self):
         if not self.cfg.has_mamba or self.cfg.has_swa or self.cfg.page_size != 1:
             self.skipTest("requires page_size=1 Full+Mamba")
@@ -2483,9 +2613,9 @@ class UnifiedRadixCacheSuite:
         no_hicache = tree.match_prefix(
             MatchPrefixParams(key=RadixKey(array("q", tokens)))
         )
-        self.assertIs(no_hicache.best_match_node, tree.root_node)
-        self.assertIs(no_hicache.last_device_node, tree.root_node)
-        self.assertEqual(no_hicache.mamba_branching_seqlen, chunk_size)
+        self.assertIs(no_hicache.best_match_node, tree.root_node)  # 断言是同一对象
+        self.assertIs(no_hicache.last_device_node, tree.root_node)  # 断言是同一对象
+        self.assertEqual(no_hicache.mamba_branching_seqlen, chunk_size)  # 断言相等
 
         tree_h, allocator_h, req_to_token_pool_h = self._build_hicache_fixture()
         self._insert(tree_h, allocator_h, req_to_token_pool_h, tokens)
@@ -2497,10 +2627,11 @@ class UnifiedRadixCacheSuite:
         with_hicache = tree_h.match_prefix(
             MatchPrefixParams(key=RadixKey(array("q", tokens)))
         )
-        self.assertIs(with_hicache.best_match_node, leaf_h)
-        self.assertIs(with_hicache.last_device_node, tree_h.root_node)
-        self.assertIsNone(with_hicache.mamba_branching_seqlen)
+        self.assertIs(with_hicache.best_match_node, leaf_h)  # 断言是同一对象
+        self.assertIs(with_hicache.last_device_node, tree_h.root_node)  # 断言是同一对象
+        self.assertIsNone(with_hicache.mamba_branching_seqlen)  # 断言为None
 
+    # UnifiedRadixCacheSuite类的测试schedulerhicachefullmambainitloadbackappendsnewindices
     def test_scheduler_hicache_full_mamba_init_load_back_appends_new_indices(self):
         if not self.cfg.has_mamba or self.cfg.has_swa or self.cfg.page_size != 1:
             self.skipTest("requires page_size=1 Full+Mamba")
@@ -2513,7 +2644,7 @@ class UnifiedRadixCacheSuite:
 
         self._backup_node(tree, leaf)
         tree.evict(EvictParams(num_tokens=len(leaf.key)))
-        self.assertTrue(leaf.evicted)
+        self.assertTrue(leaf.evicted)  # 断言为真
 
         req = self._make_req(req_to_token_pool)
         match = tree.match_prefix(
@@ -2532,12 +2663,13 @@ class UnifiedRadixCacheSuite:
             )
         )
 
-        self.assertIs(new_node, leaf)
-        self.assertEqual(len(torch.cat([req.prefix_indices, new_indices])), len(tokens))
-        self.assertIsNotNone(leaf.component_data[ComponentType.MAMBA].value)
+        self.assertIs(new_node, leaf)  # 断言是同一对象
+        self.assertEqual(len(torch.cat([req.prefix_indices, new_indices])), len(tokens))  # 断言相等
+        self.assertIsNotNone(leaf.component_data[ComponentType.MAMBA].value)  # 断言不为None
         self._finish_pending_loads(tree)
         self._release_ongoing_load_back_locks(tree)
 
+    # UnifiedRadixCacheSuite类的测试schedulerhicacheauxonlyloadbackappendsfulldeviceindices
     def test_scheduler_hicache_aux_only_load_back_appends_full_device_indices(self):
         if self.cfg.page_size != 1:
             self.skipTest("page_size=1 keeps the expected suffix precise")
@@ -2576,17 +2708,18 @@ class UnifiedRadixCacheSuite:
             )
         )
 
-        self.assertIs(new_node, leaf)
-        self.assertEqual(new_indices.tolist(), leaf_full.tolist())
-        self.assertEqual(len(torch.cat([req.prefix_indices, new_indices])), len(tokens))
-        self.assertEqual(
+        self.assertIs(new_node, leaf)  # 断言是同一对象
+        self.assertEqual(new_indices.tolist(), leaf_full.tolist())  # 断言相等
+        self.assertEqual(len(torch.cat([req.prefix_indices, new_indices])), len(tokens))  # 断言相等
+        self.assertEqual(  # 断言相等
             leaf.component_data[ComponentType.FULL].value.tolist(),
             leaf_full.tolist(),
         )
-        self.assertIsNotNone(leaf.component_data[aux].value)
+        self.assertIsNotNone(leaf.component_data[aux].value)  # 断言不为None
         self._finish_pending_loads(tree)
         self._release_ongoing_load_back_locks(tree)
 
+    # UnifiedRadixCacheSuite类的测试schedulerhicacheloadbackfallbackkeepsoldanchor
     def test_scheduler_hicache_load_back_fallback_keeps_old_anchor(self):
         if not self.cfg.has_mamba or self.cfg.has_swa or self.cfg.page_size != 1:
             self.skipTest("requires page_size=1 Full+Mamba")
@@ -2618,11 +2751,12 @@ class UnifiedRadixCacheSuite:
             )
         )
 
-        self.assertEqual(len(new_indices), 0)
-        self.assertIs(new_node, match.last_device_node)
-        self.assertIsNone(leaf.component_data[ComponentType.FULL].value)
-        self.assertIsNone(leaf.component_data[ComponentType.MAMBA].value)
+        self.assertEqual(len(new_indices), 0)  # 断言相等
+        self.assertIs(new_node, match.last_device_node)  # 断言是同一对象
+        self.assertIsNone(leaf.component_data[ComponentType.FULL].value)  # 断言为None
+        self.assertIsNone(leaf.component_data[ComponentType.MAMBA].value)  # 断言为None
 
+    # UnifiedRadixCacheSuite类的测试hicacheswaloadbackminsuffix
     def test_hicache_swa_load_back_min_suffix(self):
         """LOAD_BACK collects only the suffix nodes needed to cover sliding_window_size."""
         if not self.cfg.has_swa:
@@ -2654,16 +2788,17 @@ class UnifiedRadixCacheSuite:
         leaf = chain[-1]
         swa_comp = tree.components[ComponentType.SWA]
         transfers = swa_comp.build_hicache_transfers(leaf, CacheTransferPhase.LOAD_BACK)
-        self.assertIsNotNone(transfers)
-        self.assertEqual(len(transfers), 1)
+        self.assertIsNotNone(transfers)  # 断言不为None
+        self.assertEqual(len(transfers), 1)  # 断言相等
         xfer = transfers[0]
-        self.assertEqual(xfer.name, PoolName.SWA)
-        self.assertEqual(len(xfer.nodes_to_load), expected_pages)
+        self.assertEqual(xfer.name, PoolName.SWA)  # 断言相等
+        self.assertEqual(len(xfer.nodes_to_load), expected_pages)  # 断言相等
         # host_indices must cover exactly the expected suffix tokens (>= sw).
-        self.assertEqual(int(xfer.host_indices.numel()), expected_pages * ps)
+        self.assertEqual(int(xfer.host_indices.numel()), expected_pages * ps)  # 断言相等
         self.assertGreaterEqual(int(xfer.host_indices.numel()), sw)
-        self.assertEqual(xfer.nodes_to_load, chain[-expected_pages:])
+        self.assertEqual(xfer.nodes_to_load, chain[-expected_pages:])  # 断言相等
 
+    # UnifiedRadixCacheSuite类的测试hicacheswahostindependentoffull
     def test_hicache_swa_host_independent_of_full(self):
         """FULL host and SWA host are physically independent.
         Freeing one component's host_value must not touch the other.
@@ -2682,26 +2817,27 @@ class UnifiedRadixCacheSuite:
 
         cd_full = node.component_data[ComponentType.FULL]
         cd_swa = node.component_data[ComponentType.SWA]
-        self.assertIsNotNone(cd_full.host_value)
-        self.assertIsNotNone(cd_swa.host_value)
-        self.assertIn(node, tree.evictable_host_leaves)
-        self.assertTrue(tree.host_lru_lists[ComponentType.SWA].in_list(node))
+        self.assertIsNotNone(cd_full.host_value)  # 断言不为None
+        self.assertIsNotNone(cd_swa.host_value)  # 断言不为None
+        self.assertIn(node, tree.evictable_host_leaves)  # 断言包含
+        self.assertTrue(tree.host_lru_lists[ComponentType.SWA].in_list(node))  # 断言为真
 
         # Drop FULL host bookkeeping. SWA side must stay intact.
         tree.evictable_host_leaves.discard(node)
         cd_full.host_value = None
-        self.assertIsNotNone(cd_swa.host_value)
-        self.assertTrue(tree.host_lru_lists[ComponentType.SWA].in_list(node))
-        self.assertNotIn(node, tree.evictable_host_leaves)
+        self.assertIsNotNone(cd_swa.host_value)  # 断言不为None
+        self.assertTrue(tree.host_lru_lists[ComponentType.SWA].in_list(node))  # 断言为真
+        self.assertNotIn(node, tree.evictable_host_leaves)  # 断言不包含
 
         # Drop SWA host bookkeeping. FULL side (already cleared) stays cleared.
         tree.host_lru_lists[ComponentType.SWA].remove_node(node)
         cd_swa.host_value = None
-        self.assertIsNone(cd_full.host_value)
-        self.assertIsNone(cd_swa.host_value)
-        self.assertFalse(tree.host_lru_lists[ComponentType.SWA].in_list(node))
-        self.assertNotIn(node, tree.evictable_host_leaves)
+        self.assertIsNone(cd_full.host_value)  # 断言为None
+        self.assertIsNone(cd_swa.host_value)  # 断言为None
+        self.assertFalse(tree.host_lru_lists[ComponentType.SWA].in_list(node))  # 断言为假
+        self.assertNotIn(node, tree.evictable_host_leaves)  # 断言不包含
 
+    # UnifiedRadixCacheSuite类的内部方法_swa_finalize_setup
     def _swa_finalize_setup(self):
         """Build a SWA chain long enough to fill at least the window
         plus one extra page, and host-back every node so we can flip
@@ -2720,6 +2856,7 @@ class UnifiedRadixCacheSuite:
         self._simulate_backup_tree(tree)
         return tree, allocator, req_to_token_pool, chain, window_pages
 
+    # UnifiedRadixCacheSuite类的测试hicacheswafinalizematchresult
     def test_hicache_swa_finalize_match_result(self):
         """finalize_match_result bumps host_hit_length to 1 iff some SWA node
         within the trailing window is tombstoned (cd.value is None,
@@ -2771,8 +2908,9 @@ class UnifiedRadixCacheSuite:
                     value_chunks=[],
                     best_value_len=0,
                 )
-                self.assertEqual(result.host_hit_length, expected)
+                self.assertEqual(result.host_hit_length, expected)  # 断言相等
 
+    # UnifiedRadixCacheSuite类的测试hicacheswacommitloadbackrebuildsmapping
     def test_hicache_swa_commit_load_back_rebuilds_mapping(self):
         """LOAD_BACK commit must:
         (1) restore SWA cd.value via _restore_device_value (host LRU -> device LRU),
@@ -2800,16 +2938,16 @@ class UnifiedRadixCacheSuite:
         transfers = swa_comp.build_hicache_transfers(
             chain[-1], CacheTransferPhase.LOAD_BACK
         )
-        self.assertIsNotNone(transfers)
+        self.assertIsNotNone(transfers)  # 断言不为None
         xfer = transfers[0]
-        self.assertEqual(xfer.nodes_to_load, loaded_nodes)
+        self.assertEqual(xfer.nodes_to_load, loaded_nodes)  # 断言相等
 
         # Allocate SWA device slots from the inner allocator (mirrors how
         # _resolve_pool_transfers_allocation routes via device_alloc_fn ->
         # swa_attn_allocator.alloc on the load-back path).
         n_swa = int(xfer.host_indices.numel())
         new_swa = allocator.swa_attn_allocator.alloc(n_swa)
-        self.assertIsNotNone(new_swa)
+        self.assertIsNotNone(new_swa)  # 断言不为None
         xfer.device_indices = new_swa
 
         # Snapshot pre-commit state for invariants checks.
@@ -2823,30 +2961,31 @@ class UnifiedRadixCacheSuite:
         offset = 0
         for n in loaded_nodes:
             cd = n.component_data[ComponentType.SWA]
-            self.assertIsNotNone(cd.value)
+            self.assertIsNotNone(cd.value)  # 断言不为None
             chunk_len = int(cd.value.numel())
-            self.assertEqual(
+            self.assertEqual(  # 断言相等
                 cd.value.tolist(),
                 new_swa[offset : offset + chunk_len].tolist(),
             )
             offset += chunk_len
-            self.assertTrue(tree.lru_lists[ComponentType.SWA].in_list(n))
-            self.assertFalse(tree.host_lru_lists[ComponentType.SWA].in_list(n))
-        self.assertEqual(offset, n_swa)
+            self.assertTrue(tree.lru_lists[ComponentType.SWA].in_list(n))  # 断言为真
+            self.assertFalse(tree.host_lru_lists[ComponentType.SWA].in_list(n))  # 断言为假
+        self.assertEqual(offset, n_swa)  # 断言相等
 
         # (2) full_to_swa_index_mapping rebuilt for every loaded chunk.
         for n in loaded_nodes:
             full_idx = n.component_data[ComponentType.FULL].value
             swa_idx = n.component_data[ComponentType.SWA].value
             translated = allocator.translate_loc_from_full_to_swa(full_idx)
-            self.assertEqual(translated.tolist(), swa_idx.tolist())
+            self.assertEqual(translated.tolist(), swa_idx.tolist())  # 断言相等
 
         # Evictable size moved up by the restored token count.
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             tree.component_evictable_size_[ComponentType.SWA] - pre_evictable,
             n_swa,
         )
 
+    # UnifiedRadixCacheSuite类的内部方法_swa_anchor_chain_tokens
     def _swa_anchor_chain_tokens(self, num_pages: int) -> list[int]:
         """Reproduce the token sequence used by _build_chain_pages."""
         tokens: list[int] = []
@@ -2854,6 +2993,7 @@ class UnifiedRadixCacheSuite:
             tokens.extend(self._make_seq(1000 * (i + 1), 1))
         return tokens
 
+    # UnifiedRadixCacheSuite类的内部方法_swa_anchor_setup
     def _swa_anchor_setup(self):
         """Chain layout (root-to-leaf):
 
@@ -2902,21 +3042,23 @@ class UnifiedRadixCacheSuite:
         tokens = self._swa_anchor_chain_tokens(len(chain))
         return tree, chain, n, y, x, tokens
 
+    # UnifiedRadixCacheSuite类的测试hicacheswaloadbackanchoredonbestmatchnode
     def test_hicache_swa_load_back_anchored_on_best_match_node(self):
         tree, _, _, y, x, _ = self._swa_anchor_setup()
         ps = self.cfg.page_size
         swa_comp = tree.components[ComponentType.SWA]
 
         transfers = swa_comp.build_hicache_transfers(x, CacheTransferPhase.LOAD_BACK)
-        self.assertEqual(len(transfers), 1)
+        self.assertEqual(len(transfers), 1)  # 断言相等
         xfer = transfers[0]
-        self.assertEqual(xfer.name, PoolName.SWA)
-        self.assertEqual(xfer.nodes_to_load, [y])
-        self.assertEqual(int(xfer.host_indices.numel()), ps)
+        self.assertEqual(xfer.name, PoolName.SWA)  # 断言相等
+        self.assertEqual(xfer.nodes_to_load, [y])  # 断言相等
+        self.assertEqual(int(xfer.host_indices.numel()), ps)  # 断言相等
 
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(AssertionError):  # 断言抛出异常
             swa_comp.build_hicache_transfers(y, CacheTransferPhase.LOAD_BACK)
 
+    # UnifiedRadixCacheSuite类的测试hicacheswafinalizeanchoredonbestmatchnode
     def test_hicache_swa_finalize_anchored_on_best_match_node(self):
         tree, _, _, y, x, _ = self._swa_anchor_setup()
         swa_comp = tree.components[ComponentType.SWA]
@@ -2934,8 +3076,9 @@ class UnifiedRadixCacheSuite:
             value_chunks=[],
             best_value_len=0,
         )
-        self.assertEqual(result.host_hit_length, 1)
+        self.assertEqual(result.host_hit_length, 1)  # 断言相等
 
+    # UnifiedRadixCacheSuite类的测试hicacheswatemplockdoesnotreleaserestoredtombstone
     def test_hicache_swa_temp_lock_does_not_release_restored_tombstone(self):
         """A temporary scheduler lock that skipped a SWA tombstone must not
         release later load-back/request locks after the tombstone is restored.
@@ -2950,7 +3093,7 @@ class UnifiedRadixCacheSuite:
         tombstone = leaf
         cd = tombstone.component_data[ComponentType.SWA]
         old_swa = cd.value
-        self.assertIsNotNone(old_swa)
+        self.assertIsNotNone(old_swa)  # 断言不为None
 
         cd.value = None
         tree.lru_lists[ComponentType.SWA].remove_node(tombstone)
@@ -2958,13 +3101,13 @@ class UnifiedRadixCacheSuite:
         tree.component_evictable_size_[ComponentType.SWA] -= len(old_swa)
 
         temp_lock = tree.inc_lock_ref(leaf)
-        self.assertEqual(cd.lock_ref, 0)
+        self.assertEqual(cd.lock_ref, 0)  # 断言相等
 
         xfer = tree.components[ComponentType.SWA].build_hicache_transfers(
             leaf, CacheTransferPhase.LOAD_BACK
         )[0]
         new_swa = allocator.swa_attn_allocator.alloc(int(xfer.host_indices.numel()))
-        self.assertIsNotNone(new_swa)
+        self.assertIsNotNone(new_swa)  # 断言不为None
         xfer.device_indices = new_swa
         tree.components[ComponentType.SWA].commit_hicache_transfer(
             leaf, CacheTransferPhase.LOAD_BACK, transfers=[xfer]
@@ -2972,15 +3115,16 @@ class UnifiedRadixCacheSuite:
 
         load_back_lock = tree.inc_lock_ref(leaf)
         request_lock = tree.inc_lock_ref(leaf)
-        self.assertEqual(cd.lock_ref, 2)
+        self.assertEqual(cd.lock_ref, 2)  # 断言相等
 
         tree.dec_lock_ref(leaf, temp_lock.to_dec_params())
-        self.assertEqual(cd.lock_ref, 2)
+        self.assertEqual(cd.lock_ref, 2)  # 断言相等
 
         tree.dec_lock_ref(leaf, load_back_lock.to_dec_params())
         tree.dec_lock_ref(leaf, request_lock.to_dec_params())
-        self.assertEqual(cd.lock_ref, 0)
+        self.assertEqual(cd.lock_ref, 0)  # 断言相等
 
+    # UnifiedRadixCacheSuite类的测试hicacheswaloadbackusesfullpoolcapacity
     def test_hicache_swa_load_back_uses_full_pool_capacity(self):
         """load_back should gate Full KV load on Full pool capacity only."""
         if not self.cfg.has_swa:
@@ -3002,17 +3146,17 @@ class UnifiedRadixCacheSuite:
         self._backup_tree(tree)
         result = tree.evict(EvictParams(num_tokens=kv_tokens))
         self.assertGreaterEqual(result.num_tokens_evicted, kv_tokens)
-        self.assertIsNone(leaf.component_data[ComponentType.FULL].value)
+        self.assertIsNone(leaf.component_data[ComponentType.FULL].value)  # 断言为None
 
         kv_xfer = tree.components[ComponentType.FULL].build_hicache_transfers(
             leaf, CacheTransferPhase.LOAD_BACK
         )[0]
-        self.assertEqual(int(kv_xfer.host_indices.numel()), kv_tokens)
+        self.assertEqual(int(kv_xfer.host_indices.numel()), kv_tokens)  # 断言相等
 
         swa_xfer = tree.components[ComponentType.SWA].build_hicache_transfers(
             leaf, CacheTransferPhase.LOAD_BACK
         )[0]
-        self.assertEqual(int(swa_xfer.host_indices.numel()), sw)
+        self.assertEqual(int(swa_xfer.host_indices.numel()), sw)  # 断言相等
 
         # Leave tree-owned SWA available for controller-side SWA eviction.
         unrelated_seq = self._make_seq(100_000, sw)
@@ -3027,23 +3171,23 @@ class UnifiedRadixCacheSuite:
             external_swa = allocator.swa_attn_allocator.alloc(
                 swa_avail - target_swa_avail
             )
-            self.assertIsNotNone(external_swa)
+            self.assertIsNotNone(external_swa)  # 断言不为None
 
         self.assertGreaterEqual(
             allocator.full_attn_allocator.available_size(),
             int(kv_xfer.host_indices.numel()),
         )
-        self.assertLess(
+        self.assertLess(  # 断言小于
             allocator.swa_attn_allocator.available_size(),
             int(kv_xfer.host_indices.numel()),
         )
-        self.assertLess(
+        self.assertLess(  # 断言小于
             allocator.swa_attn_allocator.available_size(),
             int(swa_xfer.host_indices.numel()),
         )
 
         with mock.patch.object(tree, "evict", wraps=tree.evict) as evict_mock:
-            self.assertTrue(tree.load_back(leaf))
+            self.assertTrue(tree.load_back(leaf))  # 断言为真
 
         # Full pre-eviction must not be triggered by SWA pool pressure.
         full_pre_evict_calls = [
@@ -3051,10 +3195,10 @@ class UnifiedRadixCacheSuite:
             for call in evict_mock.call_args_list
             if call.args and call.args[0].num_tokens > 0
         ]
-        self.assertEqual(full_pre_evict_calls, [])
+        self.assertEqual(full_pre_evict_calls, [])  # 断言相等
 
         # SWA shortage is handled by the controller through SWA-only eviction.
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             any(
                 call.args
                 and call.args[0].num_tokens == 0
@@ -3064,10 +3208,11 @@ class UnifiedRadixCacheSuite:
         )
 
         self._finish_pending_loads(tree)
-        self.assertIsNotNone(leaf.component_data[ComponentType.FULL].value)
+        self.assertIsNotNone(leaf.component_data[ComponentType.FULL].value)  # 断言不为None
         self._release_ongoing_load_back_locks(tree)
         tree.sanity_check()
 
+    # UnifiedRadixCacheSuite类的测试hicachefulltemplockskipsevictedanchorandmirrorsonrelease
     def test_hicache_full_temp_lock_skips_evicted_anchor_and_mirrors_on_release(
         self,
     ):
@@ -3095,34 +3240,35 @@ class UnifiedRadixCacheSuite:
         anchor_value = cd_anchor.value
         cd_anchor.value = None
 
-        self.assertEqual(cd_anchor.lock_ref, 0)
-        self.assertEqual(cd_y.lock_ref, 0)
-        self.assertEqual(cd_a.lock_ref, 0)
+        self.assertEqual(cd_anchor.lock_ref, 0)  # 断言相等
+        self.assertEqual(cd_y.lock_ref, 0)  # 断言相等
+        self.assertEqual(cd_a.lock_ref, 0)  # 断言相等
 
         temp_lock = tree.inc_lock_ref(anchor)
-        self.assertEqual(cd_anchor.lock_ref, 0)
-        self.assertEqual(cd_y.lock_ref, 1)
-        self.assertEqual(cd_a.lock_ref, 1)
-        self.assertIn(ComponentType.FULL, temp_lock.skip_lock_node_ids)
-        self.assertIn(anchor.id, temp_lock.skip_lock_node_ids[ComponentType.FULL])
+        self.assertEqual(cd_anchor.lock_ref, 0)  # 断言相等
+        self.assertEqual(cd_y.lock_ref, 1)  # 断言相等
+        self.assertEqual(cd_a.lock_ref, 1)  # 断言相等
+        self.assertIn(ComponentType.FULL, temp_lock.skip_lock_node_ids)  # 断言包含
+        self.assertIn(anchor.id, temp_lock.skip_lock_node_ids[ComponentType.FULL])  # 断言包含
 
         cd_anchor.value = anchor_value
 
         second_lock = tree.inc_lock_ref(anchor)
-        self.assertEqual(cd_anchor.lock_ref, 1)
-        self.assertEqual(cd_y.lock_ref, 2)
-        self.assertEqual(cd_a.lock_ref, 2)
+        self.assertEqual(cd_anchor.lock_ref, 1)  # 断言相等
+        self.assertEqual(cd_y.lock_ref, 2)  # 断言相等
+        self.assertEqual(cd_a.lock_ref, 2)  # 断言相等
 
         tree.dec_lock_ref(anchor, temp_lock.to_dec_params())
-        self.assertEqual(cd_anchor.lock_ref, 1)
-        self.assertEqual(cd_y.lock_ref, 1)
-        self.assertEqual(cd_a.lock_ref, 1)
+        self.assertEqual(cd_anchor.lock_ref, 1)  # 断言相等
+        self.assertEqual(cd_y.lock_ref, 1)  # 断言相等
+        self.assertEqual(cd_a.lock_ref, 1)  # 断言相等
 
         tree.dec_lock_ref(anchor, second_lock.to_dec_params())
-        self.assertEqual(cd_anchor.lock_ref, 0)
-        self.assertEqual(cd_y.lock_ref, 0)
-        self.assertEqual(cd_a.lock_ref, 0)
+        self.assertEqual(cd_anchor.lock_ref, 0)  # 断言相等
+        self.assertEqual(cd_y.lock_ref, 0)  # 断言相等
+        self.assertEqual(cd_a.lock_ref, 0)  # 断言相等
 
+    # UnifiedRadixCacheSuite类的测试hicachemambatemplockdoesnotreleaserestoredtombstone
     def test_hicache_mamba_temp_lock_does_not_release_restored_tombstone(self):
         """A temporary scheduler lock that skipped a Mamba tombstone must not
         release later load-back/request locks after the tombstone is restored.
@@ -3139,7 +3285,7 @@ class UnifiedRadixCacheSuite:
         node = m.last_device_node
         cd = node.component_data[ComponentType.MAMBA]
         old_mamba = cd.value
-        self.assertIsNotNone(old_mamba)
+        self.assertIsNotNone(old_mamba)  # 断言不为None
         self._simulate_backup(tree, node)
 
         cd.value = None
@@ -3148,13 +3294,13 @@ class UnifiedRadixCacheSuite:
         tree.component_evictable_size_[ComponentType.MAMBA] -= len(old_mamba)
 
         temp_lock = tree.inc_lock_ref(node)
-        self.assertEqual(cd.lock_ref, 0)
+        self.assertEqual(cd.lock_ref, 0)  # 断言相等
 
         xfer = tree.components[ComponentType.MAMBA].build_hicache_transfers(
             node, CacheTransferPhase.LOAD_BACK
         )[0]
         new_mamba = req_to_token_pool.mamba_pool.alloc(1)
-        self.assertIsNotNone(new_mamba)
+        self.assertIsNotNone(new_mamba)  # 断言不为None
         xfer.device_indices = new_mamba
         tree.components[ComponentType.MAMBA].commit_hicache_transfer(
             node, CacheTransferPhase.LOAD_BACK, transfers=[xfer]
@@ -3162,15 +3308,16 @@ class UnifiedRadixCacheSuite:
 
         load_back_lock = tree.inc_lock_ref(node)
         request_lock = tree.inc_lock_ref(node)
-        self.assertEqual(cd.lock_ref, 2)
+        self.assertEqual(cd.lock_ref, 2)  # 断言相等
 
         tree.dec_lock_ref(node, temp_lock.to_dec_params())
-        self.assertEqual(cd.lock_ref, 2)
+        self.assertEqual(cd.lock_ref, 2)  # 断言相等
 
         tree.dec_lock_ref(node, load_back_lock.to_dec_params())
         tree.dec_lock_ref(node, request_lock.to_dec_params())
-        self.assertEqual(cd.lock_ref, 0)
+        self.assertEqual(cd.lock_ref, 0)  # 断言相等
 
+    # UnifiedRadixCacheSuite类的测试hicachemixedbackupevictinsert
     def test_hicache_mixed_backup_evict_insert(self):
         """Complex scenario: backup some, evict, insert new, verify invariants."""
         if self._skip_unsupported_hicache_test():
@@ -3199,8 +3346,9 @@ class UnifiedRadixCacheSuite:
 
         # Verify D-leaf / H-leaf mutual exclusion
         overlap = tree.evictable_device_leaves & tree.evictable_host_leaves
-        self.assertEqual(len(overlap), 0)
+        self.assertEqual(len(overlap), 0)  # 断言相等
 
+    # UnifiedRadixCacheSuite类的测试hicachewritebackleafbackup
     def test_hicache_write_back_leaf_backup(self):
         """write_back: evicting a device leaf backs it up to host"""
         if self._skip_unsupported_hicache_test():
@@ -3216,10 +3364,10 @@ class UnifiedRadixCacheSuite:
         m = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", leaf_seq))))
         leaf = m.last_device_node
         parent = leaf.parent
-        self.assertIsNot(parent, tree.root_node)
+        self.assertIsNot(parent, tree.root_node)  # 断言不是同一对象
 
-        self.assertFalse(leaf.backuped)
-        self.assertFalse(parent.backuped)
+        self.assertFalse(leaf.backuped)  # 断言为假
+        self.assertFalse(parent.backuped)  # 断言为假
 
         lr = tree.inc_lock_ref(parent)
         try:
@@ -3233,24 +3381,27 @@ class UnifiedRadixCacheSuite:
                 ),
             )
 
-        self.assertTrue(leaf.evicted, "leaf should be demoted to host")
-        self.assertTrue(leaf.backuped, "write_back must back up the leaf on eviction")
-        self.assertFalse(
+        self.assertTrue(leaf.evicted, "leaf should be demoted to host")  # 断言为真
+        self.assertTrue(leaf.backuped, "write_back must back up the leaf on eviction")  # 断言为真
+        self.assertFalse(  # 断言为假
             parent.backuped, "parent must NOT be backed up under write_back"
         )
 
         tree.sanity_check()
 
 
+# UnifiedLRUListBoundedRefreshTest类
 class UnifiedLRUListBoundedRefreshTest(CustomTestCase):
 
     components = (ComponentType.FULL, ComponentType.SWA)
 
+    # UnifiedLRUListBoundedRefreshTest类的内部方法_make_node
     def _make_node(self, key_len: int) -> UnifiedTreeNode:
         n = UnifiedTreeNode(self.components)
         n.key = RadixKey(list(range(key_len)))
         return n
 
+    # UnifiedLRUListBoundedRefreshTest类的内部方法_build_chain
     def _build_chain(self, key_lens: list[int]) -> tuple:
         root = self._make_node(0)
         nodes = []
@@ -3262,6 +3413,7 @@ class UnifiedLRUListBoundedRefreshTest(CustomTestCase):
             parent = n
         return root, nodes
 
+    # UnifiedLRUListBoundedRefreshTest类的内部方法_lru_order
     def _lru_order(self, lru: UnifiedLRUList) -> list:
         pt = lru._pt
         out = []
@@ -3271,12 +3423,13 @@ class UnifiedLRUListBoundedRefreshTest(CustomTestCase):
             cur = cur.lru_next[pt]
         return out
 
+    # UnifiedLRUListBoundedRefreshTest类的测试boundedrefreshstopsafteraccumulatedmeetswindow
     def test_bounded_refresh_stops_after_accumulated_meets_window(self):
         root, [a, b, c, d] = self._build_chain([2, 2, 2, 2])
         lru = UnifiedLRUList(ComponentType.SWA, self.components)
         for n in (a, b, c, d):
             lru.insert_mru(n)
-        self.assertEqual(self._lru_order(lru), [d, c, b, a])
+        self.assertEqual(self._lru_order(lru), [d, c, b, a])  # 断言相等
 
         # window=5, page_size=1 implicit; nodes are size 2 each
         # Walking up from D: visit D(acc=2<5) -> visit C(acc=4<5) -> visit
@@ -3285,14 +3438,15 @@ class UnifiedLRUListBoundedRefreshTest(CustomTestCase):
             d, root, window_size=5, should_include=lambda _n: True
         )
         # Expected MRU->LRU: D, C, B (refreshed in walk-up order), A (untouched)
-        self.assertEqual(self._lru_order(lru), [d, c, b, a])
+        self.assertEqual(self._lru_order(lru), [d, c, b, a])  # 断言相等
 
+    # UnifiedLRUListBoundedRefreshTest类的测试boundedrefreshskipsnonincluded
     def test_bounded_refresh_skips_non_included(self):
         root, [a, b, c, d] = self._build_chain([2, 2, 2, 2])
         lru = UnifiedLRUList(ComponentType.SWA, self.components)
         for n in (a, c, d):  # b excluded from LRU (simulated tombstone)
             lru.insert_mru(n)
-        self.assertEqual(self._lru_order(lru), [d, c, a])
+        self.assertEqual(self._lru_order(lru), [d, c, a])  # 断言相等
 
         included = {a, c, d}
         lru.reset_node_and_window_ancestors_mru(
@@ -3300,15 +3454,16 @@ class UnifiedLRUListBoundedRefreshTest(CustomTestCase):
         )
         # D, C refreshed; B contributes 2 to acc (now 6 >= 5) but is skipped;
         # A is not visited because the walk stops at B.
-        self.assertEqual(self._lru_order(lru), [d, c, a])
+        self.assertEqual(self._lru_order(lru), [d, c, a])  # 断言相等
 
+    # UnifiedLRUListBoundedRefreshTest类的测试boundedrefreshvisitsonlyuntilwindowfilled
     def test_bounded_refresh_visits_only_until_window_filled(self):
         root, [a, b, c, d] = self._build_chain([3, 3, 3, 3])
         lru = UnifiedLRUList(ComponentType.SWA, self.components)
         # MRU->LRU: A, B, C, D (deepest is at the LRU tail, oldest)
         for n in (d, c, b, a):
             lru.insert_mru(n)
-        self.assertEqual(self._lru_order(lru), [a, b, c, d])
+        self.assertEqual(self._lru_order(lru), [a, b, c, d])  # 断言相等
 
         # window=5: walking up from D visits D(acc=3<5) and C(acc=6>=5, stop).
         # Order expected: [D, C, A, B]. Why: D and C move to head in that
@@ -3317,21 +3472,23 @@ class UnifiedLRUListBoundedRefreshTest(CustomTestCase):
         lru.reset_node_and_window_ancestors_mru(
             d, root, window_size=5, should_include=lambda _n: True
         )
-        self.assertEqual(self._lru_order(lru), [d, c, a, b])
+        self.assertEqual(self._lru_order(lru), [d, c, a, b])  # 断言相等
 
+    # UnifiedLRUListBoundedRefreshTest类的测试boundedrefreshstopsatroot
     def test_bounded_refresh_stops_at_root(self):
         root, [a, b] = self._build_chain([1, 1])
         lru = UnifiedLRUList(ComponentType.SWA, self.components)
         for n in (a, b):
             lru.insert_mru(n)
-        self.assertEqual(self._lru_order(lru), [b, a])
+        self.assertEqual(self._lru_order(lru), [b, a])  # 断言相等
 
         # Big window — refresh walks A and B both, then hits root and stops.
         lru.reset_node_and_window_ancestors_mru(
             b, root, window_size=1000, should_include=lambda _n: True
         )
-        self.assertEqual(self._lru_order(lru), [b, a])
+        self.assertEqual(self._lru_order(lru), [b, a])  # 断言相等
 
+    # UnifiedLRUListBoundedRefreshTest类的测试boundedrefreshwindowzeroisnoop
     def test_bounded_refresh_window_zero_is_noop(self):
         root, [a, b, c] = self._build_chain([2, 2, 2])
         lru = UnifiedLRUList(ComponentType.SWA, self.components)
@@ -3341,7 +3498,7 @@ class UnifiedLRUListBoundedRefreshTest(CustomTestCase):
         lru.reset_node_and_window_ancestors_mru(
             c, root, window_size=0, should_include=lambda _n: True
         )
-        self.assertEqual(self._lru_order(lru), before)
+        self.assertEqual(self._lru_order(lru), before)  # 断言相等
 
 
 _CONFIGS: list[CacheConfig] = [

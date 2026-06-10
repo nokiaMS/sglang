@@ -1,3 +1,4 @@
+# 文件名: test_entrypoint.py - 入口点测试
 import subprocess
 import sys
 import textwrap
@@ -40,6 +41,7 @@ _FIXED_EXP_NAME = "my_exp_name"
 class TestEntrypointGroupingRaw:
     """Test `--grouping-skip-keys` empty (raw) scenarios"""
 
+    # 测试runbasic
     def test_run_basic(self, tmp_path, capsys):
         """Two matching tensors produce ConfigRecord, 2 ComparisonTensorRecords, and SummaryRecord."""
         baseline_path, target_path = _create_dumps(tmp_path, ["tensor_a", "tensor_b"])
@@ -55,6 +57,7 @@ class TestEntrypointGroupingRaw:
         assert summary.total == 2
         assert summary.skipped == 0
 
+    # 测试filter
     def test_filter(self, tmp_path, capsys):
         """--filter selects only the matching tensor, producing 1 ComparisonTensorRecord."""
         baseline_path, target_path = _create_dumps(tmp_path, ["tensor_a", "tensor_b"])
@@ -63,6 +66,7 @@ class TestEntrypointGroupingRaw:
         records, _ = _run_and_parse(argv, capsys)
         assert len(_get_comparisons(records)) == 1
 
+    # 测试nobaselineskip
     def test_no_baseline_skip(self, tmp_path, capsys):
         """Target tensor missing from baseline emits a ComparisonSkipRecord with reason baseline_load_failed."""
         baseline_path, target_path = _create_dumps(
@@ -81,6 +85,7 @@ class TestEntrypointGroupingRaw:
         assert isinstance(summary, SummaryRecord)
         assert summary.skipped == 1
 
+    # 测试steprange
     def test_step_range(self, tmp_path, capsys):
         """--start_step/--end_step restricts comparison to a single step out of three."""
         baseline_path, target_path = _create_dumps(tmp_path, ["t"], num_steps=3)
@@ -93,6 +98,7 @@ class TestEntrypointGroupingRaw:
         assert isinstance(summary, SummaryRecord)
         assert summary.total == 1
 
+    # 测试allvalidrecords
     def test_all_valid_records(self, tmp_path, capsys):
         """Every emitted JSON record is a valid _OutputRecord subclass."""
         baseline_path, target_path = _create_dumps(tmp_path, ["t"], num_steps=2)
@@ -101,6 +107,7 @@ class TestEntrypointGroupingRaw:
         records, _ = _run_and_parse(argv, capsys)
         assert all(isinstance(r, _OutputRecord) for r in records)
 
+    # 测试comparisonfailed
     def test_comparison_failed(self, tmp_path, capsys):
         """Completely different tensors produce a failed ComparisonTensorRecord."""
         torch.manual_seed(42)
@@ -126,6 +133,7 @@ class TestEntrypointGroupingRaw:
         assert isinstance(summary, SummaryRecord)
         assert summary.failed == 1
 
+    # 测试shapemismatch
     def test_shape_mismatch(self, tmp_path, capsys):
         """Different shapes produce shape_mismatch=True and category='failed'."""
         torch.manual_seed(42)
@@ -148,6 +156,7 @@ class TestEntrypointGroupingRaw:
         assert isinstance(summary, SummaryRecord)
         assert summary.failed == 1
 
+    # 测试unifyshapeleadingdims
     def test_unify_shape_leading_dims(self, tmp_path, capsys):
         """Leading singleton dims on baseline are squeezed to match target shape."""
         torch.manual_seed(42)
@@ -175,6 +184,7 @@ class TestEntrypointGroupingRaw:
         assert comp.diff is not None
         assert comp.diff.passed
 
+    # 测试dtypemismatchdowncast
     def test_dtype_mismatch_downcast(self, tmp_path, capsys):
         """Baseline float32 vs target bfloat16 produces diff_downcast."""
         torch.manual_seed(42)
@@ -197,6 +207,7 @@ class TestEntrypointGroupingRaw:
         assert comparisons[0].diff_downcast is not None
         assert comparisons[0].downcast_dtype is not None
 
+    # 测试mixedsummary
     def test_mixed_summary(self, tmp_path, capsys):
         """One passed, one failed, one skipped tensor in a single run."""
         torch.manual_seed(42)
@@ -237,6 +248,7 @@ class TestEntrypointGroupingRaw:
         assert summary.skipped == 1
         assert summary.total == 3
 
+    # 测试filteremptyresult
     def test_filter_empty_result(self, tmp_path, capsys):
         """--filter matching nothing produces summary with total=0."""
         baseline_path, target_path = _create_dumps(tmp_path, ["tensor_a"])
@@ -252,6 +264,7 @@ class TestEntrypointGroupingRaw:
         assert isinstance(summary, SummaryRecord)
         assert summary.total == 0
 
+    # 测试rawmultirank
     def test_raw_multi_rank(self, tmp_path, capsys):
         """Two ranks in raw grouping produce two ComparisonTensorRecords (one per rank)."""
         torch.manual_seed(42)
@@ -285,6 +298,7 @@ class TestEntrypointGroupingRaw:
         assert summary.total == 2
         assert summary.passed == 2
 
+    # 测试textoutputformat
     def test_text_output_format(self, tmp_path, capsys):
         """Text output format renders without errors and contains Config/Summary sections."""
         baseline_path, target_path = _create_dumps(tmp_path, ["tensor_a"])
@@ -299,6 +313,7 @@ class TestEntrypointGroupingRaw:
         assert "Comparator Config" in output
         assert "SUMMARY" in output
 
+    # 测试textoutputwithfailure
     def test_text_output_with_failure(self, tmp_path, capsys):
         """Text output with a failed comparison renders failure info."""
         torch.manual_seed(42)
@@ -322,6 +337,7 @@ class TestEntrypointGroupingRaw:
         assert "SUMMARY" in output
         assert "failed" in output.lower()
 
+    # 测试duplicatedumppairing
     def test_duplicate_dump_pairing(self, tmp_path, capsys):
         """Same name dumped twice (different values) pairs by duplicate_index: 0th↔0th, 1st↔1st."""
         torch.manual_seed(42)
@@ -345,7 +361,7 @@ class TestEntrypointGroupingRaw:
 
                 dumper.dump("tensor_a", tensor_v0)
                 dumper.dump("tensor_a", tensor_v1)
-                dumper.step()
+                dumper.step()  # 执行优化步骤
 
         argv = _make_argv(
             baseline_dir / _FIXED_EXP_NAME,
@@ -367,6 +383,7 @@ class TestEntrypointGroupingRaw:
 class TestEntrypointGroupingLogical:
     """Test `--grouping-skip-keys rank` (logical) scenarios"""
 
+    # 测试nodimssinglerank
     def test_no_dims_single_rank(self, tmp_path, capsys):
         """Single-rank dumps without dims fall back to raw loading."""
         baseline_path, target_path = _create_dumps(tmp_path, ["tensor_a", "tensor_b"])
@@ -379,6 +396,7 @@ class TestEntrypointGroupingLogical:
         assert summary.total == 2
         assert summary.skipped == 0
 
+    # 测试tpunshardsamesize
     def test_tp_unshard_same_size(self, tmp_path, capsys):
         """Both sides TP=2: shards are concatenated before comparison."""
         torch.manual_seed(42)
@@ -416,6 +434,7 @@ class TestEntrypointGroupingLogical:
         assert summary.total == 1
         assert summary.passed == 1
 
+    # 测试tpunsharddifferentsizes
     def test_tp_unshard_different_sizes(self, tmp_path, capsys):
         """Baseline TP=4 vs target TP=2: different shard counts are handled correctly."""
         torch.manual_seed(42)
@@ -447,6 +466,7 @@ class TestEntrypointGroupingLogical:
         records, _ = _run_and_parse(argv, capsys)
         _assert_single_comparison_passed(records)
 
+    # 测试onesidedimssinglebaseline
     def test_one_side_dims_single_baseline(self, tmp_path, capsys):
         """Baseline has no dims (single rank), target has TP shards: unshard target only."""
         torch.manual_seed(42)
@@ -481,6 +501,7 @@ class TestEntrypointGroupingLogical:
             ("target", "target_load_failed"),
         ],
     )
+    # 测试ambiguousnodimsskip
     def test_ambiguous_no_dims_skip(self, tmp_path, capsys, bad_side, expected_reason):
         """Multi-rank without dims on one side produces a ComparisonSkipRecord with the appropriate reason."""
         torch.manual_seed(42)
@@ -510,6 +531,7 @@ class TestEntrypointGroupingLogical:
         assert isinstance(summary, SummaryRecord)
         assert summary.skipped == 1
 
+    # 测试summarycountsunshard
     def test_summary_counts_unshard(self, tmp_path, capsys):
         """Two TP-sharded tensors: summary counts total=2, passed=2, skipped=0."""
         torch.manual_seed(42)
@@ -548,6 +570,7 @@ class TestEntrypointGroupingLogical:
         assert summary.failed == 0
         assert summary.skipped == 0
 
+    # 测试multisteptp
     def test_multi_step_tp(self, tmp_path, capsys):
         """Two steps with TP=2 shards: concat mode merges into one comparison."""
         torch.manual_seed(42)
@@ -593,6 +616,7 @@ class TestEntrypointGroupingLogical:
         assert summary.total == 1
         assert summary.passed == 1
 
+    # 测试cpaxisunshard
     def test_cp_axis_unshard(self, tmp_path, capsys):
         """CP-sharded tensors are correctly concatenated along the sequence dim."""
         torch.manual_seed(42)
@@ -627,6 +651,7 @@ class TestEntrypointGroupingLogical:
         comp = _assert_single_comparison_passed(records)
         assert comp.name == "attn_out"
 
+    # 测试filterlogical
     def test_filter_logical(self, tmp_path, capsys):
         """--filter in logical grouping selects only matching tensor bundles."""
         torch.manual_seed(42)
@@ -666,6 +691,7 @@ class TestEntrypointGroupingLogical:
         assert len(comparisons) == 1
         assert comparisons[0].name == "t_a"
 
+    # 测试mixeddimslogical
     def test_mixed_dims_logical(self, tmp_path, capsys):
         """TP-sharded and single-rank tensors in the same logical run both compare successfully."""
         torch.manual_seed(42)
@@ -717,6 +743,7 @@ class TestEntrypointGroupingLogical:
         assert summary.total == 2
         assert summary.passed == 2
 
+    # 测试cptpunshard
     def test_cp_tp_unshard(self, tmp_path, capsys):
         """CP=2 + TP=2: multi-axis shards are unsharded before comparison."""
         torch.manual_seed(42)
@@ -751,6 +778,7 @@ class TestEntrypointGroupingLogical:
         comp = _assert_single_comparison_passed(records)
         assert comp.name == "hidden"
 
+    # 测试cptpdifferentsizes
     def test_cp_tp_different_sizes(self, tmp_path, capsys):
         """Baseline CP=2+TP=2 vs target CP=1+TP=4: both sides independently unsharder."""
         torch.manual_seed(42)
@@ -789,6 +817,7 @@ class TestEntrypointGroupingLogical:
         records, _ = _run_and_parse(argv, capsys)
         _assert_single_comparison_passed(records)
 
+    # 测试epcptpthreeaxisunshard
     def test_ep_cp_tp_three_axis_unshard(self, tmp_path, capsys):
         """EP=2 + CP=2 + TP=2: three-axis shards are unsharded before comparison."""
         torch.manual_seed(42)
@@ -825,6 +854,7 @@ class TestEntrypointGroupingLogical:
         comp = _assert_single_comparison_passed(records)
         assert comp.name == "hidden"
 
+    # 测试cpzigzagunshard
     def test_cp_zigzag_unshard(self, tmp_path, capsys):
         """CP=2 zigzag reorder is correctly undone through the full pipeline."""
         torch.manual_seed(42)
@@ -859,6 +889,7 @@ class TestEntrypointGroupingLogical:
         comp = _assert_single_comparison_passed(records)
         assert comp.name == "attn_out"
 
+    # 测试cpzigzagtpunshard
     def test_cp_zigzag_tp_unshard(self, tmp_path, capsys):
         """CP=2 zigzag + TP=2: multi-axis unshard with reorder through full pipeline."""
         torch.manual_seed(42)
@@ -893,6 +924,7 @@ class TestEntrypointGroupingLogical:
         comp = _assert_single_comparison_passed(records)
         assert comp.name == "hidden"
 
+    # 测试recomputepseudoreplicatedverification
     def test_recompute_pseudo_replicated_verification(self, tmp_path, capsys):
         """Recompute pseudo-axis with identical original/recompute tensors → passed."""
         torch.manual_seed(42)
@@ -921,6 +953,7 @@ class TestEntrypointGroupingLogical:
         comp = _assert_single_comparison_passed(records)
         assert comp.name == "hidden"
 
+    # 测试recomputepseudomismatchwarning
     def test_recompute_pseudo_mismatch_warning(self, tmp_path, capsys):
         """Recompute pseudo-axis with differing original/recompute → failed replicated_checks."""
         torch.manual_seed(42)
@@ -956,6 +989,7 @@ class TestEntrypointGroupingLogical:
         assert len(recompute_checks) > 0
         assert any(not c.passed for c in recompute_checks)
 
+    # 测试tppartialreductionunshard
     def test_tp_partial_reduction_unshard(self, tmp_path, capsys):
         """TP=2 with partial reduction: element-wise sum reconstructs full tensor."""
         torch.manual_seed(42)
@@ -991,6 +1025,7 @@ class TestEntrypointGroupingLogical:
         assert summary.total == 1
         assert summary.passed == 1
 
+    # 测试tppartialvssinglerank
     def test_tp_partial_vs_single_rank(self, tmp_path, capsys):
         """Baseline single rank vs target TP=2 partial: unshard target then compare."""
         torch.manual_seed(42)
@@ -1017,6 +1052,7 @@ class TestEntrypointGroupingLogical:
         comp = _assert_single_comparison_passed(records)
         assert comp.name == "attn_out"
 
+    # 测试cpconcattppartialreduction
     def test_cp_concat_tp_partial_reduction(self, tmp_path, capsys):
         """CP=2 concat + TP=2 partial reduction: multi-axis unshard."""
         torch.manual_seed(42)
@@ -1057,6 +1093,7 @@ class TestEntrypointGroupingLogical:
         comp = _assert_single_comparison_passed(records)
         assert comp.name == "hidden"
 
+    # 测试cpzigzagspsamedimunshard
     def test_cp_zigzag_sp_same_dim_unshard(self, tmp_path, capsys):
         """CP=2 zigzag + SP=2 on same seq dim: multi-axis unshard + reorder."""
         torch.manual_seed(42)
@@ -1093,6 +1130,7 @@ class TestEntrypointGroupingLogical:
 class TestEntrypointPerStepMode:
     """Test per-step comparison mode (sglang_dev preset behavior)."""
 
+    # 测试multistepperstepcomparison
     def test_multi_step_per_step_comparison(self, tmp_path, capsys):
         """Multiple steps produce one ComparisonTensorRecord per step with step field set."""
         torch.manual_seed(42)
@@ -1112,6 +1150,7 @@ class TestEntrypointPerStepMode:
         assert summary.total == 3
         assert summary.passed == 3
 
+    # 测试perstepwithtpunshard
     def test_per_step_with_tp_unshard(self, tmp_path, capsys):
         """Per-step mode with TP=2: each step independently unsharded and compared."""
         torch.manual_seed(42)
@@ -1150,6 +1189,7 @@ class TestEntrypointPerStepMode:
         assert all(c.diff is not None and c.diff.passed for c in comparisons)
         assert all(c.baseline.shape == [4, 8] for c in comparisons)
 
+    # 测试singlestephasstepfield
     def test_single_step_has_step_field(self, tmp_path, capsys):
         """Single step produces ComparisonTensorRecord with location.step=0."""
         baseline_path, target_path = _create_dumps(tmp_path, ["tensor_a"], num_steps=1)
@@ -1165,6 +1205,7 @@ class TestEntrypointConcatMode:
     """Test concat token-aligner mode through the full entrypoint pipeline."""
 
     @staticmethod
+    # 执行makedirs
     def _make_dirs(tmp_path: Path) -> tuple[Path, Path]:
         baseline_dir: Path = tmp_path / "baseline"
         target_dir: Path = tmp_path / "target"
@@ -1173,6 +1214,7 @@ class TestEntrypointConcatMode:
         return baseline_dir, target_dir
 
     @staticmethod
+    # 执行createbothsides
     def _create_both_sides(
         tmp_path: Path,
         *,
@@ -1199,6 +1241,7 @@ class TestEntrypointConcatMode:
         return baseline_dir / _FIXED_EXP_NAME, target_dir / _FIXED_EXP_NAME
 
     @staticmethod
+    # 执行runconcat
     def _run_concat(
         tmp_path: Path,
         capsys: pytest.CaptureFixture,
@@ -1226,6 +1269,7 @@ class TestEntrypointConcatMode:
         records, _ = _run_and_parse(argv, capsys)
         return records
 
+    # 测试concatmultistepdifferentdata
     def test_concat_multi_step_different_data(self, tmp_path, capsys):
         """Multi-step concat with different data per step + truncation."""
         torch.manual_seed(42)
@@ -1250,6 +1294,7 @@ class TestEntrypointConcatMode:
         assert comparisons[0].baseline.shape == [6, 4]
         assert comparisons[0].target.shape == [6, 4]
 
+    # 测试concatmultisteptpunshard
     def test_concat_multi_step_tp_unshard(self, tmp_path, capsys):
         """Multi-step different data + TP=2 unshard + concat."""
         torch.manual_seed(42)
@@ -1296,6 +1341,7 @@ class TestEntrypointConcatMode:
         assert comparisons[0].diff is not None
         assert comparisons[0].diff.passed
 
+    # 测试concatunequalstepcounts
     def test_concat_unequal_step_counts(self, tmp_path, capsys):
         """Baseline 3 steps vs target 2 steps with truncation."""
         torch.manual_seed(42)
@@ -1324,6 +1370,7 @@ class TestEntrypointConcatMode:
         assert comparisons[0].diff is not None
         assert comparisons[0].diff.passed
 
+    # 测试concattokendimnonzero
     def test_concat_token_dim_nonzero(self, tmp_path, capsys):
         """Token dim at dim=1 (dims='b t h') — concat along dim 1."""
         torch.manual_seed(42)
@@ -1349,6 +1396,7 @@ class TestEntrypointConcatMode:
         assert comparisons[0].diff is not None
         assert comparisons[0].diff.passed
 
+    # 测试concatseqdimfallback
     def test_concat_seq_dim_fallback(self, tmp_path, capsys):
         """No 't' dim but 's' dim present (dims='b s h') → concat along s."""
         torch.manual_seed(42)
@@ -1374,6 +1422,7 @@ class TestEntrypointConcatMode:
         assert comparisons[0].diff is not None
         assert comparisons[0].diff.passed
 
+    # 测试concatnodimsfallback
     def test_concat_no_dims_fallback(self, tmp_path, capsys):
         """No dims annotation → fallback to concat along dim 0."""
         torch.manual_seed(42)
@@ -1398,6 +1447,7 @@ class TestEntrypointConcatMode:
         assert comparisons[0].diff is not None
         assert comparisons[0].diff.passed
 
+    # 测试concatpreservessteporder
     def test_concat_preserves_step_order(self, tmp_path, capsys):
         """Verify step0 data precedes step1 data in the concatenated result."""
         # deterministic integer data: step0=[1,2,3], step1=[4,5]
@@ -1419,6 +1469,7 @@ class TestEntrypointConcatMode:
         assert comp.diff is not None
         assert comp.diff.max_abs_diff == 0.0
 
+    # 测试concatauxtensorsnotfiltered
     def test_concat_aux_tensors_not_filtered(self, tmp_path, capsys):
         """Concat mode does not filter aux tensors — all participate in comparison."""
         torch.manual_seed(42)
@@ -1459,6 +1510,7 @@ class TestEntrypointConcatMode:
         assert "positions" in names
         assert len(comparisons) == 3
 
+    # 测试concatalignerplanfields
     def test_concat_aligner_plan_fields(self, tmp_path, capsys):
         """ComparisonTensorRecord.traced_plan reports mode='concat' with plan=None."""
         torch.manual_seed(42)
@@ -1478,6 +1530,7 @@ class TestEntrypointConcatMode:
         assert plan.token_aligner_mode == "concat_steps"
         assert plan.token_aligner_plan is None
 
+    # 测试concatcomparisonfails
     def test_concat_comparison_fails(self, tmp_path, capsys):
         """Completely different data → comparison fails."""
         torch.manual_seed(42)
@@ -1506,6 +1559,7 @@ class TestEntrypointConcatMode:
         assert summary.failed == 1
         assert summary.passed == 0
 
+    # 测试concatmultistepcpunshard
     def test_concat_multi_step_cp_unshard(self, tmp_path, capsys):
         """Multi-step different data + CP=2 unshard along seq dim + concat."""
         torch.manual_seed(42)
@@ -1556,6 +1610,7 @@ class TestEntrypointConcatMode:
         assert comparisons[0].diff is not None
         assert comparisons[0].diff.passed
 
+    # 测试concatthdcpzigzag
     def test_concat_thd_cp_zigzag(self, tmp_path: Path, capsys) -> None:
         """Concat mode with THD CP=2 zigzag (Megatron format) — unshard + reorder works."""
         torch.manual_seed(42)
@@ -1612,6 +1667,7 @@ class TestEntrypointConcatMode:
 class TestEntrypointAxisAligner:
     """Test cross-framework dim reordering through the full entrypoint pipeline."""
 
+    # 测试axisswapdifferentdimorder
     def test_axis_swap_different_dim_order(self, tmp_path, capsys):
         """Baseline dims 'b h d' vs target dims 'b d h': axis swapper rearranges baseline to match."""
         torch.manual_seed(42)
@@ -1647,6 +1703,7 @@ class TestEntrypointAxisAligner:
         assert comp.baseline.shape == [4, 16, 8]
         assert comp.target.shape == [4, 16, 8]
 
+    # 测试axisswapwithtpunshard
     def test_axis_swap_with_tp_unshard(self, tmp_path, capsys):
         """Baseline TP=2 with dims 'b h[tp] d' vs target TP=2 with dims 'b d h[tp]': unshard + axis swap."""
         torch.manual_seed(42)
@@ -1682,6 +1739,7 @@ class TestEntrypointAxisAligner:
         comp = _assert_single_comparison_passed(records)
         assert comp.name == "hidden"
 
+    # 测试squeezedimoneside
     def test_squeeze_dim_one_side(self, tmp_path, capsys):
         """SGLang dims 't h' vs Megatron dims 't 1 h': axis aligner squeezes the singleton dim."""
         torch.manual_seed(42)
@@ -1721,6 +1779,7 @@ class TestEntrypointAxisAligner:
 class TestEntrypointSeqTokenEquivalence:
     """Test s≡t dim name equivalence through the full entrypoint pipeline."""
 
+    # 测试stsqueezesinglerank
     def test_s_t_squeeze_single_rank(self, tmp_path, capsys):
         """Baseline dims='t h' (2D [4,8]), target dims='s 1 h' (3D [4,1,8]) → comparator passes."""
         torch.manual_seed(42)
@@ -1756,6 +1815,7 @@ class TestEntrypointSeqTokenEquivalence:
         assert comp.baseline.shape == [4, 8]
         assert comp.target.shape == [4, 8]
 
+    # 测试stsqueezewithtpunshard
     def test_s_t_squeeze_with_tp_unshard(self, tmp_path, capsys):
         """Baseline TP=2 dims='t h[tp]', target TP=2 dims='s 1 h[tp]' → unshard + squeeze + s≡t."""
         torch.manual_seed(42)
@@ -1791,6 +1851,7 @@ class TestEntrypointSeqTokenEquivalence:
         comp = _assert_single_comparison_passed(records)
         assert comp.name == "hidden"
 
+    # 测试stfusedwithsqueeze
     def test_s_t_fused_with_squeeze(self, tmp_path, capsys):
         """Baseline dims='t (num_heads*head_dim)[tp]' (2D), target dims='s 1 num_heads[tp] head_dim' (4D)."""
         torch.manual_seed(42)
@@ -1829,6 +1890,7 @@ class TestEntrypointSeqTokenEquivalence:
         comp = _assert_single_comparison_passed(records)
         assert comp.name == "attn_pre_o_proj"
 
+    # 测试stmismatchwithnamedbatchfails
     def test_s_t_mismatch_with_named_batch_fails(self, tmp_path, capsys):
         """Baseline dims='t h', target dims='s b h' (named b, not constant 1) → dim mismatch → skip/error."""
         torch.manual_seed(42)
@@ -1872,6 +1934,7 @@ class TestEntrypointSeqTokenEquivalence:
 class TestEntrypointReplicatedAxis:
     """Test replicated-axis scenarios through the full entrypoint pipeline."""
 
+    # 测试replicatedaxisidenticalreplicaspassed
     def test_replicated_axis_identical_replicas_passed(self, tmp_path, capsys):
         """CP2 TP2, TP replicated and identical → passed, replicated_checks all passed."""
         torch.manual_seed(42)
@@ -1911,6 +1974,7 @@ class TestEntrypointReplicatedAxis:
         assert isinstance(summary, SummaryRecord)
         assert summary.passed == 1
 
+    # 测试replicatedmismatchfails
     def test_replicated_mismatch_fails(self, tmp_path, capsys):
         """CP2 TP2, TP replicas differ (> atol) → failed with replicated_checks."""
         torch.manual_seed(42)
@@ -1951,6 +2015,7 @@ class TestEntrypointReplicatedAxis:
         assert isinstance(summary, SummaryRecord)
         assert summary.failed == 1
 
+    # 测试summarycountsfailedfromreplicatedchecksonly
     def test_summary_counts_failed_from_replicated_checks_only(self, tmp_path, capsys):
         """Diff itself passes but TP replicas differ → summary.failed=1 from replicated_checks."""
         torch.manual_seed(42)
@@ -2002,6 +2067,7 @@ class TestEntrypointReplicatedAxis:
         assert summary.failed == 1
         assert summary.passed == 0
 
+    # 测试replicatedshapemismatch
     def test_replicated_shape_mismatch(self, tmp_path, capsys):
         """TP replicated tensors with different shapes → failed, replicated diff=None."""
         torch.manual_seed(42)
@@ -2086,6 +2152,7 @@ class TestEntrypointReplicatedAxis:
         assert isinstance(summary, SummaryRecord)
         assert summary.failed == 1
 
+    # 测试dependentreplicatedaxeserror
     def test_dependent_replicated_axes_error(self, tmp_path, capsys):
         """TP4 + MOE_TP2 both replicated, tp determines moe_tp → ComparisonErrorRecord."""
         torch.manual_seed(42)
@@ -2128,6 +2195,7 @@ class TestEntrypointReplicatedAxis:
         assert summary.errored == 1
         assert exit_code == 1
 
+    # 测试shardedtpwithdependentetppasses
     def test_sharded_tp_with_dependent_etp_passes(self, tmp_path, capsys):
         """TP2 sharded + ETP2 dependent (etp=tp) + EP2 replicated → no undeclared error."""
         torch.manual_seed(42)
@@ -2182,6 +2250,7 @@ class TestEntrypointReplicatedAxis:
 class TestEntrypointAlignment:
     """Test smart token alignment with aux tensors."""
 
+    # 测试sglangmultistepalignment
     def test_sglang_multi_step_alignment(self, tmp_path, capsys):
         """SGLang multi-step dumps with aux tensors auto-trigger alignment."""
         torch.manual_seed(42)
@@ -2210,7 +2279,7 @@ class TestEntrypointAlignment:
             dumper.dump("req_pool_indices", torch.tensor([7, 3]))
             dumper.dump("rids", ["A", "B"])
             dumper.dump("hidden_states", hidden_step0)
-            dumper.step()
+            dumper.step()  # 执行优化步骤
 
             # Step 1: decode (1 token per sequence)
             dumper.dump("input_ids", torch.tensor([31, 51]))
@@ -2219,7 +2288,7 @@ class TestEntrypointAlignment:
             dumper.dump("req_pool_indices", torch.tensor([7, 3]))
             dumper.dump("rids", ["A", "B"])
             dumper.dump("hidden_states", hidden_step1)
-            dumper.step()
+            dumper.step()  # 执行优化步骤
 
             exp_paths.append(d / _FIXED_EXP_NAME)
 
@@ -2244,6 +2313,7 @@ class TestEntrypointAlignment:
         assert summary.failed == 0
         assert summary.skipped == 0
 
+    # 测试sglangvsmegatroncrossframework
     def test_sglang_vs_megatron_cross_framework(self, tmp_path, capsys):
         """SGLang 4-step thd baseline vs Megatron 1-step thd target align correctly."""
         torch.manual_seed(42)
@@ -2282,7 +2352,7 @@ class TestEntrypointAlignment:
                 ]
             ),
         )
-        sglang_dumper.step()
+        sglang_dumper.step()  # 执行优化步骤
 
         # Steps 1-3: decode — 1 token per sequence
         decode_data: list[dict[str, object]] = [
@@ -2309,7 +2379,7 @@ class TestEntrypointAlignment:
             sglang_dumper.dump("req_pool_indices", torch.tensor([7, 3]))
             sglang_dumper.dump("rids", ["A", "B"])
             sglang_dumper.dump("hidden_states", step_data["hidden"])
-            sglang_dumper.step()
+            sglang_dumper.step()  # 执行优化步骤
 
         # --- Megatron target: 1 step, thd [T, H] ---
         megatron_dir: Path = tmp_path / "target"
@@ -2333,7 +2403,7 @@ class TestEntrypointAlignment:
         megatron_dumper.dump("input_ids", megatron_input_ids)
         megatron_dumper.dump("cu_seqlens_q", megatron_cu_seqlens)
         megatron_dumper.dump("hidden_states", megatron_hidden)
-        megatron_dumper.step()
+        megatron_dumper.step()  # 执行优化步骤
 
         # --- Run comparison ---
         argv = _make_argv(
@@ -2367,6 +2437,7 @@ class TestEntrypointAlignment:
         assert summary.failed == 0
         assert summary.skipped == 0
 
+    # 测试alignmentfallbackwhennoaux
     def test_alignment_fallback_when_no_aux(self, tmp_path, capsys):
         """Without aux tensors, smart alignment falls back to per-step comparison."""
         baseline_path, target_path = _create_dumps(tmp_path, ["tensor_a"], num_steps=2)
@@ -2402,6 +2473,7 @@ class TestEntrypointAlignment:
 class TestEntrypointNonTensorValues:
     """Test non-tensor value comparison through the full entrypoint pipeline."""
 
+    # 测试nontensorfloatsamevalue
     def test_non_tensor_float_same_value(self, tmp_path: Path, capsys) -> None:
         """Two sides dump the same float → ComparisonNonTensorRecord with values_equal=True, category=passed."""
         baseline_path, target_path = _create_non_tensor_dumps(
@@ -2421,6 +2493,7 @@ class TestEntrypointNonTensorValues:
         assert summary.passed == 1
         assert summary.failed == 0
 
+    # 测试nontensorfloatdifferentvalue
     def test_non_tensor_float_different_value(self, tmp_path: Path, capsys) -> None:
         """Two sides dump different floats → ComparisonNonTensorRecord with values_equal=False, category=failed."""
         baseline_path, target_path = _create_non_tensor_dumps(
@@ -2438,6 +2511,7 @@ class TestEntrypointNonTensorValues:
         assert isinstance(summary, SummaryRecord)
         assert summary.failed == 1
 
+    # 测试nontensorstringvalue
     def test_non_tensor_string_value(self, tmp_path: Path, capsys) -> None:
         """String non-tensor values are compared and displayed correctly."""
         baseline_path, target_path = _create_non_tensor_dumps(
@@ -2455,6 +2529,7 @@ class TestEntrypointNonTensorValues:
         assert non_tensors[0].baseline_type == "str"
         assert non_tensors[0].target_type == "str"
 
+    # 测试nontensormixedwithtensor
     def test_non_tensor_mixed_with_tensor(self, tmp_path: Path, capsys) -> None:
         """Tensors and non_tensors in the same dump are each handled correctly."""
         torch.manual_seed(42)
@@ -2491,6 +2566,7 @@ class TestEntrypointNonTensorValues:
         assert isinstance(summary, SummaryRecord)
         assert summary.passed == 2
 
+    # 测试nontensorcomplexobject
     def test_non_tensor_complex_object(self, tmp_path: Path, capsys) -> None:
         """Complex objects (e.g. dict containing a tensor) are displayed via repr, not skipped."""
         value = {"a": 1, "b": "hello", "c": torch.tensor([1.0, 2.0])}
@@ -2506,6 +2582,7 @@ class TestEntrypointNonTensorValues:
         assert non_tensors[0].baseline_type == "dict"
         assert non_tensors[0].target_type == "dict"
 
+    # 测试nontensornonevalue
     def test_non_tensor_none_value(self, tmp_path: Path, capsys) -> None:
         """Dumping None is displayed as ComparisonNonTensorRecord, not skipped as load failure."""
         baseline_path, target_path = _create_non_tensor_dumps(
@@ -2522,6 +2599,7 @@ class TestEntrypointNonTensorValues:
         assert non_tensors[0].baseline_type == "NoneType"
         assert non_tensors[0].category == "passed"
 
+    # 测试nontensorjsonroundtrip
     def test_non_tensor_json_roundtrip(self, tmp_path: Path, capsys) -> None:
         """ComparisonNonTensorRecord JSON output can be parsed back correctly."""
         baseline_path, target_path = _create_non_tensor_dumps(
@@ -2547,9 +2625,11 @@ class TestEntrypointVisualize:
     """Test --visualize-bundle-details integration."""
 
     @pytest.fixture(autouse=True)
+    # 执行skipifnomatplotlib
     def _skip_if_no_matplotlib(self) -> None:
         pytest.importorskip("matplotlib")
 
+    # 测试visualizecreatespngs
     def test_visualize_creates_pngs(self, tmp_path, capsys):
         """--visualize-bundle-details with --filter produces PNG files."""
         baseline_path, target_path = _create_dumps(tmp_path, ["tensor_a", "tensor_b"])
@@ -2570,6 +2650,7 @@ class TestEntrypointVisualize:
         assert len(png_files) == 1
         assert png_files[0].stat().st_size > 0
 
+    # 测试novisualizenopng
     def test_no_visualize_no_png(self, tmp_path, capsys):
         """Without --visualize-bundle-details, no PNGs are created."""
         baseline_path, target_path = _create_dumps(tmp_path, ["tensor_a"])
@@ -2589,14 +2670,17 @@ class TestEntrypointVisualize:
 # --------------------------- Assertion helpers -------------------
 
 
+# 执行getcomparisons
 def _get_comparisons(records: list[AnyRecord]) -> list[ComparisonTensorRecord]:
     return [r for r in records if isinstance(r, ComparisonTensorRecord)]
 
 
+# 执行getnontensors
 def _get_non_tensors(records: list[AnyRecord]) -> list[ComparisonNonTensorRecord]:
     return [r for r in records if isinstance(r, ComparisonNonTensorRecord)]
 
 
+# 执行assertsinglecomparisonpassed
 def _assert_single_comparison_passed(
     records: list[AnyRecord],
 ) -> ComparisonTensorRecord:
@@ -2610,10 +2694,12 @@ def _assert_single_comparison_passed(
 # --------------------------- Utils ------------------------------
 
 
+# 执行makedumper
 def _make_dumper(directory: Path) -> _Dumper:
     return _Dumper(config=DumperConfig(enable=True, dir=str(directory)))
 
 
+# 执行createdumps
 def _create_dumps(
     tmp_path: Path,
     tensor_names: list[str],
@@ -2647,12 +2733,13 @@ def _create_dumps(
         for _ in range(num_steps):
             for name in names:
                 dumper.dump(name, tensor)
-            dumper.step()
+            dumper.step()  # 执行优化步骤
         exp_paths.append(d / dumper._config.exp_name)
 
     return exp_paths[0], exp_paths[1]
 
 
+# 执行createnontensorrankdump
 def _create_non_tensor_rank_dump(
     directory: Path,
     *,
@@ -2676,11 +2763,12 @@ def _create_non_tensor_rank_dump(
         dumper.dump(name, value)
         for extra_name, extra_tensor in extra_tensor_dumps or []:
             dumper.dump(extra_name, extra_tensor)
-        dumper.step()
+        dumper.step()  # 执行优化步骤
 
     return directory / _FIXED_EXP_NAME
 
 
+# 执行createnontensordumps
 def _create_non_tensor_dumps(
     tmp_path: Path,
     *,
@@ -2702,6 +2790,7 @@ def _create_non_tensor_dumps(
     return baseline_path, target_path
 
 
+# 执行makeargv
 def _make_argv(
     baseline_path: Path,
     target_path: Path,
@@ -2772,6 +2861,7 @@ def _make_argv(
     return argv
 
 
+# 执行runandparse
 def _run_and_parse(
     argv: list[str], capsys: pytest.CaptureFixture
 ) -> tuple[list[AnyRecord], int]:
@@ -2781,10 +2871,12 @@ def _run_and_parse(
     return _parse_jsonl(capsys.readouterr().out), exit_code
 
 
+# 执行parsejsonl
 def _parse_jsonl(output: str) -> list[AnyRecord]:
     return [parse_record_json(line) for line in output.strip().splitlines()]
 
 
+# 执行createrankdump
 def _create_rank_dump(
     directory: Path,
     *,
@@ -2821,11 +2913,12 @@ def _create_rank_dump(
             dumper.dump(name, tensor, dims=dims)
             for extra_name, extra_value in extra_dumps or []:
                 dumper.dump(extra_name, extra_value)
-            dumper.step()
+            dumper.step()  # 执行优化步骤
 
     return directory / _FIXED_EXP_NAME
 
 
+# 执行createmultisteprankdump
 def _create_multi_step_rank_dump(
     directory: Path,
     *,
@@ -2859,11 +2952,12 @@ def _create_multi_step_rank_dump(
 
         for tensor in tensors_per_step:
             dumper.dump(name, tensor, dims=dims)
-            dumper.step()
+            dumper.step()  # 执行优化步骤
 
     return directory / _FIXED_EXP_NAME
 
 
+# 执行createcptpshardeddumps
 def _create_cp_tp_sharded_dumps(
     directory: Path,
     *,
@@ -2900,6 +2994,7 @@ def _create_cp_tp_sharded_dumps(
     return directory / _FIXED_EXP_NAME
 
 
+# 执行createepcptpshardeddumps
 def _create_ep_cp_tp_sharded_dumps(
     directory: Path,
     *,
@@ -2942,6 +3037,7 @@ def _create_ep_cp_tp_sharded_dumps(
     return directory / _FIXED_EXP_NAME
 
 
+# 执行createcpzigzagtpshardeddumps
 def _create_cp_zigzag_tp_sharded_dumps(
     directory: Path,
     *,
@@ -3001,6 +3097,7 @@ def _create_cp_zigzag_tp_sharded_dumps(
     return directory / _FIXED_EXP_NAME
 
 
+# 执行createcpzigzagspshardeddumps
 def _create_cp_zigzag_sp_sharded_dumps(
     directory: Path,
     *,
@@ -3058,6 +3155,7 @@ def _create_cp_zigzag_sp_sharded_dumps(
     return directory / _FIXED_EXP_NAME
 
 
+# 执行createreplicatedtpshardedcpdumps
 def _create_replicated_tp_sharded_cp_dumps(
     directory: Path,
     *,
@@ -3101,6 +3199,7 @@ def _create_replicated_tp_sharded_cp_dumps(
     return directory / _FIXED_EXP_NAME
 
 
+# 执行createtpshardeddumps
 def _create_tp_sharded_dumps(
     directory: Path,
     *,
@@ -3126,6 +3225,7 @@ def _create_tp_sharded_dumps(
     return directory / _FIXED_EXP_NAME
 
 
+# 执行createmultisteptpshardeddumps
 def _create_multi_step_tp_sharded_dumps(
     directory: Path,
     *,
@@ -3158,6 +3258,7 @@ def _create_multi_step_tp_sharded_dumps(
     return directory / _FIXED_EXP_NAME
 
 
+# 执行createtppartialdumps
 def _create_tp_partial_dumps(
     directory: Path,
     *,
@@ -3185,6 +3286,7 @@ def _create_tp_partial_dumps(
     return directory / _FIXED_EXP_NAME
 
 
+# 执行createrecomputerankdump
 def _create_recompute_rank_dump(
     directory: Path,
     *,
@@ -3227,11 +3329,12 @@ def _create_recompute_rank_dump(
         )
         dumper.dump(name, recompute_tensor, dims=dims)
 
-        dumper.step()
+        dumper.step()  # 执行优化步骤
 
     return directory / _FIXED_EXP_NAME
 
 
+# 执行zigzagsplitseq
 def _zigzag_split_seq(seq_natural: torch.Tensor, *, cp_size: int) -> list[torch.Tensor]:
     """Split a natural-order seq into per-rank zigzag segments."""
     num_chunks: int = cp_size * 2
@@ -3244,6 +3347,7 @@ def _zigzag_split_seq(seq_natural: torch.Tensor, *, cp_size: int) -> list[torch.
     return list(zigzagged.chunk(cp_size, dim=0))
 
 
+# 执行createthdcpzigzagdumps
 def _create_thd_cp_zigzag_dumps(
     directory: Path,
     *,
@@ -3322,6 +3426,7 @@ def _create_thd_cp_zigzag_dumps(
 class TestEntrypointPerTokenVisualization:
     """Test --visualize-per-token CLI flag integration."""
 
+    # 测试visualizepertokencreatespng
     def test_visualize_per_token_creates_png(self, tmp_path: Path, capsys) -> None:
         """--visualize-per-token with dims metadata produces per-token data in records."""
         pytest.importorskip("matplotlib")
@@ -3373,6 +3478,7 @@ class TestEntrypointPerTokenVisualization:
             assert isinstance(comp.diff.per_token_rel_diff, list)
             assert len(comp.diff.per_token_rel_diff) == 10
 
+    # 测试novisualizenopertoken
     def test_no_visualize_no_per_token(self, tmp_path: Path, capsys) -> None:
         """Without --visualize-per-token, per_token_rel_diff is None."""
         baseline_path, target_path = _create_dumps(tmp_path, ["tensor_a"])
@@ -3393,6 +3499,7 @@ class TestEntrypointThdCpZigzag:
     unshard + reorder → tensor comparison.
     """
 
+    # 测试sglangvsmegatronzigzagcp
     def test_sglang_vs_megatron_zigzag_cp(self, tmp_path: Path, capsys) -> None:
         """SGLang single-rank THD baseline vs Megatron CP=2 zigzag target."""
         torch.manual_seed(42)
@@ -3425,7 +3532,7 @@ class TestEntrypointThdCpZigzag:
         sglang_dumper.dump("seq_lens", torch.tensor(seq_lens))
         sglang_dumper.dump("rids", ["A", "B"])
         sglang_dumper.dump("hidden_states", hidden_states)
-        sglang_dumper.step()
+        sglang_dumper.step()  # 执行优化步骤
 
         # --- Megatron target: CP=2, zigzag, 1 step ---
         megatron_dir: Path = tmp_path / "target"
@@ -3487,6 +3594,7 @@ class TestEntrypointThdCpZigzag:
         assert len(hidden_comparisons) >= 1
         assert all(c.diff is not None and c.diff.passed for c in hidden_comparisons)
 
+    # 测试thdcpzigzagunshard
     def test_thd_cp_zigzag_unshard(self, tmp_path: Path, capsys) -> None:
         """Both sides THD CP=2 zigzag, comparison should pass."""
         torch.manual_seed(42)
@@ -3548,6 +3656,7 @@ class TestEntrypointDpFilter:
     empty dp_rank items and produce correct comparison results.
     """
 
+    # 测试dp2sglangbothsides
     def test_dp2_sglang_both_sides(self, tmp_path: Path, capsys) -> None:
         """DP=2 sglang: both baseline and target have 1 non-empty + 1 empty dp_rank."""
         torch.manual_seed(42)
@@ -3603,6 +3712,7 @@ class TestEntrypointDpFilter:
         comparison: ComparisonTensorRecord = _assert_single_comparison_passed(records)
         assert comparison.name == "hidden"
 
+    # 测试dp2megatronbothsides
     def test_dp2_megatron_both_sides(self, tmp_path: Path, capsys) -> None:
         """DP=2 megatron: both baseline and target have 1 non-empty + 1 empty dp_rank."""
         torch.manual_seed(42)
@@ -3658,6 +3768,7 @@ class TestEntrypointDpFilter:
         comparison: ComparisonTensorRecord = _assert_single_comparison_passed(records)
         assert comparison.name == "hidden"
 
+    # 测试dp2tp2sglang
     def test_dp2_tp2_sglang(self, tmp_path: Path, capsys) -> None:
         """DP=2 x TP=2 sglang: 4 ranks, dp_rank=0 has data, dp_rank=1 empty."""
         torch.manual_seed(42)
@@ -3706,6 +3817,7 @@ class TestEntrypointDpFilter:
         comparison: ComparisonTensorRecord = _assert_single_comparison_passed(records)
         assert comparison.name == "hidden"
 
+    # 测试dp2bothnonemptyraises
     def test_dp2_both_nonempty_raises(self, tmp_path: Path, capsys) -> None:
         """DP=2 sglang: both dp_rank=0 and dp_rank=1 have non-empty tensors => AssertionError."""
         torch.manual_seed(42)
@@ -3757,6 +3869,7 @@ class TestEntrypointDpGroupAlias:
     ``moe_dp_rank/moe_dp_size`` instead of ``dp_rank/dp_size``.
     """
 
+    # 测试dpaliasabsentgroupnoop
     def test_dp_alias_absent_group_noop(self, tmp_path: Path, capsys) -> None:
         """Single rank with ``# dp:=moe_dp`` in dims → parse_dims strips ``#``, comparison OK."""
         torch.manual_seed(42)
@@ -3792,6 +3905,7 @@ class TestEntrypointDpGroupAlias:
         comparison: ComparisonTensorRecord = _assert_single_comparison_passed(records)
         assert comparison.name == "hidden"
 
+    # 测试dpaliasviaoverridedims
     def test_dp_alias_via_override_dims(self, tmp_path: Path, capsys) -> None:
         """--override-dims adds ``# dp:=moe_dp`` → dp filter uses alias, filters correctly."""
         torch.manual_seed(42)
@@ -3849,6 +3963,7 @@ class TestEntrypointDpGroupAlias:
         comparison: ComparisonTensorRecord = _assert_single_comparison_passed(records)
         assert comparison.name == "hidden"
 
+    # 测试dpaliaswithrealaliasgroupfilters
     def test_dp_alias_with_real_alias_group_filters(
         self, tmp_path: Path, capsys
     ) -> None:
@@ -3895,6 +4010,7 @@ class TestEntrypointMetaOverride:
     """E2E: dump with wrong dims → --override-dims / --override-config corrects at comparison time."""
 
     @staticmethod
+    # 执行createsinglerankpair
     def _create_single_rank_pair(
         tmp_path: Path,
         *,
@@ -3922,6 +4038,7 @@ class TestEntrypointMetaOverride:
         return baseline_dir / _FIXED_EXP_NAME, target_dir / _FIXED_EXP_NAME
 
     @staticmethod
+    # 执行assertallpassed
     def _assert_all_passed(
         records: list[AnyRecord], *, expected_count: int = 1
     ) -> None:
@@ -3930,6 +4047,7 @@ class TestEntrypointMetaOverride:
         assert len(comparisons) == expected_count
         assert all(c.diff is not None and c.diff.passed for c in comparisons)
 
+    # 测试overridedimsfixeswrongdims
     def test_override_dims_fixes_wrong_dims(self, tmp_path: Path, capsys) -> None:
         """Tensor dumped with wrong dims='h d' is fixed by --override-dims to 't h[tp]'."""
         torch.manual_seed(42)
@@ -3980,6 +4098,7 @@ class TestEntrypointMetaOverride:
         ],
         ids=["baseline_only", "target_only", "both_via_override_dims"],
     )
+    # 测试singlesideoverride
     def test_single_side_override(
         self,
         tmp_path: Path,
@@ -3998,6 +4117,7 @@ class TestEntrypointMetaOverride:
         argv = _make_argv(baseline_path, target_path, preset="raw", **override_kwarg)
         self._assert_all_passed(_run_and_parse(argv, capsys)[0])
 
+    # 测试overrideconfigyaml
     def test_override_config_yaml(self, tmp_path: Path, capsys) -> None:
         """--override-config YAML overrides dims."""
         baseline_path, target_path = self._create_single_rank_pair(tmp_path)
@@ -4017,6 +4137,7 @@ class TestEntrypointMetaOverride:
         )
         self._assert_all_passed(_run_and_parse(argv, capsys)[0])
 
+    # 测试nomatchusesoriginaldims
     def test_no_match_uses_original_dims(self, tmp_path: Path, capsys) -> None:
         """When override regex doesn't match, original dims from dump are used."""
         baseline_path, target_path = self._create_single_rank_pair(
@@ -4033,6 +4154,7 @@ class TestEntrypointMetaOverride:
         )
         self._assert_all_passed(_run_and_parse(argv, capsys)[0])
 
+    # 测试selectivematchmultitensor
     def test_selective_match_multi_tensor(self, tmp_path: Path, capsys) -> None:
         """Override matches only 'logits'; 'hidden' uses original dims."""
         torch.manual_seed(42)
@@ -4064,6 +4186,7 @@ class TestEntrypointMetaOverride:
         )
         self._assert_all_passed(_run_and_parse(argv, capsys)[0], expected_count=2)
 
+    # 测试multipleclioverridedims
     def test_multiple_cli_override_dims(self, tmp_path: Path, capsys) -> None:
         """Multiple --override-dims for different tensors."""
         torch.manual_seed(42)
@@ -4097,6 +4220,7 @@ class TestEntrypointMetaOverride:
         )
         self._assert_all_passed(_run_and_parse(argv, capsys)[0], expected_count=2)
 
+    # 测试persidedimsdifferentparallelism
     def test_per_side_dims_different_parallelism(self, tmp_path: Path, capsys) -> None:
         """baseline TP-sharded, target EP-sharded — per-side override fixes both."""
         torch.manual_seed(42)
@@ -4138,6 +4262,7 @@ class TestEntrypointMetaOverride:
         )
         self._assert_all_passed(_run_and_parse(argv, capsys)[0])
 
+    # 测试yamlfirstmatchwinse2e
     def test_yaml_first_match_wins_e2e(self, tmp_path: Path, capsys) -> None:
         """YAML with two matching rules: first rule wins in real pipeline."""
         baseline_path, target_path = self._create_single_rank_pair(tmp_path)
@@ -4159,6 +4284,7 @@ class TestEntrypointMetaOverride:
         )
         self._assert_all_passed(_run_and_parse(argv, capsys)[0])
 
+    # 测试clioverridesyamle2e
     def test_cli_overrides_yaml_e2e(self, tmp_path: Path, capsys) -> None:
         """CLI --override-dims wins over YAML rule for the same tensor."""
         baseline_path, target_path = self._create_single_rank_pair(tmp_path)
@@ -4179,6 +4305,7 @@ class TestEntrypointMetaOverride:
         )
         self._assert_all_passed(_run_and_parse(argv, capsys)[0])
 
+    # 测试overrideinjectsdimswhenabsent
     def test_override_injects_dims_when_absent(self, tmp_path: Path, capsys) -> None:
         """Override injects dims into meta even when dump had no dims annotation."""
         baseline_path, target_path = self._create_single_rank_pair(
@@ -4195,6 +4322,7 @@ class TestEntrypointMetaOverride:
         )
         self._assert_all_passed(_run_and_parse(argv, capsys)[0])
 
+    # 测试nontensorunaffectedbyoverride
     def test_non_tensor_unaffected_by_override(self, tmp_path: Path, capsys) -> None:
         """Non-tensor values pass through without error even with active override."""
         torch.manual_seed(42)
@@ -4240,6 +4368,7 @@ class TestEntrypointMetaOverride:
 class TestExitCode:
     """E2E tests for exit code behavior based on comparison results."""
 
+    # 测试e2eallpassedexitzero
     def test_e2e_all_passed_exit_zero(self, tmp_path, capsys):
         """Integration: all comparisons pass → run() returns 0."""
         baseline_path, target_path = _create_dumps(tmp_path, ["tensor_a", "tensor_b"])
@@ -4252,6 +4381,7 @@ class TestExitCode:
         assert summary.failed == 0
         assert exit_code == 0
 
+    # 测试e2ehasfailedexitnonzero
     def test_e2e_has_failed_exit_nonzero(self, tmp_path, capsys):
         """Integration: a failed comparison → run() returns 1."""
         torch.manual_seed(42)
@@ -4272,6 +4402,7 @@ class TestExitCode:
         assert summary.failed == 1
         assert exit_code == 1
 
+    # 测试e2eallowfailedpatternexitzero
     def test_e2e_allow_failed_pattern_exit_zero(self, tmp_path, capsys):
         """E2E: failed tensor matched by allow_failed_pattern + a passing tensor → exit 0."""
         torch.manual_seed(42)
@@ -4306,6 +4437,7 @@ class TestExitCode:
         assert summary.failed == 1
         assert exit_code == 0
 
+    # 测试e2eallowfailedpatternnomatchexitone
     def test_e2e_allow_failed_pattern_no_match_exit_one(self, tmp_path, capsys):
         """E2E: failed tensor NOT matched by allow_failed_pattern → exit 1."""
         torch.manual_seed(42)
@@ -4345,6 +4477,7 @@ class TestExitCodeSubprocess:
     """E2E subprocess tests: invoke comparator as a child process and verify exit code."""
 
     @staticmethod
+    # 执行runcomparator
     def _run_comparator(
         baseline_path: Path,
         target_path: Path,
@@ -4367,14 +4500,16 @@ class TestExitCodeSubprocess:
             "--allow-skipped-pattern",
             allow_skipped_pattern,
         ]
-        return subprocess.run(cmd, capture_output=True, text=True)
+        return subprocess.run(cmd, capture_output=True, text=True)  # 运行子进程
 
+    # 测试allpassedexitzero
     def test_all_passed_exit_zero(self, tmp_path):
         """Subprocess: all comparisons pass → exit 0."""
         baseline_path, target_path = _create_dumps(tmp_path, ["tensor_a"])
         result = self._run_comparator(baseline_path, target_path)
         assert result.returncode == 0
 
+    # 测试failedexitnonzero
     def test_failed_exit_nonzero(self, tmp_path):
         """Subprocess: failed comparison → exit 1."""
         torch.manual_seed(42)
@@ -4387,6 +4522,7 @@ class TestExitCodeSubprocess:
         result = self._run_comparator(baseline_path, target_path)
         assert result.returncode == 1
 
+    # 测试skippedallowallexitzero
     def test_skipped_allow_all_exit_zero(self, tmp_path):
         """Subprocess: skipped comparison with allow_skipped_pattern='.*' → exit 0."""
         baseline_path, target_path = _create_dumps(
@@ -4399,6 +4535,7 @@ class TestExitCodeSubprocess:
         )
         assert result.returncode == 0
 
+    # 测试skippedforbidallexitnonzero
     def test_skipped_forbid_all_exit_nonzero(self, tmp_path):
         """Subprocess: skipped comparison with allow_skipped_pattern='^$' → exit 1."""
         baseline_path, target_path = _create_dumps(
@@ -4415,6 +4552,7 @@ class TestExitCodeSubprocess:
 class TestReportOutput:
     """Test JSONL report file output via ReportSink."""
 
+    # 测试defaultreportpath
     def test_default_report_path(self, tmp_path, capsys):
         """Default writes to <target>/comparator_report.jsonl with ConfigRecord + SummaryRecord."""
         baseline_path, target_path = _create_dumps(tmp_path, ["tensor_a"])
@@ -4430,6 +4568,7 @@ class TestReportOutput:
         assert isinstance(report_records[-1], SummaryRecord)
         assert exit_code == 0
 
+    # 测试customreportpath
     def test_custom_report_path(self, tmp_path, capsys):
         """--report-path writes to the specified location."""
         baseline_path, target_path = _create_dumps(tmp_path, ["tensor_a"])
@@ -4448,6 +4587,7 @@ class TestReportOutput:
         assert isinstance(report_records[0], ConfigRecord)
         assert isinstance(report_records[-1], SummaryRecord)
 
+    # 测试disabledreport
     def test_disabled_report(self, tmp_path, capsys):
         """--report-path '' disables file generation."""
         baseline_path, target_path = _create_dumps(tmp_path, ["tensor_a"])
@@ -4458,6 +4598,7 @@ class TestReportOutput:
         report_file: Path = target_path / "comparator_report.jsonl"
         assert not report_file.exists()
 
+    # 测试reportmatchesstdoutjson
     def test_report_matches_stdout_json(self, tmp_path, capsys):
         """In json mode, report content matches stdout output."""
         baseline_path, target_path = _create_dumps(tmp_path, ["tensor_a"])
@@ -4477,6 +4618,7 @@ class TestReportOutput:
         report_lines: list[str] = report_file.read_text().strip().splitlines()
         assert stdout_lines == report_lines
 
+    # 测试textmodealsowritesreport
     def test_text_mode_also_writes_report(self, tmp_path, capsys):
         """Text stdout mode still writes JSONL report."""
         baseline_path, target_path = _create_dumps(tmp_path, ["tensor_a"])
@@ -4496,6 +4638,7 @@ class TestReportOutput:
         assert isinstance(report_records[0], ConfigRecord)
         assert isinstance(report_records[-1], SummaryRecord)
 
+    # 测试streamingflush
     def test_streaming_flush(self, tmp_path, capsys):
         """Report file is flushed after each record (readable before close)."""
         from sglang.srt.debug_utils.comparator.report_sink import report_sink
@@ -4527,6 +4670,7 @@ class TestEntrypointDpAttentionMissingAlias:
     """
 
     @staticmethod
+    # 执行sglangdpattnparallelinfo
     def _sglang_dp_attn_parallel_info(*, tp_rank: int) -> dict:
         return {
             "tp_rank": tp_rank,
@@ -4550,6 +4694,7 @@ class TestEntrypointDpAttentionMissingAlias:
             "attn_cp_size": 1,
         }
 
+    # 测试missingdpaliascausesshapemismatch
     def test_missing_dp_alias_causes_shape_mismatch(
         self, tmp_path: Path, capsys
     ) -> None:
@@ -4612,6 +4757,7 @@ class TestEntrypointAutoDescend:
     """Test auto-descend: --baseline-path / --target-path pointing to a parent
     directory that contains a single subdirectory with .pt files."""
 
+    # 测试autodescendsingleengine
     def test_auto_descend_single_engine(self, tmp_path: Path, capsys) -> None:
         """Parent dir wrapping a single engine subdir is auto-descended and comparison succeeds."""
         baseline_exp, target_exp = _create_dumps(tmp_path, ["tensor_a"])
@@ -4629,6 +4775,7 @@ class TestEntrypointAutoDescend:
         assert exit_code == 0
         _assert_single_comparison_passed(records)
 
+    # 测试nodescendwhenptatroot
     def test_no_descend_when_pt_at_root(self, tmp_path: Path, capsys) -> None:
         """Direct .pt files — no descend needed, comparison still works."""
         baseline_exp, target_exp = _create_dumps(tmp_path, ["tensor_a"])
@@ -4639,6 +4786,7 @@ class TestEntrypointAutoDescend:
         assert exit_code == 0
         _assert_single_comparison_passed(records)
 
+    # 测试autodescendemitslogrecord
     def test_auto_descend_emits_log_record(self, tmp_path: Path, capsys) -> None:
         """Auto-descend emits a LogRecord with the info message."""
         baseline_exp, target_exp = _create_dumps(tmp_path, ["tensor_a"])
@@ -4659,6 +4807,7 @@ class TestEntrypointAutoDescend:
         ]
         assert any("target_path" in m for m in auto_descend_msgs)
 
+    # 测试autodescendsinglenonemptyamongempty
     def test_auto_descend_single_nonempty_among_empty(
         self, tmp_path: Path, capsys
     ) -> None:
@@ -4676,6 +4825,7 @@ class TestEntrypointAutoDescend:
         assert exit_code == 0
         _assert_single_comparison_passed(records)
 
+    # 测试errormultiplenonemptysubdirs
     def test_error_multiple_nonempty_subdirs(self, tmp_path: Path) -> None:
         """Two subdirs both with .pt — raises ValueError with clear message."""
         baseline_exp, target_exp = _create_dumps(tmp_path, ["tensor_a"])
@@ -4691,6 +4841,7 @@ class TestEntrypointAutoDescend:
         with pytest.raises(ValueError, match="multiple subdirectories contain data"):
             run(parse_args(argv))
 
+    # 测试errornodatafound
     def test_error_no_data_found(self, tmp_path: Path) -> None:
         """No .pt files anywhere — raises ValueError."""
         baseline_exp, _ = _create_dumps(tmp_path, ["tensor_a"])
@@ -4712,6 +4863,7 @@ class TestPartialParallelInfo:
     rather than silently accepting it as jointly determined.
     """
 
+    # 测试missingparentaxistriggersundeclarederror
     def test_missing_parent_axis_triggers_undeclared_error(
         self, tmp_path: Path, capsys: pytest.CaptureFixture
     ) -> None:
@@ -4814,6 +4966,7 @@ class TestPartialParallelInfo:
         assert len(errors) >= 1
         assert any("not declared" in e.traceback_str for e in errors)
 
+    # 测试consistentparallelinfoallowsjointdetermination
     def test_consistent_parallel_info_allows_joint_determination(
         self, tmp_path: Path, capsys: pytest.CaptureFixture
     ) -> None:
@@ -4880,6 +5033,7 @@ class TestPartialParallelInfo:
 class TestErrorResilience:
     """Bundle comparison exception → continue with remaining bundles."""
 
+    # 测试onebundleerrorsotherscontinue
     def test_one_bundle_errors_others_continue(self, tmp_path, capsys, monkeypatch):
         """One bundle raises exception → other bundles still compared, summary correct."""
         baseline_path, target_path = _create_dumps(
@@ -4889,6 +5043,7 @@ class TestErrorResilience:
 
         original = _entrypoint_module.compare_bundle_pair
 
+        # 执行patched
         def _patched(**kwargs):
             if kwargs["name"] == "tensor_b":
                 raise RuntimeError("intentional test error")
@@ -4916,11 +5071,13 @@ class TestErrorResilience:
 
         assert exit_code == 1
 
+    # 测试allbundleserrorexitsone
     def test_all_bundles_error_exits_one(self, tmp_path, capsys, monkeypatch):
         """All bundles error → exit 1, summary all errored."""
         baseline_path, target_path = _create_dumps(tmp_path, ["tensor_a"])
         argv = _make_argv(baseline_path, target_path, preset="raw")
 
+        # 执行alwaysraise
         def _always_raise(**kwargs):
             raise ValueError("always fail")
 
@@ -4934,11 +5091,13 @@ class TestErrorResilience:
         assert summary.passed == 0
         assert exit_code == 1
 
+    # 测试errorrecordjsonroundtripinoutput
     def test_error_record_json_roundtrip_in_output(self, tmp_path, capsys, monkeypatch):
         """ComparisonErrorRecord correctly serializes and deserializes in output."""
         baseline_path, target_path = _create_dumps(tmp_path, ["tensor_a"])
         argv = _make_argv(baseline_path, target_path, preset="raw")
 
+        # 执行raise
         def _raise(**kwargs):
             raise TypeError("bad type")
 
@@ -4949,11 +5108,13 @@ class TestErrorResilience:
         assert len(errors) == 1
         assert errors[0].exception_type == "TypeError"
 
+    # 测试errorrecordcontainsdimshint
     def test_error_record_contains_dims_hint(self, tmp_path, capsys, monkeypatch):
         """Error record includes --override-dims hint with all variant flags."""
         baseline_path, target_path = _create_dumps(tmp_path, ["tensor_a"])
         argv = _make_argv(baseline_path, target_path, preset="raw")
 
+        # 执行raise
         def _raise(**kwargs):
             raise ValueError("Invalid dim token: 'zzz'")
 
@@ -4971,6 +5132,7 @@ class TestErrorResilience:
         assert "--override-config" in tb
         assert "do NOT re-run expensive dumps" in tb
 
+    # 测试errorrecordhintappearsbeforetraceback
     def test_error_record_hint_appears_before_traceback(
         self, tmp_path, capsys, monkeypatch
     ):
@@ -4978,6 +5140,7 @@ class TestErrorResilience:
         baseline_path, target_path = _create_dumps(tmp_path, ["tensor_a"])
         argv = _make_argv(baseline_path, target_path, preset="raw")
 
+        # 执行raise
         def _raise(**kwargs):
             raise RuntimeError("some dims problem")
 

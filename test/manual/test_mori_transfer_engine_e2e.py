@@ -1,3 +1,4 @@
+# 文件名: test_mori_transfer_engine_e2e.py - Mori传输引擎端到端测试 - 验证Mori传输引擎的端到端功能
 import os
 import subprocess
 import unittest
@@ -25,6 +26,7 @@ class TestMoriTransferEngineE2E(PDDisaggregationServerBase):
     """
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         if os.environ.get("SGLANG_MORI_MANUAL_E2E", "") not in ("1", "true", "True"):
             raise unittest.SkipTest(
@@ -65,11 +67,13 @@ class TestMoriTransferEngineE2E(PDDisaggregationServerBase):
         cls.launch_lb()
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         os.environ.pop("SGLANG_TEST_PD_DISAGG_BACKEND", None)
         super().tearDownClass()
 
     @classmethod
+    # launch lb
     def launch_lb(cls):
         lb_command = [
             "python3",
@@ -95,6 +99,7 @@ class TestMoriTransferEngineE2E(PDDisaggregationServerBase):
         )
 
     @classmethod
+    # start prefill
     def start_prefill(cls):
         prefill_args = [
             "--trust-remote-code",
@@ -112,6 +117,7 @@ class TestMoriTransferEngineE2E(PDDisaggregationServerBase):
         )
 
     @classmethod
+    # start decode
     def start_decode(cls):
         decode_args = [
             "--trust-remote-code",
@@ -130,6 +136,7 @@ class TestMoriTransferEngineE2E(PDDisaggregationServerBase):
             other_args=decode_args,
         )
 
+    # 测试generate basic
     def test_generate_basic(self):
         resp = requests.post(
             self.lb_url + "/generate",
@@ -159,6 +166,7 @@ class TestMoriTransferEngineTPMismatchE2E(PDDisaggregationServerBase):
     _PORT_DELTA = 10
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         if os.environ.get("SGLANG_MORI_MANUAL_E2E", "") not in ("1", "true", "True"):
             raise unittest.SkipTest(
@@ -208,11 +216,13 @@ class TestMoriTransferEngineTPMismatchE2E(PDDisaggregationServerBase):
         cls.launch_lb()
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         os.environ.pop("SGLANG_TEST_PD_DISAGG_BACKEND", None)
         super().tearDownClass()
 
     @classmethod
+    # launch lb
     def launch_lb(cls):
         lb_command = [
             "python3",
@@ -238,6 +248,7 @@ class TestMoriTransferEngineTPMismatchE2E(PDDisaggregationServerBase):
         )
 
     @classmethod
+    # start prefill
     def start_prefill(cls):
         prefill_args = [
             "--trust-remote-code",
@@ -255,6 +266,7 @@ class TestMoriTransferEngineTPMismatchE2E(PDDisaggregationServerBase):
         )
 
     @classmethod
+    # start decode
     def start_decode(cls):
         decode_args = [
             "--trust-remote-code",
@@ -273,6 +285,7 @@ class TestMoriTransferEngineTPMismatchE2E(PDDisaggregationServerBase):
             other_args=decode_args,
         )
 
+    # 测试generate with tp mismatch
     def test_generate_with_tp_mismatch(self):
         resp = requests.post(
             self.lb_url + "/generate",

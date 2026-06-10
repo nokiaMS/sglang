@@ -1,3 +1,4 @@
+# 文件名: test_deepseek_v3_fp4_4gpu_trtllm.py - DeepSeek-V3 FP4 4卡TRTLLM测试 - 验证FP4量化下GSM8K准确性和推理速度
 """DeepSeek-V3 FP4 4-GPU test, TRTLLM variant.
 
 Backend: `--attention-backend trtllm_mla --moe-runner-backend flashinfer_trtllm`.
@@ -24,6 +25,7 @@ SERVER_LAUNCH_TIMEOUT = 1200
 
 class TestDeepseekV3FP4(CustomTestCase):
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         cls.model = FULL_DEEPSEEK_V3_FP4_MODEL_PATH
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -49,9 +51,11 @@ class TestDeepseekV3FP4(CustomTestCase):
         )
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试a gsm8k
     def test_a_gsm8k(
         self,
     ):  # Append an "a" to make this test run first (alphabetically) to warm up the server
@@ -75,6 +79,7 @@ class TestDeepseekV3FP4(CustomTestCase):
 
         self.assertGreater(metrics["score"], 0.93)
 
+    # 测试bs 1 speed
     def test_bs_1_speed(self):
         args = BenchArgs(port=int(self.base_url.split(":")[-1]), max_new_tokens=2048)
         _, speed = send_one_prompt(args)

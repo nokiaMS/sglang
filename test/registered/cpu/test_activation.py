@@ -1,3 +1,4 @@
+# 文件名: test_activation.py - 激活函数测试
 import itertools
 import unittest
 
@@ -18,6 +19,7 @@ class TestActivation(CustomTestCase):
     N = [22016, 22018]
     dtype = [torch.float16, torch.bfloat16]
 
+    # 执行siluandmultest
     def _silu_and_mul_test(self, m, n, dtype):
         set_global_server_args_for_scheduler(ServerArgs(model_path="dummy"))
 
@@ -29,6 +31,7 @@ class TestActivation(CustomTestCase):
         atol = rtol = precision[ref_out.dtype]
         torch.testing.assert_close(ref_out, out, atol=atol, rtol=rtol)
 
+    # 执行geluandmultest
     def _gelu_and_mul_test(self, m, n, dtype):
         x = torch.randn([m, n], dtype=dtype)
 
@@ -38,6 +41,7 @@ class TestActivation(CustomTestCase):
         atol = rtol = precision[ref_out.dtype]
         torch.testing.assert_close(ref_out, out, atol=atol, rtol=rtol)
 
+    # 执行gelutanhandmultest
     def _gelu_tanh_and_mul_test(self, m, n, dtype):
         x = torch.randn([m, n], dtype=dtype)
 
@@ -47,6 +51,7 @@ class TestActivation(CustomTestCase):
         atol = rtol = precision[ref_out.dtype]
         torch.testing.assert_close(ref_out, out, atol=atol, rtol=rtol)
 
+    # 测试activation
     def test_activation(self):
         for params in itertools.product(self.M, self.N, self.dtype):
             with self.subTest(m=params[0], n=params[1], dtype=params[2]):

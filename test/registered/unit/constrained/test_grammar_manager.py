@@ -1,3 +1,4 @@
+# 文件名: test_grammar_manager.py - 语法管理器
 """
 Unit tests for sglang.srt.constrained.grammar_manager.
 
@@ -31,6 +32,7 @@ register_cpu_ci(2.0, "base-a-test-cpu")
 register_cpu_ci(est_time=7, suite="base-b-test-cpu")
 
 
+# 内部方法_make_scheduler
 def _make_scheduler(grammar_backend_name="none", skip_tokenizer=False):
     """Create a mock scheduler with necessary attributes."""
     scheduler = MagicMock()
@@ -49,6 +51,7 @@ def _make_scheduler(grammar_backend_name="none", skip_tokenizer=False):
     return scheduler
 
 
+# 内部方法_make_req
 def _make_req(
     json_schema=None,
     regex=None,
@@ -73,33 +76,41 @@ def _make_req(
     return req
 
 
+# TestGrammarManagerInit类
 class TestGrammarManagerInit(unittest.TestCase):
     """Test GrammarManager initialization."""
 
     @patch("sglang.srt.constrained.grammar_manager.create_grammar_backend")
+
+    # TestGrammarManagerInit类的测试initwithbackend
     def test_init_with_backend(self, mock_create):
         mock_create.return_value = MagicMock(spec=BaseGrammarBackend)
         scheduler = _make_scheduler("xgrammar")
         scheduler.server_args.skip_tokenizer_init = False
 
         mgr = GrammarManager(scheduler)
-        self.assertIsNotNone(mgr.grammar_backend)
-        self.assertEqual(len(mgr), 0)
+        self.assertIsNotNone(mgr.grammar_backend)  # 断言不为None
+        self.assertEqual(len(mgr), 0)  # 断言相等
 
+    # TestGrammarManagerInit类的测试initskiptokenizer
     def test_init_skip_tokenizer(self):
         scheduler = _make_scheduler(skip_tokenizer=True)
         mgr = GrammarManager(scheduler)
-        self.assertIsNone(mgr.grammar_backend)
+        self.assertIsNone(mgr.grammar_backend)  # 断言为None
 
     @patch("sglang.srt.constrained.grammar_manager.create_grammar_backend")
+
+    # TestGrammarManagerInit类的测试lenandhaswaiting
     def test_len_and_has_waiting(self, mock_create):
         mock_create.return_value = None
         scheduler = _make_scheduler()
         mgr = GrammarManager(scheduler)
-        self.assertEqual(len(mgr), 0)
-        self.assertFalse(mgr.has_waiting_grammars())
+        self.assertEqual(len(mgr), 0)  # 断言相等
+        self.assertFalse(mgr.has_waiting_grammars())  # 断言为假
 
     @patch("sglang.srt.constrained.grammar_manager.create_grammar_backend")
+
+    # TestGrammarManagerInit类的测试clearresetsbackend
     def test_clear_resets_backend(self, mock_create):
         mock_backend = MagicMock(spec=BaseGrammarBackend)
         mock_create.return_value = mock_backend
@@ -111,6 +122,8 @@ class TestGrammarManagerInit(unittest.TestCase):
         mock_backend.reset.assert_called_once()
 
     @patch("sglang.srt.constrained.grammar_manager.create_grammar_backend")
+
+    # TestGrammarManagerInit类的测试clearnobackend
     def test_clear_no_backend(self, mock_create):
         mock_create.return_value = None
         scheduler = _make_scheduler()
@@ -118,6 +131,7 @@ class TestGrammarManagerInit(unittest.TestCase):
         mgr.clear()  # Should not raise
 
 
+# TestProcessReqWithGrammar类
 class TestProcessReqWithGrammar(unittest.TestCase):
     """Test process_req_with_grammar dispatch and caching."""
 
@@ -128,13 +142,15 @@ class TestProcessReqWithGrammar(unittest.TestCase):
         mgr.grammar_backend = MagicMock(spec=BaseGrammarBackend)
         return mgr
 
+    # TestProcessReqWithGrammar类的测试noconstraintreturnsfalse
     def test_no_constraint_returns_false(self):
         mgr = self._make_mgr()
         req = _make_req()  # No constraints
         result = mgr.process_req_with_grammar(req)
-        self.assertFalse(result)
-        self.assertEqual(len(mgr.grammar_queue), 0)
+        self.assertFalse(result)  # 断言为假
+        self.assertEqual(len(mgr.grammar_queue), 0)  # 断言相等
 
+    # TestProcessReqWithGrammar类的测试jsonschemacachemiss
     def test_json_schema_cache_miss(self):
         mgr = self._make_mgr()
         future = Future()
@@ -143,10 +159,11 @@ class TestProcessReqWithGrammar(unittest.TestCase):
         req = _make_req(json_schema='{"type": "object"}')
         result = mgr.process_req_with_grammar(req)
 
-        self.assertTrue(result)
-        self.assertEqual(len(mgr.grammar_queue), 1)
-        self.assertEqual(req.grammar_key, ("json", '{"type": "object"}'))
+        self.assertTrue(result)  # 断言为真
+        self.assertEqual(len(mgr.grammar_queue), 1)  # 断言相等
+        self.assertEqual(req.grammar_key, ("json", '{"type": "object"}'))  # 断言相等
 
+    # TestProcessReqWithGrammar类的测试regexcachemiss
     def test_regex_cache_miss(self):
         mgr = self._make_mgr()
         future = Future()
@@ -155,9 +172,10 @@ class TestProcessReqWithGrammar(unittest.TestCase):
         req = _make_req(regex="[a-z]+")
         result = mgr.process_req_with_grammar(req)
 
-        self.assertTrue(result)
-        self.assertEqual(req.grammar_key, ("regex", "[a-z]+"))
+        self.assertTrue(result)  # 断言为真
+        self.assertEqual(req.grammar_key, ("regex", "[a-z]+"))  # 断言相等
 
+    # TestProcessReqWithGrammar类的测试ebnfcachemiss
     def test_ebnf_cache_miss(self):
         mgr = self._make_mgr()
         future = Future()
@@ -166,9 +184,10 @@ class TestProcessReqWithGrammar(unittest.TestCase):
         req = _make_req(ebnf="root ::= 'hello'")
         result = mgr.process_req_with_grammar(req)
 
-        self.assertTrue(result)
-        self.assertEqual(req.grammar_key, ("ebnf", "root ::= 'hello'"))
+        self.assertTrue(result)  # 断言为真
+        self.assertEqual(req.grammar_key, ("ebnf", "root ::= 'hello'"))  # 断言相等
 
+    # TestProcessReqWithGrammar类的测试structuraltagcachemiss
     def test_structural_tag_cache_miss(self):
         mgr = self._make_mgr()
         future = Future()
@@ -177,12 +196,13 @@ class TestProcessReqWithGrammar(unittest.TestCase):
         req = _make_req(structural_tag='{"structures": [], "triggers": []}')
         result = mgr.process_req_with_grammar(req)
 
-        self.assertTrue(result)
-        self.assertEqual(
+        self.assertTrue(result)  # 断言为真
+        self.assertEqual(  # 断言相等
             req.grammar_key,
             ("structural_tag", '{"structures": [], "triggers": []}'),
         )
 
+    # TestProcessReqWithGrammar类的测试cachehitreturnsfalse
     def test_cache_hit_returns_false(self):
         """Cache hit should NOT add to grammar queue."""
         mgr = self._make_mgr()
@@ -195,10 +215,11 @@ class TestProcessReqWithGrammar(unittest.TestCase):
         req = _make_req(json_schema='{"type": "object"}')
         result = mgr.process_req_with_grammar(req)
 
-        self.assertFalse(result)
-        self.assertEqual(len(mgr.grammar_queue), 0)
-        self.assertIs(req.grammar, grammar_obj)
+        self.assertFalse(result)  # 断言为假
+        self.assertEqual(len(mgr.grammar_queue), 0)  # 断言相等
+        self.assertIs(req.grammar, grammar_obj)  # 断言是同一对象
 
+    # TestProcessReqWithGrammar类的测试cachehitinvalidgrammaraborts
     def test_cache_hit_invalid_grammar_aborts(self):
         """Cache hit with InvalidGrammarObject should abort the request."""
         mgr = self._make_mgr()
@@ -208,10 +229,11 @@ class TestProcessReqWithGrammar(unittest.TestCase):
         req = _make_req(json_schema="bad")
         result = mgr.process_req_with_grammar(req)
 
-        self.assertFalse(result)
+        self.assertFalse(result)  # 断言为假
         req.set_finish_with_abort.assert_called_once()
-        self.assertIn("bad schema", req.set_finish_with_abort.call_args[0][0])
+        self.assertIn("bad schema", req.set_finish_with_abort.call_args[0][0])  # 断言包含
 
+    # TestProcessReqWithGrammar类的测试nobackendaborts
     def test_no_backend_aborts(self):
         """No grammar backend should abort request."""
         scheduler = _make_scheduler()
@@ -222,10 +244,11 @@ class TestProcessReqWithGrammar(unittest.TestCase):
         req = _make_req(json_schema='{"type": "object"}')
         result = mgr.process_req_with_grammar(req)
 
-        self.assertFalse(result)
+        self.assertFalse(result)  # 断言为假
         req.set_finish_with_abort.assert_called_once()
-        self.assertIn("not supported", req.set_finish_with_abort.call_args[0][0])
+        self.assertIn("not supported", req.set_finish_with_abort.call_args[0][0])  # 断言包含
 
+    # TestProcessReqWithGrammar类的测试jsontakespriorityoverotherconstraints
     def test_json_takes_priority_over_other_constraints(self):
         """When json_schema is set, it should be used regardless of other fields."""
         mgr = self._make_mgr()
@@ -234,8 +257,9 @@ class TestProcessReqWithGrammar(unittest.TestCase):
 
         req = _make_req(json_schema='{"type": "object"}', regex="[a-z]+")
         mgr.process_req_with_grammar(req)
-        self.assertEqual(req.grammar_key, ("json", '{"type": "object"}'))
+        self.assertEqual(req.grammar_key, ("json", '{"type": "object"}'))  # 断言相等
 
+    # TestProcessReqWithGrammar类的测试requirereasoningforwardedtobackend
     def test_require_reasoning_forwarded_to_backend(self):
         """require_reasoning from the request should be passed to the backend."""
         mgr = self._make_mgr()
@@ -253,17 +277,19 @@ class TestProcessReqWithGrammar(unittest.TestCase):
             ("json", "schema"), True
         )
 
+    # TestProcessReqWithGrammar类的测试haswaitinggrammarsafterenqueue
     def test_has_waiting_grammars_after_enqueue(self):
         mgr = self._make_mgr()
         future = Future()
         mgr.grammar_backend.get_cached_or_future_value.return_value = (future, False)
 
-        self.assertFalse(mgr.has_waiting_grammars())
+        self.assertFalse(mgr.has_waiting_grammars())  # 断言为假
         req = _make_req(json_schema="schema")
         mgr.process_req_with_grammar(req)
-        self.assertTrue(mgr.has_waiting_grammars())
-        self.assertEqual(len(mgr), 1)
+        self.assertTrue(mgr.has_waiting_grammars())  # 断言为真
+        self.assertEqual(len(mgr), 1)  # 断言相等
 
+    # TestProcessReqWithGrammar类的测试cachehitappliesrequestthinkingbudget
     def test_cache_hit_applies_request_thinking_budget(self):
         mgr = self._make_mgr()
         grammar_obj = ReasonerGrammarObject(
@@ -280,8 +306,9 @@ class TestProcessReqWithGrammar(unittest.TestCase):
         )
         mgr.process_req_with_grammar(req)
 
-        self.assertEqual(req.grammar.max_think_tokens, 7)
+        self.assertEqual(req.grammar.max_think_tokens, 7)  # 断言相等
 
+    # TestProcessReqWithGrammar类的测试strictreasoninggrammarappliesrequestthinkingbudget
     def test_strict_reasoning_grammar_applies_request_thinking_budget(self):
         mgr = self._make_mgr()
         mgr._enable_strict_thinking = True
@@ -294,10 +321,11 @@ class TestProcessReqWithGrammar(unittest.TestCase):
         req.require_reasoning = True
         mgr.process_req_with_grammar(req)
 
-        self.assertIs(req.grammar, grammar_obj)
-        self.assertEqual(req.grammar.max_think_tokens, 3)
+        self.assertIs(req.grammar, grammar_obj)  # 断言是同一对象
+        self.assertEqual(req.grammar.max_think_tokens, 3)  # 断言相等
 
 
+# TestAbortRequests类
 class TestAbortRequests(unittest.TestCase):
     """Test abort_requests handling."""
 
@@ -308,6 +336,7 @@ class TestAbortRequests(unittest.TestCase):
         mgr.grammar_backend = MagicMock(spec=BaseGrammarBackend)
         return mgr
 
+    # TestAbortRequests类的测试abortbyridprefix
     def test_abort_by_rid_prefix(self):
         mgr = self._make_mgr_with_queue()
         req = _make_req(rid="req-123")
@@ -323,6 +352,7 @@ class TestAbortRequests(unittest.TestCase):
         future.cancel.assert_called_once()
         req.set_finish_with_abort.assert_called_once()
 
+    # TestAbortRequests类的测试abortnonmatchingrid
     def test_abort_non_matching_rid(self):
         mgr = self._make_mgr_with_queue()
         req = _make_req(rid="req-999")
@@ -336,6 +366,7 @@ class TestAbortRequests(unittest.TestCase):
         mgr.abort_requests(abort_req)
         req.set_finish_with_abort.assert_not_called()
 
+    # TestAbortRequests类的测试abortall
     def test_abort_all(self):
         mgr = self._make_mgr_with_queue()
         reqs = []
@@ -353,6 +384,7 @@ class TestAbortRequests(unittest.TestCase):
         for req in reqs:
             req.set_finish_with_abort.assert_called_once()
 
+    # TestAbortRequests类的测试abortemptyqueue
     def test_abort_empty_queue(self):
         """Aborting on an empty queue should not raise."""
         mgr = self._make_mgr_with_queue()
@@ -361,6 +393,7 @@ class TestAbortRequests(unittest.TestCase):
         abort_req.rid = ""
         mgr.abort_requests(abort_req)  # Should not raise
 
+    # TestAbortRequests类的测试abortprefixmatch
     def test_abort_prefix_match(self):
         """rid.startswith means prefix matching, not exact matching."""
         mgr = self._make_mgr_with_queue()
@@ -376,6 +409,7 @@ class TestAbortRequests(unittest.TestCase):
         req.set_finish_with_abort.assert_called_once()
 
 
+# TestGetReadyGrammarRequests类
 class TestGetReadyGrammarRequests(unittest.TestCase):
     """Test get_ready_grammar_requests polling and result handling."""
 
@@ -389,6 +423,7 @@ class TestGetReadyGrammarRequests(unittest.TestCase):
         mgr.SGLANG_GRAMMAR_MAX_POLL_ITERATIONS = 3
         return mgr
 
+    # TestGetReadyGrammarRequests类的测试readyfuturereturnsreq
     def test_ready_future_returns_req(self):
         mgr = self._make_mgr()
 
@@ -403,14 +438,15 @@ class TestGetReadyGrammarRequests(unittest.TestCase):
         mgr.grammar_queue.append(req)
 
         result = mgr.get_ready_grammar_requests()
-        self.assertEqual(len(result), 1)
-        self.assertIs(result[0], req)
-        self.assertIs(req.grammar, grammar_obj)
+        self.assertEqual(len(result), 1)  # 断言相等
+        self.assertIs(result[0], req)  # 断言是同一对象
+        self.assertIs(req.grammar, grammar_obj)  # 断言是同一对象
         # Cache should be set
         mgr.grammar_backend.set_cache.assert_called_once()
         # Queue should be empty
-        self.assertEqual(len(mgr.grammar_queue), 0)
+        self.assertEqual(len(mgr.grammar_queue), 0)  # 断言相等
 
+    # TestGetReadyGrammarRequests类的测试invalidgrammarabortsreq
     def test_invalid_grammar_aborts_req(self):
         mgr = self._make_mgr()
 
@@ -426,10 +462,11 @@ class TestGetReadyGrammarRequests(unittest.TestCase):
         mgr.grammar_queue.append(req)
 
         result = mgr.get_ready_grammar_requests()
-        self.assertEqual(len(result), 1)
+        self.assertEqual(len(result), 1)  # 断言相等
         req.set_finish_with_abort.assert_called_once()
-        self.assertIn("compile error", req.set_finish_with_abort.call_args[0][0])
+        self.assertIn("compile error", req.set_finish_with_abort.call_args[0][0])  # 断言包含
 
+    # TestGetReadyGrammarRequests类的测试abortedreqremovedfromqueue
     def test_aborted_req_removed_from_queue(self):
         mgr = self._make_mgr()
 
@@ -439,9 +476,10 @@ class TestGetReadyGrammarRequests(unittest.TestCase):
         mgr.grammar_queue.append(req)
 
         result = mgr.get_ready_grammar_requests()
-        self.assertEqual(len(result), 1)
-        self.assertEqual(len(mgr.grammar_queue), 0)
+        self.assertEqual(len(result), 1)  # 断言相等
+        self.assertEqual(len(mgr.grammar_queue), 0)  # 断言相等
 
+    # TestGetReadyGrammarRequests类的测试timeoutabortsreq
     def test_timeout_aborts_req(self):
         mgr = self._make_mgr()
         mgr.SGLANG_GRAMMAR_MAX_POLL_ITERATIONS = 1
@@ -456,15 +494,16 @@ class TestGetReadyGrammarRequests(unittest.TestCase):
         # First call: not ready, increments wait_ct to 1 (== max_poll)
         result = mgr.get_ready_grammar_requests()
         # Should timeout and abort
-        self.assertEqual(len(result), 1)
+        self.assertEqual(len(result), 1)  # 断言相等
         req.set_finish_with_abort.assert_called_once()
-        self.assertIn("timed out", req.set_finish_with_abort.call_args[0][0])
+        self.assertIn("timed out", req.set_finish_with_abort.call_args[0][0])  # 断言包含
         # Cache should store InvalidGrammarObject for timeout
         mgr.grammar_backend.set_cache.assert_called_once()
         cached_key, cached_val = mgr.grammar_backend.set_cache.call_args[0]
-        self.assertEqual(cached_key, ("json", "slow"))
+        self.assertEqual(cached_key, ("json", "slow"))  # 断言相等
         self.assertIsInstance(cached_val, InvalidGrammarObject)
 
+    # TestGetReadyGrammarRequests类的测试pendingfuturestaysinqueue
     def test_pending_future_stays_in_queue(self):
         """Futures that aren't done stay in the queue."""
         mgr = self._make_mgr()
@@ -478,10 +517,11 @@ class TestGetReadyGrammarRequests(unittest.TestCase):
         mgr.grammar_queue.append(req)
 
         result = mgr.get_ready_grammar_requests()
-        self.assertEqual(len(result), 0)
-        self.assertEqual(len(mgr.grammar_queue), 1)
-        self.assertEqual(req.grammar_wait_ct, 1)
+        self.assertEqual(len(result), 0)  # 断言相等
+        self.assertEqual(len(mgr.grammar_queue), 1)  # 断言相等
+        self.assertEqual(req.grammar_wait_ct, 1)  # 断言相等
 
+    # TestGetReadyGrammarRequests类的测试mixedreadyandpending
     def test_mixed_ready_and_pending(self):
         mgr = self._make_mgr()
         mgr.SGLANG_GRAMMAR_MAX_POLL_ITERATIONS = 100
@@ -505,18 +545,20 @@ class TestGetReadyGrammarRequests(unittest.TestCase):
         mgr.grammar_queue = [ready_req, pending_req]
 
         result = mgr.get_ready_grammar_requests()
-        self.assertEqual(len(result), 1)
-        self.assertIs(result[0], ready_req)
-        self.assertEqual(len(mgr.grammar_queue), 1)
-        self.assertIs(mgr.grammar_queue[0], pending_req)
+        self.assertEqual(len(result), 1)  # 断言相等
+        self.assertIs(result[0], ready_req)  # 断言是同一对象
+        self.assertEqual(len(mgr.grammar_queue), 1)  # 断言相等
+        self.assertIs(mgr.grammar_queue[0], pending_req)  # 断言是同一对象
 
+    # TestGetReadyGrammarRequests类的测试emptyqueue
     def test_empty_queue(self):
         """get_ready_grammar_requests on empty queue should return empty list."""
         mgr = self._make_mgr()
         result = mgr.get_ready_grammar_requests()
-        self.assertEqual(len(result), 0)
-        self.assertEqual(len(mgr.grammar_queue), 0)
+        self.assertEqual(len(result), 0)  # 断言相等
+        self.assertEqual(len(mgr.grammar_queue), 0)  # 断言相等
 
+    # TestGetReadyGrammarRequests类的测试progressivetimeout
     def test_progressive_timeout(self):
         """Request with partial wait_ct should timeout after remaining iterations."""
         mgr = self._make_mgr()
@@ -531,10 +573,11 @@ class TestGetReadyGrammarRequests(unittest.TestCase):
 
         # wait_ct increments to 3 (== max), should timeout
         result = mgr.get_ready_grammar_requests()
-        self.assertEqual(len(result), 1)
+        self.assertEqual(len(result), 1)  # 断言相等
         req.set_finish_with_abort.assert_called_once()
-        self.assertIn("timed out", req.set_finish_with_abort.call_args[0][0])
+        self.assertIn("timed out", req.set_finish_with_abort.call_args[0][0])  # 断言包含
 
+    # TestGetReadyGrammarRequests类的测试futureexceptioncreatesinvalidgrammarobject
     def test_future_exception_creates_invalid_grammar_object(self):
         """A future that raised an exception should create InvalidGrammarObject, not crash."""
         mgr = self._make_mgr()
@@ -548,10 +591,11 @@ class TestGetReadyGrammarRequests(unittest.TestCase):
         mgr.grammar_queue.append(req)
 
         result = mgr.get_ready_grammar_requests()
-        self.assertEqual(len(result), 1)
+        self.assertEqual(len(result), 1)  # 断言相等
         self.assertIsInstance(result[0].grammar, InvalidGrammarObject)
         req.set_finish_with_abort.assert_called_once()
 
+    # TestGetReadyGrammarRequests类的测试readyfutureappliesrequestbudgetwithoutpollutingcache
     def test_ready_future_applies_request_budget_without_polluting_cache(self):
         mgr = self._make_mgr()
 
@@ -568,13 +612,15 @@ class TestGetReadyGrammarRequests(unittest.TestCase):
 
         result = mgr.get_ready_grammar_requests()
 
-        self.assertEqual(len(result), 1)
-        self.assertEqual(req.grammar.max_think_tokens, 4)
+        self.assertEqual(len(result), 1)  # 断言相等
+        self.assertEqual(req.grammar.max_think_tokens, 4)  # 断言相等
         cached_key, cached_value = mgr.grammar_backend.set_cache.call_args[0]
-        self.assertEqual(cached_key, ("json", "schema"))
-        self.assertEqual(cached_value.max_think_tokens, 99)
+        self.assertEqual(cached_key, ("json", "schema"))  # 断言相等
+        self.assertEqual(cached_value.max_think_tokens, 99)  # 断言相等
 
     @patch("sglang.srt.constrained.grammar_manager.torch.distributed.all_gather_object")
+
+    # TestGetReadyGrammarRequests类的测试multiranksyncintersectsreadyunionsfailed
     def test_multi_rank_sync_intersects_ready_unions_failed(self, mock_all_gather):
         """With multiple ranks, ready = intersection, failed = union."""
         mgr = self._make_mgr()
@@ -608,13 +654,15 @@ class TestGetReadyGrammarRequests(unittest.TestCase):
 
         result = mgr.get_ready_grammar_requests()
         # Intersection of ready: {0} ∩ {0,1} = {0}
-        self.assertEqual(len(result), 1)
-        self.assertIs(result[0], req0)
+        self.assertEqual(len(result), 1)  # 断言相等
+        self.assertIs(result[0], req0)  # 断言是同一对象
         # req1 stays in queue
-        self.assertEqual(len(mgr.grammar_queue), 1)
-        self.assertIs(mgr.grammar_queue[0], req1)
+        self.assertEqual(len(mgr.grammar_queue), 1)  # 断言相等
+        self.assertIs(mgr.grammar_queue[0], req1)  # 断言是同一对象
 
     @patch("sglang.srt.constrained.grammar_manager.torch.distributed.all_gather_object")
+
+    # TestGetReadyGrammarRequests类的测试multiranksyncunionsfailed
     def test_multi_rank_sync_unions_failed(self, mock_all_gather):
         """Failed requests from any rank should be unioned."""
         mgr = self._make_mgr()
@@ -638,12 +686,13 @@ class TestGetReadyGrammarRequests(unittest.TestCase):
 
         result = mgr.get_ready_grammar_requests()
         # Union of failed: {} ∪ {0} = {0}
-        self.assertEqual(len(result), 1)
+        self.assertEqual(len(result), 1)  # 断言相等
         req.set_finish_with_abort.assert_called_once()
-        self.assertIn("timed out", req.set_finish_with_abort.call_args[0][0])
-        self.assertEqual(len(mgr.grammar_queue), 0)
+        self.assertIn("timed out", req.set_finish_with_abort.call_args[0][0])  # 断言包含
+        self.assertEqual(len(mgr.grammar_queue), 0)  # 断言相等
 
 
+# TestStrictReasoningPaths类
 class TestStrictReasoningPaths(unittest.TestCase):
     """Test _enable_strict_thinking code paths in GrammarManager."""
 
@@ -655,6 +704,7 @@ class TestStrictReasoningPaths(unittest.TestCase):
         mgr._enable_strict_thinking = True
         return mgr
 
+    # TestStrictReasoningPaths类的测试strictunconstrainedrequestgetsstrictgrammar
     def test_strict_unconstrained_request_gets_strict_grammar(self):
         """Request without json_schema/regex/ebnf should get strict-only grammar."""
         mgr = self._make_mgr()
@@ -665,10 +715,11 @@ class TestStrictReasoningPaths(unittest.TestCase):
         req.require_reasoning = True
         result = mgr.process_req_with_grammar(req)
 
-        self.assertFalse(result)  # Not added to grammar queue
-        self.assertIs(req.grammar, grammar_obj)
+        self.assertFalse(result)  # Not added to grammar queue  # 断言为假
+        self.assertIs(req.grammar, grammar_obj)  # 断言是同一对象
         mgr.grammar_backend.init_strict_reasoning_grammar.assert_called_once_with(True)
 
+    # TestStrictReasoningPaths类的测试strictunconstrainednoreasoningflag
     def test_strict_unconstrained_no_reasoning_flag(self):
         """Unconstrained request with require_reasoning=False still gets strict grammar."""
         mgr = self._make_mgr()
@@ -679,9 +730,10 @@ class TestStrictReasoningPaths(unittest.TestCase):
         req.require_reasoning = False
         mgr.process_req_with_grammar(req)
 
-        self.assertIs(req.grammar, grammar_obj)
+        self.assertIs(req.grammar, grammar_obj)  # 断言是同一对象
         mgr.grammar_backend.init_strict_reasoning_grammar.assert_called_once_with(False)
 
+    # TestStrictReasoningPaths类的测试strictunconstrainednonegrammarisfine
     def test_strict_unconstrained_none_grammar_is_fine(self):
         """If init_strict_reasoning_grammar returns None, req.grammar stays None."""
         mgr = self._make_mgr()
@@ -691,8 +743,9 @@ class TestStrictReasoningPaths(unittest.TestCase):
         req.require_reasoning = True
         mgr.process_req_with_grammar(req)
 
-        self.assertIsNone(req.grammar)
+        self.assertIsNone(req.grammar)  # 断言为None
 
+    # TestStrictReasoningPaths类的测试strictconstrainedrequestusesnormaldispatch
     def test_strict_constrained_request_uses_normal_dispatch(self):
         """Request with json_schema should go through normal dispatch, not strict path."""
         mgr = self._make_mgr()
@@ -703,9 +756,10 @@ class TestStrictReasoningPaths(unittest.TestCase):
         req.require_reasoning = True
         result = mgr.process_req_with_grammar(req)
 
-        self.assertTrue(result)  # Added to grammar queue
+        self.assertTrue(result)  # Added to grammar queue  # 断言为真
         mgr.grammar_backend.init_strict_reasoning_grammar.assert_not_called()
 
+    # TestStrictReasoningPaths类的测试strictnotsetskipsstrictpath
     def test_strict_not_set_skips_strict_path(self):
         """When _enable_strict_thinking=False, unconstrained requests get no grammar."""
         mgr = self._make_mgr()
@@ -715,9 +769,10 @@ class TestStrictReasoningPaths(unittest.TestCase):
         req.require_reasoning = True
         mgr.process_req_with_grammar(req)
 
-        self.assertIsNone(req.grammar)
+        self.assertIsNone(req.grammar)  # 断言为None
         mgr.grammar_backend.init_strict_reasoning_grammar.assert_not_called()
 
+    # TestStrictReasoningPaths类的测试futureexceptioncreatesinvalidgrammar
     def test_future_exception_creates_invalid_grammar(self):
         """Future.result() raising should create InvalidGrammarObject, not crash."""
         mgr = self._make_mgr()
@@ -734,7 +789,7 @@ class TestStrictReasoningPaths(unittest.TestCase):
         mgr.SGLANG_GRAMMAR_POLL_INTERVAL = 0.001
         result = mgr.get_ready_grammar_requests()
 
-        self.assertEqual(len(result), 1)
+        self.assertEqual(len(result), 1)  # 断言相等
         self.assertIsInstance(result[0].grammar, InvalidGrammarObject)
         req.set_finish_with_abort.assert_called_once()
 

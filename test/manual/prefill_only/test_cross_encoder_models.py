@@ -1,3 +1,4 @@
+# 文件名: test_cross_encoder_models.py - 交叉编码器模型测试 - 验证SRT和HuggingFace重排序得分的一致性
 import multiprocessing as mp
 import random
 import unittest
@@ -22,9 +23,11 @@ TORCH_DTYPES = [torch.float32]
 class TestCrossEncoderModels(CustomTestCase):
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         mp.set_start_method("spawn", force=True)
 
+    # 验证预填充logits的相似度 - 比较HF和SRT的推理结果
     def assert_close_prefill_logits(
         self,
         prompts,
@@ -59,6 +62,7 @@ class TestCrossEncoderModels(CustomTestCase):
                 score_difference < score_tolerance
             ), "cross encoder scores are not all close"
 
+    # 预处理提示 - 将查询和文档配对为交叉编码器输入格式
     def preprocess_prompts(self, prompt):
         processed_prompts = []
         query = prompt["query"]
@@ -68,6 +72,7 @@ class TestCrossEncoderModels(CustomTestCase):
 
         return processed_prompts
 
+    # 测试prefill logits
     def test_prefill_logits(self):
         models_to_test = MODELS
 

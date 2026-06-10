@@ -1,3 +1,4 @@
+# 文件名: test_aux_loader.py - 辅助加载器测试
 import sys
 from pathlib import Path
 
@@ -25,6 +26,7 @@ _sglang_plugin = _SGLangPlugin()
 _megatron_plugin = _MegatronPlugin()
 
 
+# 执行savept
 def _save_pt(
     dump_path: Path,
     *,
@@ -40,6 +42,7 @@ def _save_pt(
     return filename
 
 
+# 执行makedffromfilenames
 def _make_df_from_filenames(filenames: list[str]) -> pl.DataFrame:
     rows: list[dict] = []
     for fn in filenames:
@@ -63,6 +66,7 @@ def _make_df_from_filenames(filenames: list[str]) -> pl.DataFrame:
 class TestEnsureDimsInMetas:
     """Tests for _ensure_dims_in_metas."""
 
+    # 执行makemeta
     def _make_meta(self, *, cp_size: int = 1, cp_rank: int = 0) -> dict:
         return {
             "sglang_parallel_info": {
@@ -73,6 +77,7 @@ class TestEnsureDimsInMetas:
             }
         }
 
+    # 测试nocpreturnsmetasunchanged
     def test_no_cp_returns_metas_unchanged(self):
         """Without CP parallelism, metas are returned as-is."""
         metas: list[dict] = [self._make_meta(cp_size=1)]
@@ -81,6 +86,7 @@ class TestEnsureDimsInMetas:
         )
         assert result is metas
 
+    # 测试dimsalreadypresentreturnsmetasunchanged
     def test_dims_already_present_returns_metas_unchanged(self):
         """If dims is already in meta, metas are returned as-is."""
         metas: list[dict] = [{**self._make_meta(cp_size=2, cp_rank=0), "dims": "t"}]
@@ -89,6 +95,7 @@ class TestEnsureDimsInMetas:
         )
         assert result is metas
 
+    # 测试cpshardedsglanginputidsinfersdims
     def test_cp_sharded_sglang_input_ids_infers_dims(self):
         """CP + input_ids in sglang infers dims 't[cp:zigzag]'."""
         metas: list[dict] = [
@@ -102,6 +109,7 @@ class TestEnsureDimsInMetas:
         assert result[0]["dims"] == "t[cp:zigzag]"
         assert result[1]["dims"] == "t[cp:zigzag]"
 
+    # 测试cpshardedsglangpositionsinfersdims
     def test_cp_sharded_sglang_positions_infers_dims(self):
         """CP + positions in sglang infers dims 't[cp:zigzag]'."""
         metas: list[dict] = [
@@ -113,6 +121,7 @@ class TestEnsureDimsInMetas:
         )
         assert result[0]["dims"] == "t[cp:zigzag]"
 
+    # 测试cpshardedmegatroninputidsinfersdims1d
     def test_cp_sharded_megatron_input_ids_infers_dims_1d(self):
         """CP + input_ids in megatron (1D) infers dims 't[cp:zigzag]'."""
         metas: list[dict] = [
@@ -124,6 +133,7 @@ class TestEnsureDimsInMetas:
         )
         assert result[0]["dims"] == "t[cp:zigzag]"
 
+    # 测试cpshardedmegatroninputidsinfersdims2d
     def test_cp_sharded_megatron_input_ids_infers_dims_2d(self):
         """CP + input_ids in megatron (2D) infers dims 'b s[cp:zigzag]'."""
         metas: list[dict] = [
@@ -135,6 +145,7 @@ class TestEnsureDimsInMetas:
         )
         assert result[0]["dims"] == "b s[cp:zigzag]"
 
+    # 测试cpnonshardednamereturnsmetasunchanged
     def test_cp_non_sharded_name_returns_metas_unchanged(self):
         """CP + non-sharded tensor name (seq_lens) returns metas as-is."""
         metas: list[dict] = [
@@ -146,11 +157,13 @@ class TestEnsureDimsInMetas:
         )
         assert result is metas
 
+    # 测试unknownpluginreturnsmetasunchanged
     def test_unknown_plugin_returns_metas_unchanged(self):
         """CP + plugin with empty cp_sharded_names returns metas as-is."""
 
         class _DummyPlugin(_SGLangPlugin):
             @property
+            # 执行cpshardednames
             def cp_sharded_names(self) -> frozenset[str]:
                 return frozenset()
 
@@ -165,6 +178,7 @@ class TestEnsureDimsInMetas:
 
 
 class TestDetectPlugin:
+    # 测试discriminatingnamessglang
     def test_discriminating_names_sglang(self, tmp_path: Path) -> None:
         fn: str = _save_pt(
             tmp_path, name="seq_lens", step=0, rank=0, value=torch.tensor([3])
@@ -176,6 +190,7 @@ class TestDetectPlugin:
         assert result is not None
         assert result.name == "sglang"
 
+    # 测试fallbacktometabaseddetection
     def test_fallback_to_meta_based_detection(self, tmp_path: Path) -> None:
         fn: str = _save_pt(
             tmp_path,
@@ -192,6 +207,7 @@ class TestDetectPlugin:
         assert result is not None
         assert result.name == "sglang"
 
+    # 测试returnsnonenomatch
     def test_returns_none_no_match(self, tmp_path: Path) -> None:
         fn: str = _save_pt(
             tmp_path, name="unrelated_tensor", step=0, rank=0, value=torch.tensor([1])
@@ -204,6 +220,7 @@ class TestDetectPlugin:
 
 
 class TestLoadNonTensorAux:
+    # 测试multirankmismatchwarning
     def test_multi_rank_mismatch_warning(self, tmp_path: Path) -> None:
         fn0: str = _save_pt(tmp_path, name="rids", step=0, rank=0, value=["req_A"])
         fn1: str = _save_pt(tmp_path, name="rids", step=0, rank=1, value=["req_B"])
@@ -226,6 +243,7 @@ class TestLoadNonTensorAux:
         assert isinstance(warnings[0], ErrorLog)
         assert "rids_mismatch" in warnings[0].category
 
+    # 测试norowsreturnsnone
     def test_no_rows_returns_none(self, tmp_path: Path) -> None:
         df: pl.DataFrame = _make_df_from_filenames([])
 
@@ -235,6 +253,7 @@ class TestLoadNonTensorAux:
 
 
 class TestLoadAndAlignAuxTensor:
+    # 测试multiranknodimsemitswarning
     def test_multi_rank_no_dims_emits_warning(self, tmp_path: Path) -> None:
         fn0: str = _save_pt(
             tmp_path,
@@ -294,6 +313,7 @@ class TestLoadAndAlignAuxTensor:
 class TestLoadNonTensorAuxDp:
     """DP filtering in _load_non_tensor_aux."""
 
+    # 测试dp2nontensorreturnsvalue
     def test_dp2_non_tensor_returns_value(self, tmp_path: Path) -> None:
         """DP=2 non-tensor aux: both ranks have same value, filter keeps all (non-tensor)."""
         fn0: str = _save_pt(
@@ -342,6 +362,7 @@ class TestLoadNonTensorAuxDp:
 class TestLoadAndAlignAuxTensorDp:
     """DP filtering in _load_and_align_aux_tensor."""
 
+    # 测试dp2tensoroneempty
     def test_dp2_tensor_one_empty(self, tmp_path: Path) -> None:
         """DP=2 tensor aux: rank 0 has data, rank 1 empty -> returns rank 0 tensor."""
         fn0: str = _save_pt(

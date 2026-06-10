@@ -1,3 +1,4 @@
+# 文件名: test_quick_allreduce.py - Quick AllReduce测试 - 验证ROCm Quick AllReduce在图模式和即时模式下的正确性
 import multiprocessing
 import os
 import random
@@ -28,6 +29,7 @@ torch.manual_seed(42)
 random.seed(44)  # keep the deterministic seed
 
 
+# 获取可用端口 - 查找系统可用的网络端口
 def get_open_port() -> int:
     # try ipv4
     try:
@@ -41,6 +43,7 @@ def get_open_port() -> int:
             return s.getsockname()[1]
 
 
+# 多进程并行测试 - 使用Ray启动多进程并行测试
 def multi_process_parallel(
     world_size: int, cls: Any, test_target: Any, quant_mode: str
 ) -> None:
@@ -82,6 +85,7 @@ class TestQuickAllReduce(CustomTestCase):
         not qr_rocm_arch_available(),
         "Only test Quick AllReduce on ROCm architectures >= gfx94*",
     )
+    # 测试graph allreduce
     def test_graph_allreduce(self):
         for quant_mode_world_size_part in self.QUANT_MODE_WORLD_SIZE_PART:
             quant_mode = quant_mode_world_size_part[0]
@@ -94,6 +98,7 @@ class TestQuickAllReduce(CustomTestCase):
         not qr_rocm_arch_available(),
         "Only test Quick AllReduce on ROCm architectures >= gfx94*",
     )
+    # 测试eager allreduce
     def test_eager_allreduce(self):
         for quant_mode_world_size_part in self.QUANT_MODE_WORLD_SIZE_PART:
             quant_mode = quant_mode_world_size_part[0]
@@ -103,6 +108,7 @@ class TestQuickAllReduce(CustomTestCase):
             multi_process_parallel(world_size, self, self.eager_allreduce, quant_mode)
 
     @ray.remote(num_gpus=1, max_calls=1)
+    # graph allreduce
     def graph_allreduce(self, world_size, rank, distributed_init_port, quant_mode):
         os.environ.pop("CUDA_VISIBLE_DEVICES", None)
         os.environ["ROCM_QUICK_REDUCE_QUANTIZATION"] = quant_mode
@@ -172,6 +178,7 @@ class TestQuickAllReduce(CustomTestCase):
                         #     print("Max rel diff:", ((out - inp).abs() / inp.abs().clamp(min=1e-5)).max())
 
     @ray.remote(num_gpus=1, max_calls=1)
+    # eager allreduce
     def eager_allreduce(self, world_size, rank, distributed_init_port, quant_mode):
         os.environ.pop("CUDA_VISIBLE_DEVICES", None)
         os.environ["ROCM_QUICK_REDUCE_QUANTIZATION"] = quant_mode
@@ -210,6 +217,7 @@ class TestQuickAllReduce(CustomTestCase):
                     #     print("Max rel diff:", ((out1 - inp1).abs() / inp1.abs().clamp(min=1e-5)).max())
 
 
+# QuickReduce可变输入测试 - 测试输入形状频繁变化时的QuickReduce稳定性
 def qr_variable_input(rank, world_size):
     device = torch.device(f"cuda:{rank}")
     torch.cuda.set_device(device)
@@ -271,6 +279,7 @@ class TestQuickreduceVariableInput(CustomTestCase):
         not qr_rocm_arch_available(),
         "Only test Quick AllReduce on ROCm architectures >= gfx94*",
     )
+    # 测试custom quick allreduce variable input
     def test_custom_quick_allreduce_variable_input(self):
         for tp_size in self.TP_SIZES:
             world_size = tp_size

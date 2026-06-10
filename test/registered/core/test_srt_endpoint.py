@@ -1,3 +1,4 @@
+# 文件名: test_srt_endpoint.py - SRT端点测试
 """
 python3 -m unittest test_srt_endpoint.TestSRTEndpoint.test_simple_decode
 python3 -m unittest test_srt_endpoint.TestSRTEndpoint.test_logprob_with_chunked_prefill
@@ -34,6 +35,7 @@ register_amd_ci(est_time=130, suite="stage-b-test-1-gpu-small-amd")
 
 class TestSRTEndpoint(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = DEFAULT_SMALL_MODEL_NAME_FOR_TEST
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -51,9 +53,11 @@ class TestSRTEndpoint(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 运行decode
     def run_decode(
         self,
         return_logprob=False,
@@ -95,6 +99,7 @@ class TestSRTEndpoint(CustomTestCase):
         print(json.dumps(response_json, indent=2))
         print("=" * 100)
 
+    # 测试logprob
     def test_logprob(self):
         self.run_decode(
             return_logprob=True,
@@ -102,6 +107,7 @@ class TestSRTEndpoint(CustomTestCase):
             return_text=True,
         )
 
+    # 测试logprobstartlen
     def test_logprob_start_len(self):
         logprob_start_len = 4
         new_tokens = 4
@@ -143,6 +149,7 @@ class TestSRTEndpoint(CustomTestCase):
                 "".join([x[-1] for x in res["meta_info"]["output_token_logprobs"]]),
             )
 
+    # 测试logprobwithchunkedprefill
     def test_logprob_with_chunked_prefill(self):
         """Test a long prompt that requests output logprobs will not hit OOM."""
         new_tokens = 4
@@ -179,9 +186,11 @@ class TestSRTEndpoint(CustomTestCase):
             )
             self.assertEqual(len(res["meta_info"]["output_top_logprobs"][i]), 5)
 
+    # 测试logprobmatch
     def test_logprob_match(self):
         """Test the output logprobs are close to the input logprobs if we run a prefill again."""
 
+        # 运行generate
         def run_generate(
             prompt, return_logprob=False, max_new_tokens=512, logprob_start_len=-1
         ):
@@ -236,6 +245,7 @@ class TestSRTEndpoint(CustomTestCase):
         max_diff = np.max(diff)
         self.assertLess(max_diff, 0.35)
 
+    # 测试logprobmixed
     def test_logprob_mixed(self):
         args = []
         temperature = 0
@@ -266,6 +276,7 @@ class TestSRTEndpoint(CustomTestCase):
         with ThreadPoolExecutor(8) as executor:
             list(executor.map(func, args))
 
+    # 测试logprobgrammar
     def test_logprob_grammar(self):
         prompts = "Question: Is Paris the Capital of France? Answer:"
         allowed_tokens = [" Yes", " No"]
@@ -301,6 +312,7 @@ class TestSRTEndpoint(CustomTestCase):
 
         self.assertTrue(all(x is not None for x in logprobs))
 
+    # 运行customlogitprocessor
     def run_custom_logit_processor(self, target_token_id: Optional[int] = None):
         """Test custom logit processor with custom params.
 
@@ -314,6 +326,7 @@ class TestSRTEndpoint(CustomTestCase):
             sample the given token id.
             """
 
+            # 执行call
             def __call__(self, logits, custom_param_list):
                 assert logits.shape[0] == len(custom_param_list)
                 key = "token_id"
@@ -357,6 +370,7 @@ class TestSRTEndpoint(CustomTestCase):
                 f"{target_token_id=}\n{sampled_tokens=}\n{custom_response=}",
             )
 
+    # 运行statefulcustomlogitprocessor
     def run_stateful_custom_logit_processor(
         self, first_token_id: int | None, delay: int = 2
     ):
@@ -372,6 +386,7 @@ class TestSRTEndpoint(CustomTestCase):
             sample the given token id.
             """
 
+            # 执行call
             def __call__(self, logits, custom_param_list):
                 assert logits.shape[0] == len(custom_param_list)
 
@@ -427,10 +442,12 @@ class TestSRTEndpoint(CustomTestCase):
                 f"{first_token_id=}\n{sampled_tokens=}\n{custom_response=}",
             )
 
+    # 测试customlogitprocessor
     def test_custom_logit_processor(self):
         """Test custom logit processor with a single request."""
         self.run_custom_logit_processor(target_token_id=5)
 
+    # 测试customlogitprocessorbatchmixed
     def test_custom_logit_processor_batch_mixed(self):
         """Test a batch of requests mixed of requests with and without custom logit processor."""
         target_token_ids = list(range(32)) + [None] * 16
@@ -439,6 +456,7 @@ class TestSRTEndpoint(CustomTestCase):
             list(executor.map(self.run_custom_logit_processor, target_token_ids))
 
     @unittest.skip("Skip this test because this feature has a bug. See comments below.")
+    # 测试statefulcustomlogitprocessor
     def test_stateful_custom_logit_processor(self):
         """Test custom logit processor with a single request."""
 
@@ -454,6 +472,7 @@ class TestSRTEndpoint(CustomTestCase):
         self.run_stateful_custom_logit_processor(first_token_id=5)
 
     @unittest.skip("Skip this test because this feature has a bug. See comments above.")
+    # 测试statefulcustomlogitprocessorbatchmixed
     def test_stateful_custom_logit_processor_batch_mixed(self):
         """Test a batch of requests mixed of requests with and without custom logit processor."""
         target_token_ids = list(range(32)) + [None] * 16
@@ -463,12 +482,14 @@ class TestSRTEndpoint(CustomTestCase):
                 executor.map(self.run_stateful_custom_logit_processor, target_token_ids)
             )
 
+    # 测试cachetokens
     def test_cache_tokens(self):
         for _ in range(2):
             time.sleep(1)
             response = requests.post(self.base_url + "/flush_cache")
             assert response.status_code == 200
 
+        # 执行sendandcheckcachedtokens
         def send_and_check_cached_tokens(input_ids):
             response = requests.post(
                 self.base_url + "/generate",
@@ -488,6 +509,7 @@ class TestSRTEndpoint(CustomTestCase):
         self.assertEqual(send_and_check_cached_tokens(range(0, 1000)), 999)
         self.assertEqual(send_and_check_cached_tokens(range(0, 11000)), 10000)
 
+    # 测试getserverinfo
     def test_get_server_info(self):
         response = requests.get(self.base_url + "/server_info")
         response_json = response.json()
@@ -498,6 +520,7 @@ class TestSRTEndpoint(CustomTestCase):
         version = response_json["version"]
         self.assertIsInstance(version, str)
 
+    # 测试logitbias
     def test_logit_bias(self):
         """Test that a very high logit bias forces sampling of a specific token."""
         # Choose a token ID to bias (using 5 as an example)
@@ -528,6 +551,7 @@ class TestSRTEndpoint(CustomTestCase):
             f"Expected all tokens to be {target_token_id}, but got {sampled_tokens}",
         )
 
+    # 测试forbiddentoken
     def test_forbidden_token(self):
         """Test that a forbidden token (very negative logit bias) doesn't appear in the output."""
         # Choose a token ID to forbid (using 10 as an example)
@@ -561,6 +585,7 @@ class TestSRTEndpoint(CustomTestCase):
             f"Expected forbidden token {forbidden_token_id} not to be present, but it was found",
         )
 
+    # 测试logitbiasisolation
     def test_logit_bias_isolation(self):
         """Test that logit_bias applied to one request doesn't affect other requests in batch."""
         # Choose a token ID to bias in first request only
@@ -614,10 +639,12 @@ class TestSRTEndpoint(CustomTestCase):
             f"Expected some tokens to be different from {biased_token_id} in second response, but got {unbiased_tokens}",
         )
 
+    # 测试getserverinfoconcurrent
     def test_get_server_info_concurrent(self):
         """Make sure the concurrent get_server_info doesn't crash the server."""
         tp = ThreadPoolExecutor(max_workers=30)
 
+        # 执行s
         def s():
             server_info = requests.get(self.base_url + "/server_info")
             server_info.json()
@@ -637,6 +664,7 @@ class TestSRTEndpoint(CustomTestCase):
 
 class TestTokenizeDetokenize(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = DEFAULT_SMALL_MODEL_NAME_FOR_TEST
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -652,15 +680,18 @@ class TestTokenizeDetokenize(CustomTestCase):
         cls.tokenizer = get_tokenizer(cls.model)
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
         cls.session.close()
 
+    # 执行postjson
     def _post_json(self, url, payload):
         r = self.session.post(url, json=payload)
         r.raise_for_status()
         return r.json()
 
+    # 测试tokenizevariousinputs
     def test_tokenize_various_inputs(self):
         single = "Hello SGLang world! 123 😊, ಪರ್ವತದ ಮೇಲೆ ಹಿಮ."
         multi = ["First sentence.", "Second, with 中文."]
@@ -690,12 +721,14 @@ class TestTokenizeDetokenize(CustomTestCase):
                     expected = count
                 self.assertEqual(total, expected)
 
+    # 测试tokenizeinvalidtype
     def test_tokenize_invalid_type(self):
         r = self.session.post(
             self.tokenize_url, json={"model": self.model, "prompt": 12345}
         )
         self.assertEqual(r.status_code, 400)
 
+    # 测试openaitokenizechatmessages
     def test_openai_tokenize_chat_messages(self):
         messages = [{"role": "user", "content": "What is the weather in Paris?"}]
         resp = self._post_json(
@@ -748,6 +781,7 @@ class TestTokenizeDetokenize(CustomTestCase):
         self.assertEqual(no_tools_resp["tokens"], resp["tokens"])
         self.assertEqual(no_tools_resp["count"], resp["count"])
 
+    # 测试detokenizeroundtrip
     def test_detokenize_roundtrip(self):
         text = "Verify detokenization round trip. यह डिटोकेनाइजेशन है"
         t0 = self._post_json(
@@ -775,6 +809,7 @@ class TestTokenizeDetokenize(CustomTestCase):
             else:
                 self.assertIsInstance(text_out, str)
 
+    # 测试detokenizeinvalidtokens
     def test_detokenize_invalid_tokens(self):
         r = self.session.post(
             self.detokenize_url, json={"model": self.model, "tokens": ["a", "b"]}

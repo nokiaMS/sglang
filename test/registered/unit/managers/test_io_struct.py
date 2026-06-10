@@ -1,3 +1,4 @@
+# 文件名: test_io_struct.py - IO结构
 import copy
 import unittest
 
@@ -18,14 +19,18 @@ register_amd_ci(est_time=8, suite="stage-b-test-1-gpu-small-amd")
 register_cpu_ci(est_time=8, suite="base-b-test-cpu")
 
 
+# TestGenerateReqInputNormalization类
 class TestGenerateReqInputNormalization(CustomTestCase):
     """Test the normalization of GenerateReqInput for batch processing and different input formats."""
 
     @classmethod
+
+    # TestGenerateReqInputNormalization类的测试类初始化设置
     def setUpClass(cls):
         cls.model = DEFAULT_SMALL_MODEL_NAME_FOR_TEST
         cls.base_url = DEFAULT_URL_FOR_TEST
 
+    # TestGenerateReqInputNormalization类的测试初始化设置
     def setUp(self):
         # Common setup for all tests
         self.base_req = GenerateReqInput(
@@ -34,6 +39,7 @@ class TestGenerateReqInputNormalization(CustomTestCase):
             rid=["id1", "id2"],
         )
 
+    # TestGenerateReqInputNormalization类的测试singleimagetolistoflists
     def test_single_image_to_list_of_lists(self):
         """Test that a single image is converted to a list of single-image lists."""
         req = copy.deepcopy(self.base_req)
@@ -42,15 +48,16 @@ class TestGenerateReqInputNormalization(CustomTestCase):
         req.normalize_batch_and_arguments()
 
         # Should be converted to [[image], [image]]
-        self.assertEqual(len(req.image_data), 2)
-        self.assertEqual(len(req.image_data[0]), 1)
-        self.assertEqual(len(req.image_data[1]), 1)
-        self.assertEqual(req.image_data[0][0], "single_image.jpg")
-        self.assertEqual(req.image_data[1][0], "single_image.jpg")
+        self.assertEqual(len(req.image_data), 2)  # 断言相等
+        self.assertEqual(len(req.image_data[0]), 1)  # 断言相等
+        self.assertEqual(len(req.image_data[1]), 1)  # 断言相等
+        self.assertEqual(req.image_data[0][0], "single_image.jpg")  # 断言相等
+        self.assertEqual(req.image_data[1][0], "single_image.jpg")  # 断言相等
 
         # Check modalities
-        self.assertEqual(req.modalities, ["image", "image"])
+        self.assertEqual(req.modalities, ["image", "image"])  # 断言相等
 
+    # TestGenerateReqInputNormalization类的测试listofimagestolistoflists
     def test_list_of_images_to_list_of_lists(self):
         """Test that a list of images is converted to a list of single-image lists."""
         req = copy.deepcopy(self.base_req)
@@ -59,15 +66,16 @@ class TestGenerateReqInputNormalization(CustomTestCase):
         req.normalize_batch_and_arguments()
 
         # Should be converted to [[image1], [image2]]
-        self.assertEqual(len(req.image_data), 2)
-        self.assertEqual(len(req.image_data[0]), 1)
-        self.assertEqual(len(req.image_data[1]), 1)
-        self.assertEqual(req.image_data[0][0], "image1.jpg")
-        self.assertEqual(req.image_data[1][0], "image2.jpg")
+        self.assertEqual(len(req.image_data), 2)  # 断言相等
+        self.assertEqual(len(req.image_data[0]), 1)  # 断言相等
+        self.assertEqual(len(req.image_data[1]), 1)  # 断言相等
+        self.assertEqual(req.image_data[0][0], "image1.jpg")  # 断言相等
+        self.assertEqual(req.image_data[1][0], "image2.jpg")  # 断言相等
 
         # Check modalities
-        self.assertEqual(req.modalities, ["image", "image"])
+        self.assertEqual(req.modalities, ["image", "image"])  # 断言相等
 
+    # TestGenerateReqInputNormalization类的测试listoflistswithdifferentmodalities
     def test_list_of_lists_with_different_modalities(self):
         """Test handling of list of lists of images with different modalities."""
         req = copy.deepcopy(self.base_req)
@@ -79,13 +87,14 @@ class TestGenerateReqInputNormalization(CustomTestCase):
         req.normalize_batch_and_arguments()
 
         # Structure should remain the same
-        self.assertEqual(len(req.image_data), 2)
-        self.assertEqual(len(req.image_data[0]), 1)
-        self.assertEqual(len(req.image_data[1]), 2)
+        self.assertEqual(len(req.image_data), 2)  # 断言相等
+        self.assertEqual(len(req.image_data[0]), 1)  # 断言相等
+        self.assertEqual(len(req.image_data[1]), 2)  # 断言相等
 
         # Check modalities
-        self.assertEqual(req.modalities, ["image", "multi-images"])
+        self.assertEqual(req.modalities, ["image", "multi-images"])  # 断言相等
 
+    # TestGenerateReqInputNormalization类的测试listoflistswithnonevalues
     def test_list_of_lists_with_none_values(self):
         """Test handling of list of lists with None values."""
         req = copy.deepcopy(self.base_req)
@@ -97,13 +106,14 @@ class TestGenerateReqInputNormalization(CustomTestCase):
         req.normalize_batch_and_arguments()
 
         # Structure should remain the same
-        self.assertEqual(len(req.image_data), 2)
-        self.assertEqual(len(req.image_data[0]), 1)
-        self.assertEqual(len(req.image_data[1]), 1)
+        self.assertEqual(len(req.image_data), 2)  # 断言相等
+        self.assertEqual(len(req.image_data[0]), 1)  # 断言相等
+        self.assertEqual(len(req.image_data[1]), 1)  # 断言相等
 
         # Check modalities
-        self.assertEqual(req.modalities, [None, "image"])
+        self.assertEqual(req.modalities, [None, "image"])  # 断言相等
 
+    # TestGenerateReqInputNormalization类的测试expandingparallelsamplecorrelation
     def test_expanding_parallel_sample_correlation(self):
         """Test that when expanding with parallel samples, prompts, images and modalities are properly correlated."""
         req = copy.deepcopy(self.base_req)
@@ -122,17 +132,18 @@ class TestGenerateReqInputNormalization(CustomTestCase):
         req.normalize_batch_and_arguments()
 
         # Should be expanded to 6 items (2 original * 3 parallel)
-        self.assertEqual(len(req.image_data), 6)
+        self.assertEqual(len(req.image_data), 6)  # 断言相等
 
         # Check that images are properly expanded
-        self.assertEqual(req.image_data, expected_images)
+        self.assertEqual(req.image_data, expected_images)  # 断言相等
 
         # Check modalities
-        self.assertEqual(req.modalities, expected_modalities)
+        self.assertEqual(req.modalities, expected_modalities)  # 断言相等
 
         # Ensure that text items are properly duplicated too
-        self.assertEqual(req.text, expected_text)
+        self.assertEqual(req.text, expected_text)  # 断言相等
 
+    # TestGenerateReqInputNormalization类的测试specificparallelnpersample
     def test_specific_parallel_n_per_sample(self):
         """Test parallel expansion when different samples have different n values."""
         req = copy.deepcopy(self.base_req)
@@ -153,17 +164,18 @@ class TestGenerateReqInputNormalization(CustomTestCase):
         req.normalize_batch_and_arguments()
 
         # Should be expanded to 4 items (2 original * 2 parallel)
-        self.assertEqual(len(req.image_data), 4)
+        self.assertEqual(len(req.image_data), 4)  # 断言相等
 
         # Check that the first 2 are copies for the first prompt
-        self.assertEqual(req.image_data, expected_images)
+        self.assertEqual(req.image_data, expected_images)  # 断言相等
 
         # Check modalities
-        self.assertEqual(req.modalities, expected_modalities)
+        self.assertEqual(req.modalities, expected_modalities)  # 断言相等
 
         # Check text expansion
-        self.assertEqual(req.text, expected_text)
+        self.assertEqual(req.text, expected_text)  # 断言相等
 
+    # TestGenerateReqInputNormalization类的测试mixednoneandimageswithparallelsamples
     def test_mixed_none_and_images_with_parallel_samples(self):
         """Test that when some batch items have images and others None, parallel expansion works correctly."""
         req = copy.deepcopy(self.base_req)
@@ -183,17 +195,18 @@ class TestGenerateReqInputNormalization(CustomTestCase):
         req.normalize_batch_and_arguments()
 
         # Should be expanded to 6 items (3 original * 2 parallel)
-        self.assertEqual(len(req.image_data), 6)
+        self.assertEqual(len(req.image_data), 6)  # 断言相等
 
         # Check image data
-        self.assertEqual(req.image_data, expected_images)
+        self.assertEqual(req.image_data, expected_images)  # 断言相等
 
         # Check modalities
-        self.assertEqual(req.modalities, expected_modalities)
+        self.assertEqual(req.modalities, expected_modalities)  # 断言相等
 
         # Check text expansion
-        self.assertEqual(req.text, expected_text)
+        self.assertEqual(req.text, expected_text)  # 断言相等
 
+    # TestGenerateReqInputNormalization类的测试correlationwithsamplingparams
     def test_correlation_with_sampling_params(self):
         """Test that sampling parameters are correctly correlated with prompts during expansion."""
         req = copy.deepcopy(self.base_req)
@@ -210,21 +223,22 @@ class TestGenerateReqInputNormalization(CustomTestCase):
         req.normalize_batch_and_arguments()
 
         # Check sampling params expansion
-        self.assertEqual(len(req.sampling_params), 4)
-        self.assertEqual(req.sampling_params[0]["temperature"], 0.7)
-        self.assertEqual(req.sampling_params[1]["temperature"], 0.9)
-        self.assertEqual(req.sampling_params[2]["temperature"], 0.7)
-        self.assertEqual(req.sampling_params[3]["temperature"], 0.9)
+        self.assertEqual(len(req.sampling_params), 4)  # 断言相等
+        self.assertEqual(req.sampling_params[0]["temperature"], 0.7)  # 断言相等
+        self.assertEqual(req.sampling_params[1]["temperature"], 0.9)  # 断言相等
+        self.assertEqual(req.sampling_params[2]["temperature"], 0.7)  # 断言相等
+        self.assertEqual(req.sampling_params[3]["temperature"], 0.9)  # 断言相等
 
         # Should be expanded to 4 items (2 original * 2 parallel)
-        self.assertEqual(len(req.image_data), 4)
+        self.assertEqual(len(req.image_data), 4)  # 断言相等
 
         # Check correlation with images
-        self.assertEqual(req.image_data[0], ["image1.jpg"])
-        self.assertEqual(req.image_data[1], ["image2.jpg"])
-        self.assertEqual(req.image_data[2], ["image1.jpg"])
-        self.assertEqual(req.image_data[3], ["image2.jpg"])
+        self.assertEqual(req.image_data[0], ["image1.jpg"])  # 断言相等
+        self.assertEqual(req.image_data[1], ["image2.jpg"])  # 断言相等
+        self.assertEqual(req.image_data[2], ["image1.jpg"])  # 断言相等
+        self.assertEqual(req.image_data[3], ["image2.jpg"])  # 断言相等
 
+    # TestGenerateReqInputNormalization类的测试singleexamplewithimage
     def test_single_example_with_image(self):
         """Test handling of single example with image."""
         req = GenerateReqInput(
@@ -235,9 +249,10 @@ class TestGenerateReqInputNormalization(CustomTestCase):
         req.normalize_batch_and_arguments()
 
         # For single examples, image_data doesn't get processed into lists
-        self.assertEqual(req.image_data, "single_image.jpg")
-        self.assertIsNone(req.modalities)  # Modalities isn't set for single examples
+        self.assertEqual(req.image_data, "single_image.jpg")  # 断言相等
+        self.assertIsNone(req.modalities)  # Modalities isn't set for single examples  # 断言为None
 
+    # TestGenerateReqInputNormalization类的测试singletobatchwithparallelsampling
     def test_single_to_batch_with_parallel_sampling(self):
         """Test single example converted to batch with parallel sampling."""
         req = GenerateReqInput(
@@ -252,17 +267,18 @@ class TestGenerateReqInputNormalization(CustomTestCase):
         req.normalize_batch_and_arguments()
 
         # Should be converted to batch with text=["Hello"]
-        self.assertEqual(req.text, expected_text)
+        self.assertEqual(req.text, expected_text)  # 断言相等
 
         # Image should be automatically wrapped to list of lists with length 1*3=3
-        self.assertEqual(len(req.image_data), 3)
-        self.assertEqual(req.image_data[0][0], "single_image.jpg")
-        self.assertEqual(req.image_data[1][0], "single_image.jpg")
-        self.assertEqual(req.image_data[2][0], "single_image.jpg")
+        self.assertEqual(len(req.image_data), 3)  # 断言相等
+        self.assertEqual(req.image_data[0][0], "single_image.jpg")  # 断言相等
+        self.assertEqual(req.image_data[1][0], "single_image.jpg")  # 断言相等
+        self.assertEqual(req.image_data[2][0], "single_image.jpg")  # 断言相等
 
         # Modalities should be set for all 3 examples
-        self.assertEqual(req.modalities, ["image", "image", "image"])
+        self.assertEqual(req.modalities, ["image", "image", "image"])  # 断言相等
 
+    # TestGenerateReqInputNormalization类的测试audiodatahandling
     def test_audio_data_handling(self):
         """Test handling of audio_data."""
         req = copy.deepcopy(self.base_req)
@@ -271,9 +287,9 @@ class TestGenerateReqInputNormalization(CustomTestCase):
         req.normalize_batch_and_arguments()
 
         # Should be converted to ["audio.mp3", "audio.mp3"]
-        self.assertEqual(len(req.audio_data), 2)
-        self.assertEqual(req.audio_data[0], "audio.mp3")
-        self.assertEqual(req.audio_data[1], "audio.mp3")
+        self.assertEqual(len(req.audio_data), 2)  # 断言相等
+        self.assertEqual(req.audio_data[0], "audio.mp3")  # 断言相等
+        self.assertEqual(req.audio_data[1], "audio.mp3")  # 断言相等
 
         # Test with list
         req = copy.deepcopy(self.base_req)
@@ -282,45 +298,48 @@ class TestGenerateReqInputNormalization(CustomTestCase):
         req.normalize_batch_and_arguments()
 
         # Should remain the same
-        self.assertEqual(len(req.audio_data), 2)
-        self.assertEqual(req.audio_data[0], "audio1.mp3")
-        self.assertEqual(req.audio_data[1], "audio2.mp3")
+        self.assertEqual(len(req.audio_data), 2)  # 断言相等
+        self.assertEqual(req.audio_data[0], "audio1.mp3")  # 断言相等
+        self.assertEqual(req.audio_data[1], "audio2.mp3")  # 断言相等
 
+    # TestGenerateReqInputNormalization类的测试inputidsnormalization
     def test_input_ids_normalization(self):
         """Test normalization of input_ids instead of text."""
         # Test single input_ids
         req = GenerateReqInput(input_ids=[1, 2, 3])
         req.normalize_batch_and_arguments()
-        self.assertTrue(req.is_single)
-        self.assertEqual(req.batch_size, 1)
+        self.assertTrue(req.is_single)  # 断言为真
+        self.assertEqual(req.batch_size, 1)  # 断言相等
 
         # Test batch input_ids
         req = GenerateReqInput(input_ids=[[1, 2, 3], [4, 5, 6]])
         req.normalize_batch_and_arguments()
-        self.assertFalse(req.is_single)
-        self.assertEqual(req.batch_size, 2)
+        self.assertFalse(req.is_single)  # 断言为假
+        self.assertEqual(req.batch_size, 2)  # 断言相等
 
         # Test with parallel sampling
         req = GenerateReqInput(
             input_ids=[[1, 2, 3], [4, 5, 6]], sampling_params={"n": 2}
         )
         req.normalize_batch_and_arguments()
-        self.assertEqual(len(req.input_ids), 4)  # 2 original * 2 parallel
+        self.assertEqual(len(req.input_ids), 4)  # 2 original * 2 parallel  # 断言相等
 
+    # TestGenerateReqInputNormalization类的测试inputembedsnormalization
     def test_input_embeds_normalization(self):
         """Test normalization of input_embeds."""
         # Test single input_embeds
         req = GenerateReqInput(input_embeds=[[0.1, 0.2], [0.3, 0.4]])
         req.normalize_batch_and_arguments()
-        self.assertTrue(req.is_single)
-        self.assertEqual(req.batch_size, 1)
+        self.assertTrue(req.is_single)  # 断言为真
+        self.assertEqual(req.batch_size, 1)  # 断言相等
 
         # Test batch input_embeds
         req = GenerateReqInput(input_embeds=[[[0.1, 0.2]], [[0.3, 0.4]]])
         req.normalize_batch_and_arguments()
-        self.assertFalse(req.is_single)
-        self.assertEqual(req.batch_size, 2)
+        self.assertFalse(req.is_single)  # 断言为假
+        self.assertEqual(req.batch_size, 2)  # 断言相等
 
+    # TestGenerateReqInputNormalization类的测试inputembedswithparallelsampling
     def test_input_embeds_with_parallel_sampling(self):
         """Test input_embeds normalization with parallel sampling (n > 1)."""
         # Test single input_embeds with parallel sampling
@@ -331,11 +350,11 @@ class TestGenerateReqInputNormalization(CustomTestCase):
         req.normalize_batch_and_arguments()
 
         # Should be converted from single to batch and then expanded
-        self.assertFalse(req.is_single)
-        self.assertEqual(len(req.input_embeds), 2)
+        self.assertFalse(req.is_single)  # 断言为假
+        self.assertEqual(len(req.input_embeds), 2)  # 断言相等
         # Both should be the same input_embeds
-        self.assertEqual(req.input_embeds[0], [[0.1, 0.2]])
-        self.assertEqual(req.input_embeds[1], [[0.1, 0.2]])
+        self.assertEqual(req.input_embeds[0], [[0.1, 0.2]])  # 断言相等
+        self.assertEqual(req.input_embeds[1], [[0.1, 0.2]])  # 断言相等
 
         # Test batch input_embeds with parallel sampling
         req = GenerateReqInput(
@@ -344,21 +363,22 @@ class TestGenerateReqInputNormalization(CustomTestCase):
         req.normalize_batch_and_arguments()
 
         # Should be expanded
-        self.assertFalse(req.is_single)
-        self.assertEqual(len(req.input_embeds), 6)
+        self.assertFalse(req.is_single)  # 断言为假
+        self.assertEqual(len(req.input_embeds), 6)  # 断言相等
 
         # Check that the expansion is correct
         expected_embeds = [[[0.1, 0.2]], [[0.3, 0.4]]] * 3
-        self.assertEqual(req.input_embeds, expected_embeds)
+        self.assertEqual(req.input_embeds, expected_embeds)  # 断言相等
 
         # Test with different n values per sample (should raise error)
         req = GenerateReqInput(
             input_embeds=[[[0.1, 0.2]], [[0.3, 0.4]]],
             sampling_params=[{"n": 2}, {"n": 3}],
         )
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError):  # 断言抛出异常
             req.normalize_batch_and_arguments()
 
+    # TestGenerateReqInputNormalization类的测试inputembedssingletobatchconversion
     def test_input_embeds_single_to_batch_conversion(self):
         """Test that single input_embeds are properly converted to batch when using parallel sampling."""
         # Test the specific case that was fixed: single input_embeds with n > 1
@@ -368,24 +388,25 @@ class TestGenerateReqInputNormalization(CustomTestCase):
         req.normalize_batch_and_arguments()
 
         # Should convert single to batch and then expand
-        self.assertFalse(req.is_single)
-        self.assertEqual(len(req.input_embeds), 2)
+        self.assertFalse(req.is_single)  # 断言为假
+        self.assertEqual(len(req.input_embeds), 2)  # 断言相等
 
         # Both should be the same single embedding
-        self.assertEqual(req.input_embeds[0], [[0.1, 0.2, 0.3]])
-        self.assertEqual(req.input_embeds[1], [[0.1, 0.2, 0.3]])
+        self.assertEqual(req.input_embeds[0], [[0.1, 0.2, 0.3]])  # 断言相等
+        self.assertEqual(req.input_embeds[1], [[0.1, 0.2, 0.3]])  # 断言相等
 
         # Test with higher n value
         req = GenerateReqInput(input_embeds=[[0.1, 0.2, 0.3]], sampling_params={"n": 5})
         req.normalize_batch_and_arguments()
 
-        self.assertFalse(req.is_single)
-        self.assertEqual(len(req.input_embeds), 5)
+        self.assertFalse(req.is_single)  # 断言为假
+        self.assertEqual(len(req.input_embeds), 5)  # 断言相等
 
         # All should be the same
         for i in range(5):
-            self.assertEqual(req.input_embeds[i], [[0.1, 0.2, 0.3]])
+            self.assertEqual(req.input_embeds[i], [[0.1, 0.2, 0.3]])  # 断言相等
 
+    # TestGenerateReqInputNormalization类的测试lorapathnormalization
     def test_lora_path_normalization(self):
         """Test normalization of lora_path."""
         # Test single lora_path with batch input
@@ -395,7 +416,7 @@ class TestGenerateReqInputNormalization(CustomTestCase):
         expected_lora_paths = ["path/to/lora", "path/to/lora"]
 
         req.normalize_batch_and_arguments()
-        self.assertEqual(req.lora_path, expected_lora_paths)
+        self.assertEqual(req.lora_path, expected_lora_paths)  # 断言相等
 
         # Test list of lora_paths
         req = GenerateReqInput(text=["Hello", "World"], lora_path=["path1", "path2"])
@@ -404,7 +425,7 @@ class TestGenerateReqInputNormalization(CustomTestCase):
         expected_lora_paths = ["path1", "path2"]
 
         req.normalize_batch_and_arguments()
-        self.assertEqual(req.lora_path, expected_lora_paths)
+        self.assertEqual(req.lora_path, expected_lora_paths)  # 断言相等
 
         # Test with parallel sampling
         req = GenerateReqInput(
@@ -417,8 +438,9 @@ class TestGenerateReqInputNormalization(CustomTestCase):
         expected_lora_paths = ["path1", "path2"] * 2
 
         req.normalize_batch_and_arguments()
-        self.assertEqual(req.lora_path, expected_lora_paths)
+        self.assertEqual(req.lora_path, expected_lora_paths)  # 断言相等
 
+    # TestGenerateReqInputNormalization类的测试logprobparametersnormalization
     def test_logprob_parameters_normalization(self):
         """Test normalization of logprob-related parameters."""
         # Test single example
@@ -430,10 +452,10 @@ class TestGenerateReqInputNormalization(CustomTestCase):
             token_ids_logprob=[7, 8, 9],
         )
         req.normalize_batch_and_arguments()
-        self.assertEqual(req.return_logprob, True)
-        self.assertEqual(req.logprob_start_len, 10)
-        self.assertEqual(req.top_logprobs_num, 5)
-        self.assertEqual(req.token_ids_logprob, [7, 8, 9])
+        self.assertEqual(req.return_logprob, True)  # 断言相等
+        self.assertEqual(req.logprob_start_len, 10)  # 断言相等
+        self.assertEqual(req.top_logprobs_num, 5)  # 断言相等
+        self.assertEqual(req.token_ids_logprob, [7, 8, 9])  # 断言相等
 
         # Test batch with scalar values
         req = GenerateReqInput(
@@ -444,10 +466,10 @@ class TestGenerateReqInputNormalization(CustomTestCase):
             token_ids_logprob=[7, 8, 9],
         )
         req.normalize_batch_and_arguments()
-        self.assertEqual(req.return_logprob, [True, True])
-        self.assertEqual(req.logprob_start_len, [10, 10])
-        self.assertEqual(req.top_logprobs_num, [5, 5])
-        self.assertEqual(req.token_ids_logprob, [[7, 8, 9], [7, 8, 9]])
+        self.assertEqual(req.return_logprob, [True, True])  # 断言相等
+        self.assertEqual(req.logprob_start_len, [10, 10])  # 断言相等
+        self.assertEqual(req.top_logprobs_num, [5, 5])  # 断言相等
+        self.assertEqual(req.token_ids_logprob, [[7, 8, 9], [7, 8, 9]])  # 断言相等
 
         # Test batch with list values
         req = GenerateReqInput(
@@ -459,12 +481,13 @@ class TestGenerateReqInputNormalization(CustomTestCase):
             return_hidden_states=[False, False, True],
         )
         req.normalize_batch_and_arguments()
-        self.assertEqual(req.return_logprob, [True, False])
-        self.assertEqual(req.logprob_start_len, [10, 5])
-        self.assertEqual(req.top_logprobs_num, [5, 3])
-        self.assertEqual(req.token_ids_logprob, [[7, 8, 9], [4, 5, 6]])
-        self.assertEqual(req.return_hidden_states, [False, False, True])
+        self.assertEqual(req.return_logprob, [True, False])  # 断言相等
+        self.assertEqual(req.logprob_start_len, [10, 5])  # 断言相等
+        self.assertEqual(req.top_logprobs_num, [5, 3])  # 断言相等
+        self.assertEqual(req.token_ids_logprob, [[7, 8, 9], [4, 5, 6]])  # 断言相等
+        self.assertEqual(req.return_hidden_states, [False, False, True])  # 断言相等
 
+    # TestGenerateReqInputNormalization类的测试customlogitprocessornormalization
     def test_custom_logit_processor_normalization(self):
         """Test normalization of custom_logit_processor."""
         # Test single processor
@@ -472,7 +495,7 @@ class TestGenerateReqInputNormalization(CustomTestCase):
             text=["Hello", "World"], custom_logit_processor="serialized_processor"
         )
         req.normalize_batch_and_arguments()
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             req.custom_logit_processor, ["serialized_processor", "serialized_processor"]
         )
 
@@ -481,8 +504,9 @@ class TestGenerateReqInputNormalization(CustomTestCase):
             text=["Hello", "World"], custom_logit_processor=["processor1", "processor2"]
         )
         req.normalize_batch_and_arguments()
-        self.assertEqual(req.custom_logit_processor, ["processor1", "processor2"])
+        self.assertEqual(req.custom_logit_processor, ["processor1", "processor2"])  # 断言相等
 
+    # TestGenerateReqInputNormalization类的测试sessionparamshandling
     def test_session_params_handling(self):
         """Test handling of session_params."""
         # Test with dict
@@ -490,7 +514,7 @@ class TestGenerateReqInputNormalization(CustomTestCase):
             text=["Hello", "World"], session_params={"id": "session1", "offset": 10}
         )
         req.normalize_batch_and_arguments()
-        self.assertEqual(req.session_params, {"id": "session1", "offset": 10})
+        self.assertEqual(req.session_params, {"id": "session1", "offset": 10})  # 断言相等
 
         # Test with list of dicts
         req = GenerateReqInput(
@@ -498,8 +522,9 @@ class TestGenerateReqInputNormalization(CustomTestCase):
             session_params=[{"id": "session1"}, {"id": "session2"}],
         )
         req.normalize_batch_and_arguments()
-        self.assertEqual(req.session_params, [{"id": "session1"}, {"id": "session2"}])
+        self.assertEqual(req.session_params, [{"id": "session1"}, {"id": "session2"}])  # 断言相等
 
+    # TestGenerateReqInputNormalization类的测试getitemmethod
     def test_getitem_method(self):
         """Test the __getitem__ method."""
         req = GenerateReqInput(
@@ -523,22 +548,23 @@ class TestGenerateReqInputNormalization(CustomTestCase):
 
         # Get the first item
         item0 = req[0]
-        self.assertEqual(item0.text, "Hello")
-        self.assertEqual(item0.image_data, ["img1.jpg"])
-        self.assertEqual(item0.audio_data, "audio1.mp3")
-        self.assertEqual(item0.sampling_params, {"temp": 0.7})
-        self.assertEqual(item0.rid, "id1")
-        self.assertEqual(item0.return_logprob, True)
-        self.assertEqual(item0.logprob_start_len, 10)
-        self.assertEqual(item0.top_logprobs_num, 5)
-        self.assertEqual(item0.token_ids_logprob, [7, 8, 9])
-        self.assertEqual(item0.stream, True)
-        self.assertEqual(item0.log_metrics, True)
-        self.assertEqual(item0.modalities, "image")
-        self.assertEqual(item0.lora_path, "path1")
-        self.assertEqual(item0.custom_logit_processor, "processor1")
-        self.assertEqual(item0.return_hidden_states, True)
+        self.assertEqual(item0.text, "Hello")  # 断言相等
+        self.assertEqual(item0.image_data, ["img1.jpg"])  # 断言相等
+        self.assertEqual(item0.audio_data, "audio1.mp3")  # 断言相等
+        self.assertEqual(item0.sampling_params, {"temp": 0.7})  # 断言相等
+        self.assertEqual(item0.rid, "id1")  # 断言相等
+        self.assertEqual(item0.return_logprob, True)  # 断言相等
+        self.assertEqual(item0.logprob_start_len, 10)  # 断言相等
+        self.assertEqual(item0.top_logprobs_num, 5)  # 断言相等
+        self.assertEqual(item0.token_ids_logprob, [7, 8, 9])  # 断言相等
+        self.assertEqual(item0.stream, True)  # 断言相等
+        self.assertEqual(item0.log_metrics, True)  # 断言相等
+        self.assertEqual(item0.modalities, "image")  # 断言相等
+        self.assertEqual(item0.lora_path, "path1")  # 断言相等
+        self.assertEqual(item0.custom_logit_processor, "processor1")  # 断言相等
+        self.assertEqual(item0.return_hidden_states, True)  # 断言相等
 
+    # TestGenerateReqInputNormalization类的测试regeneraterid
     def test_regenerate_rid(self):
         """Test the regenerate_rid method."""
         req = GenerateReqInput(text="Hello")
@@ -547,39 +573,41 @@ class TestGenerateReqInputNormalization(CustomTestCase):
         original_rid = req.rid
         new_rid = req.regenerate_rid()
 
-        self.assertNotEqual(original_rid, new_rid)
-        self.assertEqual(req.rid, new_rid)
+        self.assertNotEqual(original_rid, new_rid)  # 断言不相等
+        self.assertEqual(req.rid, new_rid)  # 断言相等
 
+    # TestGenerateReqInputNormalization类的测试errorcases
     def test_error_cases(self):
         """Test various error cases."""
         # Test when neither text, input_ids, nor input_embeds is provided
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError):  # 断言抛出异常
             req = GenerateReqInput()
             req.normalize_batch_and_arguments()
 
         # Test when all of text, input_ids, and input_embeds are provided
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError):  # 断言抛出异常
             req = GenerateReqInput(
                 text="Hello", input_ids=[1, 2, 3], input_embeds=[[0.1, 0.2]]
             )
             req.normalize_batch_and_arguments()
 
+    # TestGenerateReqInputNormalization类的测试multipleinputformats
     def test_multiple_input_formats(self):
         """Test different combinations of input formats."""
         # Test with text only
         req = GenerateReqInput(text="Hello")
         req.normalize_batch_and_arguments()
-        self.assertTrue(req.is_single)
+        self.assertTrue(req.is_single)  # 断言为真
 
         # Test with input_ids only
         req = GenerateReqInput(input_ids=[1, 2, 3])
         req.normalize_batch_and_arguments()
-        self.assertTrue(req.is_single)
+        self.assertTrue(req.is_single)  # 断言为真
 
         # Test with input_embeds only
         req = GenerateReqInput(input_embeds=[[0.1, 0.2]])
         req.normalize_batch_and_arguments()
-        self.assertTrue(req.is_single)
+        self.assertTrue(req.is_single)  # 断言为真
 
 
 if __name__ == "__main__":

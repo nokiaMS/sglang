@@ -1,3 +1,4 @@
+# 文件名: test_sagemaker_server.py - SageMaker服务器测试 - 验证SageMaker兼容端点的聊天补全和流式输出
 """
 python3 -m unittest test_sagemaker_server.TestSageMakerServer.test_chat_completion
 """
@@ -20,6 +21,7 @@ from sglang.test.test_utils import (
 
 class TestSageMakerServer(CustomTestCase):
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         cls.model = DEFAULT_SMALL_MODEL_NAME_FOR_TEST
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -33,9 +35,11 @@ class TestSageMakerServer(CustomTestCase):
         cls.tokenizer = get_tokenizer(DEFAULT_SMALL_MODEL_NAME_FOR_TEST)
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 运行聊天补全 - 发送非流式聊天补全请求并验证响应
     def run_chat_completion(self, logprobs, parallel_sample_num):
         data = {
             "model": self.model,
@@ -82,6 +86,7 @@ class TestSageMakerServer(CustomTestCase):
         assert response["usage"]["completion_tokens"] > 0
         assert response["usage"]["total_tokens"] > 0
 
+    # 运行流式聊天补全 - 发送流式聊天补全请求并验证响应
     def run_chat_completion_stream(self, logprobs, parallel_sample_num=1):
         data = {
             "model": self.model,
@@ -168,11 +173,13 @@ class TestSageMakerServer(CustomTestCase):
                 index, True
             ), f"index {index} is not found in the response"
 
+    # 测试chat completion
     def test_chat_completion(self):
         for logprobs in [None, 5]:
             for parallel_sample_num in [1, 2]:
                 self.run_chat_completion(logprobs, parallel_sample_num)
 
+    # 测试chat completion stream
     def test_chat_completion_stream(self):
         for logprobs in [None, 5]:
             for parallel_sample_num in [1, 2]:

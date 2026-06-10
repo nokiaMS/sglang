@@ -1,3 +1,4 @@
+# 文件名: test_cpu_monitor.py - CPU监控器
 import threading
 import time
 import unittest
@@ -10,15 +11,18 @@ register_cpu_ci(est_time=60, suite="base-a-test-cpu", nightly=True)
 register_cpu_ci(est_time=7, suite="base-b-test-cpu")
 
 
+# TestCpuMonitor类
 class TestCpuMonitor(unittest.TestCase):
+
+    # TestCpuMonitor类的测试cpumonitor
     def test_cpu_monitor(self):
         from prometheus_client import REGISTRY
 
         from sglang.srt.observability.cpu_monitor import start_cpu_monitor_thread
 
         thread = start_cpu_monitor_thread("test", interval=0.1)
-        self.assertTrue(thread.is_alive())
-        self.assertTrue(thread.daemon)
+        self.assertTrue(thread.is_alive())  # 断言为真
+        self.assertTrue(thread.daemon)  # 断言为真
 
         end_time = time.monotonic() + 0.3
         while time.monotonic() < end_time:
@@ -34,16 +38,19 @@ class TestCpuMonitor(unittest.TestCase):
                 ):
                     value = sample.value
         print(f"sglang:process_cpu_seconds_total = {value}")
-        self.assertIsNotNone(value)
-        self.assertGreater(value, 0)
+        self.assertIsNotNone(value)  # 断言不为None
+        self.assertGreater(value, 0)  # 断言大于
 
 
+# TestCpuMonitorMocked类
 class TestCpuMonitorMocked(unittest.TestCase):
     """Fast, deterministic tests for start_cpu_monitor_thread using mocks."""
 
     @patch("prometheus_client.Counter")
     @patch("sglang.srt.observability.cpu_monitor.psutil.Process")
     @patch("sglang.srt.observability.cpu_monitor.time.sleep")
+
+    # TestCpuMonitorMocked类的测试deltacalculationovertwoiterations
     def test_delta_calculation_over_two_iterations(
         self, mock_sleep, MockProcess, MockCounter
     ):
@@ -64,9 +71,10 @@ class TestCpuMonitorMocked(unittest.TestCase):
         remaining = [2]
         orig_hook = threading.excepthook
 
+        # controlled_sleep
         def controlled_sleep(seconds):
             if remaining[0] <= 0:
-                raise SystemExit
+                raise SystemExit  # 抛出异常
             remaining[0] -= 1
 
         mock_sleep.side_effect = controlled_sleep
@@ -80,7 +88,7 @@ class TestCpuMonitorMocked(unittest.TestCase):
         threading.excepthook = orig_hook
 
         # Thread is daemon (L29)
-        self.assertTrue(thread.daemon)
+        self.assertTrue(thread.daemon)  # 断言为真
 
         # Sleep called with correct interval (L21)
         mock_sleep.assert_called_with(3.0)
@@ -90,11 +98,11 @@ class TestCpuMonitorMocked(unittest.TestCase):
 
         # Delta calculation (L23-24) and counter increment (L26)
         inc_calls = mock_labeled.inc.call_args_list
-        self.assertEqual(len(inc_calls), 2)
+        self.assertEqual(len(inc_calls), 2)  # 断言相等
         # Iteration 1: (2.5 - 1.0) + (1.0 - 0.5) = 2.0
-        self.assertAlmostEqual(inc_calls[0].args[0], 2.0)
+        self.assertAlmostEqual(inc_calls[0].args[0], 2.0)  # 断言近似相等
         # Iteration 2: (4.0 - 2.5) + (2.0 - 1.0) = 2.5 (proves last_times updated)
-        self.assertAlmostEqual(inc_calls[1].args[0], 2.5)
+        self.assertAlmostEqual(inc_calls[1].args[0], 2.5)  # 断言近似相等
 
 
 if __name__ == "__main__":

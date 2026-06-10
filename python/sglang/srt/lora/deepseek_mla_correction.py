@@ -1,3 +1,8 @@
+# 本文件为DeepSeek MLA注意力机制中的kv_b_proj提供LoRA修正功能。
+# 在absorbed-MLA路径中，kv_b_proj的forward被跳过，K/V贡献被折叠到w_kc/w_vc权重的BMM中，
+# 导致标准LoRA包装器无法看到激活值，LoRA增量会被静默丢弃。
+# 本文件通过SGMM风格的Triton内核注入缺失的增量，确保LoRA修正正确应用。
+
 """LoRA correction for absorbed-MLA ``kv_b_proj``.
 
 The absorbed-MLA path in ``DeepseekV2AttentionMLA`` bypasses
@@ -31,6 +36,7 @@ if TYPE_CHECKING:
     from sglang.srt.models.deepseek_v2 import DeepseekV2AttentionMLA
 
 
+# 检查kv_b_proj上是否激活了LoRA适配器，用于注意力前向传播中快速跳过LoRA修正路径
 def is_kv_b_lora_active(attn_module: "DeepseekV2AttentionMLA") -> bool:
     """Cheap precondition check used at call sites in the attention forward
     to skip the entire LoRA-correction path when no ``kv_b_proj`` adapter is
@@ -38,6 +44,7 @@ def is_kv_b_lora_active(attn_module: "DeepseekV2AttentionMLA") -> bool:
     return getattr(attn_module.kv_b_proj, "set_lora", False)
 
 
+# 获取当前注意力模块的LoRA状态信息（A/B缓冲区和批次信息），用于后续修正计算
 def _get_state(
     attn_module: "DeepseekV2AttentionMLA",
 ) -> Optional[Tuple[torch.Tensor, torch.Tensor, "LoRABatchInfo"]]:
@@ -60,6 +67,7 @@ def _get_state(
     return attn_module.kv_b_proj.A_buffer, attn_module.kv_b_proj.B_buffer, batch_info
 
 
+# 对absorbed q_nope @ w_kc路径应用LoRA修正，通过两步SGMM计算增量
 def apply_q_correction(
     attn_module: "DeepseekV2AttentionMLA",
     q_nope: torch.Tensor,
@@ -81,10 +89,13 @@ def apply_q_correction(
     A_buf, B_buf, batch_info = state
 
     full_K_per_head = attn_module.qk_nope_head_dim + attn_module.v_head_dim
+    # 第一步：计算q_nope与B_kc的乘积（步骤A）
     q_lora_a = step_a_q_fwd(q_nope, B_buf, batch_info, full_K_per_head)
+    # 第二步：将步骤A的结果与A缓冲区相乘并加到q_nope_out上（步骤B）
     return step_b_q_fwd(q_lora_a, A_buf, batch_info, q_nope_out)
 
 
+# 对absorbed attn_output @ w_vc路径应用LoRA修正，修正V方向的增量
 def apply_v_correction(
     attn_module: "DeepseekV2AttentionMLA",
     attn_output: torch.Tensor,
@@ -102,10 +113,13 @@ def apply_v_correction(
         return attn_bmm_flat
     A_buf, B_buf, batch_info = state
 
+    # 第一步：计算attn_output与A转置的乘积（步骤A_v）
     attn_lora_a = step_a_v_fwd(attn_output, A_buf, batch_info)
+    # 将attn_bmm_flat重塑为(S, H, v_head_dim)的布局以匹配步骤B_v的输入要求
     base_view = attn_bmm_flat.view(
         -1, attn_module.num_local_heads, attn_module.v_head_dim
     )
+    # 第二步：将步骤A_v的结果与B_vc相乘并加到base_view上（步骤B_v）
     step_b_v_fwd(
         attn_lora_a,
         B_buf,

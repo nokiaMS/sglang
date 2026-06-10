@@ -1,3 +1,4 @@
+# 文件名: test_jump_forward.py - 测试跳转前向的正则表达式/JSON/结构化生成功能
 import argparse
 from enum import Enum
 
@@ -83,6 +84,7 @@ class Character(BaseModel):
 
 
 @sgl.function
+# 执行character_gen
 def character_gen(s):
     s += "Give me a character description who is a wizard.\n"
     s += sgl.gen(
@@ -93,6 +95,7 @@ def character_gen(s):
     )
 
 
+# 主函数，解析参数并运行测试
 def main(args):
     # Select backend
     backend = select_sglang_backend(args)

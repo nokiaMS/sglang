@@ -1,119 +1,132 @@
-from __future__ import annotations
+# 统一基数缓存（Unified Radix Cache）
+# 本文件实现了SGLang的核心KV缓存管理模块，基于基数树（Radix Tree）结构管理KV缓存的
+# 匹配、插入、驱逐、锁定等操作。支持多种组件类型（Full、SWA、Mamba）的统一管理，
+# 并集成了HiCache（分层缓存）功能，支持设备-主机-存储三级缓存层次结构。
+# 主要类包括：UnifiedTreeNode（统一树节点）、UnifiedLRUList（统一LRU列表）、
+# UnifiedRadixCache（统一基数缓存主类）。
+from __future__ import annotations  # 启用延迟类型注解求值
 
-import logging
-import sys
-import threading
-import time
-from array import array
-from collections import defaultdict
-from functools import partial
-from queue import Empty
-from typing import TYPE_CHECKING, Any, Optional
+import logging  # 导入日志模块
+import sys  # 导入系统模块
+import threading  # 导入线程模块
+import time  # 导入时间模块
+from array import array  # 导入数组类型
+from collections import defaultdict  # 导入默认字典
+from functools import partial  # 导入偏函数
+from queue import Empty  # 导入队列空异常
+from typing import TYPE_CHECKING, Any, Optional  # 导入类型检查相关工具
 
-import torch
+import torch  # 导入PyTorch张量库
 
-from sglang.srt.disaggregation.kv_events import StorageMedium
-from sglang.srt.mem_cache.base_prefix_cache import (
-    BasePrefixCache,
-    DecLockRefParams,
-    DecLockRefResult,
-    EvictParams,
-    EvictResult,
-    IncLockRefResult,
-    InitLoadBackParams,
-    InsertParams,
-    InsertResult,
-    MatchPrefixParams,
-    MatchResult,
+from sglang.srt.disaggregation.kv_events import StorageMedium  # 导入存储介质枚举
+from sglang.srt.mem_cache.base_prefix_cache import (  # 从基础前缀缓存模块导入数据结构
+    BasePrefixCache,  # 基础前缀缓存基类
+    DecLockRefParams,  # 减锁引用参数
+    DecLockRefResult,  # 减锁引用结果
+    EvictParams,  # 驱逐参数
+    EvictResult,  # 驱逐结果
+    IncLockRefResult,  # 增锁引用结果
+    InitLoadBackParams,  # 初始化加载回传参数
+    InsertParams,  # 插入参数
+    InsertResult,  # 插入结果
+    MatchPrefixParams,  # 匹配前缀参数
+    MatchResult,  # 匹配结果
 )
-from sglang.srt.mem_cache.events import KVCacheEventMixin
-from sglang.srt.mem_cache.hicache_storage import (
-    PoolName,
-    PoolTransfer,
-    SidecarPoolSpec,
+from sglang.srt.mem_cache.events import KVCacheEventMixin  # 导入KV缓存事件混入类
+from sglang.srt.mem_cache.hicache_storage import (  # 导入HiCache存储相关
+    PoolName,  # 池名称枚举
+    PoolTransfer,  # 池传输描述
+    SidecarPoolSpec,  # 侧车池规格
 )
-from sglang.srt.mem_cache.hybrid_cache.hybrid_cache_controller import (
-    HybridCacheController,
+from sglang.srt.mem_cache.hybrid_cache.hybrid_cache_controller import (  # 导入混合缓存控制器
+    HybridCacheController,  # 混合缓存控制器类
 )
-from sglang.srt.mem_cache.radix_cache import RadixKey
-from sglang.srt.mem_cache.unified_cache_components import (
-    _NUM_COMPONENT_TYPES,
-    BASE_COMPONENT_TYPE,
-    CacheTransferPhase,
-    ComponentData,
-    ComponentType,
-    EvictLayer,
-    FullComponent,
-    LRURefreshPhase,
-    MambaComponent,
-    SWAComponent,
-    TreeComponent,
-    get_and_increase_time_counter,
+from sglang.srt.mem_cache.radix_cache import RadixKey  # 导入基数键类型
+from sglang.srt.mem_cache.unified_cache_components import (  # 从统一缓存组件模块导入
+    _NUM_COMPONENT_TYPES,  # 组件类型总数
+    BASE_COMPONENT_TYPE,  # 基础组件类型（FULL）
+    CacheTransferPhase,  # 缓存传输阶段枚举
+    ComponentData,  # 组件数据类
+    ComponentType,  # 组件类型枚举
+    EvictLayer,  # 驱逐层级枚举
+    FullComponent,  # 全注意力组件
+    LRURefreshPhase,  # LRU刷新阶段枚举
+    MambaComponent,  # Mamba组件
+    SWAComponent,  # SWA组件
+    TreeComponent,  # 树组件抽象基类
+    get_and_increase_time_counter,  # 获取并递增时间计数器
 )
-from sglang.srt.mem_cache.utils import (
-    compute_node_hash_values,
-    get_eviction_strategy,
-    split_node_hash_value,
+from sglang.srt.mem_cache.utils import (  # 导入缓存工具函数
+    compute_node_hash_values,  # 计算节点哈希值
+    get_eviction_strategy,  # 获取驱逐策略
+    split_node_hash_value,  # 分裂节点哈希值
 )
-from sglang.srt.observability.metrics_collector import StorageMetricsCollector
-from sglang.srt.session.streaming_session import StreamingSession
+from sglang.srt.observability.metrics_collector import StorageMetricsCollector  # 导入存储指标收集器
+from sglang.srt.session.streaming_session import StreamingSession  # 导入流式会话
 
-if TYPE_CHECKING:
-    from sglang.srt.managers.schedule_batch import Req
-    from sglang.srt.mem_cache.cache_init_params import CacheInitParams
-    from sglang.srt.server_args import ServerArgs
+if TYPE_CHECKING:  # 仅在类型检查时导入，避免循环依赖
+    from sglang.srt.managers.schedule_batch import Req  # 请求类型
+    from sglang.srt.mem_cache.cache_init_params import CacheInitParams  # 缓存初始化参数
+    from sglang.srt.server_args import ServerArgs  # 服务器参数
 
 
+# 统一树节点类，表示基数树中的一个节点
 class UnifiedTreeNode:
-    counter = 0
+    counter = 0  # 节点ID计数器
 
     def __init__(self, tree_components: tuple[ComponentType, ...], priority: int = 0):
-        self.children = defaultdict(partial(UnifiedTreeNode, tree_components))
-        self.parent: UnifiedTreeNode | None = None
-        self.key: Optional[RadixKey] = None
-        self.tree_components = tree_components
+        self.children = defaultdict(partial(UnifiedTreeNode, tree_components))  # 子节点默认字典
+        self.parent: UnifiedTreeNode | None = None  # 父节点引用
+        self.key: Optional[RadixKey] = None  # 节点的基数键
+        self.tree_components = tree_components  # 此树支持的组件类型元组
         # list indexed by ComponentType (int enum 0..N-1)
-        self.component_data: list[ComponentData] = [
-            ComponentData() for _ in range(_NUM_COMPONENT_TYPES)
+        self.component_data: list[ComponentData] = [  # 组件数据列表
+            ComponentData() for _ in range(_NUM_COMPONENT_TYPES)  # 为每种组件类型创建数据实例
         ]
-        self.last_access_time = get_and_increase_time_counter()
-        self.creation_time = get_and_increase_time_counter()
-        self.hash_value = None
-        self.hit_count = 0
-        self.priority = priority
-        self.lru_prev: list[UnifiedTreeNode | None] = [None] * (
-            _NUM_COMPONENT_TYPES * 2
+        self.last_access_time = get_and_increase_time_counter()  # 最后访问时间
+        self.creation_time = get_and_increase_time_counter()  # 创建时间
+        self.hash_value = None  # 哈希值（用于HiCache存储）
+        self.hit_count = 0  # 命中计数
+        self.priority = priority  # 节点优先级
+        self.lru_prev: list[UnifiedTreeNode | None] = [None] * (  # LRU前驱指针列表（设备+主机）
+            _NUM_COMPONENT_TYPES * 2  # 每种组件类型2个指针槽（设备+主机）
         )
-        self.lru_next: list[UnifiedTreeNode | None] = [None] * (
-            _NUM_COMPONENT_TYPES * 2
+        self.lru_next: list[UnifiedTreeNode | None] = [None] * (  # LRU后继指针列表（设备+主机）
+            _NUM_COMPONENT_TYPES * 2  # 每种组件类型2个指针槽（设备+主机）
         )
-        self.id = UnifiedTreeNode.counter
-        UnifiedTreeNode.counter += 1
+        self.id = UnifiedTreeNode.counter  # 节点唯一ID
+        UnifiedTreeNode.counter += 1  # 递增计数器
 
+    # 获取指定类型的组件数据
     def component(self, component_type: ComponentType) -> ComponentData:
-        return self.component_data[component_type]
+        return self.component_data[component_type]  # 通过组件类型索引返回
 
+    # 判断节点是否已备份到主机
     @property
     def backuped(self) -> bool:
-        """Tree-level: Full KV present on host."""
-        return self.component_data[ComponentType.FULL].host_value is not None
+        """Tree-level: Full KV present on host."""  # 树级别：Full KV存在于主机上
+        return self.component_data[ComponentType.FULL].host_value is not None  # Full主机值非空则已备份
 
+    # 判断节点是否已从设备驱逐
     @property
     def evicted(self) -> bool:
-        """Tree-level: Full KV not on device (non-root with value=None)."""
-        return (
-            self.parent is not None
+        """Tree-level: Full KV not on device (non-root with value=None)."""  # 树级别：Full KV不在设备上（非根且value=None）
+        return (  # 非根节点
+            self.parent is not None  # Full设备值为空
             and self.component_data[ComponentType.FULL].value is None
         )
 
+    # 小于比较，基于最后访问时间
     def __lt__(self, other: UnifiedTreeNode):
-        return self.last_access_time < other.last_access_time
+        return self.last_access_time < other.last_access_time  # 用于优先队列排序
 
+    # 获取最后一个哈希值
     def get_last_hash_value(self) -> Optional[str]:
         if self.hash_value is None or len(self.hash_value) == 0:
             return None
         return self.hash_value[-1]
 
+    # 获取从根到指定节点的前缀哈希值列表
     def get_prefix_hash_values(self, node: UnifiedTreeNode) -> list[str]:
         if node is None or node.hash_value is None:
             return []
@@ -121,6 +134,7 @@ class UnifiedTreeNode:
         return node.get_prefix_hash_values(node.parent) + node.hash_value
 
 
+# 统一LRU双向链表，用于管理组件的LRU驱逐
 class UnifiedLRUList:
     def __init__(
         self,
@@ -138,6 +152,7 @@ class UnifiedLRUList:
         self.tail.lru_prev[self._pt] = self.head
         self.cache: dict[int, UnifiedTreeNode] = {}
 
+    # 在指定节点后插入新节点
     def _add_node_after(self, prev_node: UnifiedTreeNode, new_node: UnifiedTreeNode):
         pt = self._pt
         new_node.lru_prev[pt] = prev_node
@@ -145,9 +160,11 @@ class UnifiedLRUList:
         prev_node.lru_next[pt].lru_prev[pt] = new_node
         prev_node.lru_next[pt] = new_node
 
+    # 在头节点后插入（即MRU端）
     def _add_node(self, node: UnifiedTreeNode):
         self._add_node_after(self.head, node)
 
+    # 从链表中移除节点
     def _remove_node(self, node: UnifiedTreeNode):
         pt = self._pt
         node.lru_prev[pt].lru_next[pt] = node.lru_next[pt]
@@ -156,21 +173,25 @@ class UnifiedLRUList:
         node.lru_prev[pt] = None
         node.lru_next[pt] = None
 
+    # 在MRU端插入新节点
     def insert_mru(self, node: UnifiedTreeNode):
         assert node.id not in self.cache
         self.cache[node.id] = node
         self._add_node(node)
 
+    # 从链表和缓存中移除节点
     def remove_node(self, node: UnifiedTreeNode):
         assert node.id in self.cache
         del self.cache[node.id]
         self._remove_node(node)
 
+    # 将节点移到MRU端
     def reset_node_mru(self, node: UnifiedTreeNode):
         assert node.id in self.cache
         self._remove_node(node)
         self._add_node(node)
 
+    # 将节点及其有组件数据的祖先移到MRU端，保持祖先顺序
     def reset_node_and_parents_mru(
         self,
         node: UnifiedTreeNode,
@@ -186,6 +207,7 @@ class UnifiedLRUList:
                 prev_node = node
             node = node.parent
 
+    # 将节点及窗口内的祖先移到MRU端
     def reset_node_and_window_ancestors_mru(
         self,
         node: UnifiedTreeNode,
@@ -204,9 +226,11 @@ class UnifiedLRUList:
             accumulated += len(node.key)
             node = node.parent
 
+    # 判断节点是否在链表中
     def in_list(self, node: Optional[UnifiedTreeNode]):
         return node is not None and node.id in self.cache
 
+    # 获取前一个未锁定的节点
     def get_prev_no_lock(self, node: UnifiedTreeNode, check_id: bool = True):
         if check_id:
             assert node.id in self.cache
@@ -219,6 +243,7 @@ class UnifiedLRUList:
             return None
         return x
 
+    # 获取前一个未锁定的叶子节点
     def get_prev_leaf_no_lock(self, node: UnifiedTreeNode, check_id: bool = True):
         if check_id:
             assert node.id in self.cache
@@ -231,9 +256,11 @@ class UnifiedLRUList:
             return None
         return x
 
+    # 获取LRU端（最久未使用）的未锁定节点
     def get_lru_no_lock(self):
         return self.get_prev_no_lock(self.tail, check_id=False)
 
+    # 获取LRU端的未锁定叶子节点
     def get_leaf_lru_no_lock(self):
         return self.get_prev_leaf_no_lock(self.tail, check_id=False)
 
@@ -244,130 +271,134 @@ COMPONENT_REGISTRY: dict[ComponentType, type[TreeComponent]] = {
     ComponentType.SWA: SWAComponent,
 }
 
-logger = logging.getLogger(__name__)
-
-
-class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
-    def __init__(
+logger = logging.getLogger(__name__)  # 获取模块级日志器
+  # 组件注册表，映射类型到实现类
+  # FULL类型映射到FullComponent
+# 统一基数缓存主类，继承KVCacheEventMixin和BasePrefixCache
+class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):  # MAMBA类型映射到MambaComponent
+    def __init__(  # SWA类型映射到SWAComponent
         self,
         params: CacheInitParams,
     ):
-        self.req_to_token_pool = params.req_to_token_pool
-        self.token_to_kv_pool_allocator = params.token_to_kv_pool_allocator
-        self.page_size = params.page_size
-        self.disable = params.disable
-        self.is_eagle = params.is_eagle
-        self.enable_kv_cache_events = params.enable_kv_cache_events
-        self.kv_event_queue = []
-        self.eviction_policy = params.eviction_policy.lower()
-        self.eviction_strategy = get_eviction_strategy(self.eviction_policy)
+        self.req_to_token_pool = params.req_to_token_pool  # 请求到token的映射池
+        self.token_to_kv_pool_allocator = params.token_to_kv_pool_allocator  # token到KV池的分配器
+        self.page_size = params.page_size  # 页大小
+        self.disable = params.disable  # 是否禁用缓存
+        self.is_eagle = params.is_eagle  # 是否为Eagle模式
+        self.enable_kv_cache_events = params.enable_kv_cache_events  # 是否启用KV缓存事件
+        self.kv_event_queue = []  # KV事件队列
+        self.eviction_policy = params.eviction_policy.lower()  # 驱逐策略（小写）
+        self.eviction_strategy = get_eviction_strategy(self.eviction_policy)  # 获取驱逐策略实例
 
-        if self.token_to_kv_pool_allocator:
-            self.device = self.token_to_kv_pool_allocator.device
-        else:
-            self.device = torch.device("cpu")
+        if self.token_to_kv_pool_allocator:  # 如果分配器存在
+            self.device = self.token_to_kv_pool_allocator.device  # 使用分配器的设备
+        else:  # 分配器不存在
+            self.device = torch.device("cpu")  # 默认CPU设备
 
-        if params.enable_metrics:
-            self.init_metrics_collector()
-        self._enable_metrics_flag = params.enable_metrics
-        self.enable_storage_metrics = False
-        self.storage_metrics_collector: Optional[StorageMetricsCollector] = None
-        self.extra_metric_labels = None
+        if params.enable_metrics:  # 如果启用指标
+            self.init_metrics_collector()  # 初始化指标收集器
+        self._enable_metrics_flag = params.enable_metrics  # 保存指标启用标志
+        self.enable_storage_metrics = False  # 存储指标默认禁用
+        self.storage_metrics_collector: Optional[StorageMetricsCollector] = None  # 存储指标收集器
+        self.extra_metric_labels = None  # 额外指标标签
 
-        assert params.tree_components is not None
-        self.tree_components = tuple(params.tree_components)
-        component_registry = COMPONENT_REGISTRY
-        if params.component_registry_override:
-            component_registry = {
+        assert params.tree_components is not None  # 断言树组件类型已指定
+        self.tree_components = tuple(params.tree_components)  # 保存树组件类型元组
+        component_registry = COMPONENT_REGISTRY  # 获取组件注册表
+        if params.component_registry_override:  # 如果有组件注册表覆盖
+            component_registry = {  # 合并默认和覆盖的注册表
                 **COMPONENT_REGISTRY,
                 **params.component_registry_override,
             }
-        self.components: dict[ComponentType, TreeComponent] = {
-            ct: component_registry[ct](self, params) for ct in self.tree_components
+        self.components: dict[ComponentType, TreeComponent] = {  # 实例化各组件
+            ct: component_registry[ct](self, params) for ct in self.tree_components  # 通过注册表创建组件实例
         }
-        self._components_tuple: tuple[TreeComponent, ...] = tuple(
+        self._components_tuple: tuple[TreeComponent, ...] = tuple(  # 组件元组（有序）
             self.components.values()
         )
-        self.sidecar_pool_specs: list[SidecarPoolSpec] = []
+        self.sidecar_pool_specs: list[SidecarPoolSpec] = []  # 侧车池规格列表
 
-        # Streaming session: embedded StreamingSession with self as inner.
-        # Always on -- zero overhead when no streaming session is open (the
-        # try_* entries short-circuit on non-streaming reqs / real TreeNodes).
-        # Dispatch methods below pre-check conditions so the session's
+        # Streaming session: embedded StreamingSession with self as inner.  # 流式会话：内嵌StreamingSession，以self为内部实例
+        # Always on -- zero overhead when no streaming session is open (the  # 始终开启——无活跃流式会话时零开销
+        # try_* entries short-circuit on non-streaming reqs / real TreeNodes).  # try_*条目在非流式请求/真实TreeNode上短路返回
+        # Dispatch methods below pre-check conditions so the session's  # 以下调度方法预检查条件，使会话的内部回退到self.inner.xxx永不触发——无递归
         # internal fall-through to self.inner.xxx never fires -- no recursion.
-        self.session = StreamingSession(inner=self)
+        self.session = StreamingSession(inner=self)  # 创建流式会话
 
-        self.tp_group = params.tp_cache_group
-        self.tp_world_size = (
-            1
-            if self.tp_group is None
-            else torch.distributed.get_world_size(group=self.tp_group)
+        self.tp_group = params.tp_cache_group  # 张量并行缓存组
+        self.tp_world_size = (  # 张量并行世界大小
+            1  # 默认1
+            if self.tp_group is None  # 如果无TP组
+            else torch.distributed.get_world_size(group=self.tp_group)  # 否则获取世界大小
         )
 
-        # HiCache D↔H defaults (overridden by init_hicache)
-        self.cache_controller = None
-        self.write_through_threshold = 256
-        self.prefetch_stop_policy = "best_effort"
-        self.prefetch_threshold = 256
-        self.prefetch_timeout_base = 1.0
-        self.prefetch_timeout_per_page = 0.25
-        self.hicache_storage_pass_prefix_keys = False
+        # HiCache D↔H defaults (overridden by init_hicache)  # HiCache D↔H默认值（由init_hicache覆盖）
+        self.cache_controller = None  # 缓存控制器
+        self.write_through_threshold = 256  # 写直通阈值
+        self.prefetch_stop_policy = "best_effort"  # 预取停止策略
+        self.prefetch_threshold = 256  # 预取阈值
+        self.prefetch_timeout_base = 1.0  # 预取超时基础值
+        self.prefetch_timeout_per_page = 0.25  # 预取每页超时
+        self.hicache_storage_pass_prefix_keys = False  # HiCache存储是否传递前缀键
 
-        self.reset()
-        logger.info(f"Init Unified RadixTree with components {self.tree_components}")
+        self.reset()  # 重置缓存状态
+        logger.info(f"Init Unified RadixTree with components {self.tree_components}")  # 记录初始化日志
 
+    # 重置缓存
     def reset(self) -> None:
         self._reset_full()
 
+    # 完全重置：销毁整棵树和所有状态
     def _reset_full(self) -> None:
         """Full reset: destroy entire tree and all state."""
-        self.root_node = UnifiedTreeNode(self.tree_components)
-        self.root_node.priority = -sys.maxsize
-        self.root_node.key = RadixKey(array("q"), None)
-        self.root_node.component_data[BASE_COMPONENT_TYPE].value = []
-        self.root_node.hash_value = []
-        for ct in self.tree_components:
-            self.root_node.component_data[ct].lock_ref = 1
-        self.component_evictable_size_ = {ct: 0 for ct in self.tree_components}
-        self.component_protected_size_ = {ct: 0 for ct in self.tree_components}
+        self.root_node = UnifiedTreeNode(self.tree_components)  # 创建新根节点
+        self.root_node.priority = -sys.maxsize  # 根节点优先级设为最低
+        self.root_node.key = RadixKey(array("q"), None)  # 根节点键为空
+        self.root_node.component_data[BASE_COMPONENT_TYPE].value = []  # 根节点Full值为空列表
+        self.root_node.hash_value = []  # 根节点哈希值为空列表
+        for ct in self.tree_components:  # 为每种组件类型设置根节点锁引用
+            self.root_node.component_data[ct].lock_ref = 1  # 根节点锁引用为1（永不驱逐）
+        self.component_evictable_size_ = {ct: 0 for ct in self.tree_components}  # 各组件可驱逐大小初始化
+        self.component_protected_size_ = {ct: 0 for ct in self.tree_components}  # 各组件受保护大小初始化
 
-        self.lru_lists = {
+        self.lru_lists = {  # 各组件设备LRU列表
             ct: UnifiedLRUList(ct, self.tree_components) for ct in self.tree_components
         }
-        self.session.slots.clear()
+        self.session.slots.clear()  # 清空流式会话槽
 
-        self.evictable_device_leaves: set[UnifiedTreeNode] = set()
-        self.evictable_host_leaves: set[UnifiedTreeNode] = set()
-        self.host_lru_lists = {
+        self.evictable_device_leaves: set[UnifiedTreeNode] = set()  # 可驱逐设备叶子集合
+        self.evictable_host_leaves: set[UnifiedTreeNode] = set()  # 可驱逐主机叶子集合
+        self.host_lru_lists = {  # 各组件主机LRU列表
             ct: UnifiedLRUList(ct, self.tree_components, use_host_ptr=True)
             for ct in self.tree_components
         }
-        self.ongoing_write_through: dict[
+        self.ongoing_write_through: dict[  # 进行中的写直通操作
             int, tuple[UnifiedTreeNode, Optional[DecLockRefParams]]
         ] = {}
-        self.ongoing_load_back: dict[int, tuple[UnifiedTreeNode, DecLockRefParams]] = {}
-        self.enable_storage = False
-        self.prefetch_loaded_tokens_by_reqid: dict[str, int] = {}
-        self.ongoing_prefetch: dict = {}
-        self.ongoing_backup: dict = {}
+        self.ongoing_load_back: dict[int, tuple[UnifiedTreeNode, DecLockRefParams]] = {}  # 进行中的加载回传操作
+        self.enable_storage = False  # 存储默认禁用
+        self.prefetch_loaded_tokens_by_reqid: dict[str, int] = {}  # 按请求ID的预取已加载token数
+        self.ongoing_prefetch: dict = {}  # 进行中的预取操作
+        self.ongoing_backup: dict = {}  # 进行中的备份操作
 
-        if self.cache_controller is not None:
-            self.cache_controller.reset()
-            self.cache_controller.mem_pool_host.clear()
-            self.enable_storage = self.cache_controller.enable_storage
+        if self.cache_controller is not None:  # 如果缓存控制器存在
+            self.cache_controller.reset()  # 重置控制器
+            self.cache_controller.mem_pool_host.clear()  # 清空主机内存池
+            self.enable_storage = self.cache_controller.enable_storage  # 同步存储启用状态
 
-        self._empty_match_result = MatchResult(
-            device_indices=torch.empty(
+        self._empty_match_result = MatchResult(  # 空匹配结果模板
+            device_indices=torch.empty(  # 空设备索引
                 (0,),
                 dtype=torch.int64,
                 device=self.device,
             ),
-            last_device_node=self.root_node,
-            last_host_node=self.root_node,
-            best_match_node=self.root_node,
+            last_device_node=self.root_node,  # 最后设备节点为根
+            last_host_node=self.root_node,  # 最后主机节点为根
+            best_match_node=self.root_node,  # 最佳匹配节点为根
         )
-        self._record_all_cleared_event()
+        self._record_all_cleared_event()  # 记录全部清除事件
 
+    # 初始化HiCache基础设施
     def init_hicache(self, server_args: ServerArgs, params: CacheInitParams) -> None:
         """Initialize HiCache infrastructure."""
         from sglang.srt.mem_cache.hybrid_cache.hybrid_pool_assembler import (
@@ -436,9 +467,11 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
                 extra_metric_labels=self.extra_metric_labels,
             )
 
+    # 注册侧车池规格
     def register_sidecar_pool(self, spec: SidecarPoolSpec) -> None:
         self.sidecar_pool_specs.append(spec)
 
+    # 匹配前缀，查找键在树中的最长匹配
     def match_prefix(self, params: MatchPrefixParams) -> MatchResult:
         result = self.session.try_match_prefix(params)
         if result is not None:
@@ -466,6 +499,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
             best_match_device_value_len,
         )
 
+    # 插入键值对到基数树
     def insert(self, params: InsertParams) -> InsertResult:
         if self.disable:
             return InsertResult(prefix_len=0)
@@ -482,6 +516,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
         result = self._insert_helper(self.root_node, key, value, params)
         return result
 
+    # 驱逐KV缓存，释放内存
     def evict(self, params: EvictParams) -> EvictResult:
         if self.disable:
             return EvictResult()
@@ -504,6 +539,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
             mamba_num_evicted=tracker.get(ComponentType.MAMBA, 0),
         )
 
+    # 增加节点锁引用，保护节点不被驱逐
     def inc_lock_ref(self, node: Any) -> IncLockRefResult:
         result = self.session.try_inc_lock_ref(node)
         if result is not None:
@@ -517,6 +553,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
         self._update_evictable_leaf_sets(node)
         return result
 
+    # 减少节点锁引用，允许节点被驱逐
     def dec_lock_ref(
         self, node: Any, params: Optional[DecLockRefParams] = None
     ) -> DecLockRefResult:
@@ -532,6 +569,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
         # TODO: delta is not aggregated from components; no caller uses it yet.
         return DecLockRefResult()
 
+    # 增加节点主机锁引用
     def inc_host_lock_ref(self, node: Any) -> IncLockRefResult:
         if self.disable:
             return IncLockRefResult()
@@ -544,6 +582,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
         self._update_evictable_leaf_sets(node)
         return result
 
+    # 减少节点主机锁引用
     def dec_host_lock_ref(
         self, node: Any, params: Optional[DecLockRefParams] = None
     ) -> DecLockRefResult:
@@ -555,6 +594,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
         self._update_evictable_leaf_sets(node)
         return DecLockRefResult()
 
+    # 缓存已完成请求的KV数据
     def cache_finished_req(self, req: Req, is_insert: bool = True, **kwargs) -> None:
         if self.session.try_cache_finished_req(req, is_insert=is_insert, **kwargs):
             return
@@ -629,6 +669,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
                 req, is_finished=True, insert_result=result, insert_params=insert_params
             )
 
+    # 缓存未完成请求的KV数据
     def cache_unfinished_req(self, req: Req, chunked=False, **kwargs) -> None:
         if self.session.try_cache_unfinished_req(req, chunked=chunked, **kwargs):
             return
@@ -727,8 +768,9 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
                 insert_params=insert_params,
             )
 
-    # ---- Internal Helpers ----
+    # ---- 内部辅助方法 ----
 
+    # 前缀匹配辅助函数，遍历树查找最长匹配
     def _match_prefix_helper(
         self, key: RadixKey
     ) -> tuple[list[torch.Tensor], UnifiedTreeNode, UnifiedTreeNode, int]:
@@ -806,6 +848,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
             best_match_device_value_len,
         )
 
+    # 匹配结果后处理器
     def _match_post_processor(
         self,
         params: MatchPrefixParams,
@@ -857,6 +900,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
             )
         return result
 
+    # 分裂节点，将子节点在指定位置分裂为两个节点
     def _split_node(
         self, key: RadixKey, child: UnifiedTreeNode, split_len: int
     ) -> UnifiedTreeNode:
@@ -891,6 +935,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
         self._update_evictable_leaf_sets(child)
         return new_node
 
+    # 触碰节点，更新访问时间和LRU位置
     def _touch_node(self, node: UnifiedTreeNode):
         node.last_access_time = get_and_increase_time_counter()
         if node != self.root_node:
@@ -899,6 +944,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
                     continue
                 comp.refresh_lru(LRURefreshPhase.WALKDOWN, node, self.root_node)
 
+    # 添加新叶子节点到树中
     def _add_new_node(
         self,
         parent: UnifiedTreeNode,
@@ -920,6 +966,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
         self._record_store_event(new_node)
         return new_node
 
+    # 插入时恢复已驱逐节点的Full设备值
     def _unevict_node_on_insert(
         self, node: UnifiedTreeNode, fresh_value: torch.Tensor
     ) -> None:
@@ -936,6 +983,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
             self._update_evictable_leaf_sets(node.parent)
         self._record_store_event(node, medium=StorageMedium.GPU)
 
+    # 插入辅助函数，处理键值对在树中的插入逻辑
     def _insert_helper(
         self,
         node: UnifiedTreeNode,
@@ -1046,6 +1094,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
             self._inc_hit_count(target_node, params.chunked)
         return result
 
+    # 主机端插入辅助函数，用于HiCache存储预取后的主机数据插入
     def _insert_helper_host(
         self,
         node: UnifiedTreeNode,
@@ -1098,8 +1147,9 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
         result.inserted_host_node = new_node
         return result
 
-    # ---- Evict Helpers ----
+    # ---- 驱逐辅助方法 ----
 
+    # 级联驱逐，从触发组件驱逐到低优先级组件
     def _cascade_evict(
         self,
         node: UnifiedTreeNode,
@@ -1140,11 +1190,13 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
 
         self._update_evictable_leaf_sets(node)
 
+    # 从父节点的子节点字典中移除叶子节点
     def _remove_leaf_from_parent(self, node: UnifiedTreeNode):
         key = node.key.child_key(self.page_size)
         v = node.parent.children.pop(key, None)
         assert v == node
 
+    # 驱逐组件并从LRU列表分离
     def _evict_component_and_detach_lru(
         self,
         node: UnifiedTreeNode,
@@ -1171,6 +1223,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
                     lru.remove_node(node)
         return device_freed, host_freed
 
+    # 迭代删除无子节点的墓碑祖先
     def _iteratively_delete_tombstone_leaf(
         self, deleted_node: UnifiedTreeNode, tracker: dict[ComponentType, int]
     ):
@@ -1220,6 +1273,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
             self._update_evictable_leaf_sets(parent)
             cur = parent
 
+    # 对每个有数据的辅助组件LRU执行操作
     def _for_each_component_lru(
         self,
         node: UnifiedTreeNode,
@@ -1240,6 +1294,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
                     continue
                 lru_op(lru, node)
 
+    # 驱逐指定组件的主机资源以释放主机池空间
     def evict_host(
         self, num_tokens: int, component_type: ComponentType = BASE_COMPONENT_TYPE
     ) -> int:
@@ -1250,6 +1305,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
             comp.drive_host_eviction(num_tokens, tracker)
         return tracker[component_type]
 
+    # 判断是否为设备叶子节点
     def _is_device_leaf(self, node: UnifiedTreeNode) -> bool:
         """D-leaf: Full device value present, no child with Full KV on device,
         unlocked, not root.
@@ -1268,6 +1324,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
             return False
         return True
 
+    # 判断是否为主机叶子节点
     def _is_host_leaf(self, node: UnifiedTreeNode) -> bool:
         """H-leaf: evicted, Full host value present, no children, unlocked, not root.
 
@@ -1283,6 +1340,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
             return False
         return True
 
+    # 更新节点的设备和主机叶子集合
     def _update_evictable_leaf_sets(self, node: UnifiedTreeNode) -> None:
         """Update both device and host leaf sets for a node."""
         if self._is_device_leaf(node):
@@ -1295,6 +1353,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
         else:
             self.evictable_host_leaves.discard(node)
 
+    # GPU到CPU降级：释放所有设备资源，节点保留在树中
     def _evict_to_host(
         self, node: UnifiedTreeNode, tracker: dict[ComponentType, int] = None
     ) -> None:
@@ -1313,6 +1372,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
         )
         self._update_evictable_leaf_sets(node.parent)
 
+    # 驱逐设备叶子节点，选择合适的策略
     def _evict_device_leaf(
         self, node: UnifiedTreeNode, tracker: dict[ComponentType, int]
     ) -> None:
@@ -1349,6 +1409,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
                 return
         self._evict_to_host(node, tracker)
 
+    # 原子驱逐主机叶子节点的所有组件
     def _evict_host_leaf(
         self, node: UnifiedTreeNode, tracker: dict[ComponentType, int]
     ) -> None:
@@ -1367,8 +1428,9 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
         self._remove_leaf_from_parent(node)
         self._iteratively_delete_tombstone_leaf(node, tracker)
 
-    # ---- HiCache: Backup / LoadBack ----
+    # ---- HiCache：备份 / 加载回传 ----
 
+    # 将节点数据从设备备份到主机（D→H）
     def write_backup(self, node: UnifiedTreeNode, write_back: bool = False) -> int:
         """Backup a node's data from device to host (D->H)."""
         if self.cache_controller is None:
@@ -1433,6 +1495,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
         self.ongoing_write_through[node.id] = (node, lock_params)
         return len(host_indices)
 
+    # 将已驱逐的KV数据从主机加载回设备（H→D）
     def load_back(
         self,
         best_match_node: UnifiedTreeNode,
@@ -1523,6 +1586,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
         )
         return True
 
+    # 构建侧车池传输描述符
     def _build_sidecar_transfers(
         self,
         phase: CacheTransferPhase,
@@ -1569,6 +1633,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
             )
         return transfers
 
+    # 增加命中计数，达到阈值时触发写备份
     def _inc_hit_count(self, node: UnifiedTreeNode, chunked: bool = False) -> None:
         """Increment hit count; trigger write_backup when threshold reached."""
         if node.evicted or chunked:
@@ -1586,6 +1651,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
         ):
             self.write_backup(node)
 
+    # 将已备份的节点数据从主机写入外部存储
     def write_backup_storage(self, node: UnifiedTreeNode) -> None:
         if (
             not self.enable_storage
@@ -1632,6 +1698,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
             self.inc_host_lock_ref(node).to_dec_params(),
         )
 
+    # 从外部存储预取KV数据到主机
     def prefetch_from_storage(
         self,
         req_id: str,
@@ -1725,6 +1792,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
         )
         self.cache_controller.prefetch_tokens_occupied += len(prefetch_key)
 
+    # 线性超时检查函数
     def _prefetch_timeout_check_linear_func(self, operation) -> bool:
         return (
             time.monotonic() - operation.start_time
@@ -1732,6 +1800,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
             + len(operation.hash_value) * self.prefetch_timeout_per_page
         )
 
+    # 判断是否可以终止预取操作
     def can_terminate_prefetch(self, operation) -> bool:
         if self.prefetch_stop_policy == "best_effort":
             return True
@@ -1765,6 +1834,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
         operation_terminated = states[1].item() == 1
         return can_terminate or operation_terminated
 
+    # 检查预取进度，完成则提交结果
     def check_prefetch_progress(self, req_id: str) -> bool:
         if req_id not in self.ongoing_prefetch:
             return True
@@ -1840,6 +1910,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
             self.storage_metrics_collector.log_prefetched_tokens(loaded_from_storage)
         return True
 
+    # 标记预取操作为终止
     def terminate_prefetch(self, req_id: str) -> None:
         if req_id not in self.ongoing_prefetch:
             return
@@ -1848,9 +1919,11 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
             return
         operation.mark_terminate()
 
+    # 弹出指定请求的预取加载token数
     def pop_prefetch_loaded_tokens(self, req_id: str) -> int:
         return self.prefetch_loaded_tokens_by_reqid.pop(req_id, 0)
 
+    # 释放中止请求的预取资源
     def release_aborted_request(self, rid: str) -> None:
         self.prefetch_loaded_tokens_by_reqid.pop(rid, None)
         if rid not in self.ongoing_prefetch:
@@ -1878,6 +1951,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
         )
         self.cache_controller.prefetch_tokens_occupied -= len(prefetch_key)
 
+    # 排空存储控制队列的内部实现
     def _drain_storage_control_queues_impl(
         self,
         n_revoke: Optional[int],
@@ -1975,6 +2049,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
         _drain_release()
         _drain_extra_release()
 
+    # 排空存储控制队列（跨TP卡同步）
     def drain_storage_control_queues(self) -> None:
         cc = self.cache_controller
         extra_release_queues = getattr(cc, "extra_host_mem_release_queues", {})
@@ -2010,6 +2085,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
             log_metrics=True,
         )
 
+    # 应用存储运行时配置
     def _apply_storage_runtime_config(
         self,
         *,
@@ -2060,6 +2136,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
         else:
             self.storage_metrics_collector = None
 
+    # 运行时附加存储后端（暂不支持）
     def attach_storage_backend(
         self,
         storage_backend: str,
@@ -2074,6 +2151,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
             "Configure hicache_storage_backend at startup instead.",
         )
 
+    # 运行时分离存储后端（暂不支持）
     def detach_storage_backend(self) -> tuple[bool, str]:
         return (
             False,
@@ -2081,6 +2159,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
             "Restart without hicache_storage_backend to disable it.",
         )
 
+    # 清除存储后端数据
     def clear_storage_backend(self) -> bool:
         try:
             ok = self.cache_controller.clear_storage_backend()
@@ -2091,8 +2170,9 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
             logger.info("Hierarchical cache storage backend cleared successfully!")
         return ok
 
-    # ---- HiCache: Async Event Management ----
+    # ---- HiCache：异步事件管理 ----
 
+    # 轮询写直通/写回完成事件
     def writing_check(self, write_back: bool = False) -> None:
         """Poll write-through completions."""
         cc = self.cache_controller
@@ -2146,6 +2226,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
                     self.write_backup_storage(node)
             finish_count -= 1
 
+    # 轮询加载回传完成事件
     def loading_check(self) -> None:
         """Poll load-back completions."""
         cc = self.cache_controller
@@ -2161,8 +2242,9 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
                 self.dec_lock_ref(node, lock_params)
         del cc.ack_load_queue[:finish_count]
 
-    # ---- HiCache: Scheduler Entry Points ----
+    # ---- HiCache：调度器入口点 ----
 
+    # 准备从主机到设备的KV缓存加载
     def init_load_back(
         self,
         params: InitLoadBackParams,
@@ -2209,6 +2291,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
             last_best_match_device_node,
         )
 
+    # 每个调度步骤调用，轮询异步HiCache事件
     def check_hicache_events(self) -> None:
         """Called per scheduler step to poll async HiCache events."""
         self.writing_check()
@@ -2220,78 +2303,101 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
                 self.cache_controller.storage_backend.get_stats()
             )
 
+    # 刷新待处理的写直通确认
     def flush_write_through_acks(self) -> None:
         """Flush pending write-through acknowledgements."""
         self.writing_check()
 
+    # 通知缓存控制器开始KV缓存加载
     def ready_to_load_host_cache(self) -> int:
         """Notify the cache controller to start the KV cache loading."""
         if self.cache_controller is not None:
             return self.cache_controller.start_loading()
         return 0
 
-    # ---- Query / Inspection APIs ----
+    # ---- 查询/检查API ----
+        # 这些API为兼容其他RadixTree实现而存在
+        # 待办：在将来重构中简化和整合
     # These APIs exist for compatibility with other RadixTree implementations.
     # TODO: simplify and consolidate in a future refactor.
 
+    # 获取滑动窗口大小
     @property
     def sliding_window_size(self):
         swa = self.components.get(ComponentType.SWA)
         return swa.sliding_window_size if swa else None
 
+    # 判断是否支持SWA
     def supports_swa(self) -> bool:
         return ComponentType.SWA in self.components
 
+    # 判断是否支持Mamba
     def supports_mamba(self) -> bool:
         return ComponentType.MAMBA in self.components
 
-    # ---- Streaming session API (delegates to composed StreamingSession) ----
+    # ---- 流式会话API（委托给组合的StreamingSession）----
 
+    # 判断是否支持流式会话
     def supports_streaming_session(self) -> bool:
         return True
 
+    # 释放流式会话
     def release_session(self, session_id: str) -> None:
         self.session.release_session(session_id)
 
+    # 获取会话持有的token数
     def session_held_tokens(self, active_pool_idxs: Optional[set] = None) -> int:
         return self.session.session_held_tokens(active_pool_idxs)
 
+    # 获取会话持有的Full token数
     def session_held_full_tokens(self, active_pool_idxs: Optional[set] = None) -> int:
         return self.session.session_held_full_tokens(active_pool_idxs)
 
+    # 获取会话持有的SWA token数
     def session_held_swa_tokens(self, active_pool_idxs: Optional[set] = None) -> int:
         return self.session.session_held_swa_tokens(active_pool_idxs)
 
+    # 获取会话持有的请求数
     def session_held_req_count(self, active_pool_idxs: Optional[set] = None) -> int:
         return self.session.session_held_req_count(active_pool_idxs)
 
+    # 获取会话持有的Mamba槽位数
     def session_held_mamba_slots(self, active_pool_idxs: Optional[set] = None) -> int:
         return self.session.session_held_mamba_slots(active_pool_idxs)
 
+    # 获取可驱逐的Full token数
     def evictable_size(self) -> int:
         return self.component_evictable_size_.get(BASE_COMPONENT_TYPE, 0)
 
+    # 获取受保护的Full token数
     def protected_size(self) -> int:
         return self.component_protected_size_.get(BASE_COMPONENT_TYPE, 0)
 
+    # 获取Full可驱逐大小
     def full_evictable_size(self) -> int:
         return self.evictable_size()
 
+    # 获取Full受保护大小
     def full_protected_size(self) -> int:
         return self.protected_size()
 
+    # 获取SWA可驱逐大小
     def swa_evictable_size(self) -> int:
         return self.component_evictable_size_.get(ComponentType.SWA, 0)
 
+    # 获取Mamba可驱逐大小
     def mamba_evictable_size(self) -> int:
         return self.component_evictable_size_.get(ComponentType.MAMBA, 0)
 
+    # 获取SWA受保护大小
     def swa_protected_size(self) -> int:
         return self.component_protected_size_.get(ComponentType.SWA, 0)
 
+    # 获取Mamba受保护大小
     def mamba_protected_size(self) -> int:
         return self.component_protected_size_.get(ComponentType.MAMBA, 0)
 
+    # 计算树中所有节点的总大小
     def total_size(self):
         total_size = 0
         total_aux_size = 0
@@ -2311,6 +2417,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
                 stack.append(child)
         return total_size, total_aux_size
 
+    # 获取树中所有Full值的扁平张量
     def all_values_flatten(self) -> torch.Tensor:
         values = []
 
@@ -2326,6 +2433,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
             return torch.cat(values)
         return torch.tensor([], dtype=torch.int64, device=self.device)
 
+    # 获取指定组件类型的所有值的扁平张量
     def _all_component_values_flatten(
         self, component_type: ComponentType
     ) -> torch.Tensor:
@@ -2346,12 +2454,15 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
             return torch.cat(values)
         return torch.tensor([], dtype=torch.int64, device=self.device)
 
+    # 获取所有Mamba值的扁平张量
     def all_mamba_values_flatten(self) -> torch.Tensor:
         return self._all_component_values_flatten(ComponentType.MAMBA)
 
+    # 获取所有SWA值的扁平张量
     def all_swa_values_flatten(self) -> torch.Tensor:
         return self._all_component_values_flatten(ComponentType.SWA)
 
+    # 获取可用和可驱逐大小的字符串描述
     def available_and_evictable_str(self) -> str:
         if self.supports_swa():
             full_available_size = self.token_to_kv_pool_allocator.full_available_size()
@@ -2378,6 +2489,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
             )
         return "\n".join(lines) + "\n"
 
+    # 收集树中所有节点
     def _collect_all_nodes(self) -> list[UnifiedTreeNode]:
         nodes = []
         stack = [self.root_node]
@@ -2387,6 +2499,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
             stack.extend(node.children.values())
         return nodes
 
+    # 验证树不变性（完整性检查）
     def sanity_check(self):
         """Verify tree invariants.
 
@@ -2619,6 +2732,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
             self.pretty_print()
             raise AssertionError(msg)
 
+    # 遍历LRU双向链表，收集完整性错误
     def _check_lru_linked_list(
         self,
         lru: "UnifiedLRUList",
@@ -2652,6 +2766,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
                 f"[{label}][{ct}] list={len(visited)} != cache={len(lru.cache)}"
             )
 
+    # 格式化打印树结构
     def pretty_print(self) -> None:
         stack = [(self.root_node, 0)]
         while stack:
@@ -2670,6 +2785,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
             for child in node.children.values():
                 stack.append((child, indent + 2))
 
+    # 重建主机叶子集合（L1-only重置后）
     def _rebuild_host_leaf_sets(self) -> None:
         """Rebuild evictable_host_leaves after L1-only reset."""
         stack = [self.root_node]
@@ -2679,6 +2795,7 @@ class UnifiedRadixCache(KVCacheEventMixin, BasePrefixCache):
                 self._update_evictable_leaf_sets(node)
             stack.extend(node.children.values())
 
+    # 重建主机LRU列表（L1-only重置后）
     def _rebuild_host_lru_lists(self) -> None:
         """Rebuild host_lru_lists for extra components after L1-only reset.
         Walks the tree and adds nodes with host component data to the

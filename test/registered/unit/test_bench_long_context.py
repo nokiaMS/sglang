@@ -1,3 +1,4 @@
+# 文件名: test_bench_long_context.py - 长上下文基准
 """Unit test for benchmark/hicache/bench_long_context.py.
 
 Guards against the regression where ContextWorkloadGenerator.__init__ replaces
@@ -28,6 +29,7 @@ import bench_long_context  # noqa: E402
 from sglang.test.kits.cache_hit_kit import async_request_sglang_generate  # noqa: E402
 
 
+# 内部方法_build_args
 def _build_args(dataset_path: str) -> SimpleNamespace:
     return SimpleNamespace(
         host="localhost",
@@ -43,6 +45,7 @@ def _build_args(dataset_path: str) -> SimpleNamespace:
     )
 
 
+# 内部方法_fake_dataset
 def _fake_dataset() -> dict:
     return {
         "contexts": ["ctx-zero ", "ctx-one "],
@@ -53,10 +56,12 @@ def _fake_dataset() -> dict:
     }
 
 
+# TestContextWorkloadGeneratorInit类
 class TestContextWorkloadGeneratorInit(CustomTestCase):
     """Verify ContextWorkloadGenerator wires up everything its inherited
     request_sender/handle_request/run methods rely on."""
 
+    # TestContextWorkloadGeneratorInit类的测试初始化设置
     def setUp(self):
         self._tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
         json.dump(_fake_dataset(), self._tmp)
@@ -72,19 +77,22 @@ class TestContextWorkloadGeneratorInit(CustomTestCase):
         )
         self._tok_patch.start()
 
+    # TestContextWorkloadGeneratorInit类的测试清理
     def tearDown(self):
         self._tok_patch.stop()
         Path(self.dataset_path).unlink(missing_ok=True)
 
+    # TestContextWorkloadGeneratorInit类的测试requestfuncisset
     def test_request_func_is_set(self):
         """The bug we're guarding against: request_func not being set caused
         AttributeError as soon as the request_sender thread fired."""
         gen = bench_long_context.ContextWorkloadGenerator(
             _build_args(self.dataset_path)
         )
-        self.assertTrue(callable(getattr(gen, "request_func", None)))
-        self.assertIs(gen.request_func, async_request_sglang_generate)
+        self.assertTrue(callable(getattr(gen, "request_func", None)))  # 断言为真
+        self.assertIs(gen.request_func, async_request_sglang_generate)  # 断言是同一对象
 
+    # TestContextWorkloadGeneratorInit类的测试inheritsworkloadgeneratorcontract
     def test_inherits_workload_generator_contract(self):
         """All attributes WorkloadGenerator's run-time methods touch must exist."""
         gen = bench_long_context.ContextWorkloadGenerator(
@@ -93,7 +101,7 @@ class TestContextWorkloadGeneratorInit(CustomTestCase):
 
         # handle_request (bench_multiturn.py) reads these
         for attr in ("request_func", "url", "pbar", "response_queue", "finished_time"):
-            self.assertTrue(hasattr(gen, attr), f"missing attribute: {attr}")
+            self.assertTrue(hasattr(gen, attr), f"missing attribute: {attr}")  # 断言为真
 
         # request_sender reads these
         for attr in (
@@ -104,24 +112,26 @@ class TestContextWorkloadGeneratorInit(CustomTestCase):
             "distribution",
             "request_rate",
         ):
-            self.assertTrue(hasattr(gen, attr), f"missing attribute: {attr}")
+            self.assertTrue(hasattr(gen, attr), f"missing attribute: {attr}")  # 断言为真
 
         # run() reads these
         for attr in ("performance_metrics", "enable_round_barrier"):
-            self.assertTrue(hasattr(gen, attr), f"missing attribute: {attr}")
+            self.assertTrue(hasattr(gen, attr), f"missing attribute: {attr}")  # 断言为真
 
+    # TestContextWorkloadGeneratorInit类的测试urltargetssglanggenerateendpoint
     def test_url_targets_sglang_generate_endpoint(self):
         gen = bench_long_context.ContextWorkloadGenerator(
             _build_args(self.dataset_path)
         )
-        self.assertEqual(gen.url, "http://localhost:30000/generate")
+        self.assertEqual(gen.url, "http://localhost:30000/generate")  # 断言相等
 
+    # TestContextWorkloadGeneratorInit类的测试readyqueuesizematchesdataset
     def test_ready_queue_size_matches_dataset(self):
         gen = bench_long_context.ContextWorkloadGenerator(
             _build_args(self.dataset_path)
         )
         # 2 queries in fake dataset, num_clients=2 → 2 init requests
-        self.assertEqual(len(gen.ready_queue.requests), 2)
+        self.assertEqual(len(gen.ready_queue.requests), 2)  # 断言相等
 
 
 if __name__ == "__main__":

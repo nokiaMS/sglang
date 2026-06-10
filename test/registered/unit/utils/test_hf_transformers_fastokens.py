@@ -1,3 +1,4 @@
+# 文件名: test_hf_transformers_fastokens.py - HuggingFace Transformers快速分词
 """End-to-end verification that --tokenizer-backend=fastokens swaps the
 backend of the loaded tokenizer with fastokens' _TokenizerShim.
 """
@@ -24,7 +25,11 @@ except ImportError:
 
 
 @unittest.skipUnless(HAS_FASTOKENS, "fastokens package not installed")
+
+# TestFastokensBackend类
 class TestFastokensBackend(CustomTestCase):
+
+    # TestFastokensBackend类的测试shimisapplied
     def test_shim_is_applied(self):
         # `_TokenizerShim` is fastokens' private compat shim. SGLang's
         # integration relies on `tokenizer._tokenizer` being an instance of
@@ -47,6 +52,7 @@ class TestFastokensBackend(CustomTestCase):
             f"got {type(backend).__name__}",
         )
 
+    # TestFastokensBackend类的测试encodedecoderoundtrip
     def test_encode_decode_roundtrip(self):
         from sglang.srt.utils.hf_transformers.tokenizer import get_tokenizer
 
@@ -56,8 +62,8 @@ class TestFastokensBackend(CustomTestCase):
         )
         text = "Hello, world!"
         ids = tokenizer.encode(text, add_special_tokens=False)
-        self.assertGreater(len(ids), 0)
-        self.assertEqual(tokenizer.decode(ids, skip_special_tokens=True), text)
+        self.assertGreater(len(ids), 0)  # 断言大于
+        self.assertEqual(tokenizer.decode(ids, skip_special_tokens=True), text)  # 断言相等
 
 
 if __name__ == "__main__":

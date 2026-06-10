@@ -1,3 +1,4 @@
+# 文件名: test_torch_native.py - PyTorch原生实现测试
 import sys
 import unittest
 from pathlib import Path
@@ -42,6 +43,7 @@ class TestTorchNativeGDNBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试projectedgdnattentioncases
     def test_projected_gdn_attention_cases(self):
         for case in self.CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -70,6 +72,7 @@ class TestTorchNativeGDNBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试layoutrobustnesscases
     def test_layout_robustness_cases(self):
         for case in self.LAYOUT_ROBUSTNESS_CASES:
             for layout in ("interleaved_pages", "non_monotonic_extend"):
@@ -78,6 +81,7 @@ class TestTorchNativeGDNBackendCorrectness(CustomTestCase):
                 with self.subTest(case=case.name, layout=layout):
                     run_gdn_attention_case(self, case, loc_layout=layout)
 
+    # 测试runnermodesplitopextendcases
     def test_runner_mode_split_op_extend_cases(self):
         for case, static_num_tokens in self.SPLIT_OP_CASES:
             for breakable in (False, True):

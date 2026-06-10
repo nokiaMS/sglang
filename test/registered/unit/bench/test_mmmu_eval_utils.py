@@ -1,3 +1,4 @@
+# 文件名: test_mmmu_eval_utils.py - MMMU评估工具
 import importlib.util
 import re
 import sys
@@ -11,6 +12,7 @@ try:
 except ModuleNotFoundError:
     CustomTestCase = unittest.TestCase
 
+    # register_cpu_ci
     def register_cpu_ci(*args, **kwargs):
         pass
 
@@ -18,6 +20,7 @@ except ModuleNotFoundError:
 register_cpu_ci(est_time=5, suite="base-a-test-cpu")
 
 
+# 内部方法_load_mmmu_eval_utils
 def _load_mmmu_eval_utils():
     repo_root = Path(__file__).resolve().parents[4]
     module_path = repo_root / "benchmark" / "mmmu" / "eval_utils.py"
@@ -48,13 +51,15 @@ def _load_mmmu_eval_utils():
     return module
 
 
+# 内部方法_build_data_utils_stub
 def _build_data_utils_stub():
     module = types.ModuleType("data_utils")
     module.CAT_SHORT2LONG = {}
     module.DOMAIN_CAT2SUB_CAT = {}
 
+    # 内部方法_unused
     def _unused(*args, **kwargs):
-        raise AssertionError("Unexpected data_utils call in MMMU parser unit test")
+        raise AssertionError("Unexpected data_utils call in MMMU parser unit test")  # 抛出异常
 
     module.construct_prompt = _unused
     module.load_yaml = _unused
@@ -63,42 +68,51 @@ def _build_data_utils_stub():
     return module
 
 
+# 内部方法_build_datasets_stub
 def _build_datasets_stub():
     module = types.ModuleType("datasets")
 
+    # 内部方法_unused
     def _unused(*args, **kwargs):
-        raise AssertionError("Unexpected datasets call in MMMU parser unit test")
+        raise AssertionError("Unexpected datasets call in MMMU parser unit test")  # 抛出异常
 
     module.concatenate_datasets = _unused
     module.load_dataset = _unused
     return module
 
 
+# 内部方法_build_numpy_stub
 def _build_numpy_stub():
     module = types.ModuleType("numpy")
     module.argmax = lambda values: max(range(len(values)), key=values.__getitem__)
     return module
 
 
+# 内部方法_build_tqdm_stub
 def _build_tqdm_stub():
     module = types.ModuleType("tqdm")
     module.tqdm = lambda iterable=None, *args, **kwargs: iterable
     return module
 
 
+# TestMMMUEvalUtils类
 class TestMMMUEvalUtils(CustomTestCase):
     @classmethod
+
+    # TestMMMUEvalUtils类的测试类初始化设置
     def setUpClass(cls):
         cls.eval_utils = _load_mmmu_eval_utils()
 
+    # TestMMMUEvalUtils类的测试defaultresponseanswerregexcapturesmultilineresponse
     def test_default_response_answer_regex_captures_multiline_response(self):
         response = "Based on the diagram, compare the labeled points.\nAnswer: B"
 
         answer = re.search(self.eval_utils.EvalArgs.response_answer_regex, response)
 
-        self.assertIsNotNone(answer)
-        self.assertEqual(answer.group(1), response)
+        self.assertIsNotNone(answer)  # 断言不为None
+        self.assertEqual(answer.group(1), response)  # 断言相等
 
+    # TestMMMUEvalUtils类的测试defaultregexextractionpreservesmultilineanswerforprocessing
     def test_default_regex_extraction_preserves_multiline_answer_for_processing(self):
         response = "Based on the diagram, compare the labeled points.\nAnswer: B"
         sample = self._multiple_choice_sample(response)
@@ -117,8 +131,9 @@ class TestMMMUEvalUtils(CustomTestCase):
         finally:
             self.eval_utils.random.choice = previous_random_choice
 
-        self.assertEqual(out_samples["sample-1"]["pred_ans"], "B")
+        self.assertEqual(out_samples["sample-1"]["pred_ans"], "B")  # 断言相等
 
+    # TestMMMUEvalUtils类的测试parsemultichoiceprefersexplicitanswermarkeraftercopiedoptions
     def test_parse_multi_choice_prefers_explicit_answer_marker_after_copied_options(
         self,
     ):
@@ -135,8 +150,9 @@ class TestMMMUEvalUtils(CustomTestCase):
             response, ["A", "B", "C", "D"], self._index_to_answer()
         )
 
-        self.assertEqual(pred_ans, "B")
+        self.assertEqual(pred_ans, "B")  # 断言相等
 
+    # TestMMMUEvalUtils类的测试parsemultichoiceprefersfinalstandaloneletteraftercopiedoptions
     def test_parse_multi_choice_prefers_final_standalone_letter_after_copied_options(
         self,
     ):
@@ -154,8 +170,9 @@ class TestMMMUEvalUtils(CustomTestCase):
             response, ["A", "B", "C", "D"], self._index_to_answer()
         )
 
-        self.assertEqual(pred_ans, "B")
+        self.assertEqual(pred_ans, "B")  # 断言相等
 
+    # TestMMMUEvalUtils类的测试parsemultichoicepreferslatestexplicitanswer
     def test_parse_multi_choice_prefers_latest_explicit_answer(self):
         response = "Initial thought: Answer: A\nAfter checking the image again:\n**B**"
 
@@ -163,8 +180,9 @@ class TestMMMUEvalUtils(CustomTestCase):
             response, ["A", "B", "C", "D"], self._index_to_answer()
         )
 
-        self.assertEqual(pred_ans, "B")
+        self.assertEqual(pred_ans, "B")  # 断言相等
 
+    # TestMMMUEvalUtils类的测试parsemultichoiceextractsboxedanswer
     def test_parse_multi_choice_extracts_boxed_answer(self):
         response = "After computing the integral the result lines up with \\boxed{C}."
 
@@ -172,8 +190,9 @@ class TestMMMUEvalUtils(CustomTestCase):
             response, ["A", "B", "C", "D"], self._index_to_answer()
         )
 
-        self.assertEqual(pred_ans, "C")
+        self.assertEqual(pred_ans, "C")  # 断言相等
 
+    # TestMMMUEvalUtils类的测试parsemultichoiceextractstheansweris
     def test_parse_multi_choice_extracts_the_answer_is(self):
         response = "Reasoning about the diagram, the answer is D."
 
@@ -181,8 +200,9 @@ class TestMMMUEvalUtils(CustomTestCase):
             response, ["A", "B", "C", "D"], self._index_to_answer()
         )
 
-        self.assertEqual(pred_ans, "D")
+        self.assertEqual(pred_ans, "D")  # 断言相等
 
+    # TestMMMUEvalUtils类的测试parsemultichoiceextractsfinalanswer
     def test_parse_multi_choice_extracts_final_answer(self):
         response = "Working through the steps...\nFinal answer: A"
 
@@ -190,8 +210,9 @@ class TestMMMUEvalUtils(CustomTestCase):
             response, ["A", "B", "C", "D"], self._index_to_answer()
         )
 
-        self.assertEqual(pred_ans, "A")
+        self.assertEqual(pred_ans, "A")  # 断言相等
 
+    # TestMMMUEvalUtils类的测试parsemultichoiceextractscorrectanswerphrase
     def test_parse_multi_choice_extracts_correct_answer_phrase(self):
         response = (
             "(A) is wrong because the proportions do not match.\n"
@@ -202,8 +223,9 @@ class TestMMMUEvalUtils(CustomTestCase):
             response, ["A", "B", "C", "D"], self._index_to_answer()
         )
 
-        self.assertEqual(pred_ans, "B")
+        self.assertEqual(pred_ans, "B")  # 断言相等
 
+    # TestMMMUEvalUtils类的测试parsemultichoiceignoresparentheticaloptionmentions
     def test_parse_multi_choice_ignores_parenthetical_option_mentions(self):
         # Thinking-style outputs discuss/reject several options inside
         # ``<think>...</think>`` using parenthetical mentions like ``(A)``,
@@ -224,8 +246,9 @@ class TestMMMUEvalUtils(CustomTestCase):
             response, ["A", "B", "C", "D"], self._index_to_answer()
         )
 
-        self.assertEqual(pred_ans, "D")
+        self.assertEqual(pred_ans, "D")  # 断言相等
 
+    # TestMMMUEvalUtils类的内部方法_multiple_choice_sample
     def _multiple_choice_sample(self, response):
         return {
             "id": "sample-1",
@@ -236,6 +259,7 @@ class TestMMMUEvalUtils(CustomTestCase):
             "original_response": response,
         }
 
+    # TestMMMUEvalUtils类的内部方法_index_to_answer
     def _index_to_answer(self):
         return {"A": "red", "B": "blue", "C": "green", "D": "yellow"}
 

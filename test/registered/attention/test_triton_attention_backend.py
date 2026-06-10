@@ -1,3 +1,4 @@
+# 文件名: test_triton_attention_backend.py - Triton注意力后端测试
 """
 Usage:
 python3 -m unittest test_triton_attention_backend.TestTritonAttnBackend.test_mmlu
@@ -25,6 +26,7 @@ register_amd_ci(est_time=1400, suite="stage-b-test-1-gpu-small-amd")
 
 
 class TestTritonAttnBackend(CustomTestCase):
+    # 测试延迟
     def test_latency(self):
         output_throughput = run_bench_offline_throughput(
             DEFAULT_MODEL_NAME_FOR_TEST,
@@ -42,6 +44,7 @@ class TestTritonAttnBackend(CustomTestCase):
         if is_in_ci():
             self.assertGreater(output_throughput, 153)
 
+    # 测试mmlu
     def test_mmlu(self):
         model = DEFAULT_MODEL_NAME_FOR_TEST
         base_url = DEFAULT_URL_FOR_TEST

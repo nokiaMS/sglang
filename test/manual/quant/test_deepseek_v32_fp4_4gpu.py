@@ -1,3 +1,4 @@
+# 文件名: test_deepseek_v32_fp4_4gpu.py - DeepSeek-V3.2 FP4 4卡测试 - 验证DP和TP模式下FP4量化的GSM8K准确性和速度
 import unittest
 from types import SimpleNamespace
 
@@ -18,6 +19,7 @@ SERVER_LAUNCH_TIMEOUT = 1200
 
 class TestDeepseekV32FP4DP(CustomTestCase):
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         cls.model = FULL_DEEPSEEK_V3_FP4_MODEL_PATH
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -46,9 +48,11 @@ class TestDeepseekV32FP4DP(CustomTestCase):
         )
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试a gsm8k
     def test_a_gsm8k(
         self,
     ):  # Append an "a" to make this test run first (alphabetically) to warm up the server
@@ -72,6 +76,7 @@ class TestDeepseekV32FP4DP(CustomTestCase):
 
         self.assertGreater(metrics["score"], 0.93)
 
+    # 测试bs 1 speed
     def test_bs_1_speed(self):
         args = BenchArgs(port=int(self.base_url.split(":")[-1]), max_new_tokens=2048)
         acc_length, speed = send_one_prompt(args)
@@ -89,6 +94,7 @@ class TestDeepseekV32FP4DP(CustomTestCase):
 
 class TestDeepseekV32FP4TP(CustomTestCase):
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         cls.model = FULL_DEEPSEEK_V3_FP4_MODEL_PATH
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -114,9 +120,11 @@ class TestDeepseekV32FP4TP(CustomTestCase):
         )
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试a gsm8k
     def test_a_gsm8k(
         self,
     ):  # Append an "a" to make this test run first (alphabetically) to warm up the server
@@ -140,6 +148,7 @@ class TestDeepseekV32FP4TP(CustomTestCase):
 
         self.assertGreater(metrics["score"], 0.93)
 
+    # 测试bs 1 speed
     def test_bs_1_speed(self):
         args = BenchArgs(port=int(self.base_url.split(":")[-1]), max_new_tokens=2048)
         acc_length, speed = send_one_prompt(args)

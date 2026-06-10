@@ -1,3 +1,4 @@
+# 文件名: test_unified_radix_cache_bench.py - 统一基数缓存基准
 """Large-scale benchmark + fuzz correctness tests for UnifiedRadixCache.
 
 Usage (standalone):
@@ -60,6 +61,8 @@ _DEFAULT_COMPONENTS = (ComponentType.FULL, ComponentType.MAMBA)
 
 
 @contextmanager
+
+# 内部方法_suppress_logs
 def _suppress_logs():
     root = logging.getLogger()
     prev = root.level
@@ -70,10 +73,12 @@ def _suppress_logs():
         root.setLevel(prev)
 
 
+# 内部方法_full_attention_layer_ids
 def _full_attention_layer_ids():
     return list(range(_GLOBAL_INTERVAL - 1, _NUM_LAYERS, _GLOBAL_INTERVAL))
 
 
+# 内部方法_non_full_layer_ids
 def _non_full_layer_ids():
     full = set(_full_attention_layer_ids())
     return [i for i in range(_NUM_LAYERS) if i not in full]
@@ -241,6 +246,7 @@ def create_bench_cache(
 
     _rid = [0]
 
+    # make_req
     def make_req():
         from sglang.srt.managers.schedule_batch import Req
         from sglang.srt.sampling.sampling_params import SamplingParams
@@ -262,6 +268,8 @@ def create_bench_cache(
 # Shared bench environment + helpers
 # ===================================================================
 @dataclass
+
+# _Env类
 class _Env:
     tree: object
     alloc: object
@@ -274,6 +282,7 @@ class _Env:
     avg_tokens: int
 
 
+# 内部方法_make_env
 def _make_env(num_seqs, chunk_len, kv_size, components, tree_cls=None, page_size=1):
     """Create sequences + cache, return shared _Env."""
     if components is None:
@@ -303,6 +312,7 @@ def _make_env(num_seqs, chunk_len, kv_size, components, tree_cls=None, page_size
     )
 
 
+# 内部方法_alloc
 def _alloc(env, n):
     if env.has_swa and env.page_size > 1:
         ps = env.page_size
@@ -319,6 +329,7 @@ def _alloc(env, n):
     return env.alloc.alloc(n)
 
 
+# 内部方法_alloc_with_evict
 def _alloc_with_evict(env, n):
     """Alloc *n* tokens, evicting if necessary.  Returns tensor or None."""
     v = _alloc(env, n)
@@ -328,6 +339,7 @@ def _alloc_with_evict(env, n):
     return v
 
 
+# 内部方法_insert_seq
 def _insert_seq(env, seq):
     """Insert one sequence (alloc + evict-fallback).  Returns True on success."""
     v = _alloc_with_evict(env, len(seq))
@@ -342,12 +354,14 @@ def _insert_seq(env, seq):
     return True
 
 
+# 内部方法_populate
 def _populate(env, count):
     """Insert first *count* sequences (with evict-fallback)."""
     for seq in env.seqs[:count]:
         _insert_seq(env, seq)
 
 
+# 内部方法_fill_no_evict
 def _fill_no_evict(env):
     """Insert sequences until pool exhausted (no eviction).  Returns count."""
     inserted = 0
@@ -371,6 +385,8 @@ def _fill_no_evict(env):
 # Benchmark result + runner
 # ===================================================================
 @dataclass
+
+# BenchResult类
 class BenchResult:
     name: str
     num_ops: int
@@ -379,24 +395,33 @@ class BenchResult:
     latencies_us: list[float]
 
     @property
+
+    # BenchResult类的ops_per_sec
     def ops_per_sec(self):
         return self.num_ops / self.elapsed_s if self.elapsed_s > 0 else 0
 
     @property
+
+    # BenchResult类的tokens_per_sec
     def tokens_per_sec(self):
         return self.total_tokens / self.elapsed_s if self.elapsed_s > 0 else 0
 
     @property
+
+    # BenchResult类的p50_us
     def p50_us(self):
         return statistics.median(self.latencies_us) if self.latencies_us else 0
 
     @property
+
+    # BenchResult类的p99_us
     def p99_us(self):
         if not self.latencies_us:
             return 0
         idx = int(len(self.latencies_us) * 0.99)
         return sorted(self.latencies_us)[min(idx, len(self.latencies_us) - 1)]
 
+    # BenchResult类的report
     def report(self):
         tok = (
             f"{self.tokens_per_sec:>12,.0f} tok/s"
@@ -409,6 +434,7 @@ class BenchResult:
         )
 
 
+# bench_api
 def bench_api(
     name, setup_fn, op_fn, num_ops, tokens_per_op=0, warmup=10, verify_fn=None
 ):
@@ -480,6 +506,7 @@ def bench_insert(
     )
 
 
+# bench_match_prefix
 def bench_match_prefix(
     num_seqs=5000,
     chunk_len=256,
@@ -506,6 +533,7 @@ def bench_match_prefix(
         else:
             queries.append([rng.randint(1, 32000)] * rng.randint(50, 300))
 
+    # verify_fn
     def verify_fn(q):
         k = RadixKey(array("q", q))
         r1 = env.tree.match_prefix(MatchPrefixParams(key=k))
@@ -524,6 +552,7 @@ def bench_match_prefix(
     )
 
 
+# bench_evict
 def bench_evict(
     num_seqs=5000,
     chunk_len=256,
@@ -553,6 +582,7 @@ def bench_evict(
     )
 
 
+# bench_lock_unlock
 def bench_lock_unlock(
     num_seqs=5000,
     chunk_len=256,
@@ -578,6 +608,7 @@ def bench_lock_unlock(
     num_pairs = min(len(nodes) * 2, num_seqs)
     items = [rng.choice(nodes) for _ in range(num_pairs + 50)]
 
+    # op_fn
     def op_fn(node):
         lr = env.tree.inc_lock_ref(node)
         env.tree.dec_lock_ref(
@@ -597,6 +628,7 @@ def bench_lock_unlock(
     )
 
 
+# bench_cache_finished
 def bench_cache_finished(
     num_seqs=5000,
     chunk_len=256,
@@ -677,6 +709,7 @@ ALL_BENCHMARKS = {
 }
 
 
+# run_all_benchmarks
 def run_all_benchmarks(
     num_seqs=5000,
     chunk_len=256,
@@ -778,10 +811,13 @@ _CI_BENCH_CONFIGS = [
 ]
 
 
+# _BenchSuite类
 class _BenchSuite:
     """Mixin: subclass must set bench_cfg dict with keys: label, components, page_size, num_seqs, kv_size."""
 
     @classmethod
+
+    # _BenchSuite类的测试类初始化设置
     def setUpClass(cls):
         page_size = cls.bench_cfg["page_size"]
         server_args = ServerArgs(model_path="dummy", page_size=page_size)
@@ -789,6 +825,7 @@ class _BenchSuite:
         server_args._mamba_cache_chunk_size = max(FLA_CHUNK_SIZE, page_size)
         set_global_server_args_for_scheduler(server_args)
 
+    # _BenchSuite类的内部方法_run
     def _run(self, bench_fn):
         cfg = self.bench_cfg
         r = bench_fn(
@@ -799,21 +836,26 @@ class _BenchSuite:
             verify=True,
             page_size=cfg["page_size"],
         )
-        self.assertGreater(r.num_ops, 0)
-        self.assertGreater(r.ops_per_sec, 0)
+        self.assertGreater(r.num_ops, 0)  # 断言大于
+        self.assertGreater(r.ops_per_sec, 0)  # 断言大于
 
+    # _BenchSuite类的测试benchinsert
     def test_bench_insert(self):
         self._run(bench_insert)
 
+    # _BenchSuite类的测试benchmatchprefix
     def test_bench_match_prefix(self):
         self._run(bench_match_prefix)
 
+    # _BenchSuite类的测试benchevict
     def test_bench_evict(self):
         self._run(bench_evict)
 
+    # _BenchSuite类的测试benchlockunlock
     def test_bench_lock_unlock(self):
         self._run(bench_lock_unlock)
 
+    # _BenchSuite类的测试benchcachefinished
     def test_bench_cache_finished(self):
         self._run(bench_cache_finished)
 

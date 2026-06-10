@@ -1,3 +1,4 @@
+# 文件名: test_profile_merger.py - 性能分析合并器
 """
 Unit tests for the ProfileMerger implementation.
 
@@ -26,74 +27,82 @@ register_amd_ci(est_time=8, suite="stage-b-test-1-gpu-small-amd")
 register_cpu_ci(est_time=8, suite="base-b-test-cpu")
 
 
+# TestProfileMerger类
 class TestProfileMerger(unittest.TestCase):
+
+    # TestProfileMerger类的测试初始化设置
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp()
         self.profile_id = "test_profile_123"
         self.merger = ProfileMerger(self.temp_dir, self.profile_id)
 
+    # TestProfileMerger类的测试清理
     def tearDown(self):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
+    # TestProfileMerger类的测试rankextractionandlabeling
     def test_rank_extraction_and_labeling(self):
         # Test TP-only
         filename = f"{self.profile_id}-TP-0.trace.json.gz"
         rank_info = self.merger._extract_rank_info(filename)
-        self.assertEqual(rank_info, {"tp_rank": 0})
+        self.assertEqual(rank_info, {"tp_rank": 0})  # 断言相等
         label = self.merger._create_rank_label(rank_info)
-        self.assertEqual(label, "[TP00]")
+        self.assertEqual(label, "[TP00]")  # 断言相等
 
         # Test all parallelism types
         filename = f"{self.profile_id}-TP-1-DP-2-PP-3-EP-4.trace.json.gz"
         rank_info = self.merger._extract_rank_info(filename)
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             rank_info, {"tp_rank": 1, "dp_rank": 2, "pp_rank": 3, "ep_rank": 4}
         )
         label = self.merger._create_rank_label(rank_info)
-        self.assertEqual(label, "[TP01-DP02-PP03-EP04]")
+        self.assertEqual(label, "[TP01-DP02-PP03-EP04]")  # 断言相等
 
         # Test partial ranks
         filename = f"{self.profile_id}-TP-0-DP-1.trace.json.gz"
         rank_info = self.merger._extract_rank_info(filename)
-        self.assertEqual(rank_info, {"tp_rank": 0, "dp_rank": 1})
+        self.assertEqual(rank_info, {"tp_rank": 0, "dp_rank": 1})  # 断言相等
         label = self.merger._create_rank_label(rank_info)
-        self.assertEqual(label, "[TP00-DP01]")
+        self.assertEqual(label, "[TP00-DP01]")  # 断言相等
 
         # Test no ranks
         filename = f"{self.profile_id}.trace.json.gz"
         rank_info = self.merger._extract_rank_info(filename)
-        self.assertEqual(rank_info, {})
+        self.assertEqual(rank_info, {})  # 断言相等
         label = self.merger._create_rank_label(rank_info)
-        self.assertEqual(label, "[Unknown]")
+        self.assertEqual(label, "[Unknown]")  # 断言相等
 
+    # TestProfileMerger类的测试sortindexcalculation
     def test_sort_index_calculation(self):
         # Single rank
         rank_info = {"tp_rank": 0}
         sort_idx = self.merger._calculate_sort_index(rank_info, 83)
-        self.assertEqual(sort_idx, 83)
+        self.assertEqual(sort_idx, 83)  # 断言相等
 
         # Multiple ranks
         rank_info = {"tp_rank": 1, "dp_rank": 2, "pp_rank": 3, "ep_rank": 4}
         sort_idx = self.merger._calculate_sort_index(rank_info, 83)
-        self.assertNotEqual(sort_idx, 83)
-        self.assertGreater(sort_idx, 1000000)
+        self.assertNotEqual(sort_idx, 83)  # 断言不相等
+        self.assertGreater(sort_idx, 1000000)  # 断言大于
 
         # Empty ranks
         rank_info = {}
         sort_idx = self.merger._calculate_sort_index(rank_info, 83)
-        self.assertEqual(sort_idx, 83)
+        self.assertEqual(sort_idx, 83)  # 断言相等
 
+    # TestProfileMerger类的测试ranksortkey
     def test_rank_sort_key(self):
         # Full ranks: TP-1, DP-2, PP-3, EP-4 → sorted as (DP, EP, PP, TP)
         filename = f"{self.profile_id}-TP-1-DP-2-PP-3-EP-4.trace.json.gz"
         sort_key = self.merger._get_rank_sort_key(filename)
-        self.assertEqual(sort_key, (2, 4, 3, 1))
+        self.assertEqual(sort_key, (2, 4, 3, 1))  # 断言相等
 
         # Missing ranks: only TP-1 → sorted as (DP=0, EP=0, PP=0, TP=1)
         filename = f"{self.profile_id}-TP-1.trace.json.gz"
         sort_key = self.merger._get_rank_sort_key(filename)
-        self.assertEqual(sort_key, (0, 0, 0, 1))
+        self.assertEqual(sort_key, (0, 0, 0, 1))  # 断言相等
 
+    # TestProfileMerger类的测试discovertracefiles
     def test_discover_trace_files(self):
         # Create mock trace files
         trace_files = [
@@ -108,7 +117,7 @@ class TestProfileMerger(unittest.TestCase):
                 json.dump({"traceEvents": []}, f)
 
         discovered = self.merger._discover_trace_files()
-        self.assertEqual(len(discovered), 3)
+        self.assertEqual(len(discovered), 3)  # 断言相等
 
         # Check that all expected files are discovered
         discovered_basenames = {os.path.basename(f) for f in discovered}
@@ -117,13 +126,14 @@ class TestProfileMerger(unittest.TestCase):
             f"{self.profile_id}-TP-1.trace.json.gz",
             f"{self.profile_id}-TP-0-DP-1.trace.json.gz",
         }
-        self.assertEqual(discovered_basenames, expected_basenames)
+        self.assertEqual(discovered_basenames, expected_basenames)  # 断言相等
 
         # Test no matches
         empty_merger = ProfileMerger(self.temp_dir, "nonexistent")
         discovered = empty_merger._discover_trace_files()
-        self.assertEqual(len(discovered), 0)
+        self.assertEqual(len(discovered), 0)  # 断言相等
 
+    # TestProfileMerger类的测试mergechrometraces
     def test_merge_chrome_traces(self):
         # Create multiple trace files in random order
         trace_files = [
@@ -170,58 +180,61 @@ class TestProfileMerger(unittest.TestCase):
             for record in log_capture.records
             if "Processing file:" in record.getMessage()
         ]
-        self.assertIn("TP-0.trace.json.gz", log_messages[0])  # (0,0,0,0) comes first
-        self.assertIn(
+        self.assertIn("TP-0.trace.json.gz", log_messages[0])  # (0,0,0,0) comes first  # 断言包含
+        self.assertIn(  # 断言包含
             "TP-0-DP-1.trace.json.gz", log_messages[1]
         )  # (0,1,0,0) comes second
-        self.assertIn(
+        self.assertIn(  # 断言包含
             "TP-1-DP-1.trace.json.gz", log_messages[2]
         )  # (1,1,0,0) comes last
 
         # Verify merged content
-        self.assertTrue(os.path.exists(merged_path))
+        self.assertTrue(os.path.exists(merged_path))  # 断言为真
         with gzip.open(merged_path, "rt") as f:
             merged_data = json.load(f)
 
-        self.assertEqual(len(merged_data["traceEvents"]), 3)
-        self.assertEqual(len(merged_data["deviceProperties"]), 3)
+        self.assertEqual(len(merged_data["traceEvents"]), 3)  # 断言相等
+        self.assertEqual(len(merged_data["deviceProperties"]), 3)  # 断言相等
 
         # Check rank labels in events
         events = merged_data["traceEvents"]
         pids = [event["pid"] for event in events]
-        self.assertIn("[TP00] 84", pids)
-        self.assertIn("[TP00-DP01] 85", pids)
-        self.assertIn("[TP01-DP01] 83", pids)
+        self.assertIn("[TP00] 84", pids)  # 断言包含
+        self.assertIn("[TP00-DP01] 85", pids)  # 断言包含
+        self.assertIn("[TP01-DP01] 83", pids)  # 断言包含
 
         # Test merge summary
         summary = self.merger.get_merge_summary()
-        self.assertEqual(summary["total_files"], 3)
-        self.assertEqual(summary["total_events"], 3)
-        self.assertEqual(summary["profile_id"], self.profile_id)
+        self.assertEqual(summary["total_files"], 3)  # 断言相等
+        self.assertEqual(summary["total_events"], 3)  # 断言相等
+        self.assertEqual(summary["profile_id"], self.profile_id)  # 断言相等
 
         # Test no files error
         empty_merger = ProfileMerger(self.temp_dir, "nonexistent")
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError):  # 断言抛出异常
             empty_merger.merge_chrome_traces()
 
 
+# TestProfileMergerIntegration类
 class TestProfileMergerIntegration(unittest.TestCase):
 
+    # TestProfileMergerIntegration类的测试datastructuresmergeprofiles
     def test_data_structures_merge_profiles(self):
         # Test ProfileReqInput
         req_input = ProfileReqInput()
-        self.assertFalse(req_input.merge_profiles)
+        self.assertFalse(req_input.merge_profiles)  # 断言为假
 
         req_input = ProfileReqInput(merge_profiles=True)
-        self.assertTrue(req_input.merge_profiles)
+        self.assertTrue(req_input.merge_profiles)  # 断言为真
 
         # Test ProfileReq
         req = ProfileReq(type=ProfileReqType.START_PROFILE)
-        self.assertFalse(req.merge_profiles)
+        self.assertFalse(req.merge_profiles)  # 断言为假
 
         req = ProfileReq(type=ProfileReqType.START_PROFILE, merge_profiles=True)
-        self.assertTrue(req.merge_profiles)
+        self.assertTrue(req.merge_profiles)  # 断言为真
 
+    # TestProfileMergerIntegration类的测试integrationparameters
     def test_integration_parameters(self):
         import inspect
 
@@ -231,7 +244,7 @@ class TestProfileMergerIntegration(unittest.TestCase):
         )
 
         sig = inspect.signature(TokenizerControlMixin.start_profile)
-        self.assertIn("merge_profiles", sig.parameters)
+        self.assertIn("merge_profiles", sig.parameters)  # 断言包含
 
         # Test SchedulerProfilerMixin
         from sglang.srt.managers.scheduler_components.profiler_manager import (
@@ -239,26 +252,31 @@ class TestProfileMergerIntegration(unittest.TestCase):
         )
 
         sig = inspect.signature(SchedulerProfilerManager._init_profile)
-        self.assertIn("merge_profiles", sig.parameters)
+        self.assertIn("merge_profiles", sig.parameters)  # 断言包含
 
         # Test CLI profiler
         from sglang.profiler import run_profile
 
         sig = inspect.signature(run_profile)
-        self.assertIn("merge_profiles", sig.parameters)
+        self.assertIn("merge_profiles", sig.parameters)  # 断言包含
 
 
+# TestProfileMergerEdgeCases类
 class TestProfileMergerEdgeCases(unittest.TestCase):
+
+    # TestProfileMergerEdgeCases类的测试初始化设置
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp()
         self.profile_id = "test_edge_cases"
         self.merger = ProfileMerger(self.temp_dir, self.profile_id)
 
+    # TestProfileMergerEdgeCases类的测试清理
     def tearDown(self):
         import shutil
 
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
+    # TestProfileMergerEdgeCases类的测试errorhandlingandedgecases
     def test_error_handling_and_edge_cases(self):
         # Test malformed trace file
         filename = f"{self.profile_id}-TP-0.trace.json.gz"
@@ -267,17 +285,17 @@ class TestProfileMergerEdgeCases(unittest.TestCase):
             f.write("invalid json content")
 
         merged_path = self.merger.merge_chrome_traces()
-        self.assertTrue(os.path.exists(merged_path))
+        self.assertTrue(os.path.exists(merged_path))  # 断言为真
 
         with gzip.open(merged_path, "rt") as f:
             merged_data = json.load(f)
-        self.assertEqual(len(merged_data["traceEvents"]), 0)
+        self.assertEqual(len(merged_data["traceEvents"]), 0)  # 断言相等
 
         # Test empty trace file
         with gzip.open(filepath, "wt") as f:
             json.dump({}, f)
         merged_path = self.merger.merge_chrome_traces()
-        self.assertTrue(os.path.exists(merged_path))
+        self.assertTrue(os.path.exists(merged_path))  # 断言为真
 
         # Test missing device properties
         trace_data = {
@@ -292,38 +310,40 @@ class TestProfileMergerEdgeCases(unittest.TestCase):
         merged_path = self.merger.merge_chrome_traces()
         with gzip.open(merged_path, "rt") as f:
             merged_data = json.load(f)
-        self.assertNotIn("deviceProperties", merged_data)
+        self.assertNotIn("deviceProperties", merged_data)  # 断言不包含
 
+    # TestProfileMergerEdgeCases类的测试missingranksandnonehandling
     def test_missing_ranks_and_none_handling(self):
         # Test rank extraction with missing ranks
         filename = f"{self.profile_id}-TP-0.trace.json.gz"
         rank_info = self.merger._extract_rank_info(filename)
-        self.assertEqual(rank_info, {"tp_rank": 0})
+        self.assertEqual(rank_info, {"tp_rank": 0})  # 断言相等
 
         # Test rank label creation with missing ranks
         label = self.merger._create_rank_label({"tp_rank": 0})
-        self.assertEqual(label, "[TP00]")
+        self.assertEqual(label, "[TP00]")  # 断言相等
 
         label = self.merger._create_rank_label({})
-        self.assertEqual(label, "[Unknown]")
+        self.assertEqual(label, "[Unknown]")  # 断言相等
 
         # Test sort index calculation
         sort_idx = self.merger._calculate_sort_index({"tp_rank": 0}, 83)
-        self.assertGreater(sort_idx, 0)
+        self.assertGreater(sort_idx, 0)  # 断言大于
 
         sort_idx = self.merger._calculate_sort_index({}, 83)
-        self.assertEqual(sort_idx, 83)
+        self.assertEqual(sort_idx, 83)  # 断言相等
 
         # Test sort key generation
         sort_key = self.merger._get_rank_sort_key(filename)
-        self.assertEqual(sort_key, (0, 0, 0, 0))
+        self.assertEqual(sort_key, (0, 0, 0, 0))  # 断言相等
 
         # Test _maybe_cast_int with various inputs
-        self.assertIsNone(self.merger._maybe_cast_int(None))
-        self.assertIsNone(self.merger._maybe_cast_int("invalid"))
-        self.assertEqual(self.merger._maybe_cast_int("123"), 123)
-        self.assertEqual(self.merger._maybe_cast_int(456), 456)
+        self.assertIsNone(self.merger._maybe_cast_int(None))  # 断言为None
+        self.assertIsNone(self.merger._maybe_cast_int("invalid"))  # 断言为None
+        self.assertEqual(self.merger._maybe_cast_int("123"), 123)  # 断言相等
+        self.assertEqual(self.merger._maybe_cast_int(456), 456)  # 断言相等
 
+    # TestProfileMergerEdgeCases类的测试mixedrankscenarios
     def test_mixed_rank_scenarios(self):
         trace_scenarios = [
             {
@@ -357,17 +377,17 @@ class TestProfileMergerEdgeCases(unittest.TestCase):
                 json.dump(trace_data, f)
 
         merged_path = self.merger.merge_chrome_traces()
-        self.assertTrue(os.path.exists(merged_path))
+        self.assertTrue(os.path.exists(merged_path))  # 断言为真
 
         with gzip.open(merged_path, "rt") as f:
             merged_data = json.load(f)
 
-        self.assertEqual(len(merged_data["traceEvents"]), 3)
+        self.assertEqual(len(merged_data["traceEvents"]), 3)  # 断言相等
         events = merged_data["traceEvents"]
         pids = [event["pid"] for event in events]
-        self.assertIn("[TP00] 83", pids)
-        self.assertIn("[TP01-DP00] 84", pids)
-        self.assertIn("[TP00-DP01-PP00] 85", pids)
+        self.assertIn("[TP00] 83", pids)  # 断言包含
+        self.assertIn("[TP01-DP00] 84", pids)  # 断言包含
+        self.assertIn("[TP00-DP01-PP00] 85", pids)  # 断言包含
 
 
 if __name__ == "__main__":

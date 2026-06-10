@@ -1,3 +1,4 @@
+# 文件名: test_forward_pass_metrics.py - 前向传播指标测试 - 验证前向传播的性能指标收集功能
 """
 Manual test for Forward Pass Metrics (FPM) ZMQ PUB/SUB path.
 
@@ -13,6 +14,7 @@ import time
 import zmq
 
 
+# 测试schema roundtrip
 def test_schema_roundtrip():
     from sglang.srt.observability.forward_pass_metrics import (
         ForwardPassMetrics,
@@ -70,6 +72,7 @@ def test_schema_roundtrip():
     print("PASS: schema roundtrip")
 
 
+# 测试zmq pub sub
 def test_zmq_pub_sub():
     """Test _FpmPublisherThread -> ZMQ SUB end-to-end."""
     from sglang.srt.observability.forward_pass_metrics import (
@@ -141,6 +144,7 @@ def test_zmq_pub_sub():
     ctx.term()
 
 
+# 测试heartbeat
 def test_heartbeat():
     """Test that heartbeat messages are emitted when idle."""
     from sglang.srt.observability.forward_pass_metrics import (

@@ -1,3 +1,4 @@
+# 文件名: conftest.py - Pytest配置和共享夹具
 """Shared fixtures for source_patcher tests.
 
 The sample module is defined as an inline string and written to a temp file
@@ -22,32 +23,39 @@ class HelperClass:
     """Utility class referenced by SampleClass to test cross-class calls."""
 
     @staticmethod
+    # 执行formatvalue
     def format_value(value: str) -> str:
         return f"[{value}]"
 
 
 class SampleClass:
+    # 执行greet
     def greet(self, name: str) -> str:
         greeting = f"hello {name}"
         return greeting
 
+    # 执行compute
     def compute(self, x: int) -> int:
         result = x * 2 + 1
         return result
 
+    # 执行usesglobal
     def uses_global(self) -> str:
         return f"value={GLOBAL_VAR}"
 
+    # 执行useshelper
     def uses_helper(self, value: str) -> str:
         return HelperClass.format_value(value)
 
 
+# 执行standalonefunction
 def standalone_function(a: int, b: int) -> int:
     return a + b
 '''
 
 
 @pytest.fixture(scope="session")
+# 执行samplemodule
 def sample_module() -> ModuleType:
     """Load the sample module from a temp file and register it in sys.modules."""
     if SAMPLE_MODULE_NAME in sys.modules:

@@ -1,3 +1,4 @@
+# 文件名: test_self_e2e_baseline_dsv4.py - DeepSeek-V4 KV金丝雀端到端基线测试
 from __future__ import annotations
 
 import unittest

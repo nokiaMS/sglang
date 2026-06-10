@@ -1,3 +1,8 @@
+# Siglip2 视觉编码器推理实现文件
+# 本文件实现了Siglip2视觉模型，支持NaFlex可变分辨率图像处理
+# 与Siglip v1不同，Siglip2通过打包序列和cu_seqlens处理不同尺寸的图像
+# 包含视觉嵌入、注意力、MLP、编码器和权重加载等核心组件
+
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 # Copyright 2026 Liquid AI. All rights reserved.
@@ -21,29 +26,31 @@
 # Unlike Siglip v1 which uses fixed-size images, Siglip2 handles images of different
 # sizes by packing them into sequences and using cu_seqlens for attention.
 
-from collections.abc import Iterable
-from typing import Optional
+from collections.abc import Iterable  # 导入可迭代类型
+from typing import Optional  # 导入可选类型
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from transformers import Siglip2VisionConfig
+import torch  # 导入PyTorch
+import torch.nn as nn  # 导入神经网络模块
+import torch.nn.functional as F  # 导入函数式接口
+from transformers import Siglip2VisionConfig  # 导入Siglip2视觉配置
 
-from sglang.srt.layers.activation import get_act_fn
-from sglang.srt.layers.attention.vision import VisionAttention
-from sglang.srt.layers.linear import (
+from sglang.srt.layers.activation import get_act_fn  # 导入激活函数
+from sglang.srt.layers.attention.vision import VisionAttention  # 导入视觉注意力
+from sglang.srt.layers.linear import (  # 导入线性层
     ColumnParallelLinear,
     RowParallelLinear,
 )
-from sglang.srt.layers.quantization.base_config import QuantizationConfig
-from sglang.srt.model_loader.weight_utils import default_weight_loader
-from sglang.srt.utils import add_prefix
+from sglang.srt.layers.quantization.base_config import QuantizationConfig  # 导入量化配置
+from sglang.srt.model_loader.weight_utils import default_weight_loader  # 导入默认权重加载器
+from sglang.srt.utils import add_prefix  # 导入前缀工具
 
 
 class Siglip2VisionEmbeddings(nn.Module):
     """Siglip2 vision embeddings with NaFlex variable-resolution support."""
+    """Siglip2视觉嵌入，支持NaFlex可变分辨率"""
 
     def __init__(self, config: Siglip2VisionConfig):
+        """初始化Siglip2视觉嵌入，配置补丁嵌入和位置编码"""
         super().__init__()
         self.config = config
         self.embed_dim = config.hidden_size
@@ -53,15 +60,15 @@ class Siglip2VisionEmbeddings(nn.Module):
         self.patch_embedding = nn.Linear(
             in_features=config.num_channels * self.patch_size * self.patch_size,
             out_features=self.embed_dim,
-        )
+        )  # 补丁线性嵌入
         self.num_patches = config.num_patches
         self.position_embedding_size = int(self.num_patches**0.5)
-        self.position_embedding = nn.Embedding(self.num_patches, self.embed_dim)
+        self.position_embedding = nn.Embedding(self.num_patches, self.embed_dim)  # 位置嵌入
 
     def forward(
         self,
-        pixel_values_packed: torch.FloatTensor,
-        spatial_shapes: torch.LongTensor,
+        pixel_values_packed: torch.FloatTensor,  # 打包的像素值
+        spatial_shapes: torch.LongTensor,  # 空间形状
     ) -> torch.Tensor:
         """Embed patchified pixel values in packed (unpadded) form.
 
@@ -73,6 +80,7 @@ class Siglip2VisionEmbeddings(nn.Module):
         Returns:
             (1, total_tokens, embed_dim) packed embeddings.
         """
+        """将打包的像素值嵌入为补丁嵌入，支持可变分辨率"""
         assert spatial_shapes.device.type == "cpu", (
             "Expected `spatial_shapes` on CPU to avoid device-to-host sync in "
             "variable-length packing."
@@ -84,7 +92,7 @@ class Siglip2VisionEmbeddings(nn.Module):
         else:
             pixel_values_flat = pixel_values_packed
 
-        lengths = (spatial_shapes[:, 0] * spatial_shapes[:, 1]).to(dtype=torch.int64)
+        lengths = (spatial_shapes[:, 0] * spatial_shapes[:, 1]).to(dtype=torch.int64)  # 每个图像的token数
         lengths_list = lengths.tolist()
         total_tokens = int(sum(lengths_list))
         if total_tokens != pixel_values_flat.shape[0]:
@@ -94,25 +102,25 @@ class Siglip2VisionEmbeddings(nn.Module):
             )
 
         target_dtype = self.patch_embedding.weight.dtype
-        patch_embeds = self.patch_embedding(pixel_values_flat.to(dtype=target_dtype))
+        patch_embeds = self.patch_embedding(pixel_values_flat.to(dtype=target_dtype))  # 补丁嵌入
 
         positional_embeddings = self.position_embedding.weight.reshape(
             self.position_embedding_size, self.position_embedding_size, -1
-        )
+        )  # 重塑位置嵌入
         packed_pos_embeds = self.resize_positional_embeddings_packed(
             positional_embeddings,
             spatial_shapes,
             lengths_list=lengths_list,
-        )
+        )  # 调整位置嵌入大小
 
-        embeddings = patch_embeds + packed_pos_embeds
+        embeddings = patch_embeds + packed_pos_embeds  # 补丁嵌入+位置嵌入
         return embeddings.unsqueeze(0)
 
     @staticmethod
     def resize_positional_embeddings_packed(
-        positional_embeddings: torch.Tensor,
-        spatial_shapes: torch.LongTensor,
-        lengths_list: list[int],
+        positional_embeddings: torch.Tensor,  # 位置嵌入
+        spatial_shapes: torch.LongTensor,  # 空间形状
+        lengths_list: list[int],  # 长度列表
     ) -> torch.Tensor:
         """Resize positional embeddings per image and return a packed tensor.
 
@@ -124,6 +132,7 @@ class Siglip2VisionEmbeddings(nn.Module):
         Returns:
             (total_tokens, embed_dim) packed positional embeddings.
         """
+        """逐图像调整位置嵌入大小并返回打包张量"""
         assert spatial_shapes.device.type == "cpu"
 
         embed_dim = positional_embeddings.shape[-1]
@@ -145,7 +154,7 @@ class Siglip2VisionEmbeddings(nn.Module):
             pos_4d = pos_4d.to(torch.float32)
 
         offset = 0
-        for i, length in enumerate(lengths_list):
+        for i, length in enumerate(lengths_list):  # 逐图像插值位置编码
             if length <= 0:
                 continue
             height, width = spatial_shapes[i].tolist()
@@ -166,13 +175,15 @@ class Siglip2VisionEmbeddings(nn.Module):
 
 class Siglip2Attention(nn.Module):
     """Multi-headed attention for Siglip2 using optimized VisionAttention backend."""
+    """Siglip2多头注意力，使用优化的VisionAttention后端"""
 
     def __init__(
         self,
-        config: Siglip2VisionConfig,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        config: Siglip2VisionConfig,  # 模型配置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
     ):
+        """初始化Siglip2注意力"""
         super().__init__()
         self.config = config
         self.embed_dim = config.hidden_size
@@ -193,16 +204,16 @@ class Siglip2Attention(nn.Module):
             projection_size=self.embed_dim,
             use_qkv_parallel=True,
             dropout=config.attention_dropout,
-            flatten_batch=True,  # For variable-length sequence support
+            flatten_batch=True,  # For variable-length sequence support  支持可变长度序列
             quant_config=quant_config,
             prefix=prefix,
         )
 
     def forward(
         self,
-        hidden_states: torch.Tensor,
-        cu_seqlens: torch.Tensor,
-        max_seqlen: int | torch.Tensor,
+        hidden_states: torch.Tensor,  # 隐藏状态
+        cu_seqlens: torch.Tensor,  # 累计序列长度
+        max_seqlen: int | torch.Tensor,  # 最大序列长度
     ) -> torch.Tensor:
         """Forward pass with variable-length attention.
 
@@ -214,21 +225,24 @@ class Siglip2Attention(nn.Module):
         Returns:
             (1, total_tokens, embed_dim) attention output
         """
+        """可变长度注意力前向传播"""
         return self.attn(hidden_states, cu_seqlens=cu_seqlens)
 
 
 class Siglip2MLP(nn.Module):
     """MLP for Siglip2 encoder layers."""
+    """Siglip2编码器层的MLP"""
 
     def __init__(
         self,
-        config: Siglip2VisionConfig,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        config: Siglip2VisionConfig,  # 模型配置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
     ):
+        """初始化MLP"""
         super().__init__()
         self.config = config
-        self.activation_fn = get_act_fn(config.hidden_act)
+        self.activation_fn = get_act_fn(config.hidden_act)  # 激活函数
 
         self.fc1 = ColumnParallelLinear(
             config.hidden_size,
@@ -244,6 +258,7 @@ class Siglip2MLP(nn.Module):
         )
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        """MLP前向传播：fc1+激活+fc2"""
         hidden_states, _ = self.fc1(hidden_states)
         hidden_states = self.activation_fn(hidden_states)
         hidden_states, _ = self.fc2(hidden_states)
@@ -252,13 +267,15 @@ class Siglip2MLP(nn.Module):
 
 class Siglip2EncoderLayer(nn.Module):
     """Single encoder layer for Siglip2."""
+    """Siglip2单个编码器层"""
 
     def __init__(
         self,
-        config: Siglip2VisionConfig,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        config: Siglip2VisionConfig,  # 模型配置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
     ):
+        """初始化编码器层"""
         super().__init__()
         self.embed_dim = config.hidden_size
         self.layer_norm1 = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_eps)
@@ -276,9 +293,9 @@ class Siglip2EncoderLayer(nn.Module):
 
     def forward(
         self,
-        hidden_states: torch.Tensor,
-        cu_seqlens: torch.Tensor,
-        max_seqlen: int | torch.Tensor,
+        hidden_states: torch.Tensor,  # 隐藏状态
+        cu_seqlens: torch.Tensor,  # 累计序列长度
+        max_seqlen: int | torch.Tensor,  # 最大序列长度
     ) -> torch.Tensor:
         """Forward pass for encoder layer.
 
@@ -287,33 +304,36 @@ class Siglip2EncoderLayer(nn.Module):
             cu_seqlens: Cumulative sequence lengths tensor.
             max_seqlen: Maximum sequence length.
         """
+        """编码器层前向传播：Pre-Norm注意力+Pre-Norm MLP"""
         residual = hidden_states
 
-        hidden_states = self.layer_norm1(hidden_states)
+        hidden_states = self.layer_norm1(hidden_states)  # 注意力前归一化
         hidden_states = self.self_attn(
             hidden_states=hidden_states,
             cu_seqlens=cu_seqlens,
             max_seqlen=max_seqlen,
         )
-        hidden_states = residual + hidden_states
+        hidden_states = residual + hidden_states  # 残差连接
 
         residual = hidden_states
-        hidden_states = self.layer_norm2(hidden_states)
+        hidden_states = self.layer_norm2(hidden_states)  # MLP前归一化
         hidden_states = self.mlp(hidden_states)
-        hidden_states = residual + hidden_states
+        hidden_states = residual + hidden_states  # 残差连接
         return hidden_states
 
 
 class Siglip2Encoder(nn.Module):
     """Transformer encoder for Siglip2."""
+    """Siglip2 Transformer编码器"""
 
     def __init__(
         self,
-        config: Siglip2VisionConfig,
-        quant_config: Optional[QuantizationConfig] = None,
-        num_hidden_layers_override: Optional[int] = None,
-        prefix: str = "",
+        config: Siglip2VisionConfig,  # 模型配置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        num_hidden_layers_override: Optional[int] = None,  # 层数覆盖
+        prefix: str = "",  # 前缀
     ):
+        """初始化编码器，创建编码器层列表"""
         super().__init__()
         self.config = config
 
@@ -335,11 +355,12 @@ class Siglip2Encoder(nn.Module):
 
     def forward(
         self,
-        inputs_embeds: torch.Tensor,
-        cu_seqlens: torch.Tensor,
-        max_seqlen: int | torch.Tensor,
-        return_all_hidden_states: bool = False,
+        inputs_embeds: torch.Tensor,  # 输入嵌入
+        cu_seqlens: torch.Tensor,  # 累计序列长度
+        max_seqlen: int | torch.Tensor,  # 最大序列长度
+        return_all_hidden_states: bool = False,  # 是否返回所有隐藏状态
     ) -> torch.Tensor | list[torch.Tensor]:
+        """编码器前向传播"""
         hidden_states_pool = [inputs_embeds]
         hidden_states = inputs_embeds
 
@@ -357,13 +378,14 @@ class Siglip2Encoder(nn.Module):
 
 
 def resolve_visual_encoder_outputs(
-    encoder_outputs: torch.Tensor | list[torch.Tensor],
-    post_layer_norm: Optional[nn.LayerNorm],
-    select_layers: Optional[list[int]] = None,
-    max_possible_layers: Optional[int] = None,
+    encoder_outputs: torch.Tensor | list[torch.Tensor],  # 编码器输出
+    post_layer_norm: Optional[nn.LayerNorm],  # 后层归一化
+    select_layers: Optional[list[int]] = None,  # 选择层
+    max_possible_layers: Optional[int] = None,  # 最大可能层数
 ) -> torch.Tensor:
     """Resolve outputs from visual encoder based on select_layers."""
-    if select_layers is None:
+    """根据选择层解析视觉编码器输出"""
+    if select_layers is None:  # 不选择层时
         if isinstance(encoder_outputs, list):
             encoder_outputs = encoder_outputs[-1]
         if post_layer_norm is not None:
@@ -401,15 +423,17 @@ def resolve_visual_encoder_outputs(
 
 class Siglip2VisionTransformer(nn.Module):
     """Siglip2 Vision Transformer with NaFlex variable-resolution support."""
+    """Siglip2视觉Transformer，支持NaFlex可变分辨率"""
 
     def __init__(
         self,
-        config: Siglip2VisionConfig,
-        quant_config: Optional[QuantizationConfig] = None,
-        num_hidden_layers_override: Optional[int] = None,
-        require_post_norm: Optional[bool] = None,
-        prefix: str = "",
+        config: Siglip2VisionConfig,  # 模型配置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        num_hidden_layers_override: Optional[int] = None,  # 层数覆盖
+        require_post_norm: Optional[bool] = None,  # 是否需要后归一化
+        prefix: str = "",  # 前缀
     ):
+        """初始化Siglip2视觉Transformer"""
         super().__init__()
         embed_dim = config.hidden_size
         self.config = config
@@ -437,19 +461,21 @@ class Siglip2VisionTransformer(nn.Module):
 
     @property
     def dtype(self) -> torch.dtype:
+        """获取模型数据类型"""
         return self.embeddings.patch_embedding.weight.dtype
 
     @property
     def device(self) -> torch.device:
+        """获取模型设备"""
         return self.embeddings.patch_embedding.weight.device
 
     def forward(
         self,
-        pixel_values_packed: torch.FloatTensor,
-        spatial_shapes: torch.LongTensor,
-        cu_seqlens: torch.Tensor,
-        max_seqlen: torch.Tensor,
-        select_layers: Optional[list[int]] = None,
+        pixel_values_packed: torch.FloatTensor,  # 打包像素值
+        spatial_shapes: torch.LongTensor,  # 空间形状
+        cu_seqlens: torch.Tensor,  # 累计序列长度
+        max_seqlen: torch.Tensor,  # 最大序列长度
+        select_layers: Optional[list[int]] = None,  # 选择层
     ) -> torch.Tensor:
         """Forward pass through the vision transformer.
 
@@ -463,6 +489,7 @@ class Siglip2VisionTransformer(nn.Module):
         Returns:
             Vision features tensor
         """
+        """视觉Transformer前向传播"""
         hidden_states = self.embeddings(pixel_values_packed, spatial_shapes)
 
         encoder_outputs = self.encoder(
@@ -484,15 +511,17 @@ class Siglip2VisionTransformer(nn.Module):
 
 class Siglip2Model(nn.Module):
     """Siglip2 Vision Model for use in vision-language models."""
+    """Siglip2视觉模型，用于视觉语言模型"""
 
     def __init__(
         self,
-        config: Siglip2VisionConfig,
-        quant_config: Optional[QuantizationConfig] = None,
-        num_hidden_layers_override: Optional[int] = None,
-        require_post_norm: Optional[bool] = None,
-        prefix: str = "",
+        config: Siglip2VisionConfig,  # 模型配置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        num_hidden_layers_override: Optional[int] = None,  # 层数覆盖
+        require_post_norm: Optional[bool] = None,  # 是否需要后归一化
+        prefix: str = "",  # 前缀
     ):
+        """初始化Siglip2模型"""
         super().__init__()
 
         self.vision_model = Siglip2VisionTransformer(
@@ -505,21 +534,24 @@ class Siglip2Model(nn.Module):
 
     @property
     def dtype(self) -> torch.dtype:
+        """获取数据类型"""
         return self.vision_model.dtype
 
     @property
     def device(self) -> torch.device:
+        """获取设备"""
         return self.vision_model.device
 
     def forward(
         self,
-        pixel_values_packed: torch.FloatTensor,
-        spatial_shapes: torch.LongTensor,
-        cu_seqlens: torch.Tensor,
-        max_seqlen: torch.Tensor,
-        select_layers: Optional[list[int]] = None,
+        pixel_values_packed: torch.FloatTensor,  # 打包像素值
+        spatial_shapes: torch.LongTensor,  # 空间形状
+        cu_seqlens: torch.Tensor,  # 累计序列长度
+        max_seqlen: torch.Tensor,  # 最大序列长度
+        select_layers: Optional[list[int]] = None,  # 选择层
     ) -> torch.Tensor:
         """Forward pass through the vision model."""
+        """视觉模型前向传播"""
         return self.vision_model(
             pixel_values_packed=pixel_values_packed,
             spatial_shapes=spatial_shapes,
@@ -529,6 +561,7 @@ class Siglip2Model(nn.Module):
         )
 
     def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> set[str]:
+        """加载模型权重，处理堆叠参数和重命名映射"""
         stacked_params_mapping = [
             # (param_name, shard_name, shard_id)
             # VisionAttention uses attn.qkv_proj for fused Q/K/V
@@ -553,12 +586,12 @@ class Siglip2Model(nn.Module):
                 continue
 
             # omit layers when num_hidden_layers_override is set
-            if name.startswith("vision_model.encoder.layers"):
+            if name.startswith("vision_model.encoder.layers"):  # 跳过超出的层
                 layer_idx = int(name.split(".")[3])
                 if layer_idx >= layer_count:
                     continue
 
-            for param_name, weight_name, shard_id in stacked_params_mapping:
+            for param_name, weight_name, shard_id in stacked_params_mapping:  # 堆叠参数
                 if weight_name not in name:
                     continue
                 name = name.replace(weight_name, param_name)
@@ -570,7 +603,7 @@ class Siglip2Model(nn.Module):
                 weight_loader = param.weight_loader
                 weight_loader(param, loaded_weight, shard_id)
                 break
-            else:
+            else:  # 非堆叠参数
                 # Apply rename mappings (e.g., out_proj -> attn.proj)
                 for old_name, new_name in params_rename_mapping.items():
                     if old_name in name:

@@ -1,3 +1,4 @@
+# 文件名: test_modelopt_export.py - ModelOpt导出
 """
 Unit tests for ModelOpt export functionality in SGLang.
 
@@ -33,6 +34,7 @@ except ImportError:
     MODELOPT_AVAILABLE = False
 
 
+# TestModelOptExport类
 class TestModelOptExport(unittest.TestCase):
     """Test suite for ModelOpt export functionality."""
 
@@ -82,6 +84,7 @@ class TestModelOptExport(unittest.TestCase):
         self.load_config = LoadConfig()
         self.model_loader = ModelOptModelLoader(self.load_config)
 
+    # TestModelOptExport类的测试清理
     def tearDown(self):
         """Clean up test fixtures."""
         import shutil
@@ -95,6 +98,7 @@ class TestModelOptExport(unittest.TestCase):
         self.mock_get_tp_group.stop()
         self.mock_mp_is_initialized.stop()
 
+    # TestModelOptExport类的内部方法_create_mock_export_files
     def _create_mock_export_files(self, export_dir: str):
         """Create mock export files for testing validation."""
         os.makedirs(export_dir, exist_ok=True)
@@ -123,6 +127,8 @@ class TestModelOptExport(unittest.TestCase):
     @unittest.skipIf(not MODELOPT_AVAILABLE, "nvidia-modelopt not available")
     @patch("sglang.srt.model_loader.loader.os.makedirs")
     @patch("modelopt.torch.export.export_hf_checkpoint")
+
+    # TestModelOptExport类的测试exportmodeloptcheckpointsuccess
     def test_export_modelopt_checkpoint_success(self, mock_export, mock_makedirs):
         """Test successful model export."""
         # Arrange
@@ -139,6 +145,8 @@ class TestModelOptExport(unittest.TestCase):
     @unittest.skipIf(not MODELOPT_AVAILABLE, "nvidia-modelopt not available")
     @patch("modelopt.torch.opt.restore")
     @patch("modelopt.torch.quantization.utils.is_quantized")
+
+    # TestModelOptExport类的测试setupquantizationwithexportfromcheckpoint
     def test_setup_quantization_with_export_from_checkpoint(
         self, mock_is_quantized, mock_restore
     ):
@@ -169,6 +177,8 @@ class TestModelOptExport(unittest.TestCase):
     @patch("modelopt.torch.quantization.utils.is_quantized")
     @patch("modelopt.torch.utils.dataset_utils.get_dataset_dataloader")
     @patch("modelopt.torch.utils.dataset_utils.create_forward_loop")
+
+    # TestModelOptExport类的测试setupquantizationwithexportaftercalibration
     def test_setup_quantization_with_export_after_calibration(
         self,
         mock_create_loop,
@@ -205,6 +215,8 @@ class TestModelOptExport(unittest.TestCase):
             mock_export.assert_called_once_with(self.mock_model, self.export_dir, None)
 
     @unittest.skipIf(not MODELOPT_AVAILABLE, "nvidia-modelopt not available")
+
+    # TestModelOptExport类的测试setupquantizationwithoutexport
     def test_setup_quantization_without_export(self):
         """Test quantization setup without export path specified."""
         with patch("modelopt.torch.quantization.utils.is_quantized", return_value=True):
@@ -222,10 +234,11 @@ class TestModelOptExport(unittest.TestCase):
                 # Assert
                 mock_export.assert_not_called()
 
+    # TestModelOptExport类的测试quantizeandserveconfigvalidation
     def test_quantize_and_serve_config_validation(self):
         """Test that quantize_and_serve is properly disabled."""
         # Test that quantize-and-serve mode raises NotImplementedError
-        with self.assertRaises(NotImplementedError) as context:
+        with self.assertRaises(NotImplementedError) as context:  # 断言抛出异常
             ModelConfig(
                 model_path="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
                 quantization="modelopt_fp8",
@@ -234,18 +247,20 @@ class TestModelOptExport(unittest.TestCase):
 
         # Verify the error message contains helpful instructions
         error_msg = str(context.exception)
-        self.assertIn("disabled due to compatibility issues", error_msg)
-        self.assertIn("separate quantize-then-deploy workflow", error_msg)
+        self.assertIn("disabled due to compatibility issues", error_msg)  # 断言包含
+        self.assertIn("separate quantize-then-deploy workflow", error_msg)  # 断言包含
 
         # Test invalid configuration - no quantization
-        with self.assertRaises(ValueError) as context:
+        with self.assertRaises(ValueError) as context:  # 断言抛出异常
             ModelConfig(
                 model_path="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
                 quantize_and_serve=True,
             )
-        self.assertIn("requires ModelOpt quantization", str(context.exception))
+        self.assertIn("requires ModelOpt quantization", str(context.exception))  # 断言包含
 
     @unittest.skipIf(not MODELOPT_AVAILABLE, "nvidia-modelopt not available")
+
+    # TestModelOptExport类的测试standardworkflowselection
     def test_standard_workflow_selection(self):
         """Test that standard workflow is selected by default."""
         with patch(
@@ -274,6 +289,7 @@ class TestModelOptExport(unittest.TestCase):
                     # Assert
                     mock_standard.assert_called_once_with(model_config, device_config)
 
+    # TestModelOptExport类的内部方法_get_export_info
     def _get_export_info(self, export_dir: str) -> dict:
         """Get information about an exported model."""
         if not self._validate_export(export_dir):
@@ -295,6 +311,8 @@ class TestModelOptExport(unittest.TestCase):
 
 
 @unittest.skipIf(not MODELOPT_AVAILABLE, "nvidia-modelopt not available")
+
+# TestModelOptExportIntegration类
 class TestModelOptExportIntegration(unittest.TestCase):
     """Integration tests for ModelOpt export with full model loading workflow."""
 
@@ -303,6 +321,7 @@ class TestModelOptExportIntegration(unittest.TestCase):
         self.temp_dir = tempfile.mkdtemp()
         self.export_dir = os.path.join(self.temp_dir, "exported_model")
 
+    # TestModelOptExportIntegration类的测试清理
     def tearDown(self):
         """Clean up integration test fixtures."""
         import shutil
@@ -312,6 +331,8 @@ class TestModelOptExportIntegration(unittest.TestCase):
     @patch("sglang.srt.model_loader.loader.get_model_architecture")
     @patch("transformers.AutoTokenizer.from_pretrained")
     @patch("transformers.AutoModelForCausalLM.from_pretrained")
+
+    # TestModelOptExportIntegration类的测试fullworkflowwithexport
     def test_full_workflow_with_export(self, mock_model, mock_tokenizer, mock_arch):
         """Test the complete workflow from model config to export."""
         # Arrange
@@ -344,11 +365,11 @@ class TestModelOptExportIntegration(unittest.TestCase):
                 )
 
                 # Assert
-                self.assertIsNotNone(result)
+                self.assertIsNotNone(result)  # 断言不为None
                 mock_setup.assert_called_once()
                 # Verify export_path was passed to setup
                 args, kwargs = mock_setup.call_args
-                self.assertEqual(kwargs.get("export_path"), self.export_dir)
+                self.assertEqual(kwargs.get("export_path"), self.export_dir)  # 断言相等
 
 
 if __name__ == "__main__":

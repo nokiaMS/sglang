@@ -1,3 +1,4 @@
+# 文件名: test_deepseek_v31.py - DeepSeek-V3.1测试 - 验证DeepSeek-V3.1模型的推理功能
 import unittest
 
 from sglang.test.accuracy_test_runner import AccuracyTestParams
@@ -20,6 +21,7 @@ class TestDeepseekV31(unittest.TestCase):
     - Accuracy test (using run_eval with mgsm_en)
     """
 
+    # 测试deepseek v31 all variants
     def test_deepseek_v31_all_variants(self):
         """Run performance and accuracy for all DeepSeek-V3.1 variants."""
         # Define base arguments shared by most variants

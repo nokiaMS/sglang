@@ -1,3 +1,5 @@
+# 本文件是SGLang推理服务器的HTTP入口点，通过FastAPI实现各种HTTP API接口，
+# 包括原生API、OpenAI兼容API、Ollama兼容API、Anthropic兼容API等
 # Copyright 2023-2024 SGLang Team
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -37,7 +39,7 @@ from typing import (
     Union,
 )
 
-# Fix a bug of Python threading
+# 修复Python线程的一个bug
 setattr(threading, "_register_atexit", lambda *args, **kwargs: None)
 
 
@@ -181,12 +183,12 @@ from sglang.version import __version__
 logger = logging.getLogger(__name__)
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
-# Global constants
+# 全局常量
 HEALTH_CHECK_TIMEOUT = int(os.getenv("SGLANG_HEALTH_CHECK_TIMEOUT", 20))
 WAIT_WEIGHTS_READY_TIMEOUT = int(os.getenv("SGLANG_WAIT_WEIGHTS_READY_TIMEOUT", 120))
 
 
-# Store global states
+# 存储全局状态的数据类
 @dataclasses.dataclass
 class _GlobalState:
     tokenizer_manager: Union[TokenizerManager, MultiTokenizerRouter, TokenizerWorker]
@@ -194,18 +196,22 @@ class _GlobalState:
     scheduler_info: Dict
 
 
+# 全局状态实例
 _global_state: Optional[_GlobalState] = None
 
 
+# 设置全局状态
 def set_global_state(global_state: _GlobalState):
     global _global_state
     _global_state = global_state
 
 
+# 获取全局状态
 def get_global_state() -> _GlobalState:
     return _global_state
 
 
+# 初始化Granian工作进程
 async def _init_granian_worker() -> ServerArgs:
     main_pid = get_main_process_id()
     port_args, server_args, scheduler_info = read_from_shared_memory(
@@ -232,13 +238,14 @@ async def _init_granian_worker() -> ServerArgs:
     return server_args
 
 
+# 多分词器模式的初始化函数，从共享内存读取参数并初始化分词器管理器
 async def init_multi_tokenizer() -> ServerArgs:
     """
     Initialization function for multi-process tokenizer mode.
     It read args information from shm and inits tokenizer manager for current process.
     """
 
-    # Read configuration from shared memory
+    # 从共享内存读取配置
     main_pid = get_main_process_id()
     port_args, server_args, scheduler_info = read_from_shared_memory(
         f"multi_tokenizer_args_{main_pid}"
@@ -246,12 +253,12 @@ async def init_multi_tokenizer() -> ServerArgs:
     server_args: ServerArgs
     port_args: PortArgs
 
-    # API key authentication is not supported in multi-tokenizer mode
+    # 多分词器模式不支持API密钥认证
     assert (
         server_args.api_key is None
     ), "API key is not supported in multi-tokenizer mode"
 
-    # Create a new ipc name for the current process
+    # 为当前进程创建新的IPC名称
     port_args.tokenizer_ipc_name = (
         f"ipc://{tempfile.NamedTemporaryFile(delete=False).name}"
     )
@@ -260,7 +267,7 @@ async def init_multi_tokenizer() -> ServerArgs:
         f"ipc_name={port_args.tokenizer_ipc_name}"
     )
 
-    # Launch multi-tokenizer manager process
+    # 启动多分词器管理器进程
     tokenizer_manager = TokenizerWorker(server_args, port_args)
     template_manager = TemplateManager()
     template_manager.initialize_templates(
@@ -283,8 +290,10 @@ async def init_multi_tokenizer() -> ServerArgs:
     return server_args
 
 
+# FastAPI应用的生命周期管理上下文
 @asynccontextmanager
 async def lifespan(fast_api_app: FastAPI):
+    # 根据运行模式选择初始化方式
     if getattr(fast_api_app, "is_single_tokenizer_mode", False):
         server_args = fast_api_app.server_args
         warmup_thread_kwargs = fast_api_app.warmup_thread_kwargs
@@ -294,17 +303,17 @@ async def lifespan(fast_api_app: FastAPI):
         warmup_thread_kwargs = dict(server_args=server_args)
         thread_label = "Tokenizer"
     else:
-        # Initialize multi-tokenizer support for worker processes
+        # 为工作进程初始化多分词器支持
         server_args = await init_multi_tokenizer()
         warmup_thread_kwargs = dict(server_args=server_args)
         thread_label = f"MultiTokenizer-{_global_state.tokenizer_manager.worker_id}"
 
-    # Add prometheus middleware
+    # 添加Prometheus中间件
     if server_args.enable_metrics:
         add_prometheus_middleware(app)
         enable_func_timer()
 
-    # Init tracing
+    # 初始化链路追踪
     if server_args.enable_trace:
         process_tracing_init(server_args.otlp_traces_endpoint, "sglang")
         if server_args.disaggregation_mode == "prefill":
@@ -313,7 +322,7 @@ async def lifespan(fast_api_app: FastAPI):
             thread_label = "Decode" + thread_label
         trace_set_thread_info(thread_label)
 
-    # Initialize OpenAI serving handlers
+    # 初始化OpenAI服务处理器
     fast_api_app.state.openai_serving_completion = OpenAIServingCompletion(
         _global_state.tokenizer_manager, _global_state.template_manager
     )
@@ -344,15 +353,15 @@ async def lifespan(fast_api_app: FastAPI):
         _global_state.tokenizer_manager
     )
 
-    # Initialize Ollama-compatible serving handler
+    # 初始化Ollama兼容服务处理器
     fast_api_app.state.ollama_serving = OllamaServing(_global_state.tokenizer_manager)
 
-    # Initialize Anthropic-compatible serving handler
+    # 初始化Anthropic兼容服务处理器
     fast_api_app.state.anthropic_serving = AnthropicServing(
         fast_api_app.state.openai_serving_chat
     )
 
-    # Launch tool server
+    # 启动工具服务器
     tool_server = None
     if server_args.tool_server == "demo":
         from sglang.srt.entrypoints.openai.tool_server import DemoToolServer
@@ -364,6 +373,7 @@ async def lifespan(fast_api_app: FastAPI):
         tool_server = MCPToolServer()
         await tool_server.add_tool_server(server_args.tool_server)
 
+    # 初始化OpenAI Responses API服务处理器
     try:
         from sglang.srt.entrypoints.openai.serving_responses import (
             OpenAIServingResponses,
@@ -379,7 +389,7 @@ async def lifespan(fast_api_app: FastAPI):
         traceback = get_exception_traceback()
         logger.warning(f"Can not initialize OpenAIServingResponses, error: {traceback}")
 
-    # Execute custom warmups
+    # 执行自定义预热
     if server_args.warmups is not None:
         await execute_warmups(
             server_args.disaggregation_mode,
@@ -388,21 +398,21 @@ async def lifespan(fast_api_app: FastAPI):
         )
         logger.info("Warmup ended")
 
-    # Execute the general warmup
+    # 执行通用预热
     warmup_thread = threading.Thread(
         target=_wait_and_warmup,
         kwargs=warmup_thread_kwargs,
     )
     warmup_thread.start()
 
-    # Start the HTTP server
+    # 启动HTTP服务器
     try:
         yield
     finally:
         warmup_thread.join()
 
 
-# Fast API
+# FastAPI应用实例
 app = FastAPI(
     lifespan=lifespan,
     openapi_url=None if get_bool_env_var("DISABLE_OPENAPI_DOC") else "/openapi.json",
@@ -415,12 +425,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
+# 包含路由
 from sglang.srt.entrypoints.v1_loads import router as v1_loads_router
 
 app.include_router(v1_loads_router)
 
 
+# HTTP异常处理器，丰富错误响应
 @app.exception_handler(HTTPException)
 async def validation_exception_handler(request: Request, exc: HTTPException):
     """Enrich HTTP exception with status code and other details.
@@ -428,7 +439,7 @@ async def validation_exception_handler(request: Request, exc: HTTPException):
     For /v1/responses, emit OpenAI-style nested error envelope:
     {"error": {"message": "...", "type": "...", "param": null, "code": <status>}}
     """
-    # adjust fmt for responses api
+    # 为responses API调整格式
     if request.url.path.startswith("/v1/responses"):
         nested_error = {
             "message": exc.detail,
@@ -449,7 +460,7 @@ async def validation_exception_handler(request: Request, exc: HTTPException):
     return ORJSONResponse(content=error.model_dump(), status_code=exc.status_code)
 
 
-# Custom exception handlers to change validation error status codes
+# 自定义异常处理器，将验证错误状态码从422改为400
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Override FastAPI's default 422 validation error with 400.
@@ -464,8 +475,8 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     else:
         message = exc_str
 
+    # 为v1/responses API特别适配（注意error键不同）
     if request.url.path.startswith("/v1/responses"):
-        # adapt specially, for v1/responses API only (notice the error key is different)
         nested_error = {
             "message": message,
             "type": HTTPStatus.BAD_REQUEST.phrase,
@@ -486,6 +497,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     )
 
 
+# 验证请求内容类型为application/json
 async def validate_json_request(raw_request: Request):
     """Validate that the request content-type is application/json."""
     content_type = raw_request.headers.get("content-type", "").lower()
@@ -502,9 +514,10 @@ async def validate_json_request(raw_request: Request):
         )
 
 
-##### Native API endpoints #####
+##### 原生API端点 #####
 
 
+# 健康检查端点，通过生成一个token来检查服务器是否健康
 @app.get("/health")
 @app.get("/health_generate")
 async def health_generate(request: Request) -> Response:
@@ -515,13 +528,16 @@ async def health_generate(request: Request) -> Response:
     If the server is not running anything, this request will be run, so we know whether the server is healthy.
     """
 
+    # 关闭期间收到健康检查请求，返回503
     if _global_state.tokenizer_manager.gracefully_exit:
         logger.info("Health check request received during shutdown. Returning 503.")
         return Response(status_code=503)
 
+    # 服务器正在启动中，返回503
     if _global_state.tokenizer_manager.server_status == ServerStatus.Starting:
         return Response(status_code=503)
 
+    # 如果未启用健康端点生成，直接返回200
     if (
         not envs.SGLANG_ENABLE_HEALTH_ENDPOINT_GENERATION.get()
         and request.url.path == "/health"
@@ -531,6 +547,7 @@ async def health_generate(request: Request) -> Response:
     sampling_params = {"max_new_tokens": 1, "temperature": 0.0}
     rid = f"{HEALTH_CHECK_RID_PREFIX}_{time.time()}"
 
+    # 根据引擎类型构建不同的请求
     if _global_state.tokenizer_manager.is_generation:
         gri = GenerateReqInput(
             rid=rid,
@@ -555,7 +572,7 @@ async def health_generate(request: Request) -> Response:
 
     task = asyncio.create_task(gen())
 
-    # As long as we receive any response from the detokenizer/scheduler, we consider the server is healthy.
+    # 只要从detokenizer/scheduler收到任何响应，就认为服务器是健康的
     tic = time.time()
     while time.time() < tic + HEALTH_CHECK_TIMEOUT:
         await asyncio.sleep(1)
@@ -565,6 +582,7 @@ async def health_generate(request: Request) -> Response:
             _global_state.tokenizer_manager.server_status = ServerStatus.Up
             return Response(status_code=200)
 
+    # 健康检查超时
     task.cancel()
     tic_time = time.strftime("%H:%M:%S", time.localtime(tic))
     last_receive_time = time.strftime(
@@ -580,6 +598,7 @@ async def health_generate(request: Request) -> Response:
     return Response(status_code=503)
 
 
+# 获取模型信息（已弃用，使用/model_info）
 @app.get("/get_model_info")
 async def get_model_info():
     """Get the model information (deprecated - use /model_info instead)."""
@@ -590,6 +609,7 @@ async def get_model_info():
     return await model_info()
 
 
+# 获取模型信息
 @app.get("/model_info")
 async def model_info():
     """Get the model information."""
@@ -610,6 +630,7 @@ async def model_info():
     return result
 
 
+# 获取权重版本（已弃用，使用/model_info）
 @app.get("/get_weight_version")
 @app.get("/weight_version")
 async def weight_version():
@@ -620,6 +641,7 @@ async def weight_version():
     )
 
 
+# 获取服务器信息（已弃用，使用/server_info）
 @app.get("/get_server_info")
 async def get_server_info():
     """Get the server information (deprecated - use /server_info instead)."""
@@ -630,29 +652,31 @@ async def get_server_info():
     return await server_info()
 
 
+# 获取服务器信息，包括内部状态和配置
 @app.get("/server_info")
 async def server_info():
     """Get the server information."""
-    # Returns internal states per DP.
+    # 返回每个DP的内部状态
     internal_states: List[Dict[Any, Any]] = (
         await _global_state.tokenizer_manager.get_internal_state()
     )
 
     server_args = _global_state.tokenizer_manager.server_args
 
-    # server_args.model_config is not serializable but should be excluded by asdict.
+    # server_args.model_config不可序列化，但应被asdict排除
     return {
         **dataclasses.asdict(server_args),
         **_global_state.scheduler_info,
         "internal_states": internal_states,
         "version": __version__,
-        # Structured KV-event publisher descriptor for KV-aware routers.
-        # `None` when publishing is disabled or misconfigured; see
-        # `ServerArgs.describe_kv_events_publisher` for the precise contract.
+        # 用于KV感知路由器的结构化KV事件发布器描述符。
+        # 当发布被禁用或配置错误时为None；参见
+        # `ServerArgs.describe_kv_events_publisher`获取精确约定。
         "kv_events": server_args.describe_kv_events_publisher(),
     }
 
 
+# 获取负载指标（已弃用，使用/v1/loads）
 @app.get("/get_load")
 async def get_load():
     """Get load metrics (deprecated - use /v1/loads instead).
@@ -680,8 +704,9 @@ async def get_load():
     ]
 
 
-# example usage:
+# 示例用法：
 # curl -s -X POST http://localhost:30000/set_internal_state -H "Content-Type: application/json" -d '{"server_args": {"pp_max_micro_batch_size": 8}}'
+# 设置内部状态的端点
 @app.api_route("/set_internal_state", methods=["POST", "PUT"])
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def set_internal_state(obj: SetInternalStateReq, request: Request):
@@ -689,7 +714,7 @@ async def set_internal_state(obj: SetInternalStateReq, request: Request):
     return res
 
 
-# Do not import `dumper.py` to avoid dependency
+# Dumper控制端点（避免导入dumper.py以减少依赖）
 if os.environ.get("DUMPER_SERVER_PORT") == "reuse":
 
     @app.api_route("/dumper/{method}", methods=["POST"])
@@ -705,7 +730,7 @@ if os.environ.get("DUMPER_SERVER_PORT") == "reuse":
         return [x for result in results for x in result.response]
 
 
-# fastapi implicitly converts json in the request to obj (dataclass)
+# 生成请求端点，支持流式和非流式响应
 @app.api_route(
     "/generate",
     methods=["POST", "PUT"],
@@ -743,6 +768,7 @@ async def generate_request(obj: GenerateReqInput, request: Request):
             return _create_error_response(e)
 
 
+# 嵌入请求端点
 @app.api_route("/encode", methods=["POST", "PUT"])
 async def encode_request(obj: EmbeddingReqInput, request: Request):
     """Handle an embedding request."""
@@ -755,6 +781,7 @@ async def encode_request(obj: EmbeddingReqInput, request: Request):
         return _create_error_response(e)
 
 
+# 分类请求端点（奖励模型）
 @app.api_route("/classify", methods=["POST", "PUT"])
 async def classify_request(obj: EmbeddingReqInput, request: Request):
     """Handle a reward model request. Now the arguments and return values are the same as embedding models."""
@@ -767,6 +794,7 @@ async def classify_request(obj: EmbeddingReqInput, request: Request):
         return _create_error_response(e)
 
 
+# 清空缓存端点
 @app.api_route("/flush_cache", methods=["GET", "POST"])
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def flush_cache(timeout: float = Query(0.0, ge=0.0)):
@@ -785,6 +813,7 @@ async def flush_cache(timeout: float = Query(0.0, ge=0.0)):
     )
 
 
+# 添加外部语料库（用于ngram投机解码）
 @app.post("/add_external_corpus")
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def add_external_corpus(request: Request):
@@ -810,6 +839,7 @@ async def add_external_corpus(request: Request):
     )
 
 
+# 移除外部语料库
 @app.post("/remove_external_corpus")
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def remove_external_corpus(request: Request):
@@ -828,6 +858,7 @@ async def remove_external_corpus(request: Request):
     )
 
 
+# 列出所有活跃的外部语料库
 @app.get("/list_external_corpora")
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def list_external_corpora():
@@ -843,6 +874,7 @@ async def list_external_corpora():
     )
 
 
+# 清理分层缓存存储后端（已弃用）
 @app.api_route("/clear_hicache_storage_backend", methods=["GET", "POST"])
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def clear_hicache_storage_backend_deprecated():
@@ -857,8 +889,7 @@ async def clear_hicache_storage_backend_deprecated():
     )
 
 
-# example usage:
-# curl -s -X POST http://127.0.0.1:30000/clear_hicache_storage_backend
+# 清理分层缓存存储后端
 @app.api_route("/hicache/storage-backend/clear", methods=["POST"])
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def clear_hicache_storage_backend():
@@ -870,7 +901,7 @@ async def clear_hicache_storage_backend():
     )
 
 
-# example usage:
+# 示例用法：
 # curl -s -X PUT http://127.0.0.1:30000/hicache/storage-backend \
 #  -H 'Content-Type: application/json' \
 #   -d '{
@@ -879,6 +910,7 @@ async def clear_hicache_storage_backend():
 #     "hicache_storage_prefetch_policy": "timeout",
 #     "hicache_write_policy": "write_through"
 #   }'
+# 附加HiCache存储后端
 @app.api_route("/hicache/storage-backend", methods=["PUT"])
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def attach_hicache_storage_backend(obj: AttachHiCacheStorageReqInput):
@@ -909,8 +941,9 @@ async def attach_hicache_storage_backend(obj: AttachHiCacheStorageReqInput):
     )
 
 
-# example usage:
+# 示例用法：
 # curl -s -X DELETE http://127.0.0.1:30000/hicache/storage-backend
+# 分离HiCache存储后端
 @app.api_route("/hicache/storage-backend", methods=["DELETE"])
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def detach_hicache_storage_backend():
@@ -936,8 +969,9 @@ async def detach_hicache_storage_backend():
     )
 
 
-# example usage:
+# 示例用法：
 # curl -s http://127.0.0.1:30000/hicache/storage-backend
+# 获取HiCache存储后端状态
 @app.get("/hicache/storage-backend")
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def hicache_storage_backend_status():
@@ -953,6 +987,7 @@ async def hicache_storage_backend_status():
     }
 
 
+# 开始性能分析
 @app.api_route("/start_profile", methods=["GET", "POST"])
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def start_profile_async(obj: Optional[ProfileReqInput] = None):
@@ -978,6 +1013,7 @@ async def start_profile_async(obj: Optional[ProfileReqInput] = None):
     )
 
 
+# 停止性能分析
 @app.api_route("/stop_profile", methods=["GET", "POST"])
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def stop_profile_async():
@@ -989,6 +1025,7 @@ async def stop_profile_async():
     )
 
 
+# 设置链路追踪级别
 @app.api_route("/set_trace_level", methods=["GET", "POST"])
 def set_trace_level(level: int = Query(..., ge=0)):
     set_global_trace_level(level)
@@ -999,6 +1036,7 @@ def set_trace_level(level: int = Query(..., ge=0)):
     )
 
 
+# 冻结垃圾回收
 @app.api_route("/freeze_gc", methods=["GET", "POST"])
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def freeze_gc_async():
@@ -1012,6 +1050,7 @@ async def freeze_gc_async():
     )
 
 
+# 开始记录专家分布
 @app.api_route("/start_expert_distribution_record", methods=["GET", "POST"])
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def start_expert_distribution_record_async():
@@ -1023,6 +1062,7 @@ async def start_expert_distribution_record_async():
     )
 
 
+# 停止记录专家分布
 @app.api_route("/stop_expert_distribution_record", methods=["GET", "POST"])
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def stop_expert_distribution_record_async():
@@ -1034,6 +1074,7 @@ async def stop_expert_distribution_record_async():
     )
 
 
+# 导出专家分布记录
 @app.api_route("/dump_expert_distribution_record", methods=["GET", "POST"])
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def dump_expert_distribution_record_async():
@@ -1045,6 +1086,7 @@ async def dump_expert_distribution_record_async():
     )
 
 
+# 从磁盘更新权重，无需重启服务器
 @app.post("/update_weights_from_disk")
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def update_weights_from_disk(obj: UpdateWeightFromDiskReqInput, request: Request):
@@ -1070,6 +1112,7 @@ async def update_weights_from_disk(obj: UpdateWeightFromDiskReqInput, request: R
         )
 
 
+# 为远程实例初始化权重发送组
 @app.post("/init_weights_send_group_for_remote_instance")
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def init_weights_send_group_for_remote_instance(
@@ -1087,6 +1130,7 @@ async def init_weights_send_group_for_remote_instance(
         return ORJSONResponse(content, status_code=HTTPStatus.BAD_REQUEST)
 
 
+# 发送权重到远程实例
 @app.post("/send_weights_to_remote_instance")
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def send_weights_to_remote_instance(
@@ -1104,6 +1148,7 @@ async def send_weights_to_remote_instance(
         return ORJSONResponse(content, status_code=HTTPStatus.BAD_REQUEST)
 
 
+# 获取远程实例传输引擎信息（已弃用）
 @app.get("/get_remote_instance_transfer_engine_info")
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def get_remote_instance_transfer_engine_info(rank: int = None):
@@ -1115,6 +1160,7 @@ async def get_remote_instance_transfer_engine_info(rank: int = None):
     return await remote_instance_transfer_engine_info(rank=rank)
 
 
+# 获取远程实例传输引擎信息
 @app.get("/remote_instance_transfer_engine_info")
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def remote_instance_transfer_engine_info(rank: int = None):
@@ -1142,6 +1188,7 @@ async def remote_instance_transfer_engine_info(rank: int = None):
     )
 
 
+# 初始化参数更新组
 @app.post("/init_weights_update_group")
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def init_weights_update_group(
@@ -1158,6 +1205,7 @@ async def init_weights_update_group(
         return ORJSONResponse(content, status_code=HTTPStatus.BAD_REQUEST)
 
 
+# 销毁参数更新组
 @app.post("/destroy_weights_update_group")
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def destroy_weights_update_group(
@@ -1173,6 +1221,7 @@ async def destroy_weights_update_group(
     )
 
 
+# 通过张量数据更新权重，无需重启服务器
 @app.post("/update_weights_from_tensor")
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def update_weights_from_tensor(
@@ -1195,6 +1244,7 @@ async def update_weights_from_tensor(
     )
 
 
+# 从分布式在线更新模型参数
 @app.post("/update_weights_from_distributed")
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def update_weights_from_distributed(
@@ -1214,6 +1264,7 @@ async def update_weights_from_distributed(
         return ORJSONResponse(content, status_code=HTTPStatus.BAD_REQUEST)
 
 
+# 通过IPC更新权重（用于检查点引擎集成）
 @app.post("/update_weights_from_ipc")
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def update_weights_from_ipc(obj: UpdateWeightsFromIPCReqInput, request: Request):
@@ -1231,6 +1282,7 @@ async def update_weights_from_ipc(obj: UpdateWeightsFromIPCReqInput, request: Re
         return ORJSONResponse(content, status_code=HTTPStatus.BAD_REQUEST)
 
 
+# 更新权重版本
 @app.post("/update_weight_version")
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def update_weight_version(obj: UpdateWeightVersionReqInput, request: Request):
@@ -1238,10 +1290,10 @@ async def update_weight_version(obj: UpdateWeightVersionReqInput, request: Reque
     if obj.abort_all_requests:
         _global_state.tokenizer_manager.abort_request(abort_all=True)
 
-    # Use a simple approach without the complex lock mechanism for now
-    # since weight_version update is a simple operation that doesn't affect model weights
+    # 使用简单方法，无需复杂的锁机制
+    # 因为weight_version更新是简单操作，不影响模型权重
     try:
-        # Update the weight version in server args (the single source of truth)
+        # 在server args中更新权重版本（唯一真实来源）
         _global_state.tokenizer_manager.server_args.weight_version = obj.new_version
 
         return ORJSONResponse(
@@ -1262,6 +1314,7 @@ async def update_weight_version(obj: UpdateWeightVersionReqInput, request: Reque
         )
 
 
+# 按名称获取模型参数
 @app.api_route("/get_weights_by_name", methods=["GET", "POST"])
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def get_weights_by_name(obj: GetWeightsByNameReqInput, request: Request):
@@ -1276,6 +1329,7 @@ async def get_weights_by_name(obj: GetWeightsByNameReqInput, request: Request):
         return _create_error_response(e)
 
 
+# 临时释放GPU显存占用
 @app.api_route("/release_memory_occupation", methods=["GET", "POST"])
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def release_memory_occupation(
@@ -1288,6 +1342,7 @@ async def release_memory_occupation(
         return _create_error_response(e)
 
 
+# 恢复GPU显存占用
 @app.api_route("/resume_memory_occupation", methods=["GET", "POST"])
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def resume_memory_occupation(
@@ -1300,6 +1355,7 @@ async def resume_memory_occupation(
         return _create_error_response(e)
 
 
+# 权重校验端点
 @app.api_route("/weights_checker", methods=["GET", "POST"])
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def check_weights(
@@ -1318,6 +1374,7 @@ async def check_weights(
     return ORJSONResponse(body, status_code=200 if success else HTTPStatus.BAD_REQUEST)
 
 
+# 人为减速系统（仅用于测试）
 @app.api_route("/slow_down", methods=["GET", "POST"])
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def slow_down(obj: SlowDownReqInput, request: Request):
@@ -1332,6 +1389,7 @@ async def slow_down(obj: SlowDownReqInput, request: Request):
         return _create_error_response(e)
 
 
+# 加载LoRA适配器，无需重启服务器
 @app.api_route("/load_lora_adapter", methods=["POST"])
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def load_lora_adapter(obj: LoadLoRAAdapterReqInput, request: Request):
@@ -1350,6 +1408,7 @@ async def load_lora_adapter(obj: LoadLoRAAdapterReqInput, request: Request):
         )
 
 
+# 从张量加载LoRA适配器，无需重启服务器
 @app.api_route("/load_lora_adapter_from_tensors", methods=["POST"])
 async def load_lora_adapter_from_tensors(
     obj: LoadLoRAAdapterFromTensorsReqInput, request: Request
@@ -1365,6 +1424,7 @@ async def load_lora_adapter_from_tensors(
         return ORJSONResponse(result, status_code=HTTPStatus.BAD_REQUEST)
 
 
+# 卸载LoRA适配器，无需重启服务器
 @app.api_route("/unload_lora_adapter", methods=["POST"])
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def unload_lora_adapter(obj: UnloadLoRAAdapterReqInput, request: Request):
@@ -1383,6 +1443,7 @@ async def unload_lora_adapter(obj: UnloadLoRAAdapterReqInput, request: Request):
         )
 
 
+# 打开会话，返回唯一的会话ID
 @app.api_route("/open_session", methods=["GET", "POST"])
 async def open_session(obj: OpenSessionReqInput, request: Request):
     """Open a session, and return its unique session id."""
@@ -1397,6 +1458,7 @@ async def open_session(obj: OpenSessionReqInput, request: Request):
         return _create_error_response(e)
 
 
+# 关闭会话
 @app.api_route("/close_session", methods=["GET", "POST"])
 async def close_session(obj: CloseSessionReqInput, request: Request):
     """Close the session."""
@@ -1407,6 +1469,7 @@ async def close_session(obj: CloseSessionReqInput, request: Request):
         return _create_error_response(e)
 
 
+# 配置请求日志选项
 @app.api_route("/configure_logging", methods=["GET", "POST"])
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def configure_logging(obj: ConfigureLoggingReq, request: Request):
@@ -1415,6 +1478,7 @@ async def configure_logging(obj: ConfigureLoggingReq, request: Request):
     return Response(status_code=200)
 
 
+# 中止请求
 @app.post("/abort_request")
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def abort_request(obj: AbortReq, request: Request):
@@ -1428,40 +1492,42 @@ async def abort_request(obj: AbortReq, request: Request):
         return _create_error_response(e)
 
 
+# 解析函数调用的原生API端点
 @app.post("/parse_function_call")
 async def parse_function_call_request(obj: ParseFunctionCallReq, request: Request):
     """
     A native API endpoint to parse function calls from a text.
     """
-    # 1) Initialize the parser based on the request body
+    # 1) 根据请求体初始化解析器
     parser = FunctionCallParser(tools=obj.tools, tool_call_parser=obj.tool_call_parser)
 
-    # 2) Call the non-stream parsing method (non-stream)
+    # 2) 调用非流式解析方法
     normal_text, calls = parser.parse_non_stream(obj.text)
 
-    # 3) Organize the response content
+    # 3) 组织响应内容
     response_data = {
         "normal_text": normal_text,
         "calls": [
             call.model_dump() for call in calls
-        ],  # Convert pydantic objects to dictionaries
+        ],  # 将pydantic对象转换为字典
     }
 
     return ORJSONResponse(content=response_data, status_code=200)
 
 
+# 分离推理文本的原生API端点
 @app.post("/separate_reasoning")
 async def separate_reasoning_request(obj: SeparateReasoningReqInput, request: Request):
     """
     A native API endpoint to separate reasoning from a text.
     """
-    # 1) Initialize the parser based on the request body
+    # 1) 根据请求体初始化解析器
     parser = ReasoningParser(model_type=obj.reasoning_parser, request=request)
 
-    # 2) Call the non-stream parsing method (non-stream)
+    # 2) 调用非流式解析方法
     reasoning_text, normal_text = parser.parse_non_stream(obj.text)
 
-    # 3) Organize the response content
+    # 3) 组织响应内容
     response_data = {
         "reasoning_text": reasoning_text,
         "text": normal_text,
@@ -1470,6 +1536,7 @@ async def separate_reasoning_request(obj: SeparateReasoningReqInput, request: Re
     return ORJSONResponse(content=response_data, status_code=200)
 
 
+# 暂停生成
 @app.post("/pause_generation")
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def pause_generation(obj: PauseGenerationReqInput, request: Request):
@@ -1481,6 +1548,7 @@ async def pause_generation(obj: PauseGenerationReqInput, request: Request):
     )
 
 
+# 继续生成
 @app.post("/continue_generation")
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def continue_generation(obj: ContinueGenerationReqInput, request: Request):
@@ -1492,9 +1560,10 @@ async def continue_generation(obj: ContinueGenerationReqInput, request: Request)
     )
 
 
-##### OpenAI-compatible API endpoints #####
+##### OpenAI兼容API端点 #####
 
 
+# OpenAI兼容的文本补全端点
 @app.post("/v1/completions", dependencies=[Depends(validate_json_request)])
 async def openai_v1_completions(request: CompletionRequest, raw_request: Request):
     """OpenAI-compatible text completion endpoint."""
@@ -1503,6 +1572,7 @@ async def openai_v1_completions(request: CompletionRequest, raw_request: Request
     )
 
 
+# OpenAI兼容的聊天补全端点
 @app.post("/v1/chat/completions", dependencies=[Depends(validate_json_request)])
 async def openai_v1_chat_completions(
     request: ChatCompletionRequest, raw_request: Request
@@ -1513,6 +1583,7 @@ async def openai_v1_chat_completions(
     )
 
 
+# OpenAI兼容的嵌入端点
 @app.post(
     "/v1/embeddings",
     response_class=ORJSONResponse,
@@ -1525,6 +1596,7 @@ async def openai_v1_embeddings(request: EmbeddingRequest, raw_request: Request):
     )
 
 
+# OpenAI兼容的分类端点
 @app.post(
     "/v1/classify",
     response_class=ORJSONResponse,
@@ -1537,6 +1609,7 @@ async def openai_v1_classify(request: ClassifyRequest, raw_request: Request):
     )
 
 
+# OpenAI兼容的分词端点
 @app.post(
     "/v1/tokenize",
     response_class=ORJSONResponse,
@@ -1555,6 +1628,7 @@ async def openai_v1_tokenize(request: TokenizeRequest, raw_request: Request):
     )
 
 
+# OpenAI兼容的反分词端点
 @app.post(
     "/v1/detokenize",
     response_class=ORJSONResponse,
@@ -1573,6 +1647,7 @@ async def openai_v1_detokenize(request: DetokenizeRequest, raw_request: Request)
     )
 
 
+# OpenAI兼容的音频转录端点
 @app.post("/v1/audio/transcriptions")
 async def openai_v1_audio_transcriptions(
     raw_request: Request,
@@ -1613,24 +1688,26 @@ async def openai_v1_audio_transcriptions(
     )
 
 
+# OpenAI实时转录WebSocket端点
 @app.websocket("/v1/realtime")
 async def openai_v1_realtime_transcription(ws: WebSocket):
     """OpenAI Realtime transcription WebSocket endpoint."""
-    # /v1/realtime is OpenAI's unified Realtime URL covering transcription +
-    # chat modes. This handler implements the transcription subset only;
-    # chat-mode session.update payloads are rejected by the
-    # `Literal["transcription"]` constraint on TranscriptionSessionConfig.type
-    # (see realtime/protocol.py).
+    # /v1/realtime是OpenAI的统一实时URL，涵盖转录+
+    # 聊天模式。此处理器仅实现转录子集；
+    # 聊天模式的session.update载荷会被
+    # TranscriptionSessionConfig.type上的`Literal["transcription"]`约束拒绝
+    # （参见realtime/protocol.py）。
     await ws.app.state.openai_serving_transcription.handle_websocket(ws)
 
 
+# 列出可用模型（OpenAI兼容）
 @app.get("/v1/models", response_class=ORJSONResponse)
 async def available_models():
     """Show available models. OpenAI-compatible endpoint."""
     served_model_names = [_global_state.tokenizer_manager.served_model_name]
     model_cards = []
 
-    # Add base model
+    # 添加基础模型
     for served_model_name in served_model_names:
         model_cards.append(
             ModelCard(
@@ -1640,7 +1717,7 @@ async def available_models():
             )
         )
 
-    # Add loaded LoRA adapters
+    # 添加已加载的LoRA适配器
     if _global_state.tokenizer_manager.server_args.enable_lora:
         lora_registry = _global_state.tokenizer_manager.lora_registry
         for _, lora_ref in lora_registry.get_all_adapters().items():
@@ -1656,6 +1733,7 @@ async def available_models():
     return ModelList(data=model_cards)
 
 
+# 检索特定模型信息（OpenAI兼容）
 @app.get("/v1/models/{model:path}", response_class=ORJSONResponse)
 async def retrieve_model(model: str):
     """Retrieves a model instance, providing basic information about the model."""
@@ -1681,6 +1759,7 @@ async def retrieve_model(model: str):
     )
 
 
+# 评分API端点
 @app.post("/v1/score", dependencies=[Depends(validate_json_request)])
 async def v1_score_request(request: ScoringRequest, raw_request: Request):
     """Endpoint for the scoring API. Supports CausalLM (logprob-based) and SequenceClassification (class logit-based) models. See Engine.score() for documentation."""
@@ -1689,6 +1768,7 @@ async def v1_score_request(request: ScoringRequest, raw_request: Request):
     )
 
 
+# 带推理支持的Responses API端点
 @app.post("/v1/responses", dependencies=[Depends(validate_json_request)])
 async def v1_responses_request(request: dict, raw_request: Request):
     """Endpoint for the responses API with reasoning support."""
@@ -1698,7 +1778,7 @@ async def v1_responses_request(request: dict, raw_request: Request):
         request_obj, raw_request
     )
 
-    # Handle streaming responses
+    # 处理流式响应
     if isinstance(result, AsyncGenerator):
         return StreamingResponse(
             result,
@@ -1709,6 +1789,7 @@ async def v1_responses_request(request: dict, raw_request: Request):
     return result
 
 
+# 通过ID检索响应
 @app.get("/v1/responses/{response_id}")
 async def v1_retrieve_responses(response_id: str, raw_request: Request):
     """Retrieve a response by ID."""
@@ -1717,6 +1798,7 @@ async def v1_retrieve_responses(response_id: str, raw_request: Request):
     )
 
 
+# 取消后台响应
 @app.post("/v1/responses/{response_id}/cancel")
 async def v1_cancel_responses(response_id: str, raw_request: Request):
     """Cancel a background response."""
@@ -1725,6 +1807,7 @@ async def v1_cancel_responses(response_id: str, raw_request: Request):
     )
 
 
+# 重排序API端点
 @app.api_route(
     "/v1/rerank", methods=["POST", "PUT"], dependencies=[Depends(validate_json_request)]
 )
@@ -1735,11 +1818,12 @@ async def v1_rerank_request(request: V1RerankReqInput, raw_request: Request):
     )
 
 
-##### Ollama-compatible API endpoints #####
+##### Ollama兼容API端点 #####
 
 _ollama_root_route = os.environ.get("SGLANG_OLLAMA_ROOT_ROUTE")
 if _ollama_root_route is not None:
 
+    # Ollama兼容的根端点
     @app.get(_ollama_root_route)
     @app.head(_ollama_root_route)
     async def ollama_root():
@@ -1748,6 +1832,7 @@ if _ollama_root_route is not None:
 
 else:
 
+    # 默认根端点
     @app.get("/")
     @app.head("/")
     async def sglang_root():
@@ -1755,12 +1840,14 @@ else:
         return "SGLang is running"
 
 
+# Ollama兼容的聊天端点
 @app.post(os.environ.get("SGLANG_OLLAMA_CHAT_ROUTE", "/api/chat"))
 async def ollama_chat(request: OllamaChatRequest, raw_request: Request):
     """Ollama-compatible chat endpoint."""
     return await raw_request.app.state.ollama_serving.handle_chat(request, raw_request)
 
 
+# Ollama兼容的生成端点
 @app.post(os.environ.get("SGLANG_OLLAMA_GENERATE_ROUTE", "/api/generate"))
 async def ollama_generate(request: OllamaGenerateRequest, raw_request: Request):
     """Ollama-compatible generate endpoint."""
@@ -1769,21 +1856,24 @@ async def ollama_generate(request: OllamaGenerateRequest, raw_request: Request):
     )
 
 
+# Ollama兼容的列出模型端点
 @app.get(os.environ.get("SGLANG_OLLAMA_TAGS_ROUTE", "/api/tags"))
 async def ollama_tags(raw_request: Request):
     """Ollama-compatible list models endpoint."""
     return raw_request.app.state.ollama_serving.get_tags()
 
 
+# Ollama兼容的显示模型信息端点
 @app.post(os.environ.get("SGLANG_OLLAMA_SHOW_ROUTE", "/api/show"))
 async def ollama_show(request: OllamaShowRequest, raw_request: Request):
     """Ollama-compatible show model info endpoint."""
     return raw_request.app.state.ollama_serving.get_show(request.model)
 
 
-##### Anthropic-compatible API endpoints #####
+##### Anthropic兼容API端点 #####
 
 
+# Anthropic兼容的Messages API端点
 @app.post("/v1/messages", dependencies=[Depends(validate_json_request)])
 async def anthropic_v1_messages(
     request: AnthropicMessagesRequest, raw_request: Request
@@ -1794,6 +1884,7 @@ async def anthropic_v1_messages(
     )
 
 
+# Anthropic兼容的token计数端点
 @app.post("/v1/messages/count_tokens", dependencies=[Depends(validate_json_request)])
 async def anthropic_v1_count_tokens(
     request: AnthropicCountTokensRequest, raw_request: Request
@@ -1805,12 +1896,14 @@ async def anthropic_v1_count_tokens(
 
 
 ## SageMaker API
+# SageMaker健康检查端点
 @app.get("/ping")
 async def sagemaker_health() -> Response:
     """Check the health of the http server."""
     return Response(status_code=200)
 
 
+# SageMaker推理端点
 @app.post("/invocations")
 async def sagemaker_chat_completions(
     request: ChatCompletionRequest, raw_request: Request
@@ -1822,6 +1915,7 @@ async def sagemaker_chat_completions(
 
 
 ## Vertex AI API
+# Vertex AI预测端点
 @app.post(os.environ.get("AIP_PREDICT_ROUTE", "/vertex_generate"))
 async def vertex_generate(vertex_req: VertexGenerateReqInput, raw_request: Request):
     if not vertex_req.instances:
@@ -1849,19 +1943,21 @@ async def vertex_generate(vertex_req: VertexGenerateReqInput, raw_request: Reque
     return ORJSONResponse({"predictions": ret})
 
 
+# 创建错误响应
 def _create_error_response(e):
     return ORJSONResponse(
         {"error": {"message": str(e)}}, status_code=HTTPStatus.BAD_REQUEST
     )
 
 
-# FIXME: In theory we should configure ADMIN_FORCE for some entrypoints, but doing so
-# would currently cause all endpoints to go through add_api_key_middleware
-# (even when neither api-key nor admin-api-key is configured).
+# FIXME: 理论上我们应该为某些端点配置ADMIN_FORCE，但这样做
+# 目前会导致所有端点都通过add_api_key_middleware
+# （即使没有配置api-key或admin-api-key）。
 #
-# For now, we simulate ADMIN_FORCE by explicitly checking the admin API key parameter.
-# Once the auth wiring is refactored so ADMIN_FORCE only affects the intended
-# admin endpoints, we should switch this logic to use ADMIN_FORCE directly.
+# 目前，我们通过显式检查admin API key参数来模拟ADMIN_FORCE。
+# 一旦认证布线重构，使ADMIN_FORCE仅影响预期的
+# 管理端点，我们应该将此逻辑切换为直接使用ADMIN_FORCE。
+# 管理API密钥缺失时的响应
 def _admin_api_key_missing_response(
     status_code: HTTPStatus = HTTPStatus.BAD_REQUEST,
 ) -> ORJSONResponse:
@@ -1876,10 +1972,11 @@ def _admin_api_key_missing_response(
     )
 
 
-# Minimal 32x32 black PNG (base64, GLM4v requires at least 32x32 sized image)
+# 最小32x32黑色PNG图片（base64编码，GLM4v要求至少32x32大小的图片）
 MINIMUM_PNG_PICTURE_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAAA7EAAAOxAGVKw4bAAAAbUlEQVRYhe3VsQ2AMAxE0Y/lIgNQULD/OqyCMgCihCKSG4yRuKuiNH6JLsoEbMACOGBcua9HOR7Y6w6swBwMy0qLTpkeI77qdEBpBFAHBBDAGH8WrwJKI4AAegUCfAKgEgpQDvh3CR3oQCuav58qlAw73kKCSgAAAABJRU5ErkJggg=="
 
 
+# 执行服务器预热
 def _execute_server_warmup(server_args: ServerArgs):
     headers = {}
     url = server_args.url()
@@ -1888,7 +1985,7 @@ def _execute_server_warmup(server_args: ServerArgs):
 
     ssl_verify = server_args.ssl_verify()
 
-    # Wait until the server is launched
+    # 等待服务器启动
     success = False
     for _ in range(120):
         time.sleep(1)
@@ -1910,7 +2007,7 @@ def _execute_server_warmup(server_args: ServerArgs):
 
     model_info = res.json()
 
-    # Construct a warmup request (MLX: text warmup for VLM-advertising models; TODO: enable image warmup).
+    # 构建预热请求（MLX：对VLM-advertising模型使用文本预热；TODO：启用图像预热）
     is_vlm = bool(model_info.get("has_image_understanding", False)) and not is_mps()
     if model_info["is_generation"]:
         if is_vlm and not server_args.skip_tokenizer_init:
@@ -1928,7 +2025,7 @@ def _execute_server_warmup(server_args: ServerArgs):
     }
     if server_args.skip_tokenizer_init:
         json_data["input_ids"] = [[10, 11, 12] for _ in range(server_args.dp_size)]
-        # TODO Workaround the bug that embedding errors for list of size 1
+        # TODO 临时解决大小为1的列表导致嵌入错误的bug
         if server_args.dp_size == 1:
             json_data["input_ids"] = json_data["input_ids"][0]
     elif (
@@ -1936,8 +2033,8 @@ def _execute_server_warmup(server_args: ServerArgs):
         and server_args.disaggregation_mode == "null"
         and model_info["is_generation"]
     ):
-        # TODO: ChatCompletionRequest does not have bootstrap info required by disaggregation mode, disable image-warmup for now
-        # Only use chat completions format for generation models, not embedding models
+        # TODO：ChatCompletionRequest没有disaggregation模式所需的bootstrap信息，暂时禁用图像预热
+        # 仅对生成模型使用聊天补全格式，不对嵌入模型使用
         json_data = {
             "model": _global_state.tokenizer_manager.served_model_name,
             "messages": [
@@ -1963,11 +2060,11 @@ def _execute_server_warmup(server_args: ServerArgs):
         }
     else:
         json_data["text"] = ["The capital city of France is"] * server_args.dp_size
-        # TODO Workaround the bug that embedding errors for list of size 1
+        # TODO 临时解决大小为1的列表导致嵌入错误的bug
         if server_args.dp_size == 1:
             json_data["text"] = json_data["text"][0]
 
-    # Config debug dumping
+    # 配置调试转储
     if server_args.debug_tensor_dump_input_file:
         json_data.pop("text", None)
         json_data["input_ids"] = np.load(
@@ -1975,7 +2072,7 @@ def _execute_server_warmup(server_args: ServerArgs):
         ).tolist()
         json_data["sampling_params"]["max_new_tokens"] = 0
 
-    # Send a warmup request
+    # 发送预热请求
     warmup_timeout = envs.SGLANG_WARMUP_TIMEOUT.get()
     try:
         if server_args.disaggregation_mode == "null":
@@ -1999,8 +2096,8 @@ def _execute_server_warmup(server_args: ServerArgs):
                     "ignore_eos": True,
                 },
                 "bootstrap_host": [FAKE_BOOTSTRAP_HOST] * server_args.dp_size,
-                # This is a hack to ensure fake transfer is enabled during prefill warmup
-                # ensure each dp rank has a unique bootstrap_room during prefill warmup
+                # 这是一个hack，确保在预填充预热期间启用fake transfer
+                # 确保每个dp rank在预填充预热期间有唯一的bootstrap_room
                 "bootstrap_room": [
                     i * (2**63 // server_args.dp_size) + (i % server_args.tp_size)
                     for i in range(server_args.dp_size)
@@ -2013,7 +2110,7 @@ def _execute_server_warmup(server_args: ServerArgs):
                 headers=headers,
                 timeout=(
                     warmup_timeout if warmup_timeout > 0 else 1800
-                ),  # because of deep gemm precache is very long if not precache.
+                ),  # 因为deep gemm预缓存如果未预缓存会非常长
                 verify=ssl_verify,
             )
             if res.status_code == 200:
@@ -2036,32 +2133,36 @@ def _execute_server_warmup(server_args: ServerArgs):
         kill_process_tree(os.getpid())
         return False
 
-    # Debug print
+    # 调试打印
     # logger.info(f"warmup request returns: {res.json()=}")
     return success
 
 
+# 等待服务器启动并执行预热
 def _wait_and_warmup(
     server_args: ServerArgs,
     launch_callback: Optional[Callable[[], None]] = None,
     execute_warmup_func: Callable = _execute_server_warmup,
 ):
+    # 等待权重就绪
     if server_args.checkpoint_engine_wait_weights_before_ready:
         _wait_weights_ready()
 
-    # Send a warmup request
+    # 发送预热请求
     if not server_args.skip_server_warmup:
         if not execute_warmup_func(server_args):
             return
     else:
         _global_state.tokenizer_manager.server_status = ServerStatus.Up
 
-    # The server is ready for requests
+    # 服务器已准备好接收请求
     logger.info("The server is fired up and ready to roll!")
 
+    # 加载后删除检查点目录
     if server_args.delete_ckpt_after_loading:
         delete_directory(server_args.model_path)
 
+    # 调试转储后终止进程
     if server_args.debug_tensor_dump_input_file:
         kill_process_tree(os.getpid())
 
@@ -2069,6 +2170,7 @@ def _wait_and_warmup(
         launch_callback()
 
 
+# 等待权重在指定超时时间内就绪
 def _wait_weights_ready():
     """Wait for weights to be ready within the specified timeout."""
     timeout = WAIT_WEIGHTS_READY_TIMEOUT
@@ -2082,7 +2184,7 @@ def _wait_weights_ready():
             return
         time.sleep(1)
 
-    # Timeout reached without weights being ready
+    # 超时未就绪
     logger.error(
         f"Weights are not ready after waiting {timeout} seconds. "
         f"Consider increasing SGLANG_WAIT_WEIGHTS_READY_TIMEOUT environment variable. "
@@ -2090,6 +2192,7 @@ def _wait_weights_ready():
     )
 
 
+# 关闭主进程的ZMQ套接字，为生成Granian工作进程做准备
 def _close_main_process_sockets():
     """Close the main process's ZMQ sockets before spawning Granian workers.
 
@@ -2112,6 +2215,7 @@ def _close_main_process_sockets():
         setattr(tm, attr, None)
 
 
+# 启动Granian HTTP/2服务器
 def _run_granian_server(server_args: ServerArgs):
     """Launch Granian with HTTP/2 support"""
     from granian import Granian
@@ -2137,6 +2241,7 @@ def _run_granian_server(server_args: ServerArgs):
     server.serve()
 
 
+# 设置全局状态、配置中间件并运行HTTP服务器
 def _setup_and_run_http_server(
     server_args: ServerArgs,
     tokenizer_manager,
@@ -2151,7 +2256,7 @@ def _setup_and_run_http_server(
 
     Called by launch_server after subprocesses have been launched.
     """
-    # Set global states
+    # 设置全局状态
     set_global_state(
         _GlobalState(
             tokenizer_manager=tokenizer_manager,
@@ -2160,18 +2265,18 @@ def _setup_and_run_http_server(
         )
     )
 
-    # Store watchdog on tokenizer_manager (single source of truth for SIGQUIT handler)
+    # 在tokenizer_manager上存储watchdog（SIGQUIT处理器的唯一真实来源）
     if tokenizer_manager is not None:
         tokenizer_manager._subprocess_watchdog = subprocess_watchdog
 
     if server_args.enable_metrics:
         add_prometheus_track_response_middleware(app)
 
-    # Use Granian for HTTP/2 server
+    # 使用Granian作为HTTP/2服务器
     if server_args.enable_http2:
-        # Reuse the multi-tokenizer shared memory mechanism to pass
-        # init args (port_args, server_args, scheduler_info) to
-        # Granian workers, which are independent processes.
+        # 复用多分词器共享内存机制来传递
+        # 初始化参数（port_args, server_args, scheduler_info）给
+        # Granian工作进程，它们是独立进程。
         multi_tokenizer_args_shm = write_data_for_multi_tokenizer(
             port_args, server_args, scheduler_infos[0]
         )
@@ -2185,9 +2290,8 @@ def _setup_and_run_http_server(
                 f"Starting Granian HTTP/2 server on "
                 f"{server_args.host}:{server_args.port}"
             )
-            # Propagate the main process PID via os.environ so Granian
-            # workers (forked or spawned) can locate the shared memory
-            # segment created above.
+            # 通过os.environ传播主进程PID，以便Granian
+            # 工作进程（forked或spawned）能找到上面创建的共享内存段
             envs.SGLANG_GRANIAN_PARENT_PID.set(os.getpid())
             _close_main_process_sockets()
             _run_granian_server(server_args)
@@ -2196,10 +2300,10 @@ def _setup_and_run_http_server(
                 multi_tokenizer_args_shm.unlink()
         return
 
-    # Pass additional arguments to the lifespan function.
-    # They will be used for additional initialization setups.
+    # 将额外参数传递给生命周期函数
+    # 它们将用于额外的初始化设置
     if server_args.tokenizer_worker_num == 1:
-        # If it is single tokenizer mode, we can pass the arguments by attributes of the app object.
+        # 单分词器模式下，可以通过app对象的属性传递参数
         app.is_single_tokenizer_mode = True
         app.server_args = server_args
         app.warmup_thread_kwargs = dict(
@@ -2208,13 +2312,12 @@ def _setup_and_run_http_server(
             execute_warmup_func=execute_warmup_func,
         )
 
-        # Add api key authorization
-        # This is only supported in single tokenizer mode.
+        # 添加API密钥授权
+        # 仅在单分词器模式下支持
         #
-        # Backward compatibility:
-        # - api_key only: behavior matches legacy (all endpoints require api_key)
-        # - no keys: legacy had no restriction; ADMIN_FORCE endpoints must still be rejected when
-        #   admin_api_key is not configured.
+        # 向后兼容：
+        # - 仅api_key：行为与旧版一致（所有端点需要api_key）
+        # - 无密钥：旧版无限制；未配置admin_api_key时ADMIN_FORCE端点仍须拒绝
         if (
             server_args.api_key
             or server_args.admin_api_key
@@ -2228,15 +2331,15 @@ def _setup_and_run_http_server(
                 admin_api_key=server_args.admin_api_key,
             )
     else:
-        # If it is multi-tokenizer mode, we need to write the arguments to shared memory
-        # for other worker processes to read.
+        # 多分词器模式下，需要将参数写入共享内存
+        # 以供其他工作进程读取
         app.is_single_tokenizer_mode = False
         multi_tokenizer_args_shm = write_data_for_multi_tokenizer(
             port_args, server_args, scheduler_infos[0]
         )
 
     try:
-        # Update logging configs
+        # 更新日志配置
         set_uvicorn_logging_configs(server_args)
 
         if server_args.ssl_certfile:
@@ -2245,10 +2348,10 @@ def _setup_and_run_http_server(
                 f"keyfile={server_args.ssl_keyfile}"
             )
 
-        # Listen for HTTP requests
+        # 监听HTTP请求
         if server_args.tokenizer_worker_num == 1:
             if server_args.enable_ssl_refresh:
-                # Use Config/Server API for access to the SSLContext.
+                # 使用Config/Server API以访问SSLContext
                 config = uvicorn.Config(
                     app,
                     host=server_args.host,
@@ -2262,12 +2365,13 @@ def _setup_and_run_http_server(
                     ssl_ca_certs=server_args.ssl_ca_certs,
                     ssl_keyfile_password=server_args.ssl_keyfile_password,
                 )
-                config.load()  # Creates the SSLContext
+                config.load()  # 创建SSLContext
 
                 from sglang.srt.entrypoints.ssl_utils import SSLCertRefresher
 
                 server = uvicorn.Server(config)
 
+                # SSL证书自动刷新
                 async def _run_with_ssl_refresh():
                     refresher = SSLCertRefresher(
                         config.ssl,
@@ -2285,7 +2389,7 @@ def _setup_and_run_http_server(
 
                 asyncio.run(_run_with_ssl_refresh())
             else:
-                # Default case, one tokenizer process
+                # 默认情况，单个分词器进程
                 uvicorn.run(
                     app,
                     host=server_args.host,
@@ -2300,7 +2404,7 @@ def _setup_and_run_http_server(
                     ssl_keyfile_password=server_args.ssl_keyfile_password,
                 )
         else:
-            # Multiple tokenizer and http processes
+            # 多个分词器和HTTP进程
             from uvicorn.config import LOGGING_CONFIG
 
             LOGGING_CONFIG["loggers"]["sglang.srt.entrypoints.http_server"] = {
@@ -2339,6 +2443,7 @@ def _setup_and_run_http_server(
                 _global_state.tokenizer_manager.socket_mapping.clear_all_sockets()
 
 
+# 启动SRT（SGLang运行时）服务器的主入口函数
 def launch_server(
     server_args: ServerArgs,
     init_tokenizer_manager_func: Callable = init_tokenizer_manager,
@@ -2362,7 +2467,7 @@ def launch_server(
     1. The HTTP server, Engine, and TokenizerManager all run in the main process.
     2. Inter-process communication is done through IPC (each process uses a different port) via the ZMQ library.
     """
-    # Launch subprocesses
+    # 启动子进程
     (
         tokenizer_manager,
         template_manager,

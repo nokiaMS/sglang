@@ -1,3 +1,4 @@
+# 文件名: test_nvidia_nemotron_nano_v2.py - 测试NVIDIA Nemotron Nano V2模型（BF16/FP8/NVFP4/推测解码）
 import unittest
 
 from sglang.srt.utils import is_blackwell

@@ -1,3 +1,4 @@
+# 文件名: test_torch_tp.py - Torch张量并行测试 - 验证torch native后端下TP=2的离线吞吐量
 import unittest
 
 from sglang.test.test_utils import (
@@ -9,6 +10,7 @@ from sglang.test.test_utils import (
 
 
 class TestTorchTP(CustomTestCase):
+    # 测试torch native llama
     def test_torch_native_llama(self):
         output_throughput = run_bench_offline_throughput(
             DEFAULT_SMALL_MODEL_NAME_FOR_TEST,

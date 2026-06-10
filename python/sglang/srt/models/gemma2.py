@@ -18,6 +18,9 @@
 # Adapted from:
 # https://github.com/vllm-project/vllm/blob/56b325e977435af744f8b3dca7af0ca209663558/vllm/model_executor/models/gemma2.py
 
+# 本文件实现了 Gemma2 模型的推理代码，包括 MLP、注意力层、解码器层、模型主体和因果语言模型。
+# Gemma2 是 Google 推出的基于 Transformer 的语言模型，支持滑动窗口注意力和 logit 软裁剪等特性。
+
 from typing import Iterable, Optional, Set, Tuple
 
 import torch
@@ -50,10 +53,13 @@ _is_npu = is_npu()
 # Aligned with HF's implementation, using sliding window inclusive with the last token
 # SGLang assumes exclusive
 def get_attention_sliding_window_size(config):
+    """获取滑动窗口注意力的窗口大小，HF实现是包含最后一个token的，SGLang是排除的，所以减1"""
     return config.sliding_window - 1
 
 
 class Gemma2MLP(nn.Module):
+    """Gemma2 模型的前馈网络（MLP）层，使用 GELU 激活函数和门控机制"""
+
     def __init__(
         self,
         hidden_size: int,
@@ -64,6 +70,7 @@ class Gemma2MLP(nn.Module):
         prefix: str = "",
     ) -> None:
         super().__init__()
+        # 门控和上投影合并为一个线性层，输出维度为 intermediate_size * 2
         self.gate_up_proj = MergedColumnParallelLinear(
             hidden_size,
             [intermediate_size] * 2,
@@ -71,6 +78,7 @@ class Gemma2MLP(nn.Module):
             quant_config=quant_config,
             prefix=add_prefix("gate_up_proj", prefix),
         )
+        # 下投影层，将中间维度映射回隐藏维度
         self.down_proj = RowParallelLinear(
             intermediate_size,
             hidden_size,
@@ -84,16 +92,19 @@ class Gemma2MLP(nn.Module):
                 "function. Please set `hidden_act` and `hidden_activation` to "
                 "`gelu_pytorch_tanh`."
             )
+        # GELU 激活函数，将门控和上投影的输出分割并相乘
         self.act_fn = GeluAndMul()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        gate_up, _ = self.gate_up_proj(x)
-        x = self.act_fn(gate_up)
-        x, _ = self.down_proj(x)
+        gate_up, _ = self.gate_up_proj(x)  # 计算门控和上投影的合并输出
+        x = self.act_fn(gate_up)  # 应用 GELU 激活并分割相乘
+        x, _ = self.down_proj(x)  # 下投影回隐藏维度
         return x
 
 
 class Gemma2Attention(nn.Module):
+    """Gemma2 模型的注意力层，支持滑动窗口注意力、logit 软裁剪和旋转位置编码"""
+
     def __init__(
         self,
         layer_id: int,
@@ -114,6 +125,7 @@ class Gemma2Attention(nn.Module):
         tp_size = get_tensor_model_parallel_world_size()
         self.total_num_heads = num_heads
         assert self.total_num_heads % tp_size == 0
+        # 每个张量并行分片上的注意力头数
         self.num_heads = self.total_num_heads // tp_size
         self.total_num_kv_heads = num_kv_heads
         if self.total_num_kv_heads >= tp_size:
@@ -124,13 +136,15 @@ class Gemma2Attention(nn.Module):
             # Number of KV heads is less than TP size, so we replicate
             # the KV heads across multiple tensor parallel GPUs.
             assert tp_size % self.total_num_kv_heads == 0
+        # 每个 TP 分片上的 KV 头数
         self.num_kv_heads = max(1, self.total_num_kv_heads // tp_size)
         self.head_dim = head_dim
-        self.q_size = self.num_heads * self.head_dim
-        self.kv_size = self.num_kv_heads * self.head_dim
-        self.scaling = config.query_pre_attn_scalar**-0.5
+        self.q_size = self.num_heads * self.head_dim  # Q 的维度
+        self.kv_size = self.num_kv_heads * self.head_dim  # KV 的维度
+        self.scaling = config.query_pre_attn_scalar**-0.5  # 注意力缩放因子
         self.rope_theta = rope_theta
 
+        # QKV 投影，合并 Q/K/V 为一个线性层
         self.qkv_proj = QKVParallelLinear(
             hidden_size,
             self.head_dim,
@@ -140,6 +154,7 @@ class Gemma2Attention(nn.Module):
             quant_config=quant_config,
             prefix=add_prefix("qkv_proj", prefix),
         )
+        # 输出投影
         self.o_proj = RowParallelLinear(
             self.total_num_heads * self.head_dim,
             hidden_size,
@@ -151,6 +166,7 @@ class Gemma2Attention(nn.Module):
             not _is_npu
             or "Gemma2ForSequenceClassification" not in self.config.architectures
         ):
+            # 标准情况：使用旋转位置编码
             self.rotary_emb = get_rope(
                 self.head_dim,
                 rotary_dim=self.head_dim,
@@ -158,8 +174,9 @@ class Gemma2Attention(nn.Module):
                 base=self.rope_theta,
                 is_neox_style=True,
             )
-            logit_cap = self.config.attn_logit_softcapping
+            logit_cap = self.config.attn_logit_softcapping  # logit 软裁剪值
         else:
+            # NPU 上序列分类模型使用 float32 的旋转位置编码，禁用 logit 软裁剪
             self.rotary_emb = get_rope(
                 self.head_dim,
                 rotary_dim=self.head_dim,
@@ -170,6 +187,7 @@ class Gemma2Attention(nn.Module):
             )
             logit_cap = 0.0
 
+        # 偶数层且配置了滑动窗口时启用滑动窗口注意力
         use_sliding_window = layer_id % 2 == 0 and hasattr(config, "sliding_window")
         self.attn = RadixAttention(
             self.num_heads,
@@ -193,15 +211,17 @@ class Gemma2Attention(nn.Module):
         hidden_states: torch.Tensor,
         forward_batch: ForwardBatch,
     ) -> torch.Tensor:
-        qkv, _ = self.qkv_proj(hidden_states)
-        q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
-        q, k = self.rotary_emb(positions, q, k)
-        attn_output = self.attn(q, k, v, forward_batch)
-        output, _ = self.o_proj(attn_output)
+        qkv, _ = self.qkv_proj(hidden_states)  # 计算 QKV 投影
+        q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)  # 分割 Q/K/V
+        q, k = self.rotary_emb(positions, q, k)  # 应用旋转位置编码
+        attn_output = self.attn(q, k, v, forward_batch)  # 计算注意力
+        output, _ = self.o_proj(attn_output)  # 输出投影
         return output
 
 
 class Gemma2DecoderLayer(nn.Module):
+    """Gemma2 解码器层，包含自注意力、MLP 和多个 RMSNorm 层"""
+
     def __init__(
         self,
         layer_id: int,
@@ -233,13 +253,17 @@ class Gemma2DecoderLayer(nn.Module):
             quant_config=quant_config,
             prefix=add_prefix("mlp", prefix),
         )
+        # 注意力前的层归一化
         self.input_layernorm = GemmaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        # 注意力后的层归一化
         self.post_attention_layernorm = GemmaRMSNorm(
             config.hidden_size, eps=config.rms_norm_eps
         )
+        # MLP 前的层归一化
         self.pre_feedforward_layernorm = GemmaRMSNorm(
             config.hidden_size, eps=config.rms_norm_eps
         )
+        # MLP 后的层归一化
         self.post_feedforward_layernorm = GemmaRMSNorm(
             config.hidden_size, eps=config.rms_norm_eps
         )
@@ -256,22 +280,25 @@ class Gemma2DecoderLayer(nn.Module):
             hidden_states = self.input_layernorm(hidden_states)
         else:
             hidden_states, residual = self.input_layernorm(hidden_states, residual)
+        # 自注意力计算
         hidden_states = self.self_attn(
             positions=positions,
             hidden_states=hidden_states,
             forward_batch=forward_batch,
         )
-        hidden_states = self.post_attention_layernorm(hidden_states)
+        hidden_states = self.post_attention_layernorm(hidden_states)  # 注意力后归一化
 
         hidden_states, residual = self.pre_feedforward_layernorm(
             hidden_states, residual
         )
-        hidden_states = self.mlp(hidden_states)
-        hidden_states = self.post_feedforward_layernorm(hidden_states)
+        hidden_states = self.mlp(hidden_states)  # MLP 前馈计算
+        hidden_states = self.post_feedforward_layernorm(hidden_states)  # MLP 后归一化
         return hidden_states, residual
 
 
 class Gemma2Model(nn.Module):
+    """Gemma2 模型主体，包含词嵌入、多个解码器层和最终归一化"""
+
     def __init__(
         self,
         config: PretrainedConfig,
@@ -281,10 +308,12 @@ class Gemma2Model(nn.Module):
         super().__init__()
         self.config = config
 
+        # 词嵌入层
         self.embed_tokens = VocabParallelEmbedding(
             config.vocab_size,
             config.hidden_size,
         )
+        # 构建解码器层列表
         self.layers = make_layers(
             config.num_hidden_layers,
             lambda idx, prefix: Gemma2DecoderLayer(
@@ -294,12 +323,14 @@ class Gemma2Model(nn.Module):
             ),
             prefix=add_prefix("layers", prefix),
         )
+        # 最终的 RMSNorm
         self.norm = GemmaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
         # Normalize the embedding by sqrt(hidden_size)
         # The normalizer's data type should be downcasted to the model's
         # data type such as bfloat16, not float32.
         # See https://github.com/huggingface/transformers/pull/29402
+        # 用 sqrt(hidden_size) 归一化嵌入
         normalizer = self.config.hidden_size**0.5
         self.register_buffer("normalizer", torch.tensor(normalizer))
 
@@ -311,13 +342,14 @@ class Gemma2Model(nn.Module):
         input_embeds: torch.Tensor = None,
     ) -> torch.Tensor:
         if input_embeds is None:
-            hidden_states = self.embed_tokens(input_ids)
+            hidden_states = self.embed_tokens(input_ids)  # 词嵌入查找
         else:
             hidden_states = input_embeds
+        # 使用动态数据类型的归一化因子（确保与隐藏状态数据类型一致）
         normalizer = torch.tensor(
             self.config.hidden_size**0.5, dtype=hidden_states.dtype
         )
-        hidden_states *= normalizer
+        hidden_states *= normalizer  # 对嵌入进行归一化
 
         residual = None
         for i in range(len(self.layers)):
@@ -328,11 +360,13 @@ class Gemma2Model(nn.Module):
                 forward_batch,
                 residual,
             )
-        hidden_states, _ = self.norm(hidden_states, residual)
+        hidden_states, _ = self.norm(hidden_states, residual)  # 最终归一化
         return hidden_states
 
 
 class Gemma2ForCausalLM(nn.Module):
+    """Gemma2 因果语言模型，包含模型主体和 logits 处理器，用于文本生成"""
+
     # BitandBytes specific attributes
     default_bitsandbytes_target_modules = [
         ".gate_proj.",
@@ -398,6 +432,7 @@ class Gemma2ForCausalLM(nn.Module):
         forward_batch: ForwardBatch,
         input_embeds: torch.Tensor = None,
     ) -> torch.Tensor:
+        """前向传播：计算隐藏状态并生成 logits"""
         hidden_states = self.model(input_ids, positions, forward_batch, input_embeds)
         return self.logits_processor(
             input_ids, hidden_states, self.model.embed_tokens, forward_batch
@@ -412,6 +447,7 @@ class Gemma2ForCausalLM(nn.Module):
         split_interval: Tuple[int, int],  # [start, end) 0-based
         input_embeds: torch.Tensor = None,
     ):
+        """分段预填充前向传播，将预填充过程拆分为多个区间以支持流水线并行"""
         start, end = split_interval
         # embed
         if start == 0:
@@ -455,9 +491,11 @@ class Gemma2ForCausalLM(nn.Module):
         return result
 
     def get_attention_sliding_window_size(self):
+        """获取当前配置的滑动窗口注意力大小"""
         return get_attention_sliding_window_size(self.config)
 
     def load_weights(self, weights: Iterable[Tuple[str, torch.Tensor]]):
+        """加载模型权重，处理堆叠参数（如 QKV 合并、gate_up 合并）的映射"""
         stacked_params_mapping = [
             # (param_name, shard_name, shard_id)
             ("qkv_proj", "q_proj", "q"),
@@ -478,7 +516,7 @@ class Gemma2ForCausalLM(nn.Module):
                     continue
                 param = params_dict[name]
                 weight_loader = param.weight_loader
-                weight_loader(param, loaded_weight, shard_id)
+                weight_loader(param, loaded_weight, shard_id)  # 按分片加载堆叠权重
                 break
             else:
                 # lm_head is not used in vllm as it is tied with embed_token.
@@ -495,7 +533,7 @@ class Gemma2ForCausalLM(nn.Module):
 
                 param = params_dict[name]
                 weight_loader = getattr(param, "weight_loader", default_weight_loader)
-                weight_loader(param, loaded_weight)
+                weight_loader(param, loaded_weight)  # 默认方式加载权重
             loaded_params.add(name)
 
 

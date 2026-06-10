@@ -1,3 +1,4 @@
+# 文件名: test_bench_serving_reasoning_stream.py - 推理流式服务基准测试
 """Unit tests for bench_serving streaming with reasoning_content chunks.
 
 Reasoning models (DeepSeek-R1, MiMo, Qwen3 reasoning, Kimi-K2, ...) stream their
@@ -28,6 +29,7 @@ from sglang.test.test_utils import CustomTestCase
 register_cpu_ci(est_time=10, suite="base-a-test-cpu")
 
 
+# 执行freeport
 def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
@@ -40,6 +42,7 @@ class _SSEHandler(BaseHTTPRequestHandler):
     chunks: list = []
     chunk_delay_s: float = 0.02
 
+    # 执行doPOST
     def do_POST(self):  # noqa: N802 (BaseHTTPRequestHandler interface)
         length = int(self.headers.get("Content-Length", "0"))
         if length:
@@ -55,6 +58,7 @@ class _SSEHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
 
+    # 执行logmessage
     def log_message(self, fmt, *args):  # silence access logs
         return
 
@@ -63,6 +67,7 @@ class _JSONHandler(BaseHTTPRequestHandler):
     response_body: dict = {}
     request_bodies: list = []
 
+    # 执行doPOST
     def do_POST(self):  # noqa: N802 (BaseHTTPRequestHandler interface)
         length = int(self.headers.get("Content-Length", "0"))
         if length:
@@ -73,10 +78,12 @@ class _JSONHandler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(self.response_body).encode())
         self.wfile.flush()
 
+    # 执行logmessage
     def log_message(self, fmt, *args):
         return
 
 
+# 执行makechunk
 def _make_chunk(content=None, reasoning_content=None, completion_tokens=None):
     delta = {}
     if content is not None:
@@ -89,6 +96,7 @@ def _make_chunk(content=None, reasoning_content=None, completion_tokens=None):
     return chunk
 
 
+# 执行makeresponse
 def _make_response(content=None, reasoning_content=None, completion_tokens=1):
     message = {"role": "assistant", "content": content}
     if reasoning_content is not None:
@@ -100,6 +108,7 @@ def _make_response(content=None, reasoning_content=None, completion_tokens=1):
 
 
 class _StrictStringTokenizer:
+    # 执行encode
     def encode(self, text, add_special_tokens=False):
         if not isinstance(text, str):
             raise ValueError("text input must be of type `str`")
@@ -108,6 +117,7 @@ class _StrictStringTokenizer:
 
 class TestBenchServingReasoningStream(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         set_global_args(
             Namespace(
@@ -119,6 +129,7 @@ class TestBenchServingReasoningStream(CustomTestCase):
             )
         )
 
+    # 执行run
     def _run(self, chunks):
         port = _free_port()
 
@@ -145,6 +156,7 @@ class TestBenchServingReasoningStream(CustomTestCase):
             server.shutdown()
             server.server_close()
 
+    # 测试reasoningonlystreampopulatesmetrics
     def test_reasoning_only_stream_populates_metrics(self):
         chunks = [
             _make_chunk(reasoning_content="Let "),
@@ -163,6 +175,7 @@ class TestBenchServingReasoningStream(CustomTestCase):
         self.assertEqual(out.text_chunks, ["me ", "think."])
         self.assertEqual(out.output_len, 3)
 
+    # 测试reasoningthencontentaccountsboth
     def test_reasoning_then_content_accounts_both(self):
         chunks = [
             _make_chunk(reasoning_content="step1 "),
@@ -180,6 +193,7 @@ class TestBenchServingReasoningStream(CustomTestCase):
         self.assertEqual(out.text_chunks, ["step2 ", "answer ", "here"])
         self.assertEqual(out.output_len, 4)
 
+    # 测试singledeltapreservesreasoningbeforecontent
     def test_single_delta_preserves_reasoning_before_content(self):
         chunks = [
             _make_chunk(content="answer", reasoning_content="thought "),
@@ -192,6 +206,7 @@ class TestBenchServingReasoningStream(CustomTestCase):
         self.assertGreater(out.ttft, 0.0)
         self.assertEqual(out.output_len, 2)
 
+    # 测试usageonlystreamchunkdoesnotbreak
     def test_usage_only_stream_chunk_does_not_break(self):
         chunks = [
             _make_chunk(reasoning_content="thinking"),
@@ -204,6 +219,7 @@ class TestBenchServingReasoningStream(CustomTestCase):
         self.assertGreater(out.ttft, 0.0)
         self.assertEqual(out.output_len, 1)
 
+    # 测试contentonlystreamunchanged
     def test_content_only_stream_unchanged(self):
         chunks = [
             _make_chunk(content="hi "),
@@ -219,6 +235,7 @@ class TestBenchServingReasoningStream(CustomTestCase):
         self.assertEqual(out.text_chunks, ["there"])
         self.assertEqual(out.output_len, 2)
 
+    # 测试nullreasoningfielddoesnotbreak
     def test_null_reasoning_field_does_not_break(self):
         # Mirrors sglang's _StreamDelta: reasoning_content is always emitted,
         # serialized as null when only content is present.
@@ -243,6 +260,7 @@ class TestBenchServingReasoningStream(CustomTestCase):
 
 
 class TestBenchServingReasoningNonStream(CustomTestCase):
+    # 执行run
     def _run(self, response_body):
         set_global_args(
             Namespace(
@@ -282,6 +300,7 @@ class TestBenchServingReasoningNonStream(CustomTestCase):
             server.shutdown()
             server.server_close()
 
+    # 测试reasoningonlynonstreammetricsretokenizetext
     def test_reasoning_only_non_stream_metrics_retokenize_text(self):
         out, request_bodies = self._run(
             _make_response(
@@ -307,6 +326,7 @@ class TestBenchServingReasoningNonStream(CustomTestCase):
         self.assertEqual(output_lens, [3])
         self.assertEqual(metrics.total_output_retokenized, 3)
 
+    # 测试reasoningthencontentnonstreamaccountsboth
     def test_reasoning_then_content_non_stream_accounts_both(self):
         out, _ = self._run(
             _make_response(
@@ -321,6 +341,7 @@ class TestBenchServingReasoningNonStream(CustomTestCase):
         self.assertGreater(out.ttft, 0.0)
         self.assertEqual(out.output_len, 2)
 
+    # 测试contentonlynonstreamunchanged
     def test_content_only_non_stream_unchanged(self):
         out, _ = self._run(_make_response(content="answer", completion_tokens=1))
 

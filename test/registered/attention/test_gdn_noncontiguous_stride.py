@@ -1,3 +1,4 @@
+# 文件名: test_gdn_noncontiguous_stride.py - GDN非连续步幅测试
 """
 Tests that fused_gdn_gating and fused_sigmoid_gating_delta_rule_update
 produce correct results when a/b inputs are non-contiguous,
@@ -17,6 +18,7 @@ from sglang.test.ci.ci_register import register_cuda_ci
 register_cuda_ci(est_time=7, stage="base-b", runner_config="1-gpu-large")
 
 
+# 执行makenoncontiguousab
 def _make_noncontiguous_ab(batch, num_heads, dtype=torch.bfloat16, device="cuda"):
     """
     Simulate Qwen3.5 fallback: mixed_ba.split([nv_tp, nv_tp], dim=-1).
@@ -40,6 +42,7 @@ def _make_noncontiguous_ab(batch, num_heads, dtype=torch.bfloat16, device="cuda"
 class TestFusedGdnGatingNonContiguous(unittest.TestCase):
     """Test fused_gdn_gating with non-contiguous a/b."""
 
+    # 执行runtest
     def _run_test(self, batch, num_heads):
         A_log = torch.randn(num_heads, dtype=torch.float32, device="cuda")
         dt_bias = torch.randn(num_heads, dtype=torch.bfloat16, device="cuda")
@@ -51,24 +54,28 @@ class TestFusedGdnGatingNonContiguous(unittest.TestCase):
 
         self.assertTrue(
             torch.allclose(g_test, g_ref, rtol=0, atol=0),
-            f"g mismatch: max diff = {(g_test - g_ref).abs().max().item()}",
+            f"g mismatch: max diff = {(g_test - g_ref).abs().max().item()}",  # 获取标量值
         )
         self.assertTrue(
             torch.allclose(beta_test, beta_ref, rtol=0, atol=0),
-            f"beta mismatch: max diff = {(beta_test - beta_ref).abs().max().item()}",
+            f"beta mismatch: max diff = {(beta_test - beta_ref).abs().max().item()}",  # 获取标量值
         )
 
+    # 测试small
     def test_small(self):
         self._run_test(batch=4, num_heads=8)
 
+    # 测试qwen3527btp1
     def test_qwen35_27b_tp1(self):
         """Qwen3.5-27B TP=1: nv_tp=48."""
         self._run_test(batch=16, num_heads=48)
 
+    # 测试qwen3527btp2
     def test_qwen35_27b_tp2(self):
         """Qwen3.5-27B TP=2: nv_tp=24."""
         self._run_test(batch=32, num_heads=24)
 
+    # 测试singlebatch
     def test_single_batch(self):
         self._run_test(batch=1, num_heads=48)
 
@@ -77,6 +84,7 @@ class TestFusedGdnGatingNonContiguous(unittest.TestCase):
 class TestFusedSigmoidGatingDeltaRuleUpdateNonContiguous(unittest.TestCase):
     """Test fused_sigmoid_gating_delta_rule_update with non-contiguous a/b."""
 
+    # 执行runtest
     def _run_test(self, batch, T, num_v_heads, head_k_dim, head_v_dim):
         num_k_heads = num_v_heads  # simplification for GDN
         HV = num_v_heads
@@ -140,8 +148,8 @@ class TestFusedSigmoidGatingDeltaRuleUpdateNonContiguous(unittest.TestCase):
             is_kda=False,
         )
 
-        max_out_diff = (out_test - out_ref).abs().max().item()
-        max_state_diff = (ssm_test - ssm_ref).abs().max().item()
+        max_out_diff = (out_test - out_ref).abs().max().item()  # 获取标量值
+        max_state_diff = (ssm_test - ssm_ref).abs().max().item()  # 获取标量值
 
         self.assertTrue(
             torch.allclose(out_test, out_ref, rtol=0, atol=0),
@@ -152,14 +160,17 @@ class TestFusedSigmoidGatingDeltaRuleUpdateNonContiguous(unittest.TestCase):
             f"state mismatch: max diff = {max_state_diff}",
         )
 
+    # 测试decodesingletoken
     def test_decode_single_token(self):
         """Standard decode: T=1, batch>1."""
         self._run_test(batch=4, T=1, num_v_heads=8, head_k_dim=64, head_v_dim=32)
 
+    # 测试qwen35decode
     def test_qwen35_decode(self):
         """Qwen3.5-27B like config: HV=48."""
         self._run_test(batch=8, T=1, num_v_heads=48, head_k_dim=128, head_v_dim=128)
 
+    # 测试multitoken
     def test_multi_token(self):
         """target_verify style: T>1."""
         self._run_test(batch=4, T=4, num_v_heads=8, head_k_dim=64, head_v_dim=32)
@@ -169,6 +180,7 @@ class TestFusedSigmoidGatingDeltaRuleUpdateNonContiguous(unittest.TestCase):
 class TestFusedSigmoidGatingKDAStride(unittest.TestCase):
     """Regression test: KDA path handles non-contiguous a/b after stride_a refactor."""
 
+    # 测试kdanoncontiguousmatchescontiguous
     def test_kda_noncontiguous_matches_contiguous(self):
         """KDA path should produce identical outputs/states for contiguous vs non-contiguous a/b."""
         token_num = 4
@@ -243,11 +255,11 @@ class TestFusedSigmoidGatingKDAStride(unittest.TestCase):
 
         self.assertTrue(
             torch.allclose(out_test, out_ref, rtol=0, atol=0),
-            f"KDA output mismatch: max diff = {(out_test - out_ref).abs().max().item()}",
+            f"KDA output mismatch: max diff = {(out_test - out_ref).abs().max().item()}",  # 获取标量值
         )
         self.assertTrue(
             torch.allclose(ssm_test, ssm_ref, rtol=0, atol=0),
-            f"KDA state mismatch: max diff = {(ssm_test - ssm_ref).abs().max().item()}",
+            f"KDA state mismatch: max diff = {(ssm_test - ssm_ref).abs().max().item()}",  # 获取标量值
         )
 
 

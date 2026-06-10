@@ -1,3 +1,4 @@
+# 文件名: test_vlms_perf.py - 夜间测试：VLM模型性能基准
 import os
 import unittest
 import warnings
@@ -30,6 +31,7 @@ MODEL_DEFAULTS = [
 
 class TestNightlyVLMModelsPerformance(unittest.TestCase):
     @classmethod
+    # 类级别初始化，启动服务器或设置测试环境
     def setUpClass(cls):
         warnings.filterwarnings(
             "ignore", category=ResourceWarning, message="unclosed.*socket"
@@ -52,6 +54,7 @@ class TestNightlyVLMModelsPerformance(unittest.TestCase):
         cls.runner = NightlyBenchmarkRunner(PROFILE_DIR, cls.__name__, cls.base_url)
         cls.runner.setup_profile_directory()
 
+    # 测试bench one batch功能
     def test_bench_one_batch(self):
         all_model_succeed = True
 

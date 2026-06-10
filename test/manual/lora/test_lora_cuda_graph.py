@@ -1,3 +1,4 @@
+# 文件名: test_lora_cuda_graph.py - 测试LoRA在CUDA图模式下的正确性（含填充场景）
 # Copyright 2023-2024 SGLang Team
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -45,6 +46,7 @@ TEST_CUDA_GRAPH_PADDING_PROMPTS = [
 
 class TestLoRACudaGraph(CustomTestCase):
 
+    # 在禁用CUDA图模式下运行LoRA测试
     def _run_without_cuda_graph_on_model_cases(self, model_cases: List[LoRAModelCase]):
         # Since we have already enabled CUDA graph by default in other lora tests,
         # we only need to run lora tests without CUDA graph here.
@@ -65,6 +67,7 @@ class TestLoRACudaGraph(CustomTestCase):
                     test_tag="without_cuda_graph",
                 )
 
+    # 在CUDA图填充模式下运行LoRA测试
     def _run_cuda_graph_padding_on_model_cases(self, model_cases: List[LoRAModelCase]):
         for model_case in model_cases:
             # Run a batch size of 3, which will not be captured by CUDA graph and need padding
@@ -79,10 +82,12 @@ class TestLoRACudaGraph(CustomTestCase):
                     test_tag="cuda_graph_padding",
                 )
 
+    # 测试ci lora models功能
     def test_ci_lora_models(self):
         self._run_without_cuda_graph_on_model_cases(CI_LORA_MODELS)
         self._run_cuda_graph_padding_on_model_cases(CI_LORA_MODELS)
 
+    # 测试all lora models功能
     def test_all_lora_models(self):
         if is_in_ci():
             return
@@ -90,7 +95,7 @@ class TestLoRACudaGraph(CustomTestCase):
         # Retain ONLY_RUN check here
         filtered_models = []
         for model_case in ALL_OTHER_LORA_MODELS:
-            if "ONLY_RUN" in os.environ and os.environ["ONLY_RUN"] != model_case.base:
+            if "ONLY_RUN" in os.environ and os.environ["ONLY_RUN"] != model_case.base:  # 设置环境变量
                 continue
             filtered_models.append(model_case)
 

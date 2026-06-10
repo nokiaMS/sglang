@@ -1,3 +1,4 @@
+# 文件名: test_executor.py - 执行器测试
 import sys
 
 import pytest
@@ -30,6 +31,7 @@ register_cpu_ci(est_time=10, suite="base-a-test-cpu", nightly=True)
 register_cpu_ci(est_time=1, suite="base-b-test-cpu")
 
 
+# 执行zigzagorder
 def _zigzag_order(cp_size: int) -> list[int]:
     """Build zigzag interleaving order for 2*cp_size chunks."""
     order: list[int] = []
@@ -40,6 +42,7 @@ def _zigzag_order(cp_size: int) -> list[int]:
     return order
 
 
+# 执行zigzagsplitseq
 def _zigzag_split_seq(seq_natural: torch.Tensor, *, cp_size: int) -> list[torch.Tensor]:
     """Split a natural-order seq into per-rank zigzag segments.
 
@@ -53,6 +56,7 @@ def _zigzag_split_seq(seq_natural: torch.Tensor, *, cp_size: int) -> list[torch.
 
 
 class TestZigzagToNatural:
+    # 测试zigzagtonaturalcp2
     def test_zigzag_to_natural_cp2(self) -> None:
         """cp_size=2: zigzag order [0,3,1,2] -> natural [0,1,2,3]."""
         natural = torch.arange(24).reshape(4, 6)
@@ -64,6 +68,7 @@ class TestZigzagToNatural:
         result = _reorder_zigzag_to_natural(zigzagged, dim=0, cp_size=2)
         assert torch.equal(result, natural)
 
+    # 测试zigzagtonaturalcp3
     def test_zigzag_to_natural_cp3(self) -> None:
         """cp_size=3: zigzag 162534 -> natural 123456 (1-indexed)."""
         natural = torch.arange(60).reshape(6, 10)
@@ -75,6 +80,7 @@ class TestZigzagToNatural:
         result = _reorder_zigzag_to_natural(zigzagged, dim=0, cp_size=3)
         assert torch.equal(result, natural)
 
+    # 测试zigzagtonaturalarbitrarydim
     def test_zigzag_to_natural_arbitrary_dim(self) -> None:
         """Reorder along dim=1 instead of dim=0."""
         natural = torch.arange(48).reshape(3, 4, 4)
@@ -88,6 +94,7 @@ class TestZigzagToNatural:
 
 
 class TestZigzagToNaturalThd:
+    # 测试singleseq
     def test_single_seq(self) -> None:
         """Single seq THD reorder: equivalent to whole-tensor reorder."""
         natural = torch.arange(100)
@@ -99,6 +106,7 @@ class TestZigzagToNaturalThd:
         )
         assert torch.equal(result, natural)
 
+    # 测试multiseq
     def test_multi_seq(self) -> None:
         """Two seqs of different lengths, each independently reordered."""
         seq_a_natural = torch.arange(100)
@@ -119,6 +127,7 @@ class TestZigzagToNaturalThd:
         expected: torch.Tensor = torch.cat([seq_a_natural, seq_b_natural], dim=0)
         assert torch.equal(result, expected)
 
+    # 测试withtailpad
     def test_with_tail_pad(self) -> None:
         """THD reorder with trailing global padding preserved unchanged."""
         seq_natural = torch.arange(100)
@@ -136,6 +145,7 @@ class TestZigzagToNaturalThd:
         assert torch.equal(result[:100], seq_natural)
         assert torch.equal(result[100:], pad)
 
+    # 测试withhiddendim
     def test_with_hidden_dim(self) -> None:
         """THD reorder with trailing hidden dimension (shape [T, H])."""
         torch.manual_seed(42)
@@ -151,6 +161,7 @@ class TestZigzagToNaturalThd:
         )
         assert torch.equal(result, seq_natural)
 
+    # 测试withleadingbatchdim
     def test_with_leading_batch_dim(self) -> None:
         """THD reorder with leading batch dim: shape [B, T, H], t is dim=1."""
         torch.manual_seed(42)
@@ -161,6 +172,7 @@ class TestZigzagToNaturalThd:
         full_natural: torch.Tensor = torch.cat([seq_a_natural, seq_b_natural], dim=1)
 
         # Zigzag each seq along dim=1
+        # 执行zigzagalongdim1
         def zigzag_along_dim1(t: torch.Tensor) -> torch.Tensor:
             num_chunks: int = 2 * 2  # cp_size=2
             chunks: list[torch.Tensor] = list(t.chunk(num_chunks, dim=1))
@@ -197,6 +209,7 @@ class TestThdCpZigzagE2E:
       Step 2 THD reorder: per-seq zigzag→natural → [seqA_natural(100) | seqB_natural(64) | pad(92)]
     """
 
+    # 测试thdcp2twoseqs
     def test_thd_cp2_two_seqs(self) -> None:
         """cp_size=2, 2 seqs (100, 61→64) + global pad."""
         torch.manual_seed(42)
@@ -250,6 +263,7 @@ class TestThdCpZigzagE2E:
         assert torch.equal(result[:100], seq_a_natural)
         assert torch.equal(result[100:164], seq_b_padded)
 
+    # 测试thdcp3singleseq
     def test_thd_cp3_single_seq(self) -> None:
         """cp_size=3, single seq (120 tokens)."""
         torch.manual_seed(42)

@@ -1,3 +1,4 @@
+# 文件名: test_block_fp8.py - 块级FP8量化测试 - 验证per-token-group量化、静态量化、块级FP8矩阵乘法和MoE的正确性
 import itertools
 import unittest
 from functools import lru_cache
@@ -27,6 +28,7 @@ _is_cuda = torch.cuda.is_available() and torch.version.cuda
 
 # For test
 @lru_cache(maxsize=1)
+# 内部方法: get triton mxfp8 upcast
 def _get_triton_mxfp8_upcast():
     try:
         from triton_kernels.numerics_details.mxfp import upcast_from_mxfp_torch
@@ -74,11 +76,13 @@ class TestPerTokenGroupQuantFP8(CustomTestCase):
     SEEDS = [0]
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         if not torch.cuda.is_available():
             raise unittest.SkipTest("CUDA is not available")
         torch.set_default_device("cuda")
 
+    # 测试per-token-group FP8量化 - 比较内核实现和原生参考实现
     def _per_token_group_quant_fp8(self, num_tokens, d, dtype, group_size, seed):
         torch.manual_seed(seed)
 
@@ -93,6 +97,7 @@ class TestPerTokenGroupQuantFP8(CustomTestCase):
         )
         self.assertTrue(torch.allclose(scale, ref_scale))
 
+    # 测试per token group quant fp8
     def test_per_token_group_quant_fp8(self):
         for params in itertools.product(
             self.NUM_TOKENS,
@@ -140,11 +145,13 @@ class TestStaticQuantFP8(CustomTestCase):
     SEEDS = [0]
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         if not torch.cuda.is_available():
             raise unittest.SkipTest("CUDA is not available")
         torch.set_default_device("cuda")
 
+    # 测试静态FP8量化 - 比较内核实现和原生参考实现
     def _static_quant_fp8(self, num_tokens, d, dtype, seed):
         torch.manual_seed(seed)
 
@@ -160,6 +167,7 @@ class TestStaticQuantFP8(CustomTestCase):
             torch.allclose(out.to(torch.float32), ref_out.to(torch.float32), rtol=0.50)
         )
 
+    # 测试static quant fp8
     def test_static_quant_fp8(self):
         for params in itertools.product(
             self.NUM_TOKENS,
@@ -185,11 +193,13 @@ class TestPerTensorQuantMlaFP8(CustomTestCase):
     SEEDS = [0]
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         if not torch.cuda.is_available():
             raise unittest.SkipTest("CUDA is not available")
         torch.set_default_device("cuda")
 
+    # 测试per-tensor MLA FP8量化 - 比较内核实现和参考实现
     def _per_tensor_quant_mla_fp8(self, num_tokens, d, last_d_ext, last_d, dtype, seed):
         torch.manual_seed(seed)
 
@@ -211,6 +221,7 @@ class TestPerTensorQuantMlaFP8(CustomTestCase):
             torch.allclose(out_s.to(torch.float32), ref_s.to(torch.float32))
         )
 
+    # 测试per tensor quant mla fp8
     def test_per_tensor_quant_mla_fp8(self):
         for params in itertools.product(
             self.NUM_TOKENS,
@@ -240,11 +251,13 @@ class TestPerTokenGroupQuantMlaDeepGemmMaskedFP8(CustomTestCase):
     SEEDS = [0]
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         if not torch.cuda.is_available():
             raise unittest.SkipTest("CUDA is not available")
         torch.set_default_device("cuda")
 
+    # 内部方法: per token group quant mla deep gemm masked fp8
     def _per_token_group_quant_mla_deep_gemm_masked_fp8(
         self, b, num_tokens, d, dtype, group_size, seed
     ):
@@ -267,6 +280,7 @@ class TestPerTokenGroupQuantMlaDeepGemmMaskedFP8(CustomTestCase):
         )
         self.assertTrue(torch.allclose(scale, ref_scale))
 
+    # 测试per token group quant mla deep gemm masked fp8
     def test_per_token_group_quant_mla_deep_gemm_masked_fp8(self):
         for params in itertools.product(
             self.B,
@@ -376,11 +390,13 @@ class TestW8A8BlockFP8Matmul(CustomTestCase):
         SEEDS = [0]
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         if not torch.cuda.is_available():
             raise unittest.SkipTest("CUDA is not available")
         torch.set_default_device("cuda")
 
+    # 测试W8A8块级FP8矩阵乘法 - 比较内核实现和原生参考实现
     def _w8a8_block_fp8_matmul(self, M, NK, block_size, out_dtype, seed):
         N, K = NK
         torch.manual_seed(seed)
@@ -414,6 +430,7 @@ class TestW8A8BlockFP8Matmul(CustomTestCase):
             < 0.001
         )
 
+    # 测试w8a8 block fp8 matmul
     def test_w8a8_block_fp8_matmul(self):
         for params in itertools.product(
             self.M,
@@ -432,6 +449,7 @@ class TestW8A8BlockFP8Matmul(CustomTestCase):
                 self._w8a8_block_fp8_matmul(*params)
 
 
+# 内部方法: mxfp8 group dequant
 def _mxfp8_group_dequant(q: torch.Tensor, scale_u8: torch.Tensor) -> torch.Tensor:
     upcast_from_mxfp_torch = _get_triton_mxfp8_upcast()
     return upcast_from_mxfp_torch(q, scale_u8, torch.float32, axis=1)
@@ -449,6 +467,7 @@ class TestMXFP8DenseLinear(CustomTestCase):
     SEEDS = [0]
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         if not torch.cuda.is_available():
             raise unittest.SkipTest("CUDA is not available")
@@ -456,6 +475,7 @@ class TestMXFP8DenseLinear(CustomTestCase):
             raise unittest.SkipTest("MXFP8 requires Blackwell (SM100/SM120)")
         torch.set_default_device("cuda")
 
+    # 测试MXFP8密集线性层 - 比较Triton内核和参考实现
     def _mxfp8_dense_linear(self, M, NK, dtype, seed):
         N, K = NK
         torch.manual_seed(seed)
@@ -498,6 +518,7 @@ class TestMXFP8DenseLinear(CustomTestCase):
             < 0.02
         )
 
+    # 测试mxfp8 dense linear
     def test_mxfp8_dense_linear(self):
         for params in itertools.product(
             self.M,
@@ -559,11 +580,13 @@ class TestW8A8BlockFP8FusedMoE(CustomTestCase):
     SEEDS = [0]
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         if not torch.cuda.is_available():
             raise unittest.SkipTest("CUDA is not available")
         torch.set_default_device("cuda")
 
+    # 测试W8A8块级FP8融合MoE - 比较内核实现和torch参考实现
     def _w8a8_block_fp8_fused_moe(self, M, N, K, E, topk, block_size, dtype, seed):
         torch.manual_seed(seed)
         # NOTE(HandH1998): to avoid overflow when out_dtype = torch.half
@@ -622,6 +645,7 @@ class TestW8A8BlockFP8FusedMoE(CustomTestCase):
             < 0.02
         )
 
+    # 测试w8a8 block fp8 fused moe
     def test_w8a8_block_fp8_fused_moe(self):
         for params in itertools.product(
             self.M,
@@ -672,6 +696,7 @@ class TestW8A8BlockFP8BatchedDeepGemm(CustomTestCase):
     SEEDS = [0]
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         if not torch.cuda.is_available():
             raise unittest.SkipTest("CUDA is not available")
@@ -681,6 +706,7 @@ class TestW8A8BlockFP8BatchedDeepGemm(CustomTestCase):
             raise unittest.SkipTest("DeepGEMM is not available")
         torch.set_default_device("cuda")
 
+    # 测试W8A8块级FP8批量DeepGEMM - 比较DeepGEMM和torch参考实现
     def _w8a8_block_fp8_batched_deep_gemm(self, M, N, K, B, block_size, dtype, seed):
         torch.manual_seed(seed)
         factor_for_scale = 1e-2
@@ -733,6 +759,7 @@ class TestW8A8BlockFP8BatchedDeepGemm(CustomTestCase):
             < 0.0001
         )
 
+    # 测试w8a8 block fp8 batched deep gemm
     def test_w8a8_block_fp8_batched_deep_gemm(self):
 
         for params in itertools.product(

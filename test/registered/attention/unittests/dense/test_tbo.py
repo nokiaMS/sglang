@@ -1,3 +1,4 @@
+# 文件名: test_tbo.py - TBO(令牌批量优化)测试
 import sys
 import unittest
 from pathlib import Path
@@ -71,6 +72,7 @@ class TestTboAttnDenseAttentionBackendCorrectness(CustomTestCase):
         extend_lens=(3, 3),
     )
 
+    # 执行buildandwrap
     def _build_and_wrap(self, case: DenseAttentionCase):
         fixture = build_dense_attention_fixture(self, case)
         try:
@@ -83,6 +85,7 @@ class TestTboAttnDenseAttentionBackendCorrectness(CustomTestCase):
         wrapper = TboAttnBackend(primary=primary, children=children)
         return replace_backend(fixture, wrapper)
 
+    # 测试tboextenddelegatestoprimary
     def test_tbo_extend_delegates_to_primary(self):
         fixture = self._build_and_wrap(self.EXTEND_CASE)
         actual = run_dense_fixture_eager(fixture)
@@ -93,6 +96,7 @@ class TestTboAttnDenseAttentionBackendCorrectness(CustomTestCase):
         get_device_sm() >= 100 or get_device_sm() < 80,
         "FA3 backend requires SM 80-90",
     )
+    # 测试tbotargetverifycudagraphcapturedelegatestoprimarycapture
     def test_tbo_target_verify_cuda_graph_capture_delegates_to_primary_capture(self):
         """TBO capture must invoke ``primary.init_forward_metadata_capture_cuda_graph``,
         not ``primary.init_forward_metadata_replay_cuda_graph``.

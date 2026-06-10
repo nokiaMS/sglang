@@ -1,3 +1,4 @@
+# 文件名: test_basic_sanity.py - 基本健全性测试
 """Stage-a basic sanity: small-but-broad server smoke that downstream
 stages depend on. Multiple sanity-kit mixins driving one shared server,
 covering protocol, decode correctness, scheduler stress, occupancy, and
@@ -38,6 +39,7 @@ class TestBasicSanity(
     fwd_occupancy_threshold = 97.0
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.base_url = DEFAULT_URL_FOR_TEST
         cls.process = popen_launch_server(
@@ -55,6 +57,7 @@ class TestBasicSanity(
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 

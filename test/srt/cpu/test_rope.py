@@ -1,3 +1,4 @@
+# 文件名: test_rope.py - 测试旋转位置编码（RoPE）算子的正确性，包括MRoPE、DeepseekV2 RoPE和原始RoPE
 import unittest
 
 import torch
@@ -19,6 +20,7 @@ torch.manual_seed(1234)
 
 class TestROPE(CustomTestCase):
     def test_mrope(self):
+        # 测试多模态旋转位置编码（MRoPE）的正确性
         torch.manual_seed(100)
         head_size = 128
         seq_len = 512
@@ -69,13 +71,13 @@ class TestROPE(CustomTestCase):
                 k = torch.randn(seq_len, num_kv_heads * head_size, dtype=dtype)
                 k_clone = k.clone()
 
-                # ref kernel
+                # ref kernel 参考内核实现
                 q_ref, k_ref = rope.forward_native(
                     query=q,
                     key=k,
                     positions=positions,
                 )
-                # fused rope kernel
+                # fused rope kernel 融合RoPE内核
                 q_sgl, k_sgl = torch.ops.sgl_kernel.multimodal_rotary_embedding_cpu(
                     positions,
                     q_clone,
@@ -91,6 +93,7 @@ class TestROPE(CustomTestCase):
                 torch.testing.assert_close(k_ref, k_sgl, atol=atol, rtol=rtol)
 
     def test_deepseek_v2_rope(self):
+        # 测试Deepseek V2风格的缩放旋转位置编码的正确性
         num_head = 16
         seq_len = 1024
         q_head_dim = 192
@@ -102,7 +105,7 @@ class TestROPE(CustomTestCase):
         is_neox_style = False
         set_global_server_args_for_scheduler(ServerArgs(model_path="dummy"))
 
-        # Create cos_sin_cache
+        # Create cos_sin_cache 创建cos_sin缓存
         freqs = torch.rand(max_pos, qk_rope_head_dim // 2)
         cos = freqs.cos() * 0.7
         sin = freqs.sin() * 0.7
@@ -113,7 +116,7 @@ class TestROPE(CustomTestCase):
             qk_rope_head_dim,
             rotary_dim,
             max_pos,
-            16,  # not used since cos_sin_cache is provided
+            16,  # not used since cos_sin_cache is provided 未使用，因为提供了cos_sin_cache
             is_neox_style,
             1.0,
             torch.bfloat16,
@@ -136,14 +139,14 @@ class TestROPE(CustomTestCase):
                 k_pe = k[:, :, k_dim - qk_rope_head_dim :]
                 k_pe_clone = k_clone[:, :, k_dim - qk_rope_head_dim :]
 
-                # ref kernel
+                # ref kernel 参考内核实现
                 q_pe, k_pe = rope.forward_native(
                     query=q_pe,
                     key=k_pe,
                     positions=positions,
                 )
 
-                # fused rope kernel
+                # fused rope kernel 融合RoPE内核
                 q_pe_clone, k_pe_clone = torch.ops.sgl_kernel.rotary_embedding_cpu(
                     positions,
                     q_pe_clone,
@@ -159,6 +162,7 @@ class TestROPE(CustomTestCase):
                 torch.testing.assert_close(k_pe, k_pe_clone)
 
     def test_origin_rope(self):
+        # 测试原始旋转位置编码的正确性
         def single_test(
             head_size: int,
             rotary_dim: int,
@@ -257,6 +261,7 @@ class TestROPE(CustomTestCase):
                 )
 
     def test_apply_rotary_pos_emb(self):
+        # 测试旋转位置编码应用函数的正确性
         num_tokens = 1024
         num_heads = 8
         head_size = 72

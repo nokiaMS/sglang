@@ -1,3 +1,4 @@
+# 文件名: test_soft_watchdog.py - 软看门狗测试
 import io
 import unittest
 
@@ -27,6 +28,7 @@ class BaseTestSoftWatchdog:
     expected_message = None
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.stdout = io.StringIO()
         cls.stderr = io.StringIO()
@@ -45,11 +47,13 @@ class BaseTestSoftWatchdog:
             )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
         cls.stdout.close()
         cls.stderr.close()
 
+    # 测试watchdogtriggers
     def test_watchdog_triggers(self):
         print("Start call /generate API", flush=True)
         try:

@@ -1,3 +1,4 @@
+# 文件名: test_dump_loader.py - 转储加载器测试
 import sys
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from sglang.test.ci.ci_register import register_cpu_ci
 register_cpu_ci(est_time=10, suite="base-a-test-cpu", nightly=True)
 
 
+# 执行savept
 def _save_pt(
     directory: Path, filename: str, *, value: torch.Tensor, meta: dict
 ) -> None:
@@ -17,6 +19,7 @@ def _save_pt(
 
 
 class TestReadTokenizerPath:
+    # 测试findstokenizerpath
     def test_finds_tokenizer_path(self, tmp_path: Path) -> None:
         _save_pt(
             tmp_path,
@@ -27,6 +30,7 @@ class TestReadTokenizerPath:
         result = read_tokenizer_path(tmp_path)
         assert result == "/models/llama-3"
 
+    # 测试returnsnonewhennotokenizerpath
     def test_returns_none_when_no_tokenizer_path(self, tmp_path: Path) -> None:
         _save_pt(
             tmp_path,
@@ -37,10 +41,12 @@ class TestReadTokenizerPath:
         result = read_tokenizer_path(tmp_path)
         assert result is None
 
+    # 测试returnsnoneforemptydirectory
     def test_returns_none_for_empty_directory(self, tmp_path: Path) -> None:
         result = read_tokenizer_path(tmp_path)
         assert result is None
 
+    # 测试skipsfileswithouttokenizerpath
     def test_skips_files_without_tokenizer_path(self, tmp_path: Path) -> None:
         _save_pt(
             tmp_path,

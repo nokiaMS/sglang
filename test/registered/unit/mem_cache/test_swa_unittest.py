@@ -1,3 +1,4 @@
+# 文件名: test_swa_unittest.py - SWA单元测试
 import unittest
 from array import array
 
@@ -26,15 +27,20 @@ register_cuda_ci(est_time=9, stage="base-b", runner_config="1-gpu-large")
 register_amd_ci(est_time=10, suite="stage-b-test-1-gpu-small-amd")
 
 
+# _DummyReq类
 class _DummyReq:
+
+    # _DummyReq类的初始化
     def __init__(self):
         self._kv_committed_len = 0
         self.swa_prefix_lock_released = False
 
+    # _DummyReq类的pop_committed_kv_cache
     def pop_committed_kv_cache(self):
         return self._kv_committed_len
 
 
+# 内部方法_build_swa_tree
 def _build_swa_tree(
     is_eagle: bool,
     page_size: int = 1,
@@ -98,6 +104,7 @@ def _build_swa_tree(
     return tree, allocator, req_to_token_pool
 
 
+# 内部方法_swa_alloc
 def _swa_alloc(allocator, need_size):
     """SWA-pool alloc that also works for page_size > 1 (built-in alloc asserts page_size == 1)."""
     if allocator.page_size == 1:
@@ -111,32 +118,41 @@ def _swa_alloc(allocator, need_size):
     return full_indices
 
 
+# 内部方法_insert
 def _insert(tree, allocator, token_ids):
     indices = _swa_alloc(allocator, len(token_ids))
     assert indices is not None
     tree.insert(InsertParams(key=RadixKey(array("q", token_ids)), value=indices))
 
 
+# 内部方法_insert_chain
 def _insert_chain(tree, allocator, token_ids):
     _insert(tree, allocator, token_ids)
     match = tree.match_prefix(MatchPrefixParams(key=RadixKey(array("q", token_ids))))
     return match.last_device_node
 
 
+# 内部方法_expected_tail_size
 def _expected_tail_size(window: int, page_size: int) -> int:
     """Mirror of _maybe_split_leaf_for_swa_lock's tail_size formula."""
     return (window + page_size - 1) // page_size * page_size
 
 
+# TestSWA类
 class TestSWA(unittest.TestCase):
     @classmethod
+
+    # TestSWA类的测试类初始化设置
     def setUpClass(cls):
         pass
 
     @classmethod
+
+    # TestSWA类的测试类清理
     def tearDownClass(cls):
         pass
 
+    # TestSWA类的测试swaradixcachekvevents
     def test_swa_radix_cache_kv_events(self):
         tree, allocator, _ = _build_swa_tree(
             is_eagle=False, enable_kv_cache_events=True
@@ -147,15 +163,15 @@ class TestSWA(unittest.TestCase):
         first_insert_events = [
             e for e in tree.take_events() if isinstance(e, BlockStored)
         ]
-        self.assertEqual(len(first_insert_events), 4)
-        self.assertEqual([e.token_ids[0] for e in first_insert_events], [1, 2, 3, 4])
+        self.assertEqual(len(first_insert_events), 4)  # 断言相等
+        self.assertEqual([e.token_ids[0] for e in first_insert_events], [1, 2, 3, 4])  # 断言相等
 
         _insert(tree, allocator, [1, 2, 3, 4, 5, 6])
         second_insert_events = [
             e for e in tree.take_events() if isinstance(e, BlockStored)
         ]
-        self.assertEqual(len(second_insert_events), 2)
-        self.assertEqual([e.token_ids[0] for e in second_insert_events], [5, 6])
+        self.assertEqual(len(second_insert_events), 2)  # 断言相等
+        self.assertEqual([e.token_ids[0] for e in second_insert_events], [5, 6])  # 断言相等
 
         stored_hashes = [
             e.block_hashes[0] for e in first_insert_events + second_insert_events
@@ -163,9 +179,9 @@ class TestSWA(unittest.TestCase):
 
         # Evicting only SWA tokens tombstones nodes but keeps full KV blocks.
         result = tree.evict(EvictParams(num_tokens=0, swa_num_tokens=1))
-        self.assertEqual(result.num_tokens_evicted, 0)
+        self.assertEqual(result.num_tokens_evicted, 0)  # 断言相等
         self.assertGreaterEqual(result.swa_num_tokens_evicted, 1)
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             [e for e in tree.take_events() if isinstance(e, BlockRemoved)], []
         )
 
@@ -176,6 +192,7 @@ class TestSWA(unittest.TestCase):
         ]
         self.assertCountEqual(removed_hashes, stored_hashes)
 
+    # TestSWA类的测试swaradixcachekveventssplithash
     def test_swa_radix_cache_kv_events_split_hash(self):
         tree, allocator, _ = _build_swa_tree(
             is_eagle=False, enable_kv_cache_events=True
@@ -186,17 +203,18 @@ class TestSWA(unittest.TestCase):
         first_insert_events = [
             e for e in tree.take_events() if isinstance(e, BlockStored)
         ]
-        self.assertEqual(len(first_insert_events), 4)
+        self.assertEqual(len(first_insert_events), 4)  # 断言相等
         split_parent_hash = first_insert_events[1].block_hashes[0]
 
         _insert(tree, allocator, [1, 2, 5, 6])
         second_insert_events = [
             e for e in tree.take_events() if isinstance(e, BlockStored)
         ]
-        self.assertEqual(len(second_insert_events), 2)
-        self.assertEqual(list(second_insert_events[0].token_ids), [5])
-        self.assertEqual(second_insert_events[0].parent_block_hash, split_parent_hash)
+        self.assertEqual(len(second_insert_events), 2)  # 断言相等
+        self.assertEqual(list(second_insert_events[0].token_ids), [5])  # 断言相等
+        self.assertEqual(second_insert_events[0].parent_block_hash, split_parent_hash)  # 断言相等
 
+    # TestSWA类的测试swamemorypool
     def test_swa_memory_pool(self):
         size = 16
         size_swa = 16
@@ -233,11 +251,11 @@ class TestSWA(unittest.TestCase):
             kvcache=pool,
             need_sort=False,
         )
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             alloc.full_available_size() + alloc.swa_available_size(), size + size_swa
         )
         index = alloc.alloc(1)
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             alloc.full_available_size() + alloc.swa_available_size(),
             size_swa + size_swa - 2,
         )
@@ -245,6 +263,7 @@ class TestSWA(unittest.TestCase):
         result = alloc.translate_loc_from_full_to_swa(index)
         print(result)
 
+    # TestSWA类的测试swaradixcache1
     def test_swa_radix_cache_1(self):
         # args
         req_size = 10
@@ -310,7 +329,7 @@ class TestSWA(unittest.TestCase):
             f"[Start] allocator swa available size: {allocator.swa_available_size()}, full available size: {allocator.full_available_size()}"
         )
         req1_token_ids, req1_kv_indices = [1, 2, 3], allocator.alloc(3)
-        self.assertEqual(len(req1_token_ids), len(req1_kv_indices))
+        self.assertEqual(len(req1_token_ids), len(req1_kv_indices))  # 断言相等
         print(
             f"req1: inserting, req1_token_ids: {req1_token_ids}, req1_kv_indices: {req1_kv_indices}"
         )
@@ -321,7 +340,7 @@ class TestSWA(unittest.TestCase):
             f"req1: prefix_len: {prefix_len}, allocator swa available size: {allocator.swa_available_size()}, full available size: {allocator.full_available_size()}"
         )
         req2_token_ids, req2_kv_indices = [1, 2, 3, 4, 5, 6, 7], allocator.alloc(7)
-        self.assertEqual(len(req2_token_ids), len(req2_kv_indices))
+        self.assertEqual(len(req2_token_ids), len(req2_kv_indices))  # 断言相等
         print(
             f"req2: inserting, req2_token_ids: {req2_token_ids}, req2_kv_indices: {req2_kv_indices}"
         )
@@ -332,7 +351,7 @@ class TestSWA(unittest.TestCase):
             f"req2: prefix_len: {prefix_len}, allocator swa available size: {allocator.swa_available_size()}, full available size: {allocator.full_available_size()}"
         )
         req3_token_ids, req3_kv_indices = [10, 11, 12], allocator.alloc(3)
-        self.assertEqual(len(req3_token_ids), len(req3_kv_indices))
+        self.assertEqual(len(req3_token_ids), len(req3_kv_indices))  # 断言相等
         print(
             f"req3: inserting, req3_token_ids: {req3_token_ids}, req3_kv_indices: {req3_kv_indices}"
         )
@@ -343,7 +362,7 @@ class TestSWA(unittest.TestCase):
             f"req3: prefix_len: {prefix_len}, allocator swa available size: {allocator.swa_available_size()}, full available size: {allocator.full_available_size()}"
         )
         req4_token_ids, req4_kv_indices = [1, 2, 3, 4, 5, 60, 70], allocator.alloc(7)
-        self.assertEqual(len(req4_token_ids), len(req4_kv_indices))
+        self.assertEqual(len(req4_token_ids), len(req4_kv_indices))  # 断言相等
         print(
             f"req4: inserting, req4_token_ids: {req4_token_ids}, req4_kv_indices: {req4_kv_indices}"
         )
@@ -384,7 +403,7 @@ class TestSWA(unittest.TestCase):
         print(
             f"req5: token_ids: {req5_token_ids}, matched kv_indices: {kv_indices}, last_node.key: {last_node.key}"
         )
-        self.assertEqual(len(kv_indices), 0)
+        self.assertEqual(len(kv_indices), 0)  # 断言相等
 
         req6_token_ids = [1, 2, 3, 4, 5, 60, 70]
         result = tree.match_prefix(
@@ -394,15 +413,16 @@ class TestSWA(unittest.TestCase):
         print(
             f"req6: token_ids: {req6_token_ids}, matched kv_indices: {kv_indices}, last_node.key: {last_node.key}"
         )
-        self.assertEqual(len(kv_indices), 7)
-        self.assertEqual(len(last_node.key), 2)
-        self.assertEqual(last_node.key.token_ids[0], 60)
-        self.assertEqual(last_node.key.token_ids[1], 70)
+        self.assertEqual(len(kv_indices), 7)  # 断言相等
+        self.assertEqual(len(last_node.key), 2)  # 断言相等
+        self.assertEqual(last_node.key.token_ids[0], 60)  # 断言相等
+        self.assertEqual(last_node.key.token_ids[1], 70)  # 断言相等
 
         print(tree.available_and_evictable_str())
         print(available_and_evictable_str(tree))
         tree.sanity_check()
 
+    # TestSWA类的测试swaradixcacheeagle
     def test_swa_radix_cache_eagle(self):
         # args
         req_size = 10
@@ -469,50 +489,50 @@ class TestSWA(unittest.TestCase):
             f"[Start] allocator swa available size: {allocator.swa_available_size()}, full available size: {allocator.full_available_size()}"
         )
         req1_token_ids, req1_kv_indices = [1, 2, 3], allocator.alloc(3)
-        self.assertEqual(len(req1_token_ids), len(req1_kv_indices))
+        self.assertEqual(len(req1_token_ids), len(req1_kv_indices))  # 断言相等
         print(
             f"req1: inserting, req1_token_ids: {req1_token_ids}, req1_kv_indices: {req1_kv_indices}"
         )
         key = RadixKey(array("q", req1_token_ids))
         result = tree.insert(InsertParams(key=key, value=req1_kv_indices[: len(key)]))
         prefix_len = result.prefix_len
-        self.assertEqual(prefix_len, 0)
+        self.assertEqual(prefix_len, 0)  # 断言相等
         print(
             f"req1: prefix_len: {prefix_len}, allocator swa available size: {allocator.swa_available_size()}, full available size: {allocator.full_available_size()}"
         )
         req2_token_ids, req2_kv_indices = [1, 2, 3, 4, 5, 6, 7], allocator.alloc(7)
-        self.assertEqual(len(req2_token_ids), len(req2_kv_indices))
+        self.assertEqual(len(req2_token_ids), len(req2_kv_indices))  # 断言相等
         print(
             f"req2: inserting, req2_token_ids: {req2_token_ids}, req2_kv_indices: {req2_kv_indices}"
         )
         key = RadixKey(array("q", req2_token_ids))
         result = tree.insert(InsertParams(key=key, value=req2_kv_indices[: len(key)]))
         prefix_len = result.prefix_len
-        self.assertEqual(prefix_len, 2)
+        self.assertEqual(prefix_len, 2)  # 断言相等
         print(
             f"req2: prefix_len: {prefix_len}, allocator swa available size: {allocator.swa_available_size()}, full available size: {allocator.full_available_size()}"
         )
         req3_token_ids, req3_kv_indices = [10, 11, 12], allocator.alloc(3)
-        self.assertEqual(len(req3_token_ids), len(req3_kv_indices))
+        self.assertEqual(len(req3_token_ids), len(req3_kv_indices))  # 断言相等
         print(
             f"req3: inserting, req3_token_ids: {req3_token_ids}, req3_kv_indices: {req3_kv_indices}"
         )
         key = RadixKey(array("q", req3_token_ids))
         result = tree.insert(InsertParams(key=key, value=req3_kv_indices[: len(key)]))
         prefix_len = result.prefix_len
-        self.assertEqual(prefix_len, 0)
+        self.assertEqual(prefix_len, 0)  # 断言相等
         print(
             f"req3: prefix_len: {prefix_len}, allocator swa available size: {allocator.swa_available_size()}, full available size: {allocator.full_available_size()}"
         )
         req4_token_ids, req4_kv_indices = [1, 2, 3, 4, 5, 60, 70], allocator.alloc(7)
-        self.assertEqual(len(req4_token_ids), len(req4_kv_indices))
+        self.assertEqual(len(req4_token_ids), len(req4_kv_indices))  # 断言相等
         print(
             f"req4: inserting, req4_token_ids: {req4_token_ids}, req4_kv_indices: {req4_kv_indices}"
         )
         key = RadixKey(array("q", req4_token_ids))
         result = tree.insert(InsertParams(key=key, value=req4_kv_indices[: len(key)]))
         prefix_len = result.prefix_len
-        self.assertEqual(prefix_len, 4)
+        self.assertEqual(prefix_len, 4)  # 断言相等
         print(
             f"req4: prefix_len: {prefix_len}, allocator swa available size: {allocator.swa_available_size()}, full available size: {allocator.full_available_size()}"
         )
@@ -565,7 +585,7 @@ class TestSWA(unittest.TestCase):
         print(
             f"req5: token_ids: {req5_token_ids}, matched kv_indices: {kv_indices}, last_node.key: {last_node.key}"
         )
-        self.assertEqual(len(kv_indices), 0)  # no swa prefix matched
+        self.assertEqual(len(kv_indices), 0)  # no swa prefix matched  # 断言相等
 
         req6_token_ids = [1, 2, 3, 4, 5, 60, 70]
         result = tree.match_prefix(
@@ -575,12 +595,13 @@ class TestSWA(unittest.TestCase):
         print(
             f"req6: token_ids: {req6_token_ids}, matched kv_indices: {kv_indices}, last_node.key: {last_node.key}"
         )
-        self.assertEqual(len(kv_indices), 6)
-        self.assertEqual(len(last_node.key), 2)
+        self.assertEqual(len(kv_indices), 6)  # 断言相等
+        self.assertEqual(len(last_node.key), 2)  # 断言相等
         # Bigram view: token_ids holds raw tokens; iteration yields bigram tuples.
-        self.assertTrue(last_node.key.is_bigram)
-        self.assertEqual(list(last_node.key), [(5, 60), (60, 70)])
+        self.assertTrue(last_node.key.is_bigram)  # 断言为真
+        self.assertEqual(list(last_node.key), [(5, 60), (60, 70)])  # 断言相等
 
+    # TestSWA类的测试swacachefinishedreqeagleusescacheprotectedlenandbigramkey
     def test_swa_cache_finished_req_eagle_uses_cache_protected_len_and_bigram_key(self):
         tree, allocator, req_to_token_pool = _build_swa_tree(is_eagle=True)
 
@@ -605,6 +626,7 @@ class TestSWA(unittest.TestCase):
         captured = {}
         original_insert = tree.insert
 
+        # wrapped_insert
         def wrapped_insert(params):
             captured["prev_prefix_len"] = params.prev_prefix_len
             captured["is_bigram"] = params.key.is_bigram
@@ -614,9 +636,9 @@ class TestSWA(unittest.TestCase):
         tree.insert = wrapped_insert
         tree.cache_finished_req(req, is_insert=True)
 
-        self.assertEqual(captured["prev_prefix_len"], req.cache_protected_len)
-        self.assertTrue(captured["is_bigram"])
-        self.assertEqual(captured["key_len"], len(req.origin_input_ids) - 1)
+        self.assertEqual(captured["prev_prefix_len"], req.cache_protected_len)  # 断言相等
+        self.assertTrue(captured["is_bigram"])  # 断言为真
+        self.assertEqual(captured["key_len"], len(req.origin_input_ids) - 1)  # 断言相等
 
         # Case 2: is_insert=False should free [cache_protected_len:page_aligned_len]
         # even when len(prefix_indices) is intentionally larger.
@@ -639,6 +661,7 @@ class TestSWA(unittest.TestCase):
         freed_lens = []
         original_free = allocator.free
 
+        # wrapped_free
         def wrapped_free(indices):
             freed_lens.append(int(indices.numel()))
             return original_free(indices)
@@ -650,7 +673,7 @@ class TestSWA(unittest.TestCase):
         # Expected frees:
         #   overlap range [1:5] -> 4
         #   tail range [5:]     -> 1
-        self.assertEqual(freed_lens, [4, 1])
+        self.assertEqual(freed_lens, [4, 1])  # 断言相等
 
 
 # Optimization: SGLANG_OPT_SWA_SPLIT_LEAF_ON_INSERT.
@@ -658,6 +681,8 @@ class TestSWA(unittest.TestCase):
 # boundary so a future inc_lock_ref protects only ~sliding_window_size SWA
 # tokens instead of the whole chunked-prefill chain.
 class TestSWASplitLeafOnInsert(CustomTestCase):
+
+    # TestSWASplitLeafOnInsert类的内部方法_insert_and_lock
     def _insert_and_lock(self, *, window, page_size, leaf_len, flag_on):
         tree, allocator, _ = _build_swa_tree(
             is_eagle=False,
@@ -672,13 +697,15 @@ class TestSWASplitLeafOnInsert(CustomTestCase):
         result = tree.inc_lock_ref(leaf)
         return tree, leaf, result
 
+    # TestSWASplitLeafOnInsert类的测试flagoffprotectsfullleaf
     def test_flag_off_protects_full_leaf(self):
         tree, leaf, _ = self._insert_and_lock(
             window=4, page_size=1, leaf_len=12, flag_on=False
         )
-        self.assertEqual(len(leaf.value), 12)
-        self.assertEqual(tree.swa_protected_size_, 12)
+        self.assertEqual(len(leaf.value), 12)  # 断言相等
+        self.assertEqual(tree.swa_protected_size_, 12)  # 断言相等
 
+    # TestSWASplitLeafOnInsert类的测试flagoncapsprotectionatwindow
     def test_flag_on_caps_protection_at_window(self):
         # (window, page_size, leaf_len, expected_tail_size); leaf_len picked
         # > tail_size and page-aligned for page_size > 1.
@@ -696,16 +723,17 @@ class TestSWASplitLeafOnInsert(CustomTestCase):
         ]
         for window, page_size, leaf_len, expected_tail in cases:
             with self.subTest(window=window, page_size=page_size, leaf_len=leaf_len):
-                self.assertEqual(_expected_tail_size(window, page_size), expected_tail)
+                self.assertEqual(_expected_tail_size(window, page_size), expected_tail)  # 断言相等
                 tree, leaf, _ = self._insert_and_lock(
                     window=window,
                     page_size=page_size,
                     leaf_len=leaf_len,
                     flag_on=True,
                 )
-                self.assertEqual(len(leaf.value), expected_tail)
-                self.assertEqual(tree.swa_protected_size_, expected_tail)
+                self.assertEqual(len(leaf.value), expected_tail)  # 断言相等
+                self.assertEqual(tree.swa_protected_size_, expected_tail)  # 断言相等
 
+    # TestSWASplitLeafOnInsert类的测试flagonnosplitwhenleafwithinwindow
     def test_flag_on_no_split_when_leaf_within_window(self):
         # leaf_len <= tail_size: split must no-op.
         cases = [
@@ -724,9 +752,10 @@ class TestSWASplitLeafOnInsert(CustomTestCase):
                     leaf_len=leaf_len,
                     flag_on=True,
                 )
-                self.assertEqual(len(leaf.value), leaf_len)
-                self.assertEqual(tree.swa_protected_size_, leaf_len)
+                self.assertEqual(len(leaf.value), leaf_len)  # 断言相等
+                self.assertEqual(tree.swa_protected_size_, leaf_len)  # 断言相等
 
+    # TestSWASplitLeafOnInsert类的测试matchprefixreturnsfullchainaftersplit
     def test_match_prefix_returns_full_chain_after_split(self):
         tree, allocator, _ = _build_swa_tree(
             is_eagle=False,
@@ -738,27 +767,28 @@ class TestSWASplitLeafOnInsert(CustomTestCase):
         token_ids = list(range(12))
         with envs.SGLANG_OPT_SWA_SPLIT_LEAF_ON_INSERT.override(True):
             inserted_leaf = _insert_chain(tree, allocator, token_ids)
-        self.assertEqual(len(inserted_leaf.value), 4)
+        self.assertEqual(len(inserted_leaf.value), 4)  # 断言相等
         match = tree.match_prefix(
             MatchPrefixParams(key=RadixKey(array("q", token_ids)))
         )
-        self.assertEqual(match.device_indices.shape[0], 12)
-        self.assertIs(match.last_device_node, inserted_leaf)
+        self.assertEqual(match.device_indices.shape[0], 12)  # 断言相等
+        self.assertIs(match.last_device_node, inserted_leaf)  # 断言是同一对象
 
+    # TestSWASplitLeafOnInsert类的测试declockrefaftersplitbalancestozero
     def test_dec_lock_ref_after_split_balances_to_zero(self):
         tree, leaf, result = self._insert_and_lock(
             window=4, page_size=1, leaf_len=12, flag_on=True
         )
-        self.assertEqual(tree.swa_protected_size_, 4)
-        self.assertEqual(tree.full_protected_size_, 12)
+        self.assertEqual(tree.swa_protected_size_, 4)  # 断言相等
+        self.assertEqual(tree.full_protected_size_, 12)  # 断言相等
 
         tree.dec_lock_ref(
             leaf,
             params=DecLockRefParams(swa_uuid_for_lock=result.swa_uuid_for_lock),
         )
 
-        self.assertEqual(tree.swa_protected_size_, 0)
-        self.assertEqual(tree.full_protected_size_, 0)
+        self.assertEqual(tree.swa_protected_size_, 0)  # 断言相等
+        self.assertEqual(tree.full_protected_size_, 0)  # 断言相等
         tree.sanity_check()
 
 

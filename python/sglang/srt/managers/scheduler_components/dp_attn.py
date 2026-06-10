@@ -1,3 +1,8 @@
+# 调度器DP注意力适配器
+# 负责在数据并行注意力（DP Attention）模式下同步各DP worker的MLP执行，
+# 通过all_gather收集各worker的batch信息，决定是否生成idle batch来保持
+# MLP层的TP同步，并支持两批次重叠（TBO）调度。
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -29,6 +34,7 @@ _ENABLE_METRICS_DP_ATTENTION = envs.SGLANG_ENABLE_METRICS_DP_ATTENTION.get()
 
 @dataclass
 class MLPSyncBatchInfo:
+    """MLP同步批次信息，用于在DP注意力模式下同步各worker的执行状态"""
     dp_size: int
     tp_size: int
     cp_size: int
@@ -49,6 +55,7 @@ class MLPSyncBatchInfo:
     dp_cooperation_info: Optional[DPCooperationInfo] = None
 
     def _get_local_tensor(self, device, dtype=torch.int64) -> torch.Tensor:
+        """获取本地的批次信息张量，包含token数、logprob数、cuda graph标志等"""
         return torch.tensor(
             [
                 self.num_tokens,
@@ -63,6 +70,7 @@ class MLPSyncBatchInfo:
         )
 
     def _get_fallback_tensor(self, device, dtype=torch.int64) -> torch.Tensor:
+        """获取非活跃rank的回退张量（零token，idle模式）"""
         return torch.tensor(
             [
                 0,  # num_tokens
@@ -77,6 +85,7 @@ class MLPSyncBatchInfo:
         )
 
     def all_gather(self, device, group: torch.distributed.ProcessGroup):
+        """在进程组内执行all_gather，收集所有DP/TP/CP rank的批次信息"""
         local_info_tensor = self._get_local_tensor(device=device)
         global_info_tensor = torch.empty(
             (self.dp_size, self.tp_size * self.cp_size, 6),
@@ -116,6 +125,12 @@ def _update_gather_batch(
     require_mlp_tp_gather: bool,
     skip_all_gather=False,
 ):
+    """将MLP同步信息更新到批次对象中"""
+    batch: ScheduleBatch,
+    mlp_sync_info: MLPSyncBatchInfo,
+    require_mlp_tp_gather: bool,
+    skip_all_gather=False,
+):
     # TODO: handle the case when moe_dense_tp_size != 1
     if not require_mlp_tp_gather:
         batch.global_num_tokens = [mlp_sync_info.num_tokens]
@@ -135,6 +150,18 @@ def _update_gather_batch(
 
 
 def prepare_mlp_sync_batch_raw(
+    local_batch: ScheduleBatch,
+    dp_size: int,
+    attn_tp_size: int,
+    attn_cp_size: int,
+    tp_group: GroupCoordinator,
+    get_idle_batch: Callable[[], ScheduleBatch],
+    disable_cuda_graph: bool,
+    require_mlp_tp_gather: bool,
+    disable_overlap_schedule: bool,
+    offload_tags: set[str],
+):
+    """准备MLP同步批次：收集本地信息、执行all_gather、决定idle batch并更新批次"""
     local_batch: ScheduleBatch,
     dp_size: int,
     attn_tp_size: int,
@@ -245,6 +272,7 @@ def prepare_mlp_sync_batch_raw(
 
 @dataclass(kw_only=True, slots=True, frozen=True)
 class SchedulerDPAttnAdapter:
+    """调度器DP注意力适配器，封装DP注意力模式的MLP同步逻辑"""
     tp_group: "GroupCoordinator"
     req_to_token_pool: ReqToTokenPool
     token_to_kv_pool_allocator: BaseTokenToKVPoolAllocator
@@ -258,6 +286,7 @@ class SchedulerDPAttnAdapter:
     get_require_mlp_sync: Callable[[], bool]
 
     def prepare_mlp_sync_batch(self, local_batch: ScheduleBatch):
+        """准备MLP同步批次（适配器封装）"""
         return prepare_mlp_sync_batch_raw(
             local_batch,
             dp_size=self.server_args.dp_size,
@@ -277,6 +306,18 @@ class SchedulerDPAttnAdapter:
         need_sync: Optional[bool] = None,
     ) -> Optional[ScheduleBatch]:
         """
+        辅助方法：在需要时准备MLP同步批次。
+        应在get_new_batch_prefill()之后调用。
+
+        Args:
+            batch: 要处理的批次
+            need_sync: 如果指定，覆盖self.get_require_mlp_sync()的决策
+        """
+        self,
+        batch: Optional[ScheduleBatch],
+        need_sync: Optional[bool] = None,
+    ) -> Optional[ScheduleBatch]:
+        """
         Helper to prepare MLP sync batch for DP attention.
         Should be called after get_new_batch_prefill().
 
@@ -289,6 +330,7 @@ class SchedulerDPAttnAdapter:
         return batch
 
     def get_idle_batch(self) -> ScheduleBatch:
+        """创建一个idle批次用于DP注意力模式下的MLP同步"""
         idle_batch = ScheduleBatch.init_new(
             [],
             self.req_to_token_pool,

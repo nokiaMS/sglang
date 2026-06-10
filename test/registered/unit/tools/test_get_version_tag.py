@@ -1,3 +1,4 @@
+# 文件名: test_get_version_tag.py - 获取版本标签
 import importlib.util
 import sys
 import unittest
@@ -25,6 +26,7 @@ TAG_ONLY_DESCRIBE_COMMAND = (
 FALLBACK_VERSION = 'fallback_version = "0.0.0.dev0"'
 
 
+# 内部方法_load_module
 def _load_module(name, path):
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
@@ -36,19 +38,24 @@ register_cpu_ci = _load_module("ci_register", CI_REGISTER_PATH).register_cpu_ci
 register_cpu_ci(est_time=0, suite="base-a-test-cpu")
 
 
+# TestGetVersionTag类
 class TestGetVersionTag(unittest.TestCase):
     @classmethod
+
+    # TestGetVersionTag类的测试类初始化设置
     def setUpClass(cls):
         cls.version_helper = _load_module("get_version_tag", VERSION_HELPER_PATH)
 
+    # TestGetVersionTag类的测试parseversiontuplesortsstableabovercandpostabovestable
     def test_parse_version_tuple_sorts_stable_above_rc_and_post_above_stable(self):
         tags = ["v0.5.10rc0", "v0.5.9", "v0.5.10.post1", "v0.5.10"]
 
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             sorted(tags, key=self.version_helper.parse_version_tuple, reverse=True),
             ["v0.5.10.post1", "v0.5.10", "v0.5.10rc0", "v0.5.9"],
         )
 
+    # TestGetVersionTag类的测试exactversiontagtakesprecedenceoverlatesttag
     def test_exact_version_tag_takes_precedence_over_latest_tag(self):
         with (
             patch.object(
@@ -58,18 +65,20 @@ class TestGetVersionTag(unittest.TestCase):
                 self.version_helper, "get_latest_version_tag_describe"
             ) as latest_describe,
         ):
-            self.assertEqual(self.version_helper.get_version_describe(), "v0.5.9")
+            self.assertEqual(self.version_helper.get_version_describe(), "v0.5.9")  # 断言相等
 
         latest_describe.assert_not_called()
 
+    # TestGetVersionTag类的测试pyprojectsusedescribemodeforsetuptoolsscm
     def test_pyprojects_use_describe_mode_for_setuptools_scm(self):
         for path in PYPROJECT_PATHS:
             with self.subTest(path=path):
                 content = path.read_text()
-                self.assertIn(DESCRIBE_COMMAND, content)
-                self.assertNotIn(TAG_ONLY_DESCRIBE_COMMAND, content)
-                self.assertIn(FALLBACK_VERSION, content)
+                self.assertIn(DESCRIBE_COMMAND, content)  # 断言包含
+                self.assertNotIn(TAG_ONLY_DESCRIBE_COMMAND, content)  # 断言不包含
+                self.assertIn(FALLBACK_VERSION, content)  # 断言包含
 
+    # TestGetVersionTag类的测试tagonlyclimoderemainsavailableforcallersthatneedlatesttag
     def test_tag_only_cli_mode_remains_available_for_callers_that_need_latest_tag(self):
         with (
             patch.object(sys, "argv", ["get_version_tag.py", "--tag-only"]),

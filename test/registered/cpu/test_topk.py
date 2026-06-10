@@ -1,3 +1,4 @@
+# 文件名: test_topk.py - TopK算子测试
 import unittest
 
 import torch
@@ -20,6 +21,7 @@ torch.manual_seed(1234)
 
 # This is used by the Deepseek-V2 model
 class TestGroupedTopK(CustomTestCase):
+    # 执行runsingletest
     def _run_single_test(self, M, E, G, topk, topk_group, renormalize, dtype):
         torch.manual_seed(1234)
 
@@ -28,8 +30,8 @@ class TestGroupedTopK(CustomTestCase):
         gating_output = torch.randn(M, E, dtype=dtype) * 2 * M
 
         ref_topk_weights, ref_topk_ids = native_grouped_topk(
-            hidden_states.float(),
-            gating_output.float(),
+            hidden_states.float(),  # 转换为单精度
+            gating_output.float(),  # 转换为单精度
             topk,
             renormalize,
             G,
@@ -55,6 +57,7 @@ class TestGroupedTopK(CustomTestCase):
         ref.scatter_(1, ref_topk_ids.long(), ref_topk_weights)
         torch.testing.assert_close(res, ref)
 
+    # 测试groupedtopk
     def test_grouped_topk(self):
         for renormalize in [True, False]:
             self._run_single_test(123, 8, 2, 2, 1, renormalize, torch.bfloat16)
@@ -68,6 +71,7 @@ class TestGroupedTopK(CustomTestCase):
 
 # DeepSeek V2/V3/R1 uses biased_grouped_top
 class TestBiasedGroupedTopK(CustomTestCase):
+    # 执行runsingletest
     def _run_single_test(
         self,
         M,
@@ -88,9 +92,9 @@ class TestBiasedGroupedTopK(CustomTestCase):
         correction_bias = torch.randn(E, dtype=bias_dtype)
 
         ref_topk_weights, ref_topk_ids = native_biased_grouped_topk(
-            hidden_states.float(),
-            gating_output.float(),
-            correction_bias.float(),
+            hidden_states.float(),  # 转换为单精度
+            gating_output.float(),  # 转换为单精度
+            correction_bias.float(),  # 转换为单精度
             topk,
             renormalize,
             G,
@@ -121,6 +125,7 @@ class TestBiasedGroupedTopK(CustomTestCase):
         ref.scatter_(1, ref_topk_ids.long(), ref_topk_weights)
         torch.testing.assert_close(res, ref)
 
+    # 测试biasedgroupedtopk
     def test_biased_grouped_topk(self):
         for renormalize in [False]:
             for bias_dtype in [torch.float32, torch.bfloat16]:
@@ -141,6 +146,7 @@ class TestBiasedGroupedTopK(CustomTestCase):
 
 
 class TestBiasedTopK(CustomTestCase):
+    # 测试biasedtopkreturnslogicalidswitheplbinfo
     def test_biased_topk_returns_logical_ids_with_eplb_info(self):
         hidden_states = torch.ones(1, 4)
         gating_output = torch.tensor([[10.0, 9.0, 1.0, 0.0]])
@@ -173,6 +179,7 @@ class TestBiasedTopK(CustomTestCase):
 
 
 class TestTopK(CustomTestCase):
+    # 执行runsingletest
     def _run_single_test(self, M, E, topk, renormalize, dtype):
         torch.manual_seed(1998)
 
@@ -181,8 +188,8 @@ class TestTopK(CustomTestCase):
         gating_output = torch.randn(M, E, dtype=dtype) * 2 * M
 
         ref_topk_weights, ref_topk_ids = native_fused_topk(
-            hidden_states.float(),
-            gating_output.float(),
+            hidden_states.float(),  # 转换为单精度
+            gating_output.float(),  # 转换为单精度
             topk,
             renormalize,
         )
@@ -198,6 +205,7 @@ class TestTopK(CustomTestCase):
         ref.scatter_(1, ref_topk_ids.long(), ref_topk_weights)
         torch.testing.assert_close(res, ref)
 
+    # 测试topk
     def test_topk(self):
         for renormalize in [True, False]:
             self._run_single_test(123, 8, 2, renormalize, torch.bfloat16)
@@ -210,6 +218,7 @@ class TestTopK(CustomTestCase):
 
 
 class TestCustomTopK(CustomTestCase):
+    # 执行runsingletest
     def _run_single_test(
         self, M, E, topk, renormalize, dtype, native_custom_f, fused_custom_f
     ):
@@ -220,8 +229,8 @@ class TestCustomTopK(CustomTestCase):
         gating_output = torch.randn(M, E, dtype=dtype) * 2 * M
 
         ref_topk_weights, ref_topk_ids = native_custom_f(
-            hidden_states.float(),
-            gating_output.float(),
+            hidden_states.float(),  # 转换为单精度
+            gating_output.float(),  # 转换为单精度
             topk,
             renormalize,
         )
@@ -237,6 +246,7 @@ class TestCustomTopK(CustomTestCase):
         ref.scatter_(1, ref_topk_ids.long(), ref_topk_weights)
         torch.testing.assert_close(res, ref)
 
+    # 测试customtopk
     def test_custom_topk(self):
         test_custom_functions = [
             (Llama4MoE.custom_routing_function, torch.ops.sgl_kernel.topk_sigmoid_cpu)

@@ -1,3 +1,4 @@
+# 文件名: test_swa_eviction_boundary.py - SWA驱逐边界
 """Unit tests for SWA eviction boundary fixes.
 
 Bug: when page_size > sliding_window_size, _evict_swa could advance the
@@ -55,6 +56,7 @@ def _swa_alloc(allocator, need_size):
     return full_indices
 
 
+# 内部方法_build_swa_tree
 def _build_swa_tree(page_size, sliding_window_size, kv_size=1024, kv_size_swa=512):
     head_num, head_dim, num_layers, global_interval = 8, 128, 24, 4
     dtype = torch.bfloat16
@@ -99,6 +101,7 @@ def _build_swa_tree(page_size, sliding_window_size, kv_size=1024, kv_size_swa=51
     return tree, allocator, pool
 
 
+# 内部方法_make_req
 def _make_req(req_pool_idx, token_ids, cache_protected_len, tree):
     """Mock Req with fields needed by _evict_swa and cache_finished_req."""
     req = SimpleNamespace(
@@ -118,6 +121,7 @@ def _make_req(req_pool_idx, token_ids, cache_protected_len, tree):
     return req
 
 
+# 内部方法_make_batch
 def _make_batch(tree, allocator, pool):
     """Mock ScheduleBatch with fields needed by _evict_swa."""
     return SimpleNamespace(
@@ -161,7 +165,7 @@ class TestSWAEvictionBoundary(unittest.TestCase):
                     ScheduleBatch._evict_swa(batch, req, seq_len - 1)
 
                     insert_len = seq_len // page_size * page_size
-                    self.assertLess(
+                    self.assertLess(  # 断言小于
                         req.swa_evicted_seqlen,
                         insert_len,
                         f"page={page_size}, win={window}, seq={seq_len}",
@@ -187,7 +191,7 @@ class TestSWAEvictionBoundary(unittest.TestCase):
             ScheduleBatch._evict_swa(batch, req, seq_len - 1)
 
             insert_len = seq_len // page_size * page_size
-            self.assertLess(req.swa_evicted_seqlen, insert_len)
+            self.assertLess(req.swa_evicted_seqlen, insert_len)  # 断言小于
 
             tree.cache_finished_req(req, is_insert=True)
             tree.sanity_check()
@@ -209,8 +213,8 @@ class TestSWAEvictionBoundary(unittest.TestCase):
             batch = _make_batch(tree, allocator, pool)
             ScheduleBatch._evict_swa(batch, req, seq_len - 1)
 
-            self.assertLess(req.swa_evicted_seqlen, seq_len)
-            self.assertEqual(req.swa_evicted_seqlen, max(0, seq_len - 1 - window - 1))
+            self.assertLess(req.swa_evicted_seqlen, seq_len)  # 断言小于
+            self.assertEqual(req.swa_evicted_seqlen, max(0, seq_len - 1 - window - 1))  # 断言相等
 
             tree.cache_finished_req(req, is_insert=True)
             tree.sanity_check()
@@ -233,7 +237,7 @@ class TestSWAEvictionBoundary(unittest.TestCase):
         batch = _make_batch(tree, allocator, pool)
         ScheduleBatch._evict_swa(batch, req, seq_len - 1)
 
-        self.assertEqual(req.swa_evicted_seqlen, 0)
+        self.assertEqual(req.swa_evicted_seqlen, 0)  # 断言相等
 
     # -- Insert case 1: swa_evicted <= total_prefix_length --
 
@@ -269,7 +273,7 @@ class TestSWAEvictionBoundary(unittest.TestCase):
 
         # New tokens [16, 24) should all be non-tombstone
         new_tokens = second_len // page_size * page_size - first_len
-        self.assertEqual(tree.swa_evictable_size_, swa_evictable_before + new_tokens)
+        self.assertEqual(tree.swa_evictable_size_, swa_evictable_before + new_tokens)  # 断言相等
         tree.sanity_check()
 
     # -- Insert case 2: total_prefix_length < swa_evicted < total_length --
@@ -293,14 +297,14 @@ class TestSWAEvictionBoundary(unittest.TestCase):
 
         ScheduleBatch._evict_swa(batch, req, seq_len - 1)
         insert_len = seq_len // page_size * page_size
-        self.assertGreater(req.swa_evicted_seqlen, 0, "Should have some eviction")
-        self.assertLess(req.swa_evicted_seqlen, insert_len, "Should be partial")
+        self.assertGreater(req.swa_evicted_seqlen, 0, "Should have some eviction")  # 断言大于
+        self.assertLess(req.swa_evicted_seqlen, insert_len, "Should be partial")  # 断言小于
 
         tree.cache_finished_req(req, is_insert=True)
 
         non_tombstone = insert_len - req.swa_evicted_seqlen
-        self.assertEqual(tree.swa_evictable_size_, swa_evictable_before + non_tombstone)
-        self.assertGreater(tree.full_evictable_size_, 0)
+        self.assertEqual(tree.swa_evictable_size_, swa_evictable_before + non_tombstone)  # 断言相等
+        self.assertGreater(tree.full_evictable_size_, 0)  # 断言大于
         tree.sanity_check()
 
     # -- Insert case 3: swa_evicted == total_length (defensive) --
@@ -323,7 +327,7 @@ class TestSWAEvictionBoundary(unittest.TestCase):
         pre_len = seq_len - 1
         old_evicted = max(0, (pre_len - window) // page_size * page_size)
         insert_len = seq_len // page_size * page_size
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             old_evicted, insert_len, "Precondition: old formula hits boundary"
         )
 
@@ -336,7 +340,7 @@ class TestSWAEvictionBoundary(unittest.TestCase):
 
         tree.cache_finished_req(req, is_insert=True)
 
-        self.assertEqual(tree.swa_evictable_size_, swa_evictable_before)
+        self.assertEqual(tree.swa_evictable_size_, swa_evictable_before)  # 断言相等
 
     # -- Integration: multiple decode turns --
 
@@ -361,7 +365,7 @@ class TestSWAEvictionBoundary(unittest.TestCase):
             ScheduleBatch._evict_swa(batch, req, seq_len - 1)
 
             insert_len = seq_len // page_size * page_size
-            self.assertLess(req.swa_evicted_seqlen, insert_len, f"turn {turn}")
+            self.assertLess(req.swa_evicted_seqlen, insert_len, f"turn {turn}")  # 断言小于
 
             tree.cache_finished_req(req, is_insert=True)
             tree.sanity_check()
@@ -383,7 +387,7 @@ class TestSWAEvictionBoundary(unittest.TestCase):
             batch = _make_batch(tree, allocator, pool)
             ScheduleBatch._evict_swa(batch, req, seq_len - 1)
 
-            self.assertEqual(req.swa_evicted_seqlen, max(0, seq_len - 1 - window - 1))
+            self.assertEqual(req.swa_evicted_seqlen, max(0, seq_len - 1 - window - 1))  # 断言相等
 
             tree.cache_finished_req(req, is_insert=True)
             tree.sanity_check()

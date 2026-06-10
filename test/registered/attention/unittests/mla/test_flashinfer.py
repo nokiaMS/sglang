@@ -1,3 +1,4 @@
+# 文件名: test_flashinfer.py - FlashInfer后端测试
 import sys
 import unittest
 from pathlib import Path
@@ -149,6 +150,7 @@ class TestFlashInferMLAAttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试tinydeepseekmlaattentioncases
     def test_tiny_deepseek_mla_attention_cases(self):
         for case in self.CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -200,6 +202,7 @@ class TestFlashInferMLAAttentionBackendCorrectness(CustomTestCase):
         ),
     }
 
+    # 测试layoutrobustnesscases
     def test_layout_robustness_cases(self):
         for case in self.LAYOUT_ROBUSTNESS_CASES:
             for layout in ("interleaved_pages", "non_monotonic_extend"):
@@ -217,11 +220,13 @@ class TestFlashInferMLAAttentionBackendCorrectness(CustomTestCase):
                         self, case, loc_layout=layout, **MLA_SHAPE_KWARGS
                     )
 
+    # 测试runnermodecudagraphdecodecases
     def test_runner_mode_cuda_graph_decode_cases(self):
         for case in self.CUDA_GRAPH_CASES:
             with self.subTest(case=case.name, backend=case.backend):
                 run_mla_cuda_graph_decode_case(self, case, **MLA_SHAPE_KWARGS)
 
+    # 测试runnermodesplitopextendcases
     def test_runner_mode_split_op_extend_cases(self):
         for case, static_num_tokens in self.SPLIT_OP_CASES:
             for breakable in (False, True):
@@ -239,6 +244,7 @@ class TestFlashInferMLAAttentionBackendCorrectness(CustomTestCase):
                         **MLA_SHAPE_KWARGS,
                     )
 
+    # 测试runnermodeeagleverifycases
     def test_runner_mode_eagle_verify_cases(self):
         for case, topk in self.EAGLE_VERIFY_CASES:
             with self.subTest(case=case.name, backend=case.backend, topk=topk):
@@ -249,6 +255,7 @@ class TestFlashInferMLAAttentionBackendCorrectness(CustomTestCase):
                     **MLA_SHAPE_KWARGS,
                 )
 
+    # 测试runnermodeeagleverifycudagraphcases
     def test_runner_mode_eagle_verify_cuda_graph_cases(self):
         for case, topk in self.EAGLE_VERIFY_CUDA_GRAPH_CASES:
             with self.subTest(case=case.name, backend=case.backend, topk=topk):
@@ -259,11 +266,13 @@ class TestFlashInferMLAAttentionBackendCorrectness(CustomTestCase):
                     **MLA_SHAPE_KWARGS,
                 )
 
+    # 测试runnermodeeagledraftextendcases
     def test_runner_mode_eagle_draft_extend_cases(self):
         for case in self.DRAFT_EXTEND_CASES:
             with self.subTest(case=case.name, backend=case.backend):
                 run_mla_eagle_draft_extend_case(self, case, **MLA_SHAPE_KWARGS)
 
+    # 测试runnermodeeagledraftextendcudagraphcases
     def test_runner_mode_eagle_draft_extend_cuda_graph_cases(self):
         for case in self.DRAFT_EXTEND_CUDA_GRAPH_CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -273,6 +282,7 @@ class TestFlashInferMLAAttentionBackendCorrectness(CustomTestCase):
                     **MLA_SHAPE_KWARGS,
                 )
 
+    # 测试runnermodeeagledraftextendcudagraphrunnercases
     def test_runner_mode_eagle_draft_extend_cuda_graph_runner_cases(self):
         for case in self.EAGLE_DRAFT_EXTEND_RUNNER_CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -282,6 +292,7 @@ class TestFlashInferMLAAttentionBackendCorrectness(CustomTestCase):
                     **MLA_SHAPE_KWARGS,
                 )
 
+    # 测试runnermodeeagledraftcudagraphrunnercases
     def test_runner_mode_eagle_draft_cuda_graph_runner_cases(self):
         # Backend gate (KNOWN_FAILURES.md §3): FlashInfer MLA multi-step
         # draft CG capture/replay produces numerically wrong outputs on

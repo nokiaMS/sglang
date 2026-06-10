@@ -1,3 +1,4 @@
+# 环境变量管理模块：定义SGLang运行时的所有环境变量，提供类型安全的读取、设置和覆盖机制
 import os
 import subprocess
 import warnings
@@ -6,6 +7,7 @@ from enum import IntEnum
 from typing import Any, Optional
 
 
+# 临时设置环境变量的上下文管理器，退出时自动恢复原始值
 @contextmanager
 def temp_set_env(*, allow_sglang: bool = False, **env_vars: Any):
     """Temporarily set environment variables, restoring originals on exit.
@@ -35,6 +37,7 @@ def temp_set_env(*, allow_sglang: bool = False, **env_vars: Any):
                 os.environ[key] = value
 
 
+# 环境变量字段的基类描述器，支持类型安全的读取、设置、覆盖和清除操作
 class EnvField:
     _allow_set_name = True
 
@@ -45,12 +48,15 @@ class EnvField:
         self._set_to_none = False
 
     def __set_name__(self, owner, name):
+        # 禁止在类定义完成后使用赋值语法（如 a = envs.X），防止意外绕过描述器协议
         assert EnvField._allow_set_name, "Usage like `a = envs.A` is not allowed"
         self.name = name
 
+    # 子类必须实现此方法，将字符串值解析为目标类型
     def parse(self, value: str) -> Any:
         raise NotImplementedError()
 
+    # 获取环境变量值：优先使用显式设置的值，否则返回默认值
     def get(self) -> Any:
         value = os.getenv(self.name)
 
@@ -71,13 +77,16 @@ class EnvField:
             )
             return self.default
 
+    # 检查环境变量是否已设置
     def is_set(self):
         return self.name in os.environ
 
+    # 设置环境变量的值
     def set(self, value: Any):
         self._set_to_none = value is None
         os.environ[self.name] = str(value)
 
+    # 上下文管理器：临时覆盖环境变量值，退出后自动恢复
     @contextmanager
     def override(self, value: Any):
         backup_present = self.name in os.environ
@@ -91,31 +100,37 @@ class EnvField:
             os.environ.pop(self.name, None)
         self._set_to_none = backup_set_to_none
 
+    # 清除环境变量
     def clear(self):
         os.environ.pop(self.name, None)
         self._set_to_none = False
 
+    # 禁止将EnvField隐式转换为布尔值，强制使用.get()方法
     def __bool__(self):
         raise RuntimeError(
             "Please use `envs.YOUR_FLAG.get()` instead of `envs.YOUR_FLAG`"
         )
 
+    # 禁止对EnvField使用len()，强制使用.get()方法
     def __len__(self):
         raise RuntimeError(
             "Please use `envs.YOUR_FLAG.get()` instead of `envs.YOUR_FLAG`"
         )
 
 
+# 元组类型环境变量：将逗号分隔的字符串解析为元组
 class EnvTuple(EnvField):
     def parse(self, value: str) -> tuple[str, ...]:
         return tuple(s.strip() for s in value.split(",") if s.strip())
 
 
+# 字符串类型环境变量
 class EnvStr(EnvField):
     def parse(self, value: str) -> str:
         return value
 
 
+# 布尔类型环境变量：支持true/false/1/0/yes/no/y/n等值
 class EnvBool(EnvField):
     def parse(self, value: str) -> bool:
         value = value.lower()
@@ -126,6 +141,7 @@ class EnvBool(EnvField):
         raise ValueError(f'"{value}" is not a valid boolean value')
 
 
+# 整数类型环境变量
 class EnvInt(EnvField):
     def parse(self, value: str) -> int:
         try:
@@ -134,6 +150,7 @@ class EnvInt(EnvField):
             raise ValueError(f'"{value}" is not a valid integer value')
 
 
+# 已弃用环境变量的回退混入类：当规范名称未设置时，检查弃用名称并发出警告
 class _DeprecatedEnvFallback:
     """Mixin for EnvField subclasses: if the canonical env var is not set,
     check *deprecated_name* and emit DeprecationWarning before reading it.
@@ -161,14 +178,17 @@ class _DeprecatedEnvFallback:
         return super().get()
 
 
+# 带弃用别名回退的布尔类型环境变量
 class EnvBoolWithAlias(_DeprecatedEnvFallback, EnvBool):
     pass
 
 
+# 带弃用别名回退的整数类型环境变量
 class EnvIntWithAlias(_DeprecatedEnvFallback, EnvInt):
     pass
 
 
+# 浮点数类型环境变量
 class EnvFloat(EnvField):
     def parse(self, value: str) -> float:
         try:
@@ -177,6 +197,7 @@ class EnvFloat(EnvField):
             raise ValueError(f'"{value}" is not a valid float value')
 
 
+# 工具调用严格级别枚举：定义工具调用解析和验证的严格程度
 class ToolStrictLevel(IntEnum):
     """
     Defines the strictness levels for tool call parsing and validation.
@@ -191,17 +212,18 @@ class ToolStrictLevel(IntEnum):
     PARAMETER = 2
 
 
+# SGLang运行时环境变量集合：集中定义所有SGLANG_*环境变量及其默认值和类型
 class Envs:
     # fmt: off
 
-    # Model & File Download
+    # 模型与文件下载相关配置
     SGLANG_USE_MODELSCOPE = EnvBool(False)
     SGLANG_SORT_WEIGHT_FILES = EnvBool(False)
     SGLANG_DISABLED_MODEL_ARCHS = EnvTuple(tuple())
     SGLANG_PREFETCH_BLOCK_SIZE_MB = EnvInt(16)
     SGLANG_GEMMA_OUT_OF_PLACE_POSITION_MUTATION = EnvBool(False)
 
-    # Logging Options
+    # 日志选项
     SGLANG_LOG_GC = EnvBool(False)
     SGLANG_LOG_FORWARD_ITERS = EnvBool(False)
     SGLANG_LOG_MS = EnvBool(False)
@@ -210,19 +232,19 @@ class Envs:
     SGLANG_LOG_SCHEDULER_STATUS_TARGET = EnvStr("")
     SGLANG_LOG_SCHEDULER_STATUS_INTERVAL = EnvFloat(60.0)
 
-    # SGLang CI
+    # SGLang持续集成(CI)相关配置
     SGLANG_IS_IN_CI = EnvBool(False)
     SGLANG_IS_IN_CI_AMD = EnvBool(False)
     SGLANG_CUDA_COREDUMP = EnvBool(False)
     SGLANG_CUDA_COREDUMP_DIR = EnvStr("/tmp/sglang_cuda_coredumps")
     SGLANG_TEST_MAX_RETRY = EnvInt(None)
 
-    # Constrained Decoding (Grammar)
+    # 约束解码（语法）相关配置
     SGLANG_GRAMMAR_POLL_INTERVAL = EnvFloat(0.005)
     SGLANG_GRAMMAR_MAX_POLL_ITERATIONS = EnvInt(10000)
     SGLANG_DISABLE_OUTLINES_DISK_CACHE = EnvBool(False)
 
-    # Test & Debug
+    # 测试与调试相关配置
     SGLANG_DETECT_SLOW_RANK = EnvBool(False)
     SGLANG_TEST_STUCK_DETOKENIZER = EnvFloat(0)
     SGLANG_TEST_STUCK_DP_CONTROLLER = EnvFloat(0)
@@ -251,30 +273,30 @@ class Envs:
     SGLANG_NATIVE_MOVE_KV_CACHE = EnvBool(False)
     SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHECK = EnvBool(True)
 
-    # Scheduler: memory leak test
+    # 调度器：内存泄漏测试相关配置
     SGLANG_TEST_RETRACT = EnvBool(False)
     SGLANG_TEST_RETRACT_INTERVAL = EnvInt(3)
     SGLANG_TEST_RETRACT_NO_PREFILL_BS = EnvInt(2 ** 31)
     SGLANG_ENABLE_STRICT_MEM_CHECK_DURING_BUSY = EnvInt(0)
     SGLANG_ENABLE_STRICT_MEM_CHECK_DURING_IDLE = EnvBool(True)
 
-    # Load snapshot backend
+    # 加载快照后端配置
     SGLANG_LOAD_SNAPSHOT_USE_ZMQ = EnvBool(False)
 
-    # Scheduler: new token ratio hyperparameters
+    # 调度器：新token比例超参数
     SGLANG_INIT_NEW_TOKEN_RATIO = EnvFloat(0.7)
     SGLANG_MIN_NEW_TOKEN_RATIO_FACTOR = EnvFloat(0.14)
     SGLANG_NEW_TOKEN_RATIO_DECAY_STEPS = EnvInt(600)
     SGLANG_RETRACT_DECODE_STEPS = EnvInt(20)
     SGLANG_CLIP_MAX_NEW_TOKENS_ESTIMATION = EnvInt(4096)
 
-    # Scheduler: recv interval
+    # 调度器：接收间隔相关配置
     SGLANG_SCHEDULER_RECV_SKIPPER_WEIGHT_DEFAULT = EnvInt(1000)
     SGLANG_SCHEDULER_RECV_SKIPPER_WEIGHT_DECODE = EnvInt(1)
     SGLANG_SCHEDULER_RECV_SKIPPER_WEIGHT_TARGET_VERIFY = EnvInt(1)
     SGLANG_SCHEDULER_RECV_SKIPPER_WEIGHT_NONE = EnvInt(1)
 
-    # PD Disaggregation (runtime)
+    # PD分离部署（运行时）相关配置
     # NOTE: For SGLANG_DISAGGREGATION_THREAD_POOL_SIZE, the effective default is
     # computed dynamically at runtime based on cpu_count; see disaggregation backends.
     SGLANG_DISAGGREGATION_THREAD_POOL_SIZE = EnvInt(None)
@@ -292,7 +314,7 @@ class Envs:
     # can overlap with decode execution without raising max_running_requests.
     SGLANG_DISAGGREGATION_NUM_PRE_ALLOCATE_REQS = EnvInt(0)
 
-    # Scheduler: others:
+    # 调度器：其他配置
     SGLANG_EMPTY_CACHE_INTERVAL = EnvFloat(-1)  # in seconds. Set if you observe high memory accumulation over a long serving period.
     SGLANG_DISABLE_CONSECUTIVE_PREFILL_OVERLAP = EnvBool(False)
     # PP: skip output send/recv when the entire batch consists of non-final chunked prefill requests,
@@ -320,11 +342,11 @@ class Envs:
     # off some TTFT-metric accuracy for less IPC overhead.
     SGLANG_FORCE_STREAM_INTERVAL = EnvInt(50)
 
-    # Test: pd-disaggregation
+    # 测试：PD分离部署相关
     SGLANG_TEST_PD_DISAGG_BACKEND = EnvStr("mooncake")
     SGLANG_TEST_PD_DISAGG_DEVICES = EnvStr(None)
 
-    # Model Parallel
+    # 模型并行相关配置
     SGLANG_USE_MESSAGE_QUEUE_BROADCASTER = EnvBool(True)
     SGLANG_ONE_VISIBLE_DEVICE_PER_PROCESS = EnvBool(False)
     # Comma-separated bundle indices for Ray Custom PG mode (e.g., "0,1,2,7").
@@ -334,10 +356,10 @@ class Envs:
     SGLANG_DISTRIBUTED_INIT_METHOD_OVERRIDE = EnvStr(None)
     SGLANG_TCP_STORE_PORT = EnvInt(29600)
 
-    # Tool Calling
+    # 工具调用相关配置
     SGLANG_FORWARD_UNKNOWN_TOOLS = EnvBool(False)
 
-    # Hi-Cache
+    # Hi-Cache（层级缓存）相关配置
     SGLANG_HICACHE_HF3FS_CONFIG_PATH = EnvStr(None)
     SGLANG_HICACHE_DECODE_OFFLOAD_STRIDE = EnvInt(None)
     SGLANG_HICACHE_FILE_BACKEND_STORAGE_DIR = EnvStr(None)
@@ -354,7 +376,7 @@ class Envs:
     # TODO(yangminl): remove SGLANG_STAGING_USE_TORCH and the torch fallback in
     # staging_buffer.py once Triton kernels are fully validated in production.
     SGLANG_STAGING_USE_TORCH = EnvBool(False)
-    # Mooncake KV Transfer
+    # Mooncake KV传输相关配置
     SGLANG_MOONCAKE_CUSTOM_MEM_POOL = EnvStr(None)
     ENABLE_ASCEND_TRANSFER_WITH_MOONCAKE = EnvBool(False)
     ASCEND_NPU_PHY_ID = EnvInt(-1)
@@ -362,7 +384,7 @@ class Envs:
     SGLANG_ENABLE_FAILED_SESSION_PROBE = EnvBool(False)
     SGLANG_FAILED_SESSION_PROBE_INTERVAL_S = EnvFloat(30.0)
 
-    # Mooncake Store
+    # Mooncake存储相关配置
     SGLANG_HICACHE_MOONCAKE_CONFIG_PATH = EnvStr(None)
     SGLANG_HICACHE_MOONCAKE_REUSE_TE = EnvBool(True)
     MOONCAKE_MASTER = EnvStr(None)
@@ -378,7 +400,7 @@ class Envs:
     MOONCAKE_ENABLE_SSD_OFFLOAD = EnvBool(False)
     MOONCAKE_OFFLOAD_FILE_STORAGE_PATH = EnvStr(None)
 
-    # AMD & ROCm
+    # AMD & ROCm相关配置
     SGLANG_USE_AITER = EnvBool(False)
     SGLANG_USE_AITER_UNIFIED_ATTN = EnvBool(False)
     # Select the gate/up tile layout for AITER MoE: True -> interleave
@@ -393,11 +415,11 @@ class Envs:
     # ROCm/AITER path. Requires GPU_MAX_HW_QUEUES>=5 to avoid HW-queue serialization.
     SGLANG_ROCM_USE_MULTI_STREAM = EnvBool(False)
 
-    # MPS (Apple Silicon)
+    # MPS（Apple Silicon）相关配置
     SGLANG_USE_MLX = EnvBool(False)
     SGLANG_MLX_USE_CUSTOM_ROPE = EnvBool(False)
 
-    # NPU
+    # NPU（昇腾）相关配置
     SGLANG_NPU_DISABLE_ACL_FORMAT_WEIGHT = EnvBool(False)
     SGLANG_NPU_USE_MULTI_STREAM = EnvBool(False)
     SGLANG_NPU_USE_MLAPO = EnvBool(False)
@@ -411,10 +433,10 @@ class Envs:
     DEEP_NORMAL_MODE_USE_INT8_QUANT = EnvBool(False) # This argument is deprecated
     SGLANG_NPU_FUSED_MOE_MODE = EnvInt(1)
 
-    # MTHREADS & MUSA
+    # 摩尔线程&MUSA相关配置
     SGLANG_MUSA_FA3_FORCE_UPDATE_METADATA = EnvBool(False)
 
-    # Quantization
+    # 量化相关配置
     SGLANG_INT4_WEIGHT = EnvBool(False)
     SGLANG_CPU_QUANTIZATION = EnvBool(False)
     SGLANG_USE_DYNAMIC_MXFP4_LINEAR = EnvBool(False)
@@ -425,7 +447,7 @@ class Envs:
     SGLANG_QUANT_ALLOW_DOWNCASTING = EnvBool(False)
     SGLANG_FP8_IGNORED_LAYERS = EnvStr("")
 
-    # Flashinfer
+    # FlashInfer相关配置
     SGLANG_IS_FLASHINFER_AVAILABLE = EnvBool(True)
     SGLANG_FLASHINFER_USE_PAGED = EnvBool(False)
     # Default to the pick from flashinfer
@@ -440,14 +462,14 @@ class Envs:
     # transport issue on GB200/GB300 platforms is fixed and verified resolved.
     SGLANG_FLASHINFER_FORCE_POSIX_FD_TRANSPORT = EnvBool(None)
 
-    # Triton
+    # Triton相关配置
     SGLANG_TRITON_DECODE_ATTN_STATIC_KV_SPLITS = EnvBool(False)
     SGLANG_USE_CUSTOM_TRITON_KERNEL_CACHE = EnvBool(False)
 
-    # Torch Compile
+    # Torch Compile相关配置
     SGLANG_ENABLE_TORCH_COMPILE = EnvBool(False)
 
-    # EPLB
+    # EPLB（专家并行负载均衡）相关配置
     SGLANG_EXPERT_LOCATION_UPDATER_LOG_INPUT = EnvBool(False)
     SGLANG_EXPERT_LOCATION_UPDATER_CANARY = EnvBool(False)
     SGLANG_EXPERT_LOCATION_UPDATER_LOG_METRICS = EnvBool(False)
@@ -456,10 +478,10 @@ class Envs:
     SGLANG_EPLB_HEATMAP_COLLECTION_INTERVAL = EnvInt(0)
     SGLANG_ENABLE_EPLB_BALANCEDNESS_METRIC = EnvBool(False)
 
-    # TBO
+    # TBO（两批重叠）调试相关
     SGLANG_TBO_DEBUG = EnvBool(False)
 
-    # DeepGemm
+    # DeepGemm相关配置
     SGLANG_ENABLE_JIT_DEEPGEMM = EnvBool(True)
     SGLANG_JIT_DEEPGEMM_PRECOMPILE = EnvBool(True)
     SGLANG_JIT_DEEPGEMM_FAST_WARMUP = EnvBool(False)
@@ -471,11 +493,11 @@ class Envs:
     SGLANG_DEEPGEMM_SANITY_CHECK = EnvBool(False)
     SGLANG_PP_PARALLEL_DEEPGEMM_WARMUP = EnvBool(False)
 
-    # DeepSeek MHA Optimization
+    # DeepSeek MHA优化相关配置
     SGLANG_CHUNKED_PREFIX_CACHE_THRESHOLD = EnvInt(8192)
     SGLANG_MAX_KV_CHUNK_CAPACITY = EnvInt(128 * 1024)
 
-    # DeepEP
+    # DeepEP相关配置
     SGLANG_DEEPEP_BF16_DISPATCH = EnvBool(False) # This argument is deprecated
     SGLANG_DEEPEP_NUM_MAX_DISPATCH_TOKENS_PER_RANK = EnvInt(128)
     SGLANG_DEEPEP_LL_COMBINE_SEND_NUM_SMS = EnvInt(32)
@@ -484,11 +506,11 @@ class Envs:
     # default static local-batch path.
     SGLANG_DISABLE_STATIC_WATERFILL = EnvBool(False)
 
-    # NIXL-EP
+    # NIXL-EP相关配置
     SGLANG_NIXL_EP_BF16_DISPATCH = EnvBool(False)
     SGLANG_NIXL_EP_NUM_MAX_DISPATCH_TOKENS_PER_RANK = EnvInt(128)
 
-    # DSA Backend (canonical names; fall back to SGLANG_NSA_* with deprecation warning)
+    # DSA后端相关配置（规范名称；回退到SGLANG_NSA_*时发出弃用警告）
     SGLANG_DSA_FUSE_TOPK = EnvBoolWithAlias(True, deprecated_name="SGLANG_NSA_FUSE_TOPK")
     SGLANG_DSA_TOPK_FLASHINFER_DETERMINISTIC = EnvBool(False)
     SGLANG_DSA_TOPK_FLASHINFER_TIE_BREAK = EnvStr(None)
@@ -505,13 +527,13 @@ class Envs:
     SGLANG_USE_FUSED_METADATA_COPY = EnvBool(True)
     SGLANG_DSA_TOPK_BROADCAST = EnvBool(False)
 
-    # sgl-kernel
+    # sgl-kernel相关配置
     SGLANG_SKIP_SGL_KERNEL_VERSION_CHECK = EnvBool(False)
 
-    # Flash Attention
+    # Flash Attention相关配置
     SGLANG_USE_SGL_FA3_KERNEL = EnvBool(True)
 
-    # Kernels
+    # 内核相关配置
     USE_TRITON_W8A8_FP8_KERNEL = EnvBool(False)
     SGLANG_RETURN_ORIGINAL_LOGPROB = EnvBool(False)
     SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN = EnvBool(False)
@@ -524,7 +546,7 @@ class Envs:
     SGLANG_SYNC_TOKEN_IDS_ACROSS_TP = EnvBool(False)
     SGLANG_ENABLE_COLOCATED_BATCH_GEN = EnvBool(False)
 
-    # Deterministic inference
+    # 确定性推理相关配置
     SGLANG_ENABLE_DETERMINISTIC_INFERENCE = EnvBool(False)
     # Use 1-stage all-reduce kernel on AMD (deterministic, fixed accumulation order)
     # If not set: auto (enabled when --enable-deterministic-inference is on)
@@ -537,23 +559,23 @@ class Envs:
     SGLANG_TRITON_PREFILL_TRUNCATION_ALIGN_SIZE = EnvInt(4096)
     SGLANG_TRITON_DECODE_SPLIT_TILE_SIZE = EnvInt(256)
 
-    # RoPE cache configuration
+    # RoPE缓存配置
     SGLANG_SPEC_EXPANSION_SAFETY_FACTOR = EnvInt(2)
     SGLANG_ROPE_CACHE_SAFETY_MARGIN = EnvInt(256)
     SGLANG_ROPE_CACHE_ALIGN = EnvInt(128)
 
-    # Overlap Spec V2
+    # Overlap Spec V2相关配置
     SGLANG_ENABLE_SPEC_V2 = EnvBool(True)
     SGLANG_ENABLE_OVERLAP_PLAN_STREAM = EnvBool(False)
 
-    # Spec Config
+    # 推测解码配置
     SGLANG_SPEC_ENABLE_STRICT_FILTER_CHECK = EnvBool(True)
     # Master switch for all async-asserted invariant probes (NaN, Inf, OOB,
     # page alignment). Off in prod; tests turn it on to fail-fast on
     # numerical / index violations instead of getting silent NaN cascades.
     SGLANG_ENABLE_ASYNC_ASSERT = EnvBool(False)
 
-    # VLM
+    # 视觉语言模型(VLM)相关配置
     SGLANG_VLM_CACHE_SIZE_MB = EnvInt(100)
     SGLANG_IMAGE_MAX_PIXELS = EnvInt(16384 * 28 * 28)
     SGLANG_RESIZE_RESAMPLE = EnvStr("")
@@ -566,92 +588,92 @@ class Envs:
     SGLANG_MM_AVOID_RETOKENIZE = EnvBool(True)
 
 
-    # VLM Item CUDA IPC Transport
+    # VLM Item CUDA IPC传输相关配置
     SGLANG_USE_CUDA_IPC_TRANSPORT = EnvBool(False)
     SGLANG_USE_IPC_POOL_HANDLE_CACHE = EnvBool(False)
     SGLANG_MM_FEATURE_CACHE_MB = EnvInt(1 * 1024)
     SGLANG_MM_ITEM_MEM_POOL_RECYCLE_INTERVAL_SEC = EnvFloat(0.05)
 
-    # Mamba
+    # Mamba模型相关配置
     SGLANG_MAMBA_CONV_DTYPE = EnvStr("bfloat16")
     SGLANG_MAMBA_SSM_DTYPE = EnvStr(None)
 
-    # Unified Radix Tree
+    # 统一基数树相关配置
     SGLANG_ENABLE_UNIFIED_RADIX_TREE = EnvBool(False)
 
-    # Breakable CUDA Graph
+    # 可中断CUDA Graph相关配置
     SGLANG_USE_BREAKABLE_CUDA_GRAPH = EnvBool(False)
 
-    # Release & Resume Memory
+    # 释放与恢复内存相关配置
     SGLANG_MEMORY_SAVER_CUDA_GRAPH = EnvBool(False)
 
-    # Sparse Embeddings
+    # 稀疏嵌入相关配置
     SGLANG_EMBEDDINGS_SPARSE_HEAD = EnvStr(None)
 
-    # Logits processor
+    # Logits处理器相关配置
     SGLANG_ENABLE_LOGITS_PROCESSER_CHUNK = EnvBool(False)
     SGLANG_LOGITS_PROCESSER_CHUNK_SIZE = EnvInt(2048)
 
-    # Tool-Call behavior
+    # 工具调用行为相关配置
     SGLANG_TOOL_STRICT_LEVEL = EnvInt(ToolStrictLevel.OFF)
 
-    # Think tokens budget: negative means unlimited, >= 0 caps thinking tokens
+    # 思考token预算：负数表示无限制，>=0则限制思考token数量
     SGLANG_MAX_THINK_TOKENS = EnvInt(-1)
 
-    # Ngram
+    # Ngram推测解码相关配置
     SGLANG_NGRAM_FORCE_GREEDY_VERIFY = EnvBool(False)
 
-    # Warmup
+    # 预热相关配置
     SGLANG_WARMUP_TIMEOUT = EnvFloat(-1) # in seconds. If a warmup forward batch takes longer than this, the server will crash to prevent hanging. Recommend to increase warmup timeout to 1800 to accommodate some kernel JIT precache e.g. deep gemm
 
-    # HTTP Server
+    # HTTP服务器相关配置
     SGLANG_TIMEOUT_KEEP_ALIVE = EnvInt(5)
     # Uvicorn multiprocess supervisor pings each worker on this interval; default 5s is
     # too short when many workers cold-start and load tokenizers in parallel.
     SGLANG_UVICORN_WORKER_HEALTHCHECK_TIMEOUT = EnvInt(10)
 
-    # HTTP/2 Server
+    # HTTP/2服务器相关配置
     SGLANG_GRANIAN_PARENT_PID = EnvInt(None)
 
-    # Health Check
+    # 健康检查相关配置
     SGLANG_ENABLE_HEALTH_ENDPOINT_GENERATION = EnvBool(True)
 
-    # Encoder gRPC
+    # 编码器gRPC相关配置
     SGLANG_ENCODER_GRPC_TIMEOUT_SECS = EnvInt(60)
     # Encoder receiver selection: http|grpc (used by EPD paths).
     SGLANG_ENCODER_MM_RECEIVER_MODE = EnvStr("http")
 
-    # Native gRPC server (internal, not yet user-facing)
+    # 原生gRPC服务器（内部使用，尚未面向用户）
     SGLANG_GRPC_PORT = EnvInt(None)
     SGLANG_ENABLE_GRPC = EnvBool(False)
 
-    # External models
+    # 外部模型相关配置
     SGLANG_EXTERNAL_MODEL_PACKAGE = EnvStr("")
     SGLANG_EXTERNAL_MM_MODEL_ARCH = EnvStr("")
     SGLANG_EXTERNAL_MM_PROCESSOR_PACKAGE = EnvStr("")
 
-    # Numa
+    # NUMA绑定相关配置
     SGLANG_NUMA_BIND_V2 = EnvBool(True)
     SGLANG_AUTO_NUMA_BIND = EnvBool(False)
 
-    # Metrics
+    # 指标监控相关配置
     SGLANG_ENABLE_METRICS_DEVICE_TIMER = EnvBool(False)
     SGLANG_ENABLE_METRICS_DP_ATTENTION = EnvBool(False)
 
-    # Tokenizer (Kimi tiktoken: cache all_special_tokens / all_special_ids; the ITL can differ by +10x under high batch size).
+    # 分词器相关配置
     SGLANG_PATCH_TOKENIZER = EnvBool(True)
 
-    # TokenizerManager
+    # TokenizerManager相关配置
     SGLANG_REQUEST_STATE_WAIT_TIMEOUT = EnvInt(4)
 
-    # ZBAL, zero buffer accelerate library, currently worked only in npu
+    # ZBAL零缓冲加速库，目前仅在NPU上工作
     SGLANG_ZBAL_LOCAL_MEM_SIZE = EnvInt(0)
     SGLANG_ZBAL_BOOTSTRAP_URL = EnvStr("")
 
     SGLANG_DEFAULT_THINKING = EnvBool(False)
 
     # ====================================================================
-    # DeepSeek V4
+    # DeepSeek V4相关优化配置
     SGLANG_OPT_DPSK_V4_RADIX = EnvBool(True)
     SGLANG_OPT_USE_OLD_COMPRESSOR = EnvBool(False)
     SGLANG_OPT_USE_TRITON_SWA_PREPARE = EnvBool(True)
@@ -672,7 +694,7 @@ class Envs:
     # Accepts "", "max", "high" (empty string means unset); other values filtered to None.
     SGLANG_DSV4_REASONING_EFFORT = EnvStr("")
 
-    # CUDA kernels
+    # CUDA内核相关优化配置
     SGLANG_OPT_DEEPGEMM_HC_PRENORM = EnvBool(True)
     SGLANG_OPT_USE_TILELANG_MHC_PRE = EnvBool(True)
     SGLANG_OPT_USE_TILELANG_MHC_POST = EnvBool(True)
@@ -686,7 +708,7 @@ class Envs:
     SGLANG_FP8_PAGED_MQA_LOGITS_TORCH = EnvBool(False)
     SGLANG_TOPK_TRANSFORM_512_TORCH = EnvBool(False)
 
-    # SWA radix cache
+    # SWA（滑动窗口注意力）基数缓存相关配置
     SGLANG_OPT_CACHE_SWA_TRANSLATION = EnvBool(True)
     # TODO(DSV4): @ispobock this has bug on main branch when retract
     SGLANG_OPT_SWA_RADIX_CACHE_COMPACT = EnvBool(False)
@@ -694,7 +716,7 @@ class Envs:
     SGLANG_OPT_SWA_RELEASE_LEAF_LOCK_AFTER_WINDOW = EnvBool(False)
     SGLANG_OPT_SWA_EVICT_DROP_PAGE_MARGIN = EnvBool(False)
 
-    # DeepGemm Mega MoE
+    # DeepGemm Mega MoE相关配置
     SGLANG_OPT_USE_DEEPGEMM_MEGA_MOE = EnvBool(False)
     SGLANG_OPT_DEEPGEMM_MEGA_MOE_NUM_MAX_TOKENS_PER_RANK = EnvInt(1024)
 
@@ -710,38 +732,38 @@ class Envs:
     SGLANG_OPT_DEEPGEMM_MEGA_MOE_USE_MXF4_KIND = EnvBool(False)
     SGLANG_OPT_FIX_MEGA_MOE_MEMORY = EnvBool(False)
 
-    # TopK
+    # TopK相关配置
     SGLANG_OPT_USE_FUSED_HASH_TOPK = EnvBool(True)
     SGLANG_OPT_USE_JIT_KERNEL_FUSED_TOPK = EnvBool(True)
     SGLANG_OPT_USE_TOPK_V2 = EnvBool(True)
 
-    # GEMM / kernel fusion
+    # GEMM/内核融合相关配置
     SGLANG_OPT_FP8_WO_A_GEMM = EnvBool(True)
     SGLANG_OPT_BF16_FP32_GEMM_ALGO = EnvStr("cublas")
     SGLANG_OPT_USE_JIT_EP_ACTIVATION = EnvBool(True)
     SGLANG_OPT_FUSE_WQA_WKV = EnvBool(True)
     SGLANG_OPT_SWIGLU_CLAMP_FUSION = EnvBool(True)
 
-    # Cache / overlap
+    # 缓存/重叠相关配置
     SGLANG_OPT_USE_FUSED_STORE_CACHE = EnvBool(True)
     SGLANG_OPT_USE_JIT_NORM = EnvBool(True)
     SGLANG_OPT_USE_MULTI_STREAM_OVERLAP = EnvBool(True)
 
-    # CUDA graph
+    # CUDA Graph相关配置
     SGLANG_PREP_IN_CUDA_GRAPH = EnvBool(True)
 
-    # Distributed
+    # 分布式相关配置
     SGLANG_DSV4_FIX_TP_ATTN_A2A_SCATTER = EnvBool(True)
     SGLANG_SHARED_EXPERT_TP1 = EnvBool(False)
     # Symmetric Memory
     SGLANG_SYMM_MEM_PREALLOC_GB_SIZE = EnvInt(-1)
     SGLANG_DEBUG_SYMM_MEM = EnvBool(False)
 
-    # Aiter
+    # Aiter相关配置
     SGLANG_USE_AITER_FP8_PER_TOKEN = EnvBool(False)
     # fmt: on
 
-    # EPD
+    # EPD（编码器预填充分离）相关配置
     SGLANG_ENCODER_RECV_TIMEOUT = EnvFloat(180.0)
     SGLANG_ENCODER_SEND_TIMEOUT = EnvFloat(180.0)
     SGLANG_ENCODER_HTTP_TIMEOUT = EnvFloat(1800.0)
@@ -754,19 +776,19 @@ class Envs:
     # 0 disables (per-request register/deregister). 4096 = 4GB default per TP
     SGLANG_EMBEDDING_POOL_SIZE_MB = EnvInt(4096)
 
-    # Elastic EP Backup Port
+    # 弹性EP备份端口
     SGLANG_BACKUP_PORT_BASE = EnvInt(10000)
 
-    # Sglang Cache Dir
+    # SGLang缓存目录
     SGLANG_CACHE_DIR = EnvStr(os.path.expanduser("~/.cache/sglang"))
     SGLANG_FLASHINFER_AUTOTUNE_CACHE = EnvBool(True)
 
-    # Plugin system
+    # 插件系统
     SGLANG_PLATFORM = EnvStr("")
     SGLANG_PLUGINS = EnvStr("")
 
     # ===================================================================
-    # KV-Canary / Token-Oracle (testing-only)
+    # KV-Canary / Token-Oracle（仅用于测试）
     # ===================================================================
     SGLANG_KV_CANARY_RING_CAPACITY = EnvInt(1024)
     SGLANG_KV_CANARY_STATS_PRINT_EVERY_N_STEPS = EnvInt(100)
@@ -785,9 +807,11 @@ class Envs:
 
 
 envs = Envs()
+# 禁止在类定义完成后继续设置描述器名称，防止误用
 EnvField._allow_set_name = False
 
 
+# 打印已弃用环境变量的警告信息，并可选地将旧名称映射到新名称
 def _print_deprecated_env(old_name: str, new_name: Optional[str] = None):
     if old_name in os.environ:
         if new_name is None:
@@ -799,6 +823,7 @@ def _print_deprecated_env(old_name: str, new_name: Optional[str] = None):
             os.environ[new_name] = os.environ[old_name]
 
 
+# 当已弃用的环境变量被使用时发出警告（适用于被CLI标志替代的环境变量）
 def _warn_deprecated_env_to_cli_flag(env_name: str, suggestion: str):
     """Warn when a deprecated environment variable is used.
 
@@ -808,6 +833,7 @@ def _warn_deprecated_env_to_cli_flag(env_name: str, suggestion: str):
         warnings.warn(f"Environment variable {env_name} is deprecated. {suggestion}")
 
 
+# 将已弃用的SGL_前缀环境变量转换为SGLANG_前缀，并处理其他重命名和单位变更
 def _convert_SGL_to_SGLANG():
     _print_deprecated_env("SGLANG_GC_LOG", "SGLANG_LOG_GC")
     _print_deprecated_env(
@@ -845,7 +871,9 @@ def _convert_SGL_to_SGLANG():
             os.environ[new_key] = value
 
 
+# 执行环境变量兼容性转换：SGL_ → SGLANG_，处理弃用名称和单位变更
 _convert_SGL_to_SGLANG()
+# 警告已弃用并迁移到CLI标志的环境变量
 _warn_deprecated_env_to_cli_flag(
     "SGLANG_SCHEDULER_DECREASE_PREFILL_IDLE",
     "Please use '--enable-prefill-delayer' instead.",
@@ -859,12 +887,12 @@ _warn_deprecated_env_to_cli_flag(
     "Please use '--prefill-delayer-token-usage-low-watermark' instead.",
 )
 
-# Import cuda_coredump to trigger auto-injection of CUDA env vars
-# when SGLANG_CUDA_COREDUMP=1. Best-effort; for strict guarantees,
-# set CUDA_* env vars in the shell before launching Python.
+# 导入cuda_coredump模块以触发CUDA环境变量的自动注入
+# 当SGLANG_CUDA_COREDUMP=1时生效；尽力而为，严格保证需在启动Python前设置CUDA_*环境变量
 import sglang.srt.debug_utils.cuda_coredump  # noqa: F401, E402  # isort: skip
 
 
+# 示例：使用ExitStack上下文管理器覆盖环境变量（适用于单元测试）
 def example_with_exit_stack():
     # Use this style of context manager in unit test
     exit_stack = ExitStack()
@@ -874,6 +902,7 @@ def example_with_exit_stack():
     assert envs.SGLANG_TEST_RETRACT.get() is None
 
 
+# 示例：在子进程中使用环境变量覆盖
 def example_with_subprocess():
     command = ["python", "-c", "import os; print(os.getenv('SGLANG_TEST_RETRACT'))"]
     with envs.SGLANG_TEST_RETRACT.override(True):
@@ -889,6 +918,7 @@ def example_with_subprocess():
     assert output == "None"
 
 
+# 示例：演示禁止将EnvField隐式用作布尔值的机制
 def example_with_implicit_bool_avoidance():
     @contextmanager
     def assert_throws(message_matcher: str):
@@ -913,6 +943,7 @@ def example_with_implicit_bool_avoidance():
             pass
 
 
+# 环境变量使用示例集合：演示set/get/clear/override等操作
 def examples():
     # Example usage for envs
     envs.SGLANG_TEST_RETRACT.clear()

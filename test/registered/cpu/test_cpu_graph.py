@@ -1,3 +1,4 @@
+# 文件名: test_cpu_graph.py - CPU图测试
 """
 Usage:
 python3 -m unittest test_cpu_graph.TestCPUGraph.test_mmlu_torch_compile_cpu
@@ -40,15 +41,17 @@ class TestCPUGraph(CustomTestCase):
         ],
         min_throughput=7,
     )
+    # 测试latencytorchcompilecpu
     def test_latency_torch_compile_cpu(self):
         return DEFAULT_MLA_MODEL_NAME_FOR_TEST
 
+    # 测试mmlutorchcompilecpu
     def test_mmlu_torch_compile_cpu(self):
         model = DEFAULT_MLA_MODEL_NAME_FOR_TEST
         base_url = DEFAULT_URL_FOR_TEST
         cpu_ids_by_node = get_cpu_ids_by_node()
         n_numa_node = len(cpu_ids_by_node)
-        env = copy.deepcopy(os.environ)
+        env = copy.deepcopy(os.environ)  # 访问环境变量
         env["SGLANG_CPU_OMP_THREADS_BIND"] = "all"
         process = popen_launch_server(
             model,

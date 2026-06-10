@@ -1,3 +1,4 @@
+# 文件名: test_weight_checker.py - 权重检查器
 # Copyright 2023-2024 SGLang Team
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -49,6 +50,7 @@ register_cuda_ci(est_time=30, stage="base-b", runner_config="1-gpu-small")
 Triple = Tuple[str, bool, torch.Tensor]
 
 
+# 内部方法_assert_triples_close
 def _assert_triples_close(actual: Iterable[Triple], expected: Iterable[Triple]) -> None:
     """Compare two streams of (name, should_compare, tensor); element-wise tensor close."""
     actual_list: List[Triple] = list(actual)
@@ -66,6 +68,7 @@ def _assert_triples_close(actual: Iterable[Triple], expected: Iterable[Triple]) 
         )
 
 
+# 内部方法_build_fp8_quant_pair
 def _build_fp8_quant_pair(device: str = "cuda"):
     """Construct a real fp8-quantized weight + matching fp32 + ue8m0-packed scales.
 
@@ -102,10 +105,12 @@ class _TinyModel(nn.Module):
         self.register_buffer("gate_proj_weight_fp32_cache", torch.full((8,), 1.41))
 
 
+# _FakeModelRunner类
 class _FakeModelRunner:
     """Minimal stand-in: WeightChecker touches `.model.named_parameters()`,
     `.model.named_buffers()`, plus parallelism attributes for the checksum action."""
 
+    # _FakeModelRunner类的初始化
     def __init__(
         self,
         model: nn.Module,
@@ -132,41 +137,46 @@ class _FakeModelRunner:
 
 class TestRandomLike(CustomTestCase):
 
+    # TestRandomLike类的测试floatingpointpreservesdtypeshapedevice
     def test_floating_point_preserves_dtype_shape_device(self):
         for dtype in (torch.float32, torch.float16, torch.bfloat16):
             t = torch.zeros(8, 4, dtype=dtype)
             out = _random_like(t)
-            self.assertEqual(out.dtype, dtype)
-            self.assertEqual(out.shape, t.shape)
-            self.assertEqual(out.device, t.device)
-            self.assertGreater(out.float().abs().sum().item(), 0)
+            self.assertEqual(out.dtype, dtype)  # 断言相等
+            self.assertEqual(out.shape, t.shape)  # 断言相等
+            self.assertEqual(out.device, t.device)  # 断言相等
+            self.assertGreater(out.float().abs().sum().item(), 0)  # 断言大于
 
+    # TestRandomLike类的测试boolreturnsboolwithbothvalues
     def test_bool_returns_bool_with_both_values(self):
         t = torch.zeros(1024, dtype=torch.bool)
         out = _random_like(t)
-        self.assertEqual(out.dtype, torch.bool)
-        self.assertEqual(out.shape, t.shape)
-        self.assertEqual(out.device, t.device)
-        self.assertTrue(out.any().item())
-        self.assertFalse(out.all().item())
+        self.assertEqual(out.dtype, torch.bool)  # 断言相等
+        self.assertEqual(out.shape, t.shape)  # 断言相等
+        self.assertEqual(out.device, t.device)  # 断言相等
+        self.assertTrue(out.any().item())  # 断言为真
+        self.assertFalse(out.all().item())  # 断言为假
 
+    # TestRandomLike类的测试intreturnscorrectdtypeinrange
     def test_int_returns_correct_dtype_in_range(self):
         for dtype in (torch.int8, torch.int32, torch.int64):
             t = torch.zeros(256, dtype=dtype)
             out = _random_like(t)
-            self.assertEqual(out.dtype, dtype)
-            self.assertEqual(out.shape, t.shape)
+            self.assertEqual(out.dtype, dtype)  # 断言相等
+            self.assertEqual(out.shape, t.shape)  # 断言相等
             info = torch.iinfo(dtype)
             self.assertGreaterEqual(out.min().item(), info.min)
             self.assertLessEqual(out.max().item(), info.max)
-            self.assertGreater(out.unique().numel(), 1)
+            self.assertGreater(out.unique().numel(), 1)  # 断言大于
 
+    # TestRandomLike类的测试floatingpointvaluesinunitrange
     def test_floating_point_values_in_unit_range(self):
         t = torch.zeros(1024, dtype=torch.float32)
         out = _random_like(t)
         self.assertGreaterEqual(out.min().item(), 0.0)
-        self.assertLess(out.max().item(), 1.0)
+        self.assertLess(out.max().item(), 1.0)  # 断言小于
 
+    # TestRandomLike类的测试doesnotmutateinput
     def test_does_not_mutate_input(self):
         t = torch.full((16,), 5.0)
         before = t.clone()
@@ -192,6 +202,7 @@ class TestPostprocessTensors(CustomTestCase):
             [("a.weight", True, a), ("b.bias", True, b)],
         )
 
+    # TestPostprocessTensors类的测试weightalonewithoutscaleinvdoesnottriggerdequant
     def test_weight_alone_without_scale_inv_does_not_trigger_dequant(self):
         w = torch.randn(4)
         raw = {"x.weight": w}
@@ -214,6 +225,7 @@ class TestPostprocessTensors(CustomTestCase):
             ],
         )
 
+    # TestPostprocessTensors类的测试skipsinvfreqsubstring
     def test_skips_inv_freq_substring(self):
         t = torch.randn(4)
         _assert_triples_close(
@@ -221,6 +233,7 @@ class TestPostprocessTensors(CustomTestCase):
             [("model.rotary_emb.inv_freq", False, t)],
         )
 
+    # TestPostprocessTensors类的测试skipsweightfp32substring
     def test_skips_weight_fp32_substring(self):
         t = torch.randn(4)
         _assert_triples_close(
@@ -228,6 +241,7 @@ class TestPostprocessTensors(CustomTestCase):
             [("model.layers.0.mlp.gate._weight_fp32", False, t)],
         )
 
+    # TestPostprocessTensors类的测试substringmatchnotendswith
     def test_substring_match_not_endswith(self):
         # Pattern can appear anywhere in the name, not just at the end.
         t = torch.randn(4)
@@ -256,6 +270,7 @@ class TestPostprocessTensors(CustomTestCase):
             ],
         )
 
+    # TestPostprocessTensors类的测试fp8quantpairwithfp32scaledequantsdirectly
     def test_fp8_quant_pair_with_fp32_scale_dequants_directly(self):
         qweight, sf_fp32, _ = _build_fp8_quant_pair()
         raw = {"x.weight": qweight, "x.weight_scale_inv": sf_fp32}
@@ -272,6 +287,7 @@ class TestPostprocessTensors(CustomTestCase):
             ],
         )
 
+    # TestPostprocessTensors类的测试fp8quantpairyieldorderalongsideotherentries
     def test_fp8_quant_pair_yield_order_alongside_other_entries(self):
         qweight, sf_fp32, _ = _build_fp8_quant_pair()
         bias = torch.ones(4, device="cuda")
@@ -294,6 +310,7 @@ class TestPostprocessTensors(CustomTestCase):
             ],
         )
 
+    # TestPostprocessTensors类的测试onlyscalewithoutweightdoesnottriggerdequant
     def test_only_scale_without_weight_does_not_trigger_dequant(self):
         # Without the matching `.weight`, no quant pair forms; the scale_inv flows
         # through as a normal entry with should_compare=True.
@@ -311,44 +328,50 @@ class TestPostprocessTensors(CustomTestCase):
 
 class TestCheckTensors(CustomTestCase):
 
+    # TestCheckTensors类的测试passeswhenallequal
     def test_passes_when_all_equal(self):
         t = torch.ones(2, 2)
         expect = [("a", True, t.clone()), ("b", True, t.clone())]
         actual = [("a", True, t.clone()), ("b", True, t.clone())]
         _check_tensors(expect_tensors=expect, actual_tensors=actual)
 
+    # TestCheckTensors类的测试raiseswhenshouldcomparetrueanddiff
     def test_raises_when_should_compare_true_and_diff(self):
         expect = [("a", True, torch.ones(2, 2))]
         actual = [("a", True, torch.zeros(2, 2))]
-        with self.assertRaises(Exception) as ctx:
+        with self.assertRaises(Exception) as ctx:  # 断言抛出异常
             _check_tensors(expect_tensors=expect, actual_tensors=actual)
         msg = str(ctx.exception)
-        self.assertIn("name=a", msg)
-        self.assertIn("max_abs_err", msg)
+        self.assertIn("name=a", msg)  # 断言包含
+        self.assertIn("max_abs_err", msg)  # 断言包含
 
+    # TestCheckTensors类的测试passeswhenshouldcomparefalseevenifdiff
     def test_passes_when_should_compare_false_even_if_diff(self):
         # should_compare=False -> diff is logged, not raised.
         expect = [("a", False, torch.ones(2, 2))]
         actual = [("a", False, torch.zeros(2, 2))]
         _check_tensors(expect_tensors=expect, actual_tensors=actual)
 
+    # TestCheckTensors类的测试assertsonnamemismatch
     def test_asserts_on_name_mismatch(self):
         expect = [("a", True, torch.ones(2, 2))]
         actual = [("b", True, torch.ones(2, 2))]
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(AssertionError):  # 断言抛出异常
             _check_tensors(expect_tensors=expect, actual_tensors=actual)
 
+    # TestCheckTensors类的测试assertsonshouldcomparemismatch
     def test_asserts_on_should_compare_mismatch(self):
         expect = [("a", True, torch.ones(2, 2))]
         actual = [("a", False, torch.ones(2, 2))]
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(AssertionError):  # 断言抛出异常
             _check_tensors(expect_tensors=expect, actual_tensors=actual)
 
+    # TestCheckTensors类的测试zipstrictraisesonlengthmismatch
     def test_zip_strict_raises_on_length_mismatch(self):
         t = torch.ones(2, 2)
         expect = [("a", True, t.clone()), ("b", True, t.clone())]
         actual = [("a", True, t.clone())]
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError):  # 断言抛出异常
             _check_tensors(expect_tensors=expect, actual_tensors=actual)
 
 
@@ -372,8 +395,10 @@ class _WeightCheckerTestBase(CustomTestCase):
         self.checker = WeightChecker(model_runner=_FakeModelRunner(self.model))
 
 
+# TestSnapshot类
 class TestSnapshot(_WeightCheckerTestBase):
 
+    # TestSnapshot类的测试capturesparamsandbuffers
     def test_captures_params_and_buffers(self):
         self.checker._snapshot()
         keys = set(self.checker._snapshot_tensors.keys())
@@ -385,12 +410,13 @@ class TestSnapshot(_WeightCheckerTestBase):
             "rotary_emb_freqs_cis",
             "gate_proj_weight_fp32_cache",
         }
-        self.assertEqual(keys, expected)
+        self.assertEqual(keys, expected)  # 断言相等
 
+    # TestSnapshot类的测试detachesandmovestocpu
     def test_detaches_and_moves_to_cpu(self):
         self.checker._snapshot()
         for tensor in self.checker._snapshot_tensors.values():
-            self.assertEqual(tensor.device.type, "cpu")
+            self.assertEqual(tensor.device.type, "cpu")  # 断言相等
         # Mutating the live model must not affect the snapshot copy.
         original_w = self.checker._snapshot_tensors["w"].clone()
         with torch.no_grad():
@@ -398,50 +424,60 @@ class TestSnapshot(_WeightCheckerTestBase):
         torch.testing.assert_close(self.checker._snapshot_tensors["w"], original_w)
 
 
+# TestResetTensors类
 class TestResetTensors(_WeightCheckerTestBase):
 
+    # TestResetTensors类的测试changesnormalparamsinplace
     def test_changes_normal_params_in_place(self):
         before_w = self.model.w.clone()
         before_w_ptr = self.model.w.data_ptr()
         self.checker._reset_tensors()
         # In-place: storage pointer unchanged.
-        self.assertEqual(self.model.w.data_ptr(), before_w_ptr)
-        self.assertFalse(torch.equal(self.model.w, before_w))
+        self.assertEqual(self.model.w.data_ptr(), before_w_ptr)  # 断言相等
+        self.assertFalse(torch.equal(self.model.w, before_w))  # 断言为假
 
+    # TestResetTensors类的测试skipscossincache
     def test_skips_cos_sin_cache(self):
         before = self.model.rotary_emb_cos_sin_cache.clone()
         self.checker._reset_tensors()
         torch.testing.assert_close(self.model.rotary_emb_cos_sin_cache, before)
 
+    # TestResetTensors类的测试skipsfreqscis
     def test_skips_freqs_cis(self):
         before = self.model.rotary_emb_freqs_cis.clone()
         self.checker._reset_tensors()
         torch.testing.assert_close(self.model.rotary_emb_freqs_cis, before)
 
+    # TestResetTensors类的测试skipsweightfp32
     def test_skips_weight_fp32(self):
         before = self.model.gate_proj_weight_fp32_cache.clone()
         self.checker._reset_tensors()
         torch.testing.assert_close(self.model.gate_proj_weight_fp32_cache, before)
 
 
+# TestCompare类
 class TestCompare(_WeightCheckerTestBase):
 
+    # TestCompare类的测试withoutsnapshotraises
     def test_without_snapshot_raises(self):
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(AssertionError):  # 断言抛出异常
             self.checker._compare()
 
+    # TestCompare类的测试passeswhenunchanged
     def test_passes_when_unchanged(self):
         self.checker._snapshot()
         self.checker._compare()  # no exception
 
+    # TestCompare类的测试failsafterresetonnormalparam
     def test_fails_after_reset_on_normal_param(self):
         self.checker._snapshot()
         self.checker._reset_tensors()
-        with self.assertRaises(Exception) as ctx:
+        with self.assertRaises(Exception) as ctx:  # 断言抛出异常
             self.checker._compare()
         msg = str(ctx.exception)
-        self.assertTrue(("name=w" in msg) or ("name=b" in msg))
+        self.assertTrue(("name=w" in msg) or ("name=b" in msg))  # 断言为真
 
+    # TestCompare类的测试passeswhenonlyskippedbufferdiverges
     def test_passes_when_only_skipped_buffer_diverges(self):
         self.checker._snapshot()
         # Mutate a non-persistent skip-pattern buffer; compare must still pass.
@@ -449,6 +485,7 @@ class TestCompare(_WeightCheckerTestBase):
             self.model.rotary_emb_cos_sin_cache.fill_(99.0)
         self.checker._compare()
 
+    # TestCompare类的测试passesafterresetthenrestoringnormalparams
     def test_passes_after_reset_then_restoring_normal_params(self):
         # Full lifecycle: reset (skips cos_sin_cache et al.), then restore non-skip
         # params by hand. Compare must pass — proving reset+postprocess skip lists agree.
@@ -463,8 +500,10 @@ class TestCompare(_WeightCheckerTestBase):
         self.checker._compare()
 
 
+# TestHandle类
 class TestHandle(_WeightCheckerTestBase):
 
+    # TestHandle类的测试routestoactions
     def test_routes_to_actions(self):
         with (
             patch.object(self.checker, "_snapshot") as m_snap,
@@ -483,21 +522,24 @@ class TestHandle(_WeightCheckerTestBase):
             m_compare.assert_called_once()
             m_checksum.assert_called_once()
 
+    # TestHandle类的测试returnsnonefornonchecksumactions
     def test_returns_none_for_non_checksum_actions(self):
-        self.assertIsNone(self.checker.handle("snapshot"))
-        self.assertIsNone(self.checker.handle("compare"))
+        self.assertIsNone(self.checker.handle("snapshot"))  # 断言为None
+        self.assertIsNone(self.checker.handle("compare"))  # 断言为None
 
+    # TestHandle类的测试returnsdictforchecksumaction
     def test_returns_dict_for_checksum_action(self):
         out = self.checker.handle("checksum")
         self.assertIsInstance(out, dict)
-        self.assertIn("checksums", out)
-        self.assertIn("per_gpu_checksum", out)
-        self.assertIn("parallelism_info", out)
+        self.assertIn("checksums", out)  # 断言包含
+        self.assertIn("per_gpu_checksum", out)  # 断言包含
+        self.assertIn("parallelism_info", out)  # 断言包含
 
+    # TestHandle类的测试unknownactionraises
     def test_unknown_action_raises(self):
-        with self.assertRaises(Exception) as ctx:
+        with self.assertRaises(Exception) as ctx:  # 断言抛出异常
             self.checker.handle("nonsense_action")
-        self.assertIn("Unsupported", str(ctx.exception))
+        self.assertIn("Unsupported", str(ctx.exception))  # 断言包含
 
 
 # ---------------------------------------------------------------------------
@@ -507,25 +549,30 @@ class TestHandle(_WeightCheckerTestBase):
 
 class TestIsNonPersistentBufferName(CustomTestCase):
 
+    # TestIsNonPersistentBufferName类的测试matchescossincachesubstring
     def test_matches_cos_sin_cache_substring(self):
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             _is_non_persistent_buffer_name("model.rotary_emb.cos_sin_cache")
         )
 
+    # TestIsNonPersistentBufferName类的测试matchesinvfreqsubstring
     def test_matches_inv_freq_substring(self):
-        self.assertTrue(_is_non_persistent_buffer_name("model.rotary_emb.inv_freq"))
+        self.assertTrue(_is_non_persistent_buffer_name("model.rotary_emb.inv_freq"))  # 断言为真
 
+    # TestIsNonPersistentBufferName类的测试matchesfreqscissubstring
     def test_matches_freqs_cis_substring(self):
-        self.assertTrue(_is_non_persistent_buffer_name("model.rotary_emb.freqs_cis"))
+        self.assertTrue(_is_non_persistent_buffer_name("model.rotary_emb.freqs_cis"))  # 断言为真
 
+    # TestIsNonPersistentBufferName类的测试matchesweightfp32substring
     def test_matches_weight_fp32_substring(self):
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             _is_non_persistent_buffer_name("model.layers.0.mlp.gate._weight_fp32")
         )
 
+    # TestIsNonPersistentBufferName类的测试doesnotmatchnormalparamnames
     def test_does_not_match_normal_param_names(self):
-        self.assertFalse(_is_non_persistent_buffer_name("model.layers.0.mlp.weight"))
-        self.assertFalse(_is_non_persistent_buffer_name("model.embed_tokens.weight"))
+        self.assertFalse(_is_non_persistent_buffer_name("model.layers.0.mlp.weight"))  # 断言为假
+        self.assertFalse(_is_non_persistent_buffer_name("model.embed_tokens.weight"))  # 断言为假
 
 
 # ---------------------------------------------------------------------------
@@ -535,21 +582,25 @@ class TestIsNonPersistentBufferName(CustomTestCase):
 
 class TestHashTensor(CustomTestCase):
 
+    # TestHashTensor类的测试stableforsameinput
     def test_stable_for_same_input(self):
         t = torch.arange(64, dtype=torch.float32).cuda()
-        self.assertEqual(_hash_tensor(t), _hash_tensor(t.clone()))
+        self.assertEqual(_hash_tensor(t), _hash_tensor(t.clone()))  # 断言相等
 
+    # TestHashTensor类的测试changeswithdata
     def test_changes_with_data(self):
         a = torch.zeros(64, dtype=torch.float32).cuda()
         b = torch.ones(64, dtype=torch.float32).cuda()
-        self.assertNotEqual(_hash_tensor(a), _hash_tensor(b))
+        self.assertNotEqual(_hash_tensor(a), _hash_tensor(b))  # 断言不相等
 
+    # TestHashTensor类的测试returns16charhex
     def test_returns_16_char_hex(self):
         t = torch.zeros(64, dtype=torch.float32).cuda()
         h = _hash_tensor(t)
-        self.assertEqual(len(h), 16)
+        self.assertEqual(len(h), 16)  # 断言相等
         int(h, 16)  # raises if not hex
 
+    # TestHashTensor类的测试doesnotmutateinput
     def test_does_not_mutate_input(self):
         t = torch.arange(64, dtype=torch.float32).cuda()
         before = t.clone()
@@ -564,6 +615,7 @@ class TestHashTensor(CustomTestCase):
 
 class _ChecksumTestBase(CustomTestCase):
 
+    # _ChecksumTestBase类的测试初始化设置
     def setUp(self):
         torch.manual_seed(0)
         self.model = _TinyModel().cuda()
@@ -579,56 +631,64 @@ class _ChecksumTestBase(CustomTestCase):
         self.checker = WeightChecker(model_runner=self.runner)
 
 
+# TestComputeChecksum类
 class TestComputeChecksum(_ChecksumTestBase):
 
+    # TestComputeChecksum类的测试returnsdictwithexpectedtoplevelkeys
     def test_returns_dict_with_expected_top_level_keys(self):
         out = self.checker._compute_checksum()
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             set(out.keys()), {"checksums", "per_gpu_checksum", "parallelism_info"}
         )
 
+    # TestComputeChecksum类的测试skipsnonpersistentbuffers
     def test_skips_non_persistent_buffers(self):
         out = self.checker._compute_checksum()
         names = set(out["checksums"].keys())
         # Normal params and buffers are present.
-        self.assertIn("w", names)
-        self.assertIn("b", names)
-        self.assertIn("running_mean", names)
+        self.assertIn("w", names)  # 断言包含
+        self.assertIn("b", names)  # 断言包含
+        self.assertIn("running_mean", names)  # 断言包含
         # Non-persistent buffer patterns are filtered out.
-        self.assertNotIn("rotary_emb_cos_sin_cache", names)
-        self.assertNotIn("rotary_emb_freqs_cis", names)
-        self.assertNotIn("gate_proj_weight_fp32_cache", names)
+        self.assertNotIn("rotary_emb_cos_sin_cache", names)  # 断言不包含
+        self.assertNotIn("rotary_emb_freqs_cis", names)  # 断言不包含
+        self.assertNotIn("gate_proj_weight_fp32_cache", names)  # 断言不包含
 
+    # TestComputeChecksum类的测试hashesarehexstrings
     def test_hashes_are_hex_strings(self):
         out = self.checker._compute_checksum()
         for name, h in out["checksums"].items():
-            self.assertEqual(len(h), 16, f"unexpected hash length for {name!r}")
+            self.assertEqual(len(h), 16, f"unexpected hash length for {name!r}")  # 断言相等
             int(h, 16)
 
+    # TestComputeChecksum类的测试parallelisminforeflectsrunnerstate
     def test_parallelism_info_reflects_runner_state(self):
         info = self.checker._compute_checksum()["parallelism_info"]
-        self.assertEqual(info["tp_rank"], 2)
-        self.assertEqual(info["tp_size"], 4)
-        self.assertEqual(info["dp_rank"], 1)
-        self.assertEqual(info["dp_size"], 2)
-        self.assertEqual(info["pp_rank"], 0)
-        self.assertEqual(info["pp_size"], 1)
+        self.assertEqual(info["tp_rank"], 2)  # 断言相等
+        self.assertEqual(info["tp_size"], 4)  # 断言相等
+        self.assertEqual(info["dp_rank"], 1)  # 断言相等
+        self.assertEqual(info["dp_size"], 2)  # 断言相等
+        self.assertEqual(info["pp_rank"], 0)  # 断言相等
+        self.assertEqual(info["pp_size"], 1)  # 断言相等
         # rank/size come from torch.distributed; default to 0/1 when uninitialized.
-        self.assertIn("rank", info)
-        self.assertIn("size", info)
+        self.assertIn("rank", info)  # 断言包含
+        self.assertIn("size", info)  # 断言包含
 
+    # TestComputeChecksum类的测试checksumisstableforunchangedweights
     def test_checksum_is_stable_for_unchanged_weights(self):
         first = self.checker._compute_checksum()
         second = self.checker._compute_checksum()
-        self.assertEqual(first, second)
+        self.assertEqual(first, second)  # 断言相等
 
+    # TestComputeChecksum类的测试checksumchangesafterparammutation
     def test_checksum_changes_after_param_mutation(self):
         first = self.checker._compute_checksum()["checksums"]["w"]
         with torch.no_grad():
             self.model.w.data.fill_(99.0)
         second = self.checker._compute_checksum()["checksums"]["w"]
-        self.assertNotEqual(first, second)
+        self.assertNotEqual(first, second)  # 断言不相等
 
+    # TestComputeChecksum类的测试validatesagainstpydanticschema
     def test_validates_against_pydantic_schema(self):
         out = self.checker._compute_checksum()
         info = ChecksumInfo.model_validate(out)

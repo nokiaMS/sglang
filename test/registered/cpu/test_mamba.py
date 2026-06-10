@@ -1,3 +1,4 @@
+# 文件名: test_mamba.py - Mamba状态空间模型测试
 import unittest
 
 import torch
@@ -13,12 +14,14 @@ register_cpu_ci(est_time=10, suite="base-b-test-cpu")
 torch.manual_seed(1234)
 
 
+# 执行l2norm
 def l2norm(x: torch.Tensor, dim: int = -1, eps: float = 1e-6):
     """This function is intended to align with the l2norm implementation in the FLA library."""
     inv_norm = torch.rsqrt((x * x).sum(dim=dim, keepdim=True) + eps)
     return x * inv_norm
 
 
+# 执行torchchunkgateddeltarule
 def torch_chunk_gated_delta_rule(
     query,
     key,
@@ -66,7 +69,7 @@ def torch_chunk_gated_delta_rule(
 
     # chunk decay
     g = g.cumsum(dim=-1)
-    decay_mask = ((g.unsqueeze(-1) - g.unsqueeze(-2)).tril().exp().float()).tril()
+    decay_mask = ((g.unsqueeze(-1) - g.unsqueeze(-2)).tril().exp().float()).tril()  # 转换为单精度
     attn = -((k_beta @ key.transpose(-1, -2)) * decay_mask).masked_fill(mask, 0)
     for i in range(1, chunk_size):
         row = attn[..., i, :i].clone()
@@ -112,6 +115,7 @@ def torch_chunk_gated_delta_rule(
     return core_attn_out, last_recurrent_state
 
 
+# 执行chunkgateddeltaruleupdate
 def chunk_gated_delta_rule_update(
     query,  # [B, T, HK, K]
     key,  # [B, T, HK, K]
@@ -149,6 +153,7 @@ def chunk_gated_delta_rule_update(
     return output, final_state
 
 
+# 执行torchrecurrentgateddeltarule
 def torch_recurrent_gated_delta_rule(
     query,
     key,
@@ -203,6 +208,7 @@ def torch_recurrent_gated_delta_rule(
     return core_attn_out, last_recurrent_state
 
 
+# 执行sigmoidgatingdeltaruleupdate
 def sigmoid_gating_delta_rule_update(
     query,
     key,
@@ -216,7 +222,7 @@ def sigmoid_gating_delta_rule_update(
     use_qk_l2norm_in_kernel=False,
 ):
     beta = b.sigmoid()
-    g = -A_log.float().exp() * softplus(a.float() + dt_bias)
+    g = -A_log.float().exp() * softplus(a.float() + dt_bias)  # 转换为单精度
     return torch_recurrent_gated_delta_rule(
         query,
         key,
@@ -229,19 +235,21 @@ def sigmoid_gating_delta_rule_update(
     )
 
 
+# 执行torchgdngating
 def torch_gdn_gating(A_log, a, b, dt_bias):
-    return -A_log.float().exp() * softplus(a.float() + dt_bias).unsqueeze(
+    return -A_log.float().exp() * softplus(a.float() + dt_bias).unsqueeze(  # 转换为单精度
         0
     ), b.sigmoid().unsqueeze(0)
 
 
 class TestMambaAttention(CustomTestCase):
+    # 测试chunkgateddeltarule
     def test_chunk_gated_delta_rule(self):
         B, L, HK, HV, EK, EV, N = 1, 100, 3, 6, 64, 64, 4
         seqlens = torch.randint(1, L, (N + 1,))
         seqlens[0] = 0
         cu_seqlens_ = torch.cumsum(seqlens, dim=0).to(torch.int32)
-        T = cu_seqlens_[-1].item()
+        T = cu_seqlens_[-1].item()  # 获取标量值
         query_ = torch.rand((B, T, HK, EK), dtype=torch.bfloat16) * 0.05
         key_ = torch.rand((B, T, HK, EK), dtype=torch.bfloat16) * 0.05
         value_ = torch.rand((B, T, HV, EV), dtype=torch.bfloat16) * 0.05
@@ -291,6 +299,7 @@ class TestMambaAttention(CustomTestCase):
                 last_recurrent_state, last_recurrent_state_ref, atol=atol, rtol=rtol
             )
 
+    # 测试fusedgdngating
     def test_fused_gdn_gating(self):
         dims = [6, 32]
         for dim in dims:
@@ -318,6 +327,7 @@ class TestMambaAttention(CustomTestCase):
         seq_len=[1],
         attn_tp_size=[1],
     )
+    # 测试fusedsigmoidgatingdeltaruleupdate
     def test_fused_sigmoid_gating_delta_rule_update(
         self,
         batch_size,

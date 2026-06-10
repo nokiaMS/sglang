@@ -1,3 +1,4 @@
+# 文件名: test_lora_spec_decoding.py - 测试LoRA与推测解码的集成
 # Copyright 2023-2025 SGLang Team
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,6 +25,7 @@ from sglang.test.test_utils import CustomTestCase
 
 
 class TestLoRASpecDecoding(CustomTestCase):
+    # 测试qwen功能
     def test_qwen(self):
         run_lora_multiple_batch_on_model_cases(
             LORA_MODELS_QWEN3,
@@ -33,6 +35,7 @@ class TestLoRASpecDecoding(CustomTestCase):
             enable_deterministic_inference=True,
         )
 
+    # 测试llama功能
     def test_llama(self):
         run_lora_multiple_batch_on_model_cases(
             CI_MULTI_LORA_MODELS,

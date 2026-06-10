@@ -1,3 +1,4 @@
+# 文件名: test_reasoning_parser.py - 推理解析器
 """Unit tests for srt/parser/reasoning_parser.py"""
 
 import unittest
@@ -21,21 +22,28 @@ from sglang.test.test_utils import CustomTestCase
 register_cpu_ci(est_time=7, suite="base-a-test-cpu")
 
 
+# TestStreamingParseResult类
 class TestStreamingParseResult(CustomTestCase):
+
+    # TestStreamingParseResult类的测试initdefault
     def test_init_default(self):
         """Test default initialization of StreamingParseResult."""
         result = StreamingParseResult()
-        self.assertEqual(result.normal_text, "")
-        self.assertEqual(result.reasoning_text, "")
+        self.assertEqual(result.normal_text, "")  # 断言相等
+        self.assertEqual(result.reasoning_text, "")  # 断言相等
 
+    # TestStreamingParseResult类的测试initwithvalues
     def test_init_with_values(self):
         """Test initialization with specific values."""
         result = StreamingParseResult("normal", "reasoning")
-        self.assertEqual(result.normal_text, "normal")
-        self.assertEqual(result.reasoning_text, "reasoning")
+        self.assertEqual(result.normal_text, "normal")  # 断言相等
+        self.assertEqual(result.reasoning_text, "reasoning")  # 断言相等
 
 
+# TestBaseReasoningFormatDetector类
 class TestBaseReasoningFormatDetector(CustomTestCase):
+
+    # TestBaseReasoningFormatDetector类的测试初始化设置
     def setUp(self):
         self.detector = BaseReasoningFormatDetector(
             think_start_token="<think>",
@@ -44,36 +52,41 @@ class TestBaseReasoningFormatDetector(CustomTestCase):
             stream_reasoning=True,
         )
 
+    # TestBaseReasoningFormatDetector类的测试init
     def test_init(self):
         """Test initialization of BaseReasoningFormatDetector."""
-        self.assertEqual(self.detector.think_start_token, "<think>")
-        self.assertEqual(self.detector.think_end_token, "</think>")
-        self.assertFalse(self.detector._in_reasoning)
-        self.assertTrue(self.detector.stream_reasoning)
-        self.assertEqual(self.detector._buffer, "")
-        self.assertFalse(self.detector.stripped_think_start)
+        self.assertEqual(self.detector.think_start_token, "<think>")  # 断言相等
+        self.assertEqual(self.detector.think_end_token, "</think>")  # 断言相等
+        self.assertFalse(self.detector._in_reasoning)  # 断言为假
+        self.assertTrue(self.detector.stream_reasoning)  # 断言为真
+        self.assertEqual(self.detector._buffer, "")  # 断言相等
+        self.assertFalse(self.detector.stripped_think_start)  # 断言为假
 
+    # TestBaseReasoningFormatDetector类的测试detectandparsenormaltext
     def test_detect_and_parse_normal_text(self):
         """Test parsing normal text without reasoning."""
         text = "This is normal text"
         result = self.detector.detect_and_parse(text)
-        self.assertEqual(result.normal_text, text)
-        self.assertEqual(result.reasoning_text, "")
+        self.assertEqual(result.normal_text, text)  # 断言相等
+        self.assertEqual(result.reasoning_text, "")  # 断言相等
 
+    # TestBaseReasoningFormatDetector类的测试detectandparsewithstarttoken
     def test_detect_and_parse_with_start_token(self):
         """Test parsing text starting with think token."""
         text = "<think>This is reasoning"
         result = self.detector.detect_and_parse(text)
-        self.assertEqual(result.reasoning_text, "This is reasoning")
-        self.assertEqual(result.normal_text, "")
+        self.assertEqual(result.reasoning_text, "This is reasoning")  # 断言相等
+        self.assertEqual(result.normal_text, "")  # 断言相等
 
+    # TestBaseReasoningFormatDetector类的测试detectandparsecompletereasoning
     def test_detect_and_parse_complete_reasoning(self):
         """Test parsing complete reasoning block."""
         text = "<think>This is reasoning</think>This is normal"
         result = self.detector.detect_and_parse(text)
-        self.assertEqual(result.reasoning_text, "This is reasoning")
-        self.assertEqual(result.normal_text, "This is normal")
+        self.assertEqual(result.reasoning_text, "This is reasoning")  # 断言相等
+        self.assertEqual(result.normal_text, "This is normal")  # 断言相等
 
+    # TestBaseReasoningFormatDetector类的测试detectandparseforcereasoning
     def test_detect_and_parse_force_reasoning(self):
         """Test forced reasoning mode."""
         detector = BaseReasoningFormatDetector(
@@ -81,37 +94,41 @@ class TestBaseReasoningFormatDetector(CustomTestCase):
         )
         text = "This should be reasoning"
         result = detector.detect_and_parse(text)
-        self.assertEqual(result.reasoning_text, "This should be reasoning")
-        self.assertEqual(result.normal_text, "")
+        self.assertEqual(result.reasoning_text, "This should be reasoning")  # 断言相等
+        self.assertEqual(result.normal_text, "")  # 断言相等
 
+    # TestBaseReasoningFormatDetector类的测试parsestreamingincrementnormal
     def test_parse_streaming_increment_normal(self):
         """Test streaming parse of normal text."""
         result = self.detector.parse_streaming_increment("Hello world")
-        self.assertEqual(result.normal_text, "Hello world")
-        self.assertEqual(result.reasoning_text, "")
+        self.assertEqual(result.normal_text, "Hello world")  # 断言相等
+        self.assertEqual(result.reasoning_text, "")  # 断言相等
 
+    # TestBaseReasoningFormatDetector类的测试parsestreamingincrementpartialtoken
     def test_parse_streaming_increment_partial_token(self):
         """Test streaming parse with partial token."""
         # Test partial start token
         result = self.detector.parse_streaming_increment("<thi")
-        self.assertEqual(result.normal_text, "")
-        self.assertEqual(result.reasoning_text, "")
+        self.assertEqual(result.normal_text, "")  # 断言相等
+        self.assertEqual(result.reasoning_text, "")  # 断言相等
 
         # Reset detector and test partial end token when in reasoning mode
         detector = BaseReasoningFormatDetector("<think>", "</think>")
         detector._in_reasoning = True
         result = detector.parse_streaming_increment("</thi")
-        self.assertEqual(result.normal_text, "")
-        self.assertEqual(result.reasoning_text, "")
+        self.assertEqual(result.normal_text, "")  # 断言相等
+        self.assertEqual(result.reasoning_text, "")  # 断言相等
 
+    # TestBaseReasoningFormatDetector类的测试parsestreamingincrementcompletestart
     def test_parse_streaming_increment_complete_start(self):
         """Test streaming parse with complete start token."""
         result = self.detector.parse_streaming_increment("<think>")
-        self.assertEqual(result.normal_text, "")
-        self.assertEqual(result.reasoning_text, "")
-        self.assertTrue(self.detector._in_reasoning)
-        self.assertTrue(self.detector.stripped_think_start)
+        self.assertEqual(result.normal_text, "")  # 断言相等
+        self.assertEqual(result.reasoning_text, "")  # 断言相等
+        self.assertTrue(self.detector._in_reasoning)  # 断言为真
+        self.assertTrue(self.detector.stripped_think_start)  # 断言为真
 
+    # TestBaseReasoningFormatDetector类的测试parsestreamingincrementreasoningcontent
     def test_parse_streaming_increment_reasoning_content(self):
         """Test streaming parse of reasoning content."""
         # First add start token
@@ -119,9 +136,10 @@ class TestBaseReasoningFormatDetector(CustomTestCase):
 
         # Then add reasoning content
         result = self.detector.parse_streaming_increment("reasoning content")
-        self.assertEqual(result.reasoning_text, "reasoning content")
-        self.assertEqual(result.normal_text, "")
+        self.assertEqual(result.reasoning_text, "reasoning content")  # 断言相等
+        self.assertEqual(result.normal_text, "")  # 断言相等
 
+    # TestBaseReasoningFormatDetector类的测试parsestreamingincrementendtoken
     def test_parse_streaming_increment_end_token(self):
         """Test streaming parse with end token."""
         # Start reasoning mode
@@ -130,10 +148,11 @@ class TestBaseReasoningFormatDetector(CustomTestCase):
 
         # End reasoning - the reasoning content accumulated in previous calls is cleared when end token is found
         result = self.detector.parse_streaming_increment("</think>normal text")
-        self.assertEqual(result.reasoning_text, "")  # Buffer cleared, returns empty
-        self.assertEqual(result.normal_text, "normal text")
-        self.assertFalse(self.detector._in_reasoning)
+        self.assertEqual(result.reasoning_text, "")  # Buffer cleared, returns empty  # 断言相等
+        self.assertEqual(result.normal_text, "normal text")  # 断言相等
+        self.assertFalse(self.detector._in_reasoning)  # 断言为假
 
+    # TestBaseReasoningFormatDetector类的测试parsestreamingincrementnostreamreasoning
     def test_parse_streaming_increment_no_stream_reasoning(self):
         """Test streaming parse without streaming reasoning."""
         detector = BaseReasoningFormatDetector(
@@ -145,247 +164,285 @@ class TestBaseReasoningFormatDetector(CustomTestCase):
 
         # Add reasoning content - should not return content
         result = detector.parse_streaming_increment("reasoning content")
-        self.assertEqual(result.reasoning_text, "")
-        self.assertEqual(result.normal_text, "")
+        self.assertEqual(result.reasoning_text, "")  # 断言相等
+        self.assertEqual(result.normal_text, "")  # 断言相等
 
+    # TestBaseReasoningFormatDetector类的测试parsestreamingincrementmixedcontent
     def test_parse_streaming_increment_mixed_content(self):
         """Test streaming parse with mixed content in one chunk."""
         result = self.detector.parse_streaming_increment(
             "<think>reasoning</think>normal"
         )
-        self.assertEqual(result.reasoning_text, "reasoning")
-        self.assertEqual(result.normal_text, "normal")
+        self.assertEqual(result.reasoning_text, "reasoning")  # 断言相等
+        self.assertEqual(result.normal_text, "normal")  # 断言相等
 
 
+# TestDeepSeekR1Detector类
 class TestDeepSeekR1Detector(CustomTestCase):
+
+    # TestDeepSeekR1Detector类的测试初始化设置
     def setUp(self):
         self.detector = DeepSeekR1Detector()
 
+    # TestDeepSeekR1Detector类的测试init
     def test_init(self):
         """Test DeepSeekR1Detector initialization."""
-        self.assertEqual(self.detector.think_start_token, "<think>")
-        self.assertEqual(self.detector.think_end_token, "</think>")
-        self.assertTrue(self.detector._in_reasoning)  # force_reasoning=True
-        self.assertTrue(self.detector.stream_reasoning)
+        self.assertEqual(self.detector.think_start_token, "<think>")  # 断言相等
+        self.assertEqual(self.detector.think_end_token, "</think>")  # 断言相等
+        self.assertTrue(self.detector._in_reasoning)  # force_reasoning=True  # 断言为真
+        self.assertTrue(self.detector.stream_reasoning)  # 断言为真
 
+    # TestDeepSeekR1Detector类的测试initnostreamreasoning
     def test_init_no_stream_reasoning(self):
         """Test DeepSeekR1Detector with stream_reasoning=False."""
         detector = DeepSeekR1Detector(stream_reasoning=False)
-        self.assertFalse(detector.stream_reasoning)
+        self.assertFalse(detector.stream_reasoning)  # 断言为假
 
+    # TestDeepSeekR1Detector类的测试detectandparser1format
     def test_detect_and_parse_r1_format(self):
         """Test parsing DeepSeek-R1 format."""
         text = "I need to think about this. The answer is 42."
         result = self.detector.detect_and_parse(text)
         # Should be treated as reasoning because force_reasoning=True
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             result.reasoning_text, "I need to think about this. The answer is 42."
         )
-        self.assertEqual(result.normal_text, "")
+        self.assertEqual(result.normal_text, "")  # 断言相等
 
+    # TestDeepSeekR1Detector类的测试detectandparsewithendtoken
     def test_detect_and_parse_with_end_token(self):
         """Test parsing with end token."""
         text = "I think this is the answer</think>The final answer is 42."
         result = self.detector.detect_and_parse(text)
-        self.assertEqual(result.reasoning_text, "I think this is the answer")
-        self.assertEqual(result.normal_text, "The final answer is 42.")
+        self.assertEqual(result.reasoning_text, "I think this is the answer")  # 断言相等
+        self.assertEqual(result.normal_text, "The final answer is 42.")  # 断言相等
 
+    # TestDeepSeekR1Detector类的测试detectandparsewithstarttoken
     def test_detect_and_parse_with_start_token(self):
         """Test parsing deepseek-ai/DeepSeek-R1-0528 format, which generates the <think> token."""
         text = "<think>I need to think about this.</think>The answer is 42."
         result = self.detector.detect_and_parse(text)
         # Should be treated as reasoning because force_reasoning=True
-        self.assertEqual(result.reasoning_text, "I need to think about this.")
-        self.assertEqual(result.normal_text, "The answer is 42.")
+        self.assertEqual(result.reasoning_text, "I need to think about this.")  # 断言相等
+        self.assertEqual(result.normal_text, "The answer is 42.")  # 断言相等
 
 
+# TestQwen3Detector类
 class TestQwen3Detector(CustomTestCase):
+
+    # TestQwen3Detector类的测试初始化设置
     def setUp(self):
         self.detector = Qwen3Detector()
 
+    # TestQwen3Detector类的测试init
     def test_init(self):
         """Test Qwen3Detector initialization."""
-        self.assertEqual(self.detector.think_start_token, "<think>")
-        self.assertEqual(self.detector.think_end_token, "</think>")
-        self.assertFalse(self.detector._in_reasoning)  # force_reasoning=False
-        self.assertTrue(self.detector.stream_reasoning)
+        self.assertEqual(self.detector.think_start_token, "<think>")  # 断言相等
+        self.assertEqual(self.detector.think_end_token, "</think>")  # 断言相等
+        self.assertFalse(self.detector._in_reasoning)  # force_reasoning=False  # 断言为假
+        self.assertTrue(self.detector.stream_reasoning)  # 断言为真
 
+    # TestQwen3Detector类的测试detectandparseqwen3format
     def test_detect_and_parse_qwen3_format(self):
         """Test parsing Qwen3 format."""
         text = "<think>Let me think about this problem</think>The answer is 42."
         result = self.detector.detect_and_parse(text)
-        self.assertEqual(result.reasoning_text, "Let me think about this problem")
-        self.assertEqual(result.normal_text, "The answer is 42.")
+        self.assertEqual(result.reasoning_text, "Let me think about this problem")  # 断言相等
+        self.assertEqual(result.normal_text, "The answer is 42.")  # 断言相等
 
+    # TestQwen3Detector类的测试detectandparsewithoutthinking
     def test_detect_and_parse_without_thinking(self):
         """Test parsing without thinking (enable_thinking=False case)."""
         text = "Direct answer without thinking."
         result = self.detector.detect_and_parse(text)
-        self.assertEqual(result.normal_text, text)
-        self.assertEqual(result.reasoning_text, "")
+        self.assertEqual(result.normal_text, text)  # 断言相等
+        self.assertEqual(result.reasoning_text, "")  # 断言相等
 
 
+# TestQwen3ForcedReasoningDetector类
 class TestQwen3ForcedReasoningDetector(CustomTestCase):
+
+    # TestQwen3ForcedReasoningDetector类的测试初始化设置
     def setUp(self):
         self.detector = Qwen3Detector(force_reasoning=True)
 
+    # TestQwen3ForcedReasoningDetector类的测试init
     def test_init(self):
         """Test Qwen3ForcedReasoningDetector initialization."""
-        self.assertEqual(self.detector.think_start_token, "<think>")
-        self.assertEqual(self.detector.think_end_token, "</think>")
-        self.assertTrue(self.detector._in_reasoning)  # force_reasoning=True
-        self.assertTrue(self.detector.stream_reasoning)
+        self.assertEqual(self.detector.think_start_token, "<think>")  # 断言相等
+        self.assertEqual(self.detector.think_end_token, "</think>")  # 断言相等
+        self.assertTrue(self.detector._in_reasoning)  # force_reasoning=True  # 断言为真
+        self.assertTrue(self.detector.stream_reasoning)  # 断言为真
 
+    # TestQwen3ForcedReasoningDetector类的测试detectandparseqwen3forcedreasoningformat
     def test_detect_and_parse_qwen3_forced_reasoning_format(self):
         """Test parsing Qwen3-ForcedReasoning format (no <think> start tag)."""
         text = "I need to think about this step by step.</think>The answer is 42."
         result = self.detector.detect_and_parse(text)
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             result.reasoning_text, "I need to think about this step by step."
         )
-        self.assertEqual(result.normal_text, "The answer is 42.")
+        self.assertEqual(result.normal_text, "The answer is 42.")  # 断言相等
 
+    # TestQwen3ForcedReasoningDetector类的测试detectandparsewithstarttoken
     def test_detect_and_parse_with_start_token(self):
         """Test parsing Qwen3-ForcedReasoning with optional <think> start tag."""
         text = "<think>I need to think about this.</think>The answer is 42."
         result = self.detector.detect_and_parse(text)
         # Should work because base class logic handles both force_reasoning=True OR start token
-        self.assertEqual(result.reasoning_text, "I need to think about this.")
-        self.assertEqual(result.normal_text, "The answer is 42.")
+        self.assertEqual(result.reasoning_text, "I need to think about this.")  # 断言相等
+        self.assertEqual(result.normal_text, "The answer is 42.")  # 断言相等
 
+    # TestQwen3ForcedReasoningDetector类的测试streamingqwen3forcedreasoningformat
     def test_streaming_qwen3_forced_reasoning_format(self):
         """Test streaming parse of Qwen3-ForcedReasoning format."""
         # First chunk without <think> start
         result = self.detector.parse_streaming_increment("I need to")
-        self.assertEqual(result.reasoning_text, "I need to")
-        self.assertEqual(result.normal_text, "")
+        self.assertEqual(result.reasoning_text, "I need to")  # 断言相等
+        self.assertEqual(result.normal_text, "")  # 断言相等
 
         # More reasoning content
         result = self.detector.parse_streaming_increment(" think about this.")
-        self.assertEqual(result.reasoning_text, " think about this.")
-        self.assertEqual(result.normal_text, "")
+        self.assertEqual(result.reasoning_text, " think about this.")  # 断言相等
+        self.assertEqual(result.normal_text, "")  # 断言相等
 
         # End token with normal text
         result = self.detector.parse_streaming_increment("</think>The answer is 42.")
-        self.assertEqual(result.reasoning_text, "")  # Buffer cleared
-        self.assertEqual(result.normal_text, "The answer is 42.")
+        self.assertEqual(result.reasoning_text, "")  # Buffer cleared  # 断言相等
+        self.assertEqual(result.normal_text, "The answer is 42.")  # 断言相等
 
 
+# TestKimiDetector类
 class TestKimiDetector(CustomTestCase):
+
+    # TestKimiDetector类的测试初始化设置
     def setUp(self):
         self.detector = KimiDetector()
 
+    # TestKimiDetector类的测试init
     def test_init(self):
         """Test KimiDetector initialization."""
-        self.assertEqual(self.detector.think_start_token, "◁think▷")
-        self.assertEqual(self.detector.think_end_token, "◁/think▷")
-        self.assertFalse(self.detector._in_reasoning)
-        self.assertTrue(self.detector.stream_reasoning)
+        self.assertEqual(self.detector.think_start_token, "◁think▷")  # 断言相等
+        self.assertEqual(self.detector.think_end_token, "◁/think▷")  # 断言相等
+        self.assertFalse(self.detector._in_reasoning)  # 断言为假
+        self.assertTrue(self.detector.stream_reasoning)  # 断言为真
 
+    # TestKimiDetector类的测试detectandparsekimiformat
     def test_detect_and_parse_kimi_format(self):
         """Test parsing Kimi format."""
         text = "◁think▷Let me consider this carefully◁/think▷The answer is 42."
         result = self.detector.detect_and_parse(text)
-        self.assertEqual(result.reasoning_text, "Let me consider this carefully")
-        self.assertEqual(result.normal_text, "The answer is 42.")
+        self.assertEqual(result.reasoning_text, "Let me consider this carefully")  # 断言相等
+        self.assertEqual(result.normal_text, "The answer is 42.")  # 断言相等
 
+    # TestKimiDetector类的测试detectandparsekiminothinking
     def test_detect_and_parse_kimi_no_thinking(self):
         """Test parsing Kimi format without thinking."""
         text = "Direct answer without thinking tokens."
         result = self.detector.detect_and_parse(text)
-        self.assertEqual(result.normal_text, text)
-        self.assertEqual(result.reasoning_text, "")
+        self.assertEqual(result.normal_text, text)  # 断言相等
+        self.assertEqual(result.reasoning_text, "")  # 断言相等
 
+    # TestKimiDetector类的测试streamingkimiformat
     def test_streaming_kimi_format(self):
         """Test streaming parse of Kimi format."""
         # Test partial token
         result = self.detector.parse_streaming_increment("◁thi")
-        self.assertEqual(result.normal_text, "")
-        self.assertEqual(result.reasoning_text, "")
+        self.assertEqual(result.normal_text, "")  # 断言相等
+        self.assertEqual(result.reasoning_text, "")  # 断言相等
 
         # Complete start token
         result = self.detector.parse_streaming_increment("nk▷Start")
-        self.assertEqual(result.normal_text, "")
-        self.assertEqual(result.reasoning_text, "Start")
-        self.assertTrue(self.detector._in_reasoning)
+        self.assertEqual(result.normal_text, "")  # 断言相等
+        self.assertEqual(result.reasoning_text, "Start")  # 断言相等
+        self.assertTrue(self.detector._in_reasoning)  # 断言为真
 
         # Add reasoning content
         result = self.detector.parse_streaming_increment("thinking...")
-        self.assertEqual(result.reasoning_text, "thinking...")
-        self.assertEqual(result.normal_text, "")
+        self.assertEqual(result.reasoning_text, "thinking...")  # 断言相等
+        self.assertEqual(result.normal_text, "")  # 断言相等
 
         # End token - reasoning content is cleared when end token is processed
         result = self.detector.parse_streaming_increment("◁/think▷answer")
-        self.assertEqual(result.reasoning_text, "")  # Buffer cleared
-        self.assertEqual(result.normal_text, "answer")
+        self.assertEqual(result.reasoning_text, "")  # Buffer cleared  # 断言相等
+        self.assertEqual(result.normal_text, "answer")  # 断言相等
 
 
+# TestKimiK2Detector类
 class TestKimiK2Detector(CustomTestCase):
     """Test cases for KimiK2 detector with tool interruption support."""
 
     def setUp(self):
         self.detector = KimiK2Detector()
 
+    # TestKimiK2Detector类的测试init
     def test_init(self):
         """Test KimiK2Detector initialization."""
-        self.assertEqual(self.detector.think_start_token, "<think>")
-        self.assertEqual(self.detector.think_end_token, "</think>")
-        self.assertEqual(self.detector.tool_start_token, "<|tool_calls_section_begin|>")
-        self.assertFalse(self.detector._in_reasoning)
-        self.assertTrue(self.detector.stream_reasoning)
+        self.assertEqual(self.detector.think_start_token, "<think>")  # 断言相等
+        self.assertEqual(self.detector.think_end_token, "</think>")  # 断言相等
+        self.assertEqual(self.detector.tool_start_token, "<|tool_calls_section_begin|>")  # 断言相等
+        self.assertFalse(self.detector._in_reasoning)  # 断言为假
+        self.assertTrue(self.detector.stream_reasoning)  # 断言为真
 
+    # TestKimiK2Detector类的测试detectandparsetoolinterrupt
     def test_detect_and_parse_tool_interrupt(self):
         """Test parsing with Kimi-K2 tool-section interruption."""
         text = "<think>thinking<|tool_calls_section_begin|><|tool_call_begin|>"
         result = self.detector.detect_and_parse(text)
-        self.assertEqual(result.reasoning_text, "thinking")
-        self.assertEqual(
+        self.assertEqual(result.reasoning_text, "thinking")  # 断言相等
+        self.assertEqual(  # 断言相等
             result.normal_text, "<|tool_calls_section_begin|><|tool_call_begin|>"
         )
 
+    # TestKimiK2Detector类的测试streamingtoolinterrupt
     def test_streaming_tool_interrupt(self):
         """Test streaming parse interrupted by tool section."""
         self.detector.parse_streaming_increment("<think>")
         result1 = self.detector.parse_streaming_increment("reasoning")
-        self.assertEqual(result1.reasoning_text, "reasoning")
-        self.assertEqual(result1.normal_text, "")
+        self.assertEqual(result1.reasoning_text, "reasoning")  # 断言相等
+        self.assertEqual(result1.normal_text, "")  # 断言相等
 
         result2 = self.detector.parse_streaming_increment(
             "<|tool_calls_section_begin|>"
         )
-        self.assertEqual(result2.reasoning_text, "")
-        self.assertEqual(result2.normal_text, "<|tool_calls_section_begin|>")
+        self.assertEqual(result2.reasoning_text, "")  # 断言相等
+        self.assertEqual(result2.normal_text, "<|tool_calls_section_begin|>")  # 断言相等
 
+    # TestKimiK2Detector类的测试streamingafterinterruptisnormal
     def test_streaming_after_interrupt_is_normal(self):
         """After interruption, subsequent chunks should be normal text."""
         self.detector.parse_streaming_increment("<think>")
         self.detector.parse_streaming_increment("reasoning<|tool_calls_section_begin|>")
         result = self.detector.parse_streaming_increment("<|tool_call_begin|>")
-        self.assertEqual(result.reasoning_text, "")
-        self.assertEqual(result.normal_text, "<|tool_call_begin|>")
+        self.assertEqual(result.reasoning_text, "")  # 断言相等
+        self.assertEqual(result.normal_text, "<|tool_call_begin|>")  # 断言相等
 
 
+# TestGlm45Detector类
 class TestGlm45Detector(CustomTestCase):
     """Test cases for GLM45 detector with tool interruption support."""
 
     def setUp(self):
         self.detector = Glm45Detector()
 
+    # TestGlm45Detector类的测试init
     def test_init(self):
         """Test Glm45Detector initialization."""
-        self.assertEqual(self.detector.think_start_token, "<think>")
-        self.assertEqual(self.detector.think_end_token, "</think>")
-        self.assertEqual(self.detector.tool_start_token, "<tool_call>")
-        self.assertFalse(self.detector._in_reasoning)
-        self.assertTrue(self.detector.stream_reasoning)
+        self.assertEqual(self.detector.think_start_token, "<think>")  # 断言相等
+        self.assertEqual(self.detector.think_end_token, "</think>")  # 断言相等
+        self.assertEqual(self.detector.tool_start_token, "<tool_call>")  # 断言相等
+        self.assertFalse(self.detector._in_reasoning)  # 断言为假
+        self.assertTrue(self.detector.stream_reasoning)  # 断言为真
 
+    # TestGlm45Detector类的测试detectandparsenormalreasoning
     def test_detect_and_parse_normal_reasoning(self):
         """Test parsing normal reasoning block without tool interruption."""
         text = "<think>Let me think about this step by step</think>The answer is 42."
         result = self.detector.detect_and_parse(text)
-        self.assertEqual(result.reasoning_text, "Let me think about this step by step")
-        self.assertEqual(result.normal_text, "The answer is 42.")
+        self.assertEqual(result.reasoning_text, "Let me think about this step by step")  # 断言相等
+        self.assertEqual(result.normal_text, "The answer is 42.")  # 断言相等
 
+    # TestGlm45Detector类的测试detectandparsetoolinterrupt
     def test_detect_and_parse_tool_interrupt(self):
         """
         Test parsing with tool interruption.
@@ -395,9 +452,10 @@ class TestGlm45Detector(CustomTestCase):
         """
         text = "<think>I need to think<tool_call>tool call data"
         result = self.detector.detect_and_parse(text)
-        self.assertEqual(result.reasoning_text, "I need to think")
-        self.assertEqual(result.normal_text, "<tool_call>tool call data")
+        self.assertEqual(result.reasoning_text, "I need to think")  # 断言相等
+        self.assertEqual(result.normal_text, "<tool_call>tool call data")  # 断言相等
 
+    # TestGlm45Detector类的测试detectandparsemultipletoolcallsfind
     def test_detect_and_parse_multiple_tool_calls_find(self):
         """
         Test that find() finds the FIRST occurrence of tool_start_token.
@@ -407,12 +465,13 @@ class TestGlm45Detector(CustomTestCase):
         text = "<think>thinking<tool_call>first tool<tool_call>second tool<tool_call>final tool"
         result = self.detector.detect_and_parse(text)
         # Should split at the first <tool_call>
-        self.assertEqual(result.reasoning_text, "thinking")
-        self.assertEqual(
+        self.assertEqual(result.reasoning_text, "thinking")  # 断言相等
+        self.assertEqual(  # 断言相等
             result.normal_text,
             "<tool_call>first tool<tool_call>second tool<tool_call>final tool",
         )
 
+    # TestGlm45Detector类的测试detectandparsetruncatedreasoning
     def test_detect_and_parse_truncated_reasoning(self):
         """
         Test truncated reasoning without tool or end tag.
@@ -421,35 +480,38 @@ class TestGlm45Detector(CustomTestCase):
         """
         text = "<think>This is incomplete"
         result = self.detector.detect_and_parse(text)
-        self.assertEqual(result.reasoning_text, "This is incomplete")
-        self.assertEqual(result.normal_text, "")
+        self.assertEqual(result.reasoning_text, "This is incomplete")  # 断言相等
+        self.assertEqual(result.normal_text, "")  # 断言相等
 
+    # TestGlm45Detector类的测试detectandparsenormaltextonly
     def test_detect_and_parse_normal_text_only(self):
         """Test parsing text without reasoning block."""
         text = "Just the answer without any reasoning."
         result = self.detector.detect_and_parse(text)
-        self.assertEqual(result.normal_text, text)
-        self.assertEqual(result.reasoning_text, "")
+        self.assertEqual(result.normal_text, text)  # 断言相等
+        self.assertEqual(result.reasoning_text, "")  # 断言相等
 
+    # TestGlm45Detector类的测试streamingnormalflow
     def test_streaming_normal_flow(self):
         """Test streaming with normal reasoning flow."""
         # Start reasoning
         result1 = self.detector.parse_streaming_increment("<think>")
-        self.assertEqual(result1.normal_text, "")
-        self.assertEqual(result1.reasoning_text, "")
-        self.assertTrue(self.detector._in_reasoning)
+        self.assertEqual(result1.normal_text, "")  # 断言相等
+        self.assertEqual(result1.reasoning_text, "")  # 断言相等
+        self.assertTrue(self.detector._in_reasoning)  # 断言为真
 
         # Reasoning content
         result2 = self.detector.parse_streaming_increment("thinking...")
-        self.assertEqual(result2.normal_text, "")
-        self.assertEqual(result2.reasoning_text, "thinking...")
+        self.assertEqual(result2.normal_text, "")  # 断言相等
+        self.assertEqual(result2.reasoning_text, "thinking...")  # 断言相等
 
         # End reasoning
         result3 = self.detector.parse_streaming_increment("</think>answer")
-        self.assertEqual(result3.normal_text, "answer")
-        self.assertEqual(result3.reasoning_text, "")
-        self.assertFalse(self.detector._in_reasoning)
+        self.assertEqual(result3.normal_text, "answer")  # 断言相等
+        self.assertEqual(result3.reasoning_text, "")  # 断言相等
+        self.assertFalse(self.detector._in_reasoning)  # 断言为假
 
+    # TestGlm45Detector类的测试streamingtoolinterruptsplittokens
     def test_streaming_tool_interrupt_split_tokens(self):
         """
         Test streaming with tool interruption where tool token is split across chunks.
@@ -461,20 +523,21 @@ class TestGlm45Detector(CustomTestCase):
 
         # Add reasoning
         result1 = self.detector.parse_streaming_increment("thinking")
-        self.assertEqual(result1.reasoning_text, "thinking")
+        self.assertEqual(result1.reasoning_text, "thinking")  # 断言相等
 
         # Send partial tool token (should be buffered, not emitted)
         result2 = self.detector.parse_streaming_increment("<tool_call>")
         # Tool token is in buffer, causing switch to normal mode
-        self.assertEqual(result2.reasoning_text, "")
-        self.assertEqual(result2.normal_text, "<tool_call>")
-        self.assertFalse(self.detector._in_reasoning)
+        self.assertEqual(result2.reasoning_text, "")  # 断言相等
+        self.assertEqual(result2.normal_text, "<tool_call>")  # 断言相等
+        self.assertFalse(self.detector._in_reasoning)  # 断言为假
 
         # Send tool args
         result3 = self.detector.parse_streaming_increment("tool args")
-        self.assertEqual(result3.reasoning_text, "")
-        self.assertEqual(result3.normal_text, "tool args")
+        self.assertEqual(result3.reasoning_text, "")  # 断言相等
+        self.assertEqual(result3.normal_text, "tool args")  # 断言相等
 
+    # TestGlm45Detector类的测试streamingnostreamreasoning
     def test_streaming_no_stream_reasoning(self):
         """Test streaming without stream_reasoning enabled."""
         detector = Glm45Detector(stream_reasoning=False)
@@ -484,8 +547,8 @@ class TestGlm45Detector(CustomTestCase):
 
         # Reasoning content is buffered and not returned yet
         result = detector.parse_streaming_increment("thinking")
-        self.assertEqual(result.reasoning_text, "")
-        self.assertEqual(result.normal_text, "")
+        self.assertEqual(result.reasoning_text, "")  # 断言相等
+        self.assertEqual(result.normal_text, "")  # 断言相等
 
         # Tool interruption should still work - flushes buffered reasoning.
         # Note: when stream_reasoning=False, the <think> tag is stripped from the
@@ -493,16 +556,18 @@ class TestGlm45Detector(CustomTestCase):
         # cleared in the non-streaming path). So the flushed reasoning content
         # includes the raw <think> tag.
         result = detector.parse_streaming_increment("<tool_call>tool call")
-        self.assertEqual(result.reasoning_text, "<think>thinking")
-        self.assertEqual(result.normal_text, "<tool_call>tool call")
+        self.assertEqual(result.reasoning_text, "<think>thinking")  # 断言相等
+        self.assertEqual(result.normal_text, "<tool_call>tool call")  # 断言相等
 
+    # TestGlm45Detector类的测试streamingemptyreasoningwithtool
     def test_streaming_empty_reasoning_with_tool(self):
         """Test empty reasoning block followed by tool call."""
         result1 = self.detector.parse_streaming_increment("<think>")
         result2 = self.detector.parse_streaming_increment("<tool_call>tool call")
-        self.assertEqual(result2.reasoning_text, "")
-        self.assertEqual(result2.normal_text, "<tool_call>tool call")
+        self.assertEqual(result2.reasoning_text, "")  # 断言相等
+        self.assertEqual(result2.normal_text, "<tool_call>tool call")  # 断言相等
 
+    # TestGlm45Detector类的测试forcedreasoningmode
     def test_forced_reasoning_mode(self):
         """Test GLM45 with force_reasoning=True."""
         detector = Glm45Detector(force_reasoning=True)
@@ -510,80 +575,89 @@ class TestGlm45Detector(CustomTestCase):
         # Without start token, should still be in reasoning mode
         text = "This is reasoning"
         result = detector.detect_and_parse(text)
-        self.assertEqual(result.reasoning_text, "This is reasoning")
-        self.assertEqual(result.normal_text, "")
+        self.assertEqual(result.reasoning_text, "This is reasoning")  # 断言相等
+        self.assertEqual(result.normal_text, "")  # 断言相等
 
         # Tool interruption should work with forced reasoning
         text = "More reasoning<tool_call>tool call"
         result = detector.detect_and_parse(text)
-        self.assertEqual(result.reasoning_text, "More reasoning")
-        self.assertEqual(result.normal_text, "<tool_call>tool call")
+        self.assertEqual(result.reasoning_text, "More reasoning")  # 断言相等
+        self.assertEqual(result.normal_text, "<tool_call>tool call")  # 断言相等
 
 
+# TestHunyuanDetector类
 class TestHunyuanDetector(CustomTestCase):
     """Test cases for Hunyuan detector with tool interruption support."""
 
     def setUp(self):
         self.detector = HunyuanDetector()
 
+    # TestHunyuanDetector类的测试init
     def test_init(self):
         """Test HunyuanDetector initialization."""
-        self.assertEqual(self.detector.think_start_token, "<think>")
-        self.assertEqual(self.detector.think_end_token, "</think>")
-        self.assertEqual(self.detector.tool_start_token, "<tool_calls>")
-        self.assertFalse(self.detector._in_reasoning)
-        self.assertTrue(self.detector.stream_reasoning)
+        self.assertEqual(self.detector.think_start_token, "<think>")  # 断言相等
+        self.assertEqual(self.detector.think_end_token, "</think>")  # 断言相等
+        self.assertEqual(self.detector.tool_start_token, "<tool_calls>")  # 断言相等
+        self.assertFalse(self.detector._in_reasoning)  # 断言为假
+        self.assertTrue(self.detector.stream_reasoning)  # 断言为真
 
+    # TestHunyuanDetector类的测试detectandparsenormalreasoning
     def test_detect_and_parse_normal_reasoning(self):
         """Test parsing normal reasoning block without tool interruption."""
         text = "<think>Let me think about this</think>The answer is 42."
         result = self.detector.detect_and_parse(text)
-        self.assertEqual(result.reasoning_text, "Let me think about this")
-        self.assertEqual(result.normal_text, "The answer is 42.")
+        self.assertEqual(result.reasoning_text, "Let me think about this")  # 断言相等
+        self.assertEqual(result.normal_text, "The answer is 42.")  # 断言相等
 
+    # TestHunyuanDetector类的测试detectandparsewithoutthinking
     def test_detect_and_parse_without_thinking(self):
         """Test parsing without thinking tokens (no_think mode)."""
         text = "Direct answer without thinking."
         result = self.detector.detect_and_parse(text)
-        self.assertEqual(result.normal_text, text)
-        self.assertEqual(result.reasoning_text, "")
+        self.assertEqual(result.normal_text, text)  # 断言相等
+        self.assertEqual(result.reasoning_text, "")  # 断言相等
 
+    # TestHunyuanDetector类的测试detectandparsetoolinterrupt
     def test_detect_and_parse_tool_interrupt(self):
         """Test parsing with tool call interruption during reasoning."""
         text = "<think>I need to check<tool_calls><tool_call>get_weather<tool_sep></tool_call></tool_calls>"
         result = self.detector.detect_and_parse(text)
-        self.assertEqual(result.reasoning_text, "I need to check")
-        self.assertIn("<tool_calls>", result.normal_text)
+        self.assertEqual(result.reasoning_text, "I need to check")  # 断言相等
+        self.assertIn("<tool_calls>", result.normal_text)  # 断言包含
 
+    # TestHunyuanDetector类的测试streamingnormalreasoning
     def test_streaming_normal_reasoning(self):
         """Test streaming parse of normal reasoning block."""
         self.detector.parse_streaming_increment("<think>")
         result1 = self.detector.parse_streaming_increment("reasoning content")
-        self.assertEqual(result1.reasoning_text, "reasoning content")
+        self.assertEqual(result1.reasoning_text, "reasoning content")  # 断言相等
 
         result2 = self.detector.parse_streaming_increment("</think>answer")
-        self.assertEqual(result2.normal_text, "answer")
-        self.assertFalse(self.detector._in_reasoning)
+        self.assertEqual(result2.normal_text, "answer")  # 断言相等
+        self.assertFalse(self.detector._in_reasoning)  # 断言为假
 
+    # TestHunyuanDetector类的测试streamingtoolinterrupt
     def test_streaming_tool_interrupt(self):
         """Test streaming parse interrupted by tool call section."""
         self.detector.parse_streaming_increment("<think>")
         result1 = self.detector.parse_streaming_increment("thinking")
-        self.assertEqual(result1.reasoning_text, "thinking")
+        self.assertEqual(result1.reasoning_text, "thinking")  # 断言相等
 
         result2 = self.detector.parse_streaming_increment("<tool_calls>")
-        self.assertEqual(result2.reasoning_text, "")
-        self.assertEqual(result2.normal_text, "<tool_calls>")
-        self.assertFalse(self.detector._in_reasoning)
+        self.assertEqual(result2.reasoning_text, "")  # 断言相等
+        self.assertEqual(result2.normal_text, "<tool_calls>")  # 断言相等
+        self.assertFalse(self.detector._in_reasoning)  # 断言为假
 
+    # TestHunyuanDetector类的测试streamingafterinterruptisnormal
     def test_streaming_after_interrupt_is_normal(self):
         """After tool interruption, subsequent chunks should be normal text."""
         self.detector.parse_streaming_increment("<think>")
         self.detector.parse_streaming_increment("reasoning<tool_calls>")
         result = self.detector.parse_streaming_increment("<tool_call>data")
-        self.assertEqual(result.reasoning_text, "")
-        self.assertEqual(result.normal_text, "<tool_call>data")
+        self.assertEqual(result.reasoning_text, "")  # 断言相等
+        self.assertEqual(result.normal_text, "<tool_call>data")  # 断言相等
 
+    # TestHunyuanDetector类的测试reasoningparserintegration
     def test_reasoning_parser_integration(self):
         """Test Hunyuan through ReasoningParser API."""
         parser = ReasoningParser("hunyuan")
@@ -593,9 +667,10 @@ class TestHunyuanDetector(CustomTestCase):
         reasoning, normal = parser.parse_non_stream(
             "<think>thinking<tool_calls><tool_call>func<tool_sep></tool_call></tool_calls>"
         )
-        self.assertEqual(reasoning, "thinking")
-        self.assertIn("<tool_calls>", normal)
+        self.assertEqual(reasoning, "thinking")  # 断言相等
+        self.assertIn("<tool_calls>", normal)  # 断言包含
 
+    # TestHunyuanDetector类的测试reasoningparserstreaming
     def test_reasoning_parser_streaming(self):
         """Test Hunyuan streaming through ReasoningParser API."""
         parser = ReasoningParser("hunyuan")
@@ -609,111 +684,130 @@ class TestHunyuanDetector(CustomTestCase):
             if normal:
                 all_normal += normal
 
-        self.assertEqual(all_reasoning, "reasoning")
-        self.assertIn("<tool_calls>", all_normal)
+        self.assertEqual(all_reasoning, "reasoning")  # 断言相等
+        self.assertIn("<tool_calls>", all_normal)  # 断言包含
 
 
+# TestNemotron3Detector类
 class TestNemotron3Detector(CustomTestCase):
+
+    # TestNemotron3Detector类的测试初始化设置
     def setUp(self):
         self.detector = Nemotron3Detector()
 
+    # TestNemotron3Detector类的测试init
     def test_init(self):
         """Test Nemotron3Detector initialization."""
-        self.assertEqual(self.detector.think_start_token, "<think>")
-        self.assertEqual(self.detector.think_end_token, "</think>")
-        self.assertFalse(self.detector._in_reasoning)
-        self.assertTrue(self.detector.stream_reasoning)
-        self.assertFalse(self.detector._force_nonempty_content)
+        self.assertEqual(self.detector.think_start_token, "<think>")  # 断言相等
+        self.assertEqual(self.detector.think_end_token, "</think>")  # 断言相等
+        self.assertFalse(self.detector._in_reasoning)  # 断言为假
+        self.assertTrue(self.detector.stream_reasoning)  # 断言为真
+        self.assertFalse(self.detector._force_nonempty_content)  # 断言为假
 
+    # TestNemotron3Detector类的测试detectandparsecompletereasoning
     def test_detect_and_parse_complete_reasoning(self):
         """Test parsing complete reasoning block."""
         text = "<think>Let me think about this</think>The answer is 42."
         result = self.detector.detect_and_parse(text)
-        self.assertEqual(result.reasoning_text, "Let me think about this")
-        self.assertEqual(result.normal_text, "The answer is 42.")
+        self.assertEqual(result.reasoning_text, "Let me think about this")  # 断言相等
+        self.assertEqual(result.normal_text, "The answer is 42.")  # 断言相等
 
+    # TestNemotron3Detector类的测试detectandparsenothinking
     def test_detect_and_parse_no_thinking(self):
         """Test parsing without thinking tokens."""
         text = "Direct answer without thinking."
         result = self.detector.detect_and_parse(text)
-        self.assertEqual(result.normal_text, text)
-        self.assertEqual(result.reasoning_text, "")
+        self.assertEqual(result.normal_text, text)  # 断言相等
+        self.assertEqual(result.reasoning_text, "")  # 断言相等
 
+    # TestNemotron3Detector类的测试detectandparsereasoningonly
     def test_detect_and_parse_reasoning_only(self):
         """Test parsing when output is all reasoning (no content after </think>)."""
         text = "<think>All reasoning, no answer</think>"
         result = self.detector.detect_and_parse(text)
-        self.assertEqual(result.reasoning_text, "All reasoning, no answer")
-        self.assertEqual(result.normal_text, "")
+        self.assertEqual(result.reasoning_text, "All reasoning, no answer")  # 断言相等
+        self.assertEqual(result.normal_text, "")  # 断言相等
 
+    # TestNemotron3Detector类的测试forcenonemptycontentswapswhennonormaltext
     def test_force_nonempty_content_swaps_when_no_normal_text(self):
         """Test force_nonempty_content swaps reasoning to content when content is empty."""
         detector = Nemotron3Detector(force_nonempty_content=True)
         text = "<think>All reasoning, no answer</think>"
         result = detector.detect_and_parse(text)
-        self.assertEqual(result.normal_text, "All reasoning, no answer")
-        self.assertEqual(result.reasoning_text, "")
+        self.assertEqual(result.normal_text, "All reasoning, no answer")  # 断言相等
+        self.assertEqual(result.reasoning_text, "")  # 断言相等
 
+    # TestNemotron3Detector类的测试forcenonemptycontentnoswapwhennormaltextexists
     def test_force_nonempty_content_no_swap_when_normal_text_exists(self):
         """Test force_nonempty_content does not swap when content already exists."""
         detector = Nemotron3Detector(force_nonempty_content=True)
         text = "<think>Reasoning here</think>The answer is 42."
         result = detector.detect_and_parse(text)
-        self.assertEqual(result.reasoning_text, "Reasoning here")
-        self.assertEqual(result.normal_text, "The answer is 42.")
+        self.assertEqual(result.reasoning_text, "Reasoning here")  # 断言相等
+        self.assertEqual(result.normal_text, "The answer is 42.")  # 断言相等
 
+    # TestNemotron3Detector类的测试forcenonemptycontenttruncatedreasoning
     def test_force_nonempty_content_truncated_reasoning(self):
         """Test force_nonempty_content with truncated reasoning (no end token)."""
         detector = Nemotron3Detector(force_nonempty_content=True)
         text = "<think>Truncated reasoning without end token"
         result = detector.detect_and_parse(text)
         # Truncated reasoning has no normal_text, so swap should occur
-        self.assertEqual(result.normal_text, "Truncated reasoning without end token")
-        self.assertEqual(result.reasoning_text, "")
+        self.assertEqual(result.normal_text, "Truncated reasoning without end token")  # 断言相等
+        self.assertEqual(result.reasoning_text, "")  # 断言相等
 
+    # TestNemotron3Detector类的测试forcenonemptycontentnothinkingtokens
     def test_force_nonempty_content_no_thinking_tokens(self):
         """Test force_nonempty_content with plain text (no thinking tokens)."""
         detector = Nemotron3Detector(force_nonempty_content=True)
         text = "Plain text without any thinking."
         result = detector.detect_and_parse(text)
         # Normal text already exists, no swap needed
-        self.assertEqual(result.normal_text, text)
-        self.assertEqual(result.reasoning_text, "")
+        self.assertEqual(result.normal_text, text)  # 断言相等
+        self.assertEqual(result.reasoning_text, "")  # 断言相等
 
 
+# TestGemma4Detector类
 class TestGemma4Detector(CustomTestCase):
+
+    # TestGemma4Detector类的测试初始化设置
     def setUp(self):
         self.detector = Gemma4Detector()
 
+    # TestGemma4Detector类的测试init
     def test_init(self):
         """Test Gemma4Detector initialization."""
-        self.assertEqual(self.detector.think_start_token, "<|channel>")
-        self.assertEqual(self.detector.think_end_token, "<channel|>")
-        self.assertEqual(self.detector.think_start_self_label, "thought\n")
-        self.assertFalse(self.detector._in_reasoning)
-        self.assertTrue(self.detector.stream_reasoning)
+        self.assertEqual(self.detector.think_start_token, "<|channel>")  # 断言相等
+        self.assertEqual(self.detector.think_end_token, "<channel|>")  # 断言相等
+        self.assertEqual(self.detector.think_start_self_label, "thought\n")  # 断言相等
+        self.assertFalse(self.detector._in_reasoning)  # 断言为假
+        self.assertTrue(self.detector.stream_reasoning)  # 断言为真
 
+    # TestGemma4Detector类的测试detectandparsecompletereasoning
     def test_detect_and_parse_complete_reasoning(self):
         """Test parsing complete Gemma4 reasoning block (think_start_self_label is stripped)."""
         text = "<|channel>thought\nLet me think about this<channel|>The answer is 42."
         result = self.detector.detect_and_parse(text)
-        self.assertEqual(result.reasoning_text, "Let me think about this")
-        self.assertEqual(result.normal_text, "The answer is 42.")
+        self.assertEqual(result.reasoning_text, "Let me think about this")  # 断言相等
+        self.assertEqual(result.normal_text, "The answer is 42.")  # 断言相等
 
+    # TestGemma4Detector类的测试detectandparsewithoutthinking
     def test_detect_and_parse_without_thinking(self):
         """Test parsing without thinking (enable_thinking=False case)."""
         text = "Direct answer without thinking."
         result = self.detector.detect_and_parse(text)
-        self.assertEqual(result.normal_text, text)
-        self.assertEqual(result.reasoning_text, "")
+        self.assertEqual(result.normal_text, text)  # 断言相等
+        self.assertEqual(result.reasoning_text, "")  # 断言相等
 
+    # TestGemma4Detector类的测试detectandparsereasoningonly
     def test_detect_and_parse_reasoning_only(self):
         """Test parsing when output is all reasoning (no end token yet)."""
         text = "<|channel>thought\nStill thinking..."
         result = self.detector.detect_and_parse(text)
-        self.assertEqual(result.reasoning_text, "Still thinking...")
-        self.assertEqual(result.normal_text, "")
+        self.assertEqual(result.reasoning_text, "Still thinking...")  # 断言相等
+        self.assertEqual(result.normal_text, "")  # 断言相等
 
+    # TestGemma4Detector类的测试streamingcompleteflow
     def test_streaming_complete_flow(self):
         """Test streaming parse of Gemma4 reasoning flow."""
         chunks = [
@@ -728,74 +822,81 @@ class TestGemma4Detector(CustomTestCase):
             result = self.detector.parse_streaming_increment(chunk)
             all_reasoning += result.reasoning_text
             all_normal += result.normal_text
-        self.assertIn("reasoning content", all_reasoning)
-        self.assertIn("final answer", all_normal)
+        self.assertIn("reasoning content", all_reasoning)  # 断言包含
+        self.assertIn("final answer", all_normal)  # 断言包含
 
+    # TestGemma4Detector类的测试streamingfullstartsequence
     def test_streaming_full_start_sequence(self):
         """Test streaming with the full start sequence (token + self_label)."""
         # Gemma4 start sequence is "<|channel>thought\n", not just "<|channel>"
         result = self.detector.parse_streaming_increment("<|channel>thought\n")
-        self.assertEqual(result.normal_text, "")
-        self.assertEqual(result.reasoning_text, "")
-        self.assertTrue(self.detector._in_reasoning)
+        self.assertEqual(result.normal_text, "")  # 断言相等
+        self.assertEqual(result.reasoning_text, "")  # 断言相等
+        self.assertTrue(self.detector._in_reasoning)  # 断言为真
 
         result = self.detector.parse_streaming_increment("reasoning content")
-        self.assertEqual(result.reasoning_text, "reasoning content")
-        self.assertEqual(result.normal_text, "")
+        self.assertEqual(result.reasoning_text, "reasoning content")  # 断言相等
+        self.assertEqual(result.normal_text, "")  # 断言相等
 
+    # TestGemma4Detector类的测试streamingpartialstartbuffered
     def test_streaming_partial_start_buffered(self):
         """Test that partial start sequence is buffered."""
         # "<|channel>" alone is a prefix of "<|channel>thought\n", so it's buffered
         result = self.detector.parse_streaming_increment("<|channel>")
-        self.assertEqual(result.normal_text, "")
-        self.assertEqual(result.reasoning_text, "")
+        self.assertEqual(result.normal_text, "")  # 断言相等
+        self.assertEqual(result.reasoning_text, "")  # 断言相等
 
+    # TestGemma4Detector类的测试streamingendtokenmidchunk
     def test_streaming_end_token_mid_chunk(self):
         """Test end token arriving in the same chunk as reasoning content."""
         self.detector.parse_streaming_increment("<|channel>thought\n")
         result = self.detector.parse_streaming_increment(
             "some reasoning<channel|>the answer"
         )
-        self.assertEqual(result.reasoning_text, "some reasoning")
-        self.assertEqual(result.normal_text, "the answer")
-        self.assertFalse(self.detector._in_reasoning)
+        self.assertEqual(result.reasoning_text, "some reasoning")  # 断言相等
+        self.assertEqual(result.normal_text, "the answer")  # 断言相等
+        self.assertFalse(self.detector._in_reasoning)  # 断言为假
 
+    # TestGemma4Detector类的测试streamingsplitendtoken
     def test_streaming_split_end_token(self):
         """Test end token split across two chunks."""
         self.detector.parse_streaming_increment("<|channel>thought\n")
         self.detector.parse_streaming_increment("reasoning content")
 
         result1 = self.detector.parse_streaming_increment("<chan")
-        self.assertEqual(result1.normal_text, "")
+        self.assertEqual(result1.normal_text, "")  # 断言相等
 
         result2 = self.detector.parse_streaming_increment("nel|>final answer")
-        self.assertFalse(self.detector._in_reasoning)
-        self.assertIn("final answer", result2.normal_text)
+        self.assertFalse(self.detector._in_reasoning)  # 断言为假
+        self.assertIn("final answer", result2.normal_text)  # 断言包含
 
+    # TestGemma4Detector类的测试streamingselflabelsplitacrosschunks
     def test_streaming_self_label_split_across_chunks(self):
         """Test self_label ('thought\\n') arriving separately from start token."""
         result1 = self.detector.parse_streaming_increment("<|channel>")
-        self.assertEqual(result1.reasoning_text, "")
-        self.assertEqual(result1.normal_text, "")
+        self.assertEqual(result1.reasoning_text, "")  # 断言相等
+        self.assertEqual(result1.normal_text, "")  # 断言相等
 
         result2 = self.detector.parse_streaming_increment("thought\n")
-        self.assertTrue(self.detector._in_reasoning)
+        self.assertTrue(self.detector._in_reasoning)  # 断言为真
 
         result3 = self.detector.parse_streaming_increment("reasoning here")
-        self.assertEqual(result3.reasoning_text, "reasoning here")
+        self.assertEqual(result3.reasoning_text, "reasoning here")  # 断言相等
 
+    # TestGemma4Detector类的测试streamingforcereasoning
     def test_streaming_force_reasoning(self):
         """Test streaming with force_reasoning=True (no start token needed)."""
         detector = Gemma4Detector(force_reasoning=True)
 
         result1 = detector.parse_streaming_increment("reasoning content")
-        self.assertEqual(result1.reasoning_text, "reasoning content")
-        self.assertEqual(result1.normal_text, "")
+        self.assertEqual(result1.reasoning_text, "reasoning content")  # 断言相等
+        self.assertEqual(result1.normal_text, "")  # 断言相等
 
         result2 = detector.parse_streaming_increment("<channel|>the answer")
-        self.assertFalse(detector._in_reasoning)
-        self.assertIn("the answer", result2.normal_text)
+        self.assertFalse(detector._in_reasoning)  # 断言为假
+        self.assertIn("the answer", result2.normal_text)  # 断言包含
 
+    # TestGemma4Detector类的测试streamingmultiplereasoningchunks
     def test_streaming_multiple_reasoning_chunks(self):
         """Test reasoning content arriving in many small chunks."""
         self.detector.parse_streaming_increment("<|channel>thought\n")
@@ -804,19 +905,23 @@ class TestGemma4Detector(CustomTestCase):
         for chunk in ["Think", "ing ", "step ", "by ", "step."]:
             result = self.detector.parse_streaming_increment(chunk)
             all_reasoning += result.reasoning_text
-            self.assertEqual(result.normal_text, "")
-        self.assertEqual(all_reasoning, "Thinking step by step.")
+            self.assertEqual(result.normal_text, "")  # 断言相等
+        self.assertEqual(all_reasoning, "Thinking step by step.")  # 断言相等
 
+    # TestGemma4Detector类的测试forcereasoning
     def test_force_reasoning(self):
         """Test Gemma4Detector with force_reasoning=True."""
         detector = Gemma4Detector(force_reasoning=True)
         text = "This should be reasoning<channel|>The answer."
         result = detector.detect_and_parse(text)
-        self.assertEqual(result.reasoning_text, "This should be reasoning")
-        self.assertEqual(result.normal_text, "The answer.")
+        self.assertEqual(result.reasoning_text, "This should be reasoning")  # 断言相等
+        self.assertEqual(result.normal_text, "The answer.")  # 断言相等
 
 
+# TestReasoningParser类
 class TestReasoningParser(CustomTestCase):
+
+    # TestReasoningParser类的测试initvalidmodel
     def test_init_valid_model(self):
         """Test initialization with valid model types."""
         parser = ReasoningParser("deepseek-r1")
@@ -840,77 +945,85 @@ class TestReasoningParser(CustomTestCase):
         parser = ReasoningParser("gemma4")
         self.assertIsInstance(parser.detector, Gemma4Detector)
 
+    # TestReasoningParser类的测试initinvalidmodel
     def test_init_invalid_model(self):
         """Test initialization with invalid model type."""
-        with self.assertRaises(ValueError) as context:
+        with self.assertRaises(ValueError) as context:  # 断言抛出异常
             ReasoningParser("invalid-model")
-        self.assertIn("Unsupported model type", str(context.exception))
+        self.assertIn("Unsupported model type", str(context.exception))  # 断言包含
 
+    # TestReasoningParser类的测试initnomodel
     def test_init_no_model(self):
         """Test initialization without model type."""
-        with self.assertRaises(ValueError) as context:
+        with self.assertRaises(ValueError) as context:  # 断言抛出异常
             ReasoningParser(None)
-        self.assertEqual(str(context.exception), "Model type must be specified")
+        self.assertEqual(str(context.exception), "Model type must be specified")  # 断言相等
 
+    # TestReasoningParser类的测试parsenonstream
     def test_parse_non_stream(self):
         """Test non-streaming parsing."""
         parser = ReasoningParser("qwen3")
         reasoning, normal = parser.parse_non_stream(
             "<think>Let me think</think>The answer is 42."
         )
-        self.assertEqual(reasoning, "Let me think")
-        self.assertEqual(normal, "The answer is 42.")
+        self.assertEqual(reasoning, "Let me think")  # 断言相等
+        self.assertEqual(normal, "The answer is 42.")  # 断言相等
 
+    # TestReasoningParser类的测试parsenonstreampreservespayloadwhitespace
     def test_parse_non_stream_preserves_payload_whitespace(self):
         """Non-streaming parsing must not rewrite text inside or after reasoning."""
         parser = ReasoningParser("qwen3")
         reasoning, normal = parser.parse_non_stream(
             "<think>\nLet me think\n</think>\n\nThe answer is 42.\n"
         )
-        self.assertEqual(reasoning, "\nLet me think\n")
-        self.assertEqual(normal, "\n\nThe answer is 42.\n")
+        self.assertEqual(reasoning, "\nLet me think\n")  # 断言相等
+        self.assertEqual(normal, "\n\nThe answer is 42.\n")  # 断言相等
 
+    # TestReasoningParser类的测试parsenonstreamstripsrepeatedleadingstarttokens
     def test_parse_non_stream_strips_repeated_leading_start_tokens(self):
         """Repeated leading start tokens are markers, not reasoning payload."""
         parser = ReasoningParser("qwen3")
         reasoning, normal = parser.parse_non_stream(
             "<think><think>Let me think</think>The answer is 42."
         )
-        self.assertEqual(reasoning, "Let me think")
-        self.assertEqual(normal, "The answer is 42.")
+        self.assertEqual(reasoning, "Let me think")  # 断言相等
+        self.assertEqual(normal, "The answer is 42.")  # 断言相等
 
+    # TestReasoningParser类的测试parsestreamchunkpreservespayloadwhitespace
     def test_parse_stream_chunk_preserves_payload_whitespace(self):
         """Streaming parsing preserves the same generated payload whitespace."""
         parser = ReasoningParser("qwen3")
         reasoning, normal = parser.parse_stream_chunk("<think>")
-        self.assertEqual(reasoning, "")
-        self.assertEqual(normal, "")
+        self.assertEqual(reasoning, "")  # 断言相等
+        self.assertEqual(normal, "")  # 断言相等
 
         reasoning, normal = parser.parse_stream_chunk(
             "\nLet me think\n</think>\n\nThe answer is 42.\n"
         )
-        self.assertEqual(reasoning, "\nLet me think\n")
-        self.assertEqual(normal, "\n\nThe answer is 42.\n")
+        self.assertEqual(reasoning, "\nLet me think\n")  # 断言相等
+        self.assertEqual(normal, "\n\nThe answer is 42.\n")  # 断言相等
 
+    # TestReasoningParser类的测试parsestreamchunk
     def test_parse_stream_chunk(self):
         """Test streaming chunk parsing."""
         parser = ReasoningParser("qwen3")
 
         # First chunk with start token
         reasoning, normal = parser.parse_stream_chunk("<think>")
-        self.assertEqual(reasoning, "")
-        self.assertEqual(normal, "")
+        self.assertEqual(reasoning, "")  # 断言相等
+        self.assertEqual(normal, "")  # 断言相等
 
         # Second chunk with reasoning content
         reasoning, normal = parser.parse_stream_chunk("thinking...")
-        self.assertEqual(reasoning, "thinking...")
-        self.assertEqual(normal, "")
+        self.assertEqual(reasoning, "thinking...")  # 断言相等
+        self.assertEqual(normal, "")  # 断言相等
 
         # Third chunk with end token and normal text
         reasoning, normal = parser.parse_stream_chunk("</think>answer")
-        self.assertEqual(reasoning, "")  # Buffer cleared when end token processed
-        self.assertEqual(normal, "answer")
+        self.assertEqual(reasoning, "")  # Buffer cleared when end token processed  # 断言相等
+        self.assertEqual(normal, "answer")  # 断言相等
 
+    # TestReasoningParser类的测试caseinsensitivemodeltype
     def test_case_insensitive_model_type(self):
         """Test case insensitive model type matching."""
         parser1 = ReasoningParser("DeepSeek-R1")
@@ -921,14 +1034,16 @@ class TestReasoningParser(CustomTestCase):
         self.assertIsInstance(parser2.detector, Qwen3Detector)
         self.assertIsInstance(parser3.detector, KimiDetector)
 
+    # TestReasoningParser类的测试streamreasoningparameter
     def test_stream_reasoning_parameter(self):
         """Test stream_reasoning parameter is passed correctly."""
         parser = ReasoningParser("qwen3", stream_reasoning=False)
-        self.assertFalse(parser.detector.stream_reasoning)
+        self.assertFalse(parser.detector.stream_reasoning)  # 断言为假
 
         parser = ReasoningParser("qwen3", stream_reasoning=True)
-        self.assertTrue(parser.detector.stream_reasoning)
+        self.assertTrue(parser.detector.stream_reasoning)  # 断言为真
 
+    # TestReasoningParser类的测试glm45toolinterruption
     def test_glm45_tool_interruption(self):
         """Test GLM45 tool interruption through ReasoningParser API."""
         parser = ReasoningParser("glm45")
@@ -937,8 +1052,8 @@ class TestReasoningParser(CustomTestCase):
         reasoning, normal = parser.parse_non_stream(
             "<think>thinking<tool_call>tool call"
         )
-        self.assertEqual(reasoning, "thinking")
-        self.assertEqual(normal, "<tool_call>tool call")
+        self.assertEqual(reasoning, "thinking")  # 断言相等
+        self.assertEqual(normal, "<tool_call>tool call")  # 断言相等
 
         # Streaming: tool interrupt
         parser = ReasoningParser("glm45")
@@ -952,9 +1067,10 @@ class TestReasoningParser(CustomTestCase):
             if normal:
                 all_normal += normal
 
-        self.assertEqual(all_reasoning, "reasoning")
-        self.assertEqual(all_normal, "<tool_call>tool args")
+        self.assertEqual(all_reasoning, "reasoning")  # 断言相等
+        self.assertEqual(all_normal, "<tool_call>tool args")  # 断言相等
 
+    # TestReasoningParser类的测试kimik2toolinterruption
     def test_kimik2_tool_interruption(self):
         """Test Kimi-K2 tool interruption through ReasoningParser API."""
         parser = ReasoningParser("kimi_k2")
@@ -963,8 +1079,8 @@ class TestReasoningParser(CustomTestCase):
         reasoning, normal = parser.parse_non_stream(
             "<think>thinking<|tool_calls_section_begin|><|tool_call_begin|>"
         )
-        self.assertEqual(reasoning, "thinking")
-        self.assertEqual(normal, "<|tool_calls_section_begin|><|tool_call_begin|>")
+        self.assertEqual(reasoning, "thinking")  # 断言相等
+        self.assertEqual(normal, "<|tool_calls_section_begin|><|tool_call_begin|>")  # 断言相等
 
         # Streaming: tool interrupt
         parser = ReasoningParser("kimi_k2")
@@ -983,10 +1099,11 @@ class TestReasoningParser(CustomTestCase):
             if normal:
                 all_normal += normal
 
-        self.assertEqual(all_reasoning, "reasoning")
-        self.assertEqual(all_normal, "<|tool_calls_section_begin|><|tool_call_begin|>")
+        self.assertEqual(all_reasoning, "reasoning")  # 断言相等
+        self.assertEqual(all_normal, "<|tool_calls_section_begin|><|tool_call_begin|>")  # 断言相等
 
 
+# TestIntegrationScenarios类
 class TestIntegrationScenarios(CustomTestCase):
     """Integration tests for realistic usage scenarios."""
 
@@ -996,12 +1113,13 @@ class TestIntegrationScenarios(CustomTestCase):
         text = "I need to solve this step by step. First, I'll analyze the problem. The given equation is x + 2 = 5. To solve for x, I subtract 2 from both sides: x = 5 - 2 = 3.</think>The answer is x = 3."
 
         reasoning, normal = parser.parse_non_stream(text)
-        self.assertIn("step by step", reasoning)
-        self.assertIn(
+        self.assertIn("step by step", reasoning)  # 断言包含
+        self.assertIn(  # 断言包含
             "= 3", reasoning
         )  # The reasoning contains "x = 5 - 2 = 3" which has "= 3"
-        self.assertEqual(normal, "The answer is x = 3.")
+        self.assertEqual(normal, "The answer is x = 3.")  # 断言相等
 
+    # TestIntegrationScenarios类的测试qwen3streamingscenario
     def test_qwen3_streaming_scenario(self):
         """Test Qwen3 streaming scenario."""
         parser = ReasoningParser("qwen3")
@@ -1022,10 +1140,11 @@ class TestIntegrationScenarios(CustomTestCase):
             all_reasoning += reasoning
             all_normal += normal
 
-        self.assertIn("analyze", all_reasoning)
-        self.assertIn("multiple factors", all_reasoning)
-        self.assertIn("different approach", all_normal)
+        self.assertIn("analyze", all_reasoning)  # 断言包含
+        self.assertIn("multiple factors", all_reasoning)  # 断言包含
+        self.assertIn("different approach", all_normal)  # 断言包含
 
+    # TestIntegrationScenarios类的测试kimistreamingscenario
     def test_kimi_streaming_scenario(self):
         """Test Kimi streaming scenario."""
         parser = ReasoningParser("kimi")
@@ -1045,19 +1164,21 @@ class TestIntegrationScenarios(CustomTestCase):
             all_reasoning += reasoning
             all_normal += normal
 
-        self.assertIn("analyze", all_reasoning)
-        self.assertIn("multiple factors", all_reasoning)
-        self.assertIn("42", all_normal)
+        self.assertIn("analyze", all_reasoning)  # 断言包含
+        self.assertIn("multiple factors", all_reasoning)  # 断言包含
+        self.assertIn("42", all_normal)  # 断言包含
 
+    # TestIntegrationScenarios类的测试gemma4completeresponse
     def test_gemma4_complete_response(self):
         """Test complete Gemma4 response parsing (think_start_self_label stripped)."""
         parser = ReasoningParser("gemma4")
         text = "<|channel>thought\nI need to solve x + 2 = 5. Subtracting 2: x = 3.<channel|>The answer is x = 3."
         reasoning, normal = parser.parse_non_stream(text)
-        self.assertIn("x = 3", reasoning)
-        self.assertNotIn("thought\n", reasoning)
-        self.assertEqual(normal, "The answer is x = 3.")
+        self.assertIn("x = 3", reasoning)  # 断言包含
+        self.assertNotIn("thought\n", reasoning)  # 断言不包含
+        self.assertEqual(normal, "The answer is x = 3.")  # 断言相等
 
+    # TestIntegrationScenarios类的测试gemma4streamingscenario
     def test_gemma4_streaming_scenario(self):
         """Test Gemma4 streaming scenario."""
         parser = ReasoningParser("gemma4")
@@ -1074,29 +1195,32 @@ class TestIntegrationScenarios(CustomTestCase):
             reasoning, normal = parser.parse_stream_chunk(chunk)
             all_reasoning += reasoning
             all_normal += normal
-        self.assertIn("analyze", all_reasoning)
-        self.assertIn("Multiple factors", all_reasoning)
-        self.assertIn("42", all_normal)
+        self.assertIn("analyze", all_reasoning)  # 断言包含
+        self.assertIn("Multiple factors", all_reasoning)  # 断言包含
+        self.assertIn("42", all_normal)  # 断言包含
 
+    # TestIntegrationScenarios类的测试emptyreasoningblocks
     def test_empty_reasoning_blocks(self):
         """Test handling of empty reasoning blocks."""
         parser = ReasoningParser("qwen3")
         text = "<think></think>Just the answer."
 
         reasoning, normal = parser.parse_non_stream(text)
-        self.assertEqual(reasoning, "")
-        self.assertEqual(normal, "Just the answer.")
+        self.assertEqual(reasoning, "")  # 断言相等
+        self.assertEqual(normal, "Just the answer.")  # 断言相等
 
+    # TestIntegrationScenarios类的测试qwen3forcedreasoningcompleteresponse
     def test_qwen3_forced_reasoning_complete_response(self):
         """Test complete Qwen3-ForcedReasoning response parsing."""
         parser = ReasoningParser("qwen3", force_reasoning=True)
         text = "Let me solve this step by step. The equation is x + 2 = 5. Subtracting 2 from both sides gives x = 3.</think>The solution is x = 3."
 
         reasoning, normal = parser.parse_non_stream(text)
-        self.assertIn("step by step", reasoning)
-        self.assertIn("x = 3", reasoning)
-        self.assertEqual(normal, "The solution is x = 3.")
+        self.assertIn("step by step", reasoning)  # 断言包含
+        self.assertIn("x = 3", reasoning)  # 断言包含
+        self.assertEqual(normal, "The solution is x = 3.")  # 断言相等
 
+    # TestIntegrationScenarios类的测试qwen3forcedreasoningstreamingscenario
     def test_qwen3_forced_reasoning_streaming_scenario(self):
         """Test Qwen3-ForcedReasoning streaming scenario."""
         parser = ReasoningParser("qwen3", force_reasoning=True)
@@ -1117,11 +1241,12 @@ class TestIntegrationScenarios(CustomTestCase):
             all_reasoning += reasoning
             all_normal += normal
 
-        self.assertIn("analyze", all_reasoning)
-        self.assertIn("break it down", all_reasoning)
-        self.assertIn("final answer", all_normal)
+        self.assertIn("analyze", all_reasoning)  # 断言包含
+        self.assertIn("break it down", all_reasoning)  # 断言包含
+        self.assertIn("final answer", all_normal)  # 断言包含
 
 
+# TestBufferLossBugFix类
 class TestBufferLossBugFix(CustomTestCase):
     """Test cases for the buffer loss bug fix in parse_streaming_increment."""
 
@@ -1147,16 +1272,17 @@ class TestBufferLossBugFix(CustomTestCase):
         # Step 1: Send partial end tag when not in reasoning mode
         # This should be buffered since it could be start of "</think>"
         result1 = detector.parse_streaming_increment("</")
-        self.assertEqual(result1.normal_text, "")
-        self.assertEqual(result1.reasoning_text, "")
+        self.assertEqual(result1.normal_text, "")  # 断言相等
+        self.assertEqual(result1.reasoning_text, "")  # 断言相等
 
         # Step 2: Send normal text that doesn't complete the end tag
         # Before fix: would return only "answer", losing the "</"
         # After fix: should return the complete buffered content "</answer"
         result2 = detector.parse_streaming_increment("answer")
-        self.assertEqual(result2.normal_text, "</answer")
-        self.assertEqual(result2.reasoning_text, "")
+        self.assertEqual(result2.normal_text, "</answer")  # 断言相等
+        self.assertEqual(result2.reasoning_text, "")  # 断言相等
 
+    # TestBufferLossBugFix类的测试partialstarttagbufferpreservation
     def test_partial_start_tag_buffer_preservation(self):
         """
         Test that partial start tag fragments are properly preserved.
@@ -1165,14 +1291,15 @@ class TestBufferLossBugFix(CustomTestCase):
 
         # Send partial start tag
         result1 = detector.parse_streaming_increment("<th")
-        self.assertEqual(result1.normal_text, "")
-        self.assertEqual(result1.reasoning_text, "")
+        self.assertEqual(result1.normal_text, "")  # 断言相等
+        self.assertEqual(result1.reasoning_text, "")  # 断言相等
 
         # Complete with non-matching text
         result2 = detector.parse_streaming_increment("is is text")
-        self.assertEqual(result2.normal_text, "<this is text")
-        self.assertEqual(result2.reasoning_text, "")
+        self.assertEqual(result2.normal_text, "<this is text")  # 断言相等
+        self.assertEqual(result2.reasoning_text, "")  # 断言相等
 
+    # TestBufferLossBugFix类的测试partialendtaginreasoningmode
     def test_partial_end_tag_in_reasoning_mode(self):
         """
         Test partial end tag handling when already in reasoning mode.
@@ -1185,15 +1312,16 @@ class TestBufferLossBugFix(CustomTestCase):
 
         # Send partial end tag
         result1 = detector.parse_streaming_increment("</")
-        self.assertEqual(result1.normal_text, "")
-        self.assertEqual(result1.reasoning_text, "")
+        self.assertEqual(result1.normal_text, "")  # 断言相等
+        self.assertEqual(result1.reasoning_text, "")  # 断言相等
 
         # Complete the end tag with normal text
         result2 = detector.parse_streaming_increment("think>normal text")
-        self.assertEqual(result2.normal_text, "normal text")
+        self.assertEqual(result2.normal_text, "normal text")  # 断言相等
         # The reasoning text should be empty since buffer was cleared when end tag was processed
-        self.assertEqual(result2.reasoning_text, "")
+        self.assertEqual(result2.reasoning_text, "")  # 断言相等
 
+    # TestBufferLossBugFix类的测试multiplepartialfragments
     def test_multiple_partial_fragments(self):
         """
         Test handling of multiple partial fragments that don't match any tokens.
@@ -1202,17 +1330,18 @@ class TestBufferLossBugFix(CustomTestCase):
 
         # Send multiple partial fragments
         result1 = detector.parse_streaming_increment("<")
-        self.assertEqual(result1.normal_text, "")
-        self.assertEqual(result1.reasoning_text, "")
+        self.assertEqual(result1.normal_text, "")  # 断言相等
+        self.assertEqual(result1.reasoning_text, "")  # 断言相等
 
         result2 = detector.parse_streaming_increment("/")
-        self.assertEqual(result2.normal_text, "")
-        self.assertEqual(result2.reasoning_text, "")
+        self.assertEqual(result2.normal_text, "")  # 断言相等
+        self.assertEqual(result2.reasoning_text, "")  # 断言相等
 
         result3 = detector.parse_streaming_increment("random>")
-        self.assertEqual(result3.normal_text, "</random>")
-        self.assertEqual(result3.reasoning_text, "")
+        self.assertEqual(result3.normal_text, "</random>")  # 断言相等
+        self.assertEqual(result3.reasoning_text, "")  # 断言相等
 
+    # TestBufferLossBugFix类的测试edgecaseexacttokenmatch
     def test_edge_case_exact_token_match(self):
         """
         Test edge case where buffer content exactly matches a token.
@@ -1228,12 +1357,13 @@ class TestBufferLossBugFix(CustomTestCase):
         result = detector.parse_streaming_increment("k>")
 
         # Should enter reasoning mode
-        self.assertEqual(result.normal_text, "")
-        self.assertEqual(result.reasoning_text, "")
-        self.assertTrue(detector._in_reasoning)
-        self.assertTrue(detector.stripped_think_start)
+        self.assertEqual(result.normal_text, "")  # 断言相等
+        self.assertEqual(result.reasoning_text, "")  # 断言相等
+        self.assertTrue(detector._in_reasoning)  # 断言为真
+        self.assertTrue(detector.stripped_think_start)  # 断言为真
 
 
+# TestGptOssDetector类
 class TestGptOssDetector(CustomTestCase):
     """Test cases for GptOssDetector which delegates to HarmonyParser."""
 
@@ -1242,19 +1372,22 @@ class TestGptOssDetector(CustomTestCase):
 
         self.detector = GptOssDetector()
 
+    # TestGptOssDetector类的测试detectandparsewithanalysisandfinal
     def test_detect_and_parse_with_analysis_and_final(self):
         """Test one-shot parsing with analysis (reasoning) and final (normal) blocks."""
         text = "<|start|><|channel|>analysis<|message|>thinking hard<|end|><|channel|>final<|message|>the answer<|end|>"
         result = self.detector.detect_and_parse(text)
-        self.assertIn("thinking hard", result.reasoning_text)
-        self.assertIn("the answer", result.normal_text)
+        self.assertIn("thinking hard", result.reasoning_text)  # 断言包含
+        self.assertIn("the answer", result.normal_text)  # 断言包含
 
+    # TestGptOssDetector类的测试detectandparsenormalonly
     def test_detect_and_parse_normal_only(self):
         """Test one-shot parsing with only final block."""
         text = "<|start|><|channel|>final<|message|>just the answer<|end|>"
         result = self.detector.detect_and_parse(text)
-        self.assertIn("just the answer", result.normal_text)
+        self.assertIn("just the answer", result.normal_text)  # 断言包含
 
+    # TestGptOssDetector类的测试streaminganalysisthenfinal
     def test_streaming_analysis_then_final(self):
         """Test streaming parse across multiple chunks."""
         chunks = [
@@ -1270,17 +1403,19 @@ class TestGptOssDetector(CustomTestCase):
             result = self.detector.parse_streaming_increment(chunk)
             all_reasoning += result.reasoning_text
             all_normal += result.normal_text
-        self.assertIn("reasoning part", all_reasoning)
-        self.assertIn("answer", all_normal)
+        self.assertIn("reasoning part", all_reasoning)  # 断言包含
+        self.assertIn("answer", all_normal)  # 断言包含
 
+    # TestGptOssDetector类的测试streamingwithtoolcall
     def test_streaming_with_tool_call(self):
         """Test streaming parse with tool call events."""
         text = "<|start|><|channel|>analysis<|message|>think<|end|><|call|>tool_data<|return|><|channel|>final<|message|>result<|end|>"
         result = self.detector.detect_and_parse(text)
-        self.assertIn("think", result.reasoning_text)
-        self.assertIn("result", result.normal_text)
+        self.assertIn("think", result.reasoning_text)  # 断言包含
+        self.assertIn("result", result.normal_text)  # 断言包含
 
 
+# TestMiniMaxAppendThinkDetector类
 class TestMiniMaxAppendThinkDetector(CustomTestCase):
     """Test cases for MiniMaxAppendThinkDetector."""
 
@@ -1289,23 +1424,27 @@ class TestMiniMaxAppendThinkDetector(CustomTestCase):
 
         self.detector = MiniMaxAppendThinkDetector()
 
+    # TestMiniMaxAppendThinkDetector类的测试detectandparseprependsthink
     def test_detect_and_parse_prepends_think(self):
         """Test that detect_and_parse prepends <think> to the text."""
         result = self.detector.detect_and_parse("Hello world")
-        self.assertEqual(result.normal_text, "<think>Hello world")
+        self.assertEqual(result.normal_text, "<think>Hello world")  # 断言相等
 
+    # TestMiniMaxAppendThinkDetector类的测试streamingfirstchunkprependsthink
     def test_streaming_first_chunk_prepends_think(self):
         """Test that first streaming chunk gets <think> prepended."""
         result = self.detector.parse_streaming_increment("First chunk")
-        self.assertEqual(result.normal_text, "<think>First chunk")
+        self.assertEqual(result.normal_text, "<think>First chunk")  # 断言相等
 
+    # TestMiniMaxAppendThinkDetector类的测试streamingsecondchunknoprepend
     def test_streaming_second_chunk_no_prepend(self):
         """Test that subsequent streaming chunks are passed through."""
         self.detector.parse_streaming_increment("First")
         result = self.detector.parse_streaming_increment("Second")
-        self.assertEqual(result.normal_text, "Second")
+        self.assertEqual(result.normal_text, "Second")  # 断言相等
 
 
+# TestReasoningParserAdvanced类
 class TestReasoningParserAdvanced(CustomTestCase):
     """Additional tests for ReasoningParser init edge cases."""
 
@@ -1316,6 +1455,7 @@ class TestReasoningParserAdvanced(CustomTestCase):
         parser = ReasoningParser("gpt-oss")
         self.assertIsInstance(parser.detector, GptOssDetector)
 
+    # TestReasoningParserAdvanced类的测试minimaxappendthinkmodeltype
     def test_minimax_append_think_model_type(self):
         """Test that minimax-append-think creates MiniMaxAppendThinkDetector."""
         from sglang.srt.parser.reasoning_parser import MiniMaxAppendThinkDetector
@@ -1323,11 +1463,13 @@ class TestReasoningParserAdvanced(CustomTestCase):
         parser = ReasoningParser("minimax-append-think")
         self.assertIsInstance(parser.detector, MiniMaxAppendThinkDetector)
 
+    # TestReasoningParserAdvanced类的测试qwen3thinkingforcesreasoning
     def test_qwen3_thinking_forces_reasoning(self):
         """Test that qwen3-thinking model type forces reasoning mode."""
         parser = ReasoningParser("qwen3-thinking")
-        self.assertTrue(parser.detector._in_reasoning)
+        self.assertTrue(parser.detector._in_reasoning)  # 断言为真
 
+    # TestReasoningParserAdvanced类的测试minimaxforcesreasoning
     def test_minimax_forces_reasoning(self):
         """Test that minimax model type forces reasoning mode.
 
@@ -1336,8 +1478,9 @@ class TestReasoningParserAdvanced(CustomTestCase):
         """
         parser = ReasoningParser("minimax")
         self.assertIsInstance(parser.detector, Qwen3Detector)
-        self.assertTrue(parser.detector._in_reasoning)
+        self.assertTrue(parser.detector._in_reasoning)  # 断言为真
 
+    # TestReasoningParserAdvanced类的测试detectormapaliases
     def test_detector_map_aliases(self):
         """Test that all DetectorMap alias keys create the correct detector type."""
         # These are aliases that map to existing detector classes
@@ -1355,6 +1498,7 @@ class TestReasoningParserAdvanced(CustomTestCase):
                 f"{model_type} should create {expected_class.__name__}",
             )
 
+    # TestReasoningParserAdvanced类的测试continuefinalmessagewithrequest
     def test_continue_final_message_with_request(self):
         """Test continue_final_message passes previous content to detector."""
         from sglang.srt.entrypoints.openai.protocol import (
@@ -1374,8 +1518,9 @@ class TestReasoningParserAdvanced(CustomTestCase):
             continue_final_message=True,
         )
         parser = ReasoningParser("qwen3", request=request)
-        self.assertTrue(parser.detector.continue_final_message)
+        self.assertTrue(parser.detector.continue_final_message)  # 断言为真
 
+    # TestReasoningParserAdvanced类的测试forcenonemptycontentviachattemplatekwargs
     def test_force_nonempty_content_via_chat_template_kwargs(self):
         """Test that force_nonempty_content is passed via chat_template_kwargs."""
         from sglang.srt.entrypoints.openai.protocol import (
@@ -1391,9 +1536,10 @@ class TestReasoningParserAdvanced(CustomTestCase):
             chat_template_kwargs={"force_nonempty_content": True},
         )
         parser = ReasoningParser("nemotron_3", request=request)
-        self.assertTrue(parser.detector._force_nonempty_content)
+        self.assertTrue(parser.detector._force_nonempty_content)  # 断言为真
 
 
+# TestContinueFinalMessage类
 class TestContinueFinalMessage(CustomTestCase):
     """Test continue_final_message mode for BaseReasoningFormatDetector."""
 
@@ -1406,9 +1552,10 @@ class TestContinueFinalMessage(CustomTestCase):
             continue_final_message=True,
             previous_content="<think>some reasoning",
         )
-        self.assertTrue(detector._in_reasoning)
-        self.assertEqual(detector.previous_count, len("<think>some reasoning"))
+        self.assertTrue(detector._in_reasoning)  # 断言为真
+        self.assertEqual(detector.previous_count, len("<think>some reasoning"))  # 断言相等
 
+    # TestContinueFinalMessage类的测试continuewiththinkendinprevious
     def test_continue_with_think_end_in_previous(self):
         """Test that previous_content with </think> sets _in_reasoning=False."""
         detector = BaseReasoningFormatDetector(
@@ -1419,8 +1566,9 @@ class TestContinueFinalMessage(CustomTestCase):
             previous_content="<think>done</think>normal",
         )
         # think_end_token in previous → _in_reasoning = False
-        self.assertFalse(detector._in_reasoning)
+        self.assertFalse(detector._in_reasoning)  # 断言为假
 
+    # TestContinueFinalMessage类的测试continuedetectparsewithendinprevious
     def test_continue_detect_parse_with_end_in_previous(self):
         """Test detect_and_parse when think_end_token is in previous_content only.
         This covers the branch where think_end is NOT in current text
@@ -1438,8 +1586,9 @@ class TestContinueFinalMessage(CustomTestCase):
         # However, since _in_reasoning=False and no think_start in new text,
         # it returns normal_text directly.
         result = detector.detect_and_parse("new content here")
-        self.assertEqual(result.normal_text, "new content here")
+        self.assertEqual(result.normal_text, "new content here")  # 断言相等
 
+    # TestContinueFinalMessage类的测试continueendinpreviousnewtexthasstartbutnoend
     def test_continue_end_in_previous_new_text_has_start_but_no_end(self):
         """Test: think_end in previous, new text has think_start but no think_end.
         This produces: in_reasoning=True (from think_start in text),
@@ -1453,14 +1602,15 @@ class TestContinueFinalMessage(CustomTestCase):
             previous_content="earlier <think>old</think>old answer",
         )
         # _in_reasoning = False (think_end in previous overrides)
-        self.assertFalse(detector._in_reasoning)
+        self.assertFalse(detector._in_reasoning)  # 断言为假
         # New text has <think> (triggers in_reasoning) but no </think>
         # think_end IS in previous_content → skips the truncated-reasoning branch
         # think_end NOT in processed_text → falls to else that returns normal_text
         result = detector.detect_and_parse("<think>continuing reasoning")
-        self.assertEqual(result.normal_text, "continuing reasoning")
-        self.assertEqual(result.reasoning_text, "")
+        self.assertEqual(result.normal_text, "continuing reasoning")  # 断言相等
+        self.assertEqual(result.reasoning_text, "")  # 断言相等
 
+    # TestContinueFinalMessage类的测试continuedetectparsethinkstartinprevbutendalsoinprev
     def test_continue_detect_parse_think_start_in_prev_but_end_also_in_prev(self):
         """Test detect_and_parse where both think tokens are in previous,
         and new text contains <think> to re-enter reasoning."""
@@ -1472,12 +1622,13 @@ class TestContinueFinalMessage(CustomTestCase):
             previous_content="<think>old reasoning</think>old answer",
         )
         # _in_reasoning = False (end token in previous overrides start)
-        self.assertFalse(detector._in_reasoning)
+        self.assertFalse(detector._in_reasoning)  # 断言为假
         # New text starts a fresh reasoning block
         result = detector.detect_and_parse("<think>new reasoning</think>new answer")
-        self.assertEqual(result.reasoning_text, "new reasoning")
-        self.assertEqual(result.normal_text, "new answer")
+        self.assertEqual(result.reasoning_text, "new reasoning")  # 断言相等
+        self.assertEqual(result.normal_text, "new answer")  # 断言相等
 
+    # TestContinueFinalMessage类的测试streamingreturnsemptywheninreasoningandendbuffered
     def test_streaming_returns_empty_when_in_reasoning_and_end_buffered(self):
         """Test that streaming returns empty when buffer could be partial end token."""
         detector = BaseReasoningFormatDetector(
@@ -1485,8 +1636,8 @@ class TestContinueFinalMessage(CustomTestCase):
         )
         # In reasoning mode, send partial end token
         result = detector.parse_streaming_increment("</")
-        self.assertEqual(result.reasoning_text, "")
-        self.assertEqual(result.normal_text, "")
+        self.assertEqual(result.reasoning_text, "")  # 断言相等
+        self.assertEqual(result.normal_text, "")  # 断言相等
         # This goes through the path where _in_reasoning is True but buffer
         # is a prefix of think_end_token → returns empty
 
@@ -1506,10 +1657,11 @@ class TestGptOssDetectorToolCall(CustomTestCase):
             "<|channel|>final<|message|>result<|end|>"
         )
         result = detector.detect_and_parse(text)
-        self.assertIn("think", result.reasoning_text)
+        self.assertIn("think", result.reasoning_text)  # 断言包含
         # Tool call raw_text and/or final result should be in normal_text
-        self.assertIn("result", result.normal_text)
+        self.assertIn("result", result.normal_text)  # 断言包含
 
+    # TestGptOssDetectorToolCall类的测试streamingtoolcallrawtext
     def test_streaming_tool_call_raw_text(self):
         """Test streaming parse with tool_call events preserving raw_text."""
         from sglang.srt.parser.reasoning_parser import GptOssDetector
@@ -1526,24 +1678,27 @@ class TestGptOssDetectorToolCall(CustomTestCase):
             result = detector.parse_streaming_increment(chunk)
             all_reasoning += result.reasoning_text
             all_normal += result.normal_text
-        self.assertIn("reason", all_reasoning)
-        self.assertIn("done", all_normal)
+        self.assertIn("reason", all_reasoning)  # 断言包含
+        self.assertIn("done", all_normal)  # 断言包含
 
 
+# TestPoolsideV1Registered类
 class TestPoolsideV1Registered(CustomTestCase):
     """poolside_v1 (Laguna-XS.2) reuses the Qwen3 `<think>...</think>` envelope.
     Request dispatch differs (Mimo-style explicit `enable_thinking=True`,
     asserted in test_serving_chat.py), driven by
     `reasoning_default = "explicit_enable_thinking"` on the detector."""
 
+    # TestPoolsideV1Registered类的测试registeredtoqwen3subclass
     def test_registered_to_qwen3_subclass(self):
         cls = ReasoningParser.DetectorMap["poolside_v1"]
-        self.assertTrue(issubclass(cls, Qwen3Detector))
+        self.assertTrue(issubclass(cls, Qwen3Detector))  # 断言为真
 
+    # TestPoolsideV1Registered类的测试explicitenablethinkingdefault
     def test_explicit_enable_thinking_default(self):
         rp = ReasoningParser("poolside_v1", stream_reasoning=True)
-        self.assertEqual(rp.detector.reasoning_default, "explicit_enable_thinking")
-        self.assertTrue(rp.detector.thinks_internally)
+        self.assertEqual(rp.detector.reasoning_default, "explicit_enable_thinking")  # 断言相等
+        self.assertTrue(rp.detector.thinks_internally)  # 断言为真
 
 
 if __name__ == "__main__":

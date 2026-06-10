@@ -1,3 +1,4 @@
+# 文件名: test_modelopt_fp8kvcache.py - ModelOpt FP8 KV缓存测试 - 验证ModelOpt FP8 KV缓存的准确性
 import unittest
 
 from sglang.srt.layers.quantization.kv_cache import BaseKVCacheMethod
@@ -9,6 +10,7 @@ from sglang.test.test_utils import CustomTestCase
 
 
 class TestModelOptFp8KVCacheMethod(CustomTestCase):
+    # 测试kv cache method initialization
     def test_kv_cache_method_initialization(self):
         """Test that ModelOptFp8KVCacheMethod can be instantiated and
         inherits from BaseKVCacheMethod."""

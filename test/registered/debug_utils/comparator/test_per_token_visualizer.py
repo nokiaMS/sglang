@@ -1,3 +1,4 @@
+# 文件名: test_per_token_visualizer.py - 逐令牌可视化器测试
 """Layer 2: PNG generation tests for per-token heatmap visualizer.
 
 Requires matplotlib — uses pytest.importorskip to gracefully skip if absent.
@@ -21,10 +22,12 @@ _PNG_MAGIC: bytes = b"\x89PNG"
 
 
 @pytest.fixture(autouse=True)
+# 执行skipifnomatplotlib
 def _skip_if_no_matplotlib() -> None:
     pytest.importorskip("matplotlib")
 
 
+# 执行makecomparisonrecord
 def _make_comparison_record(
     *,
     name: str,
@@ -44,6 +47,7 @@ def _make_comparison_record(
 
 
 class TestPerTokenVisualizer:
+    # 测试nodatareturnsnone
     def test_no_data_returns_none(self, tmp_path: Path) -> None:
         """Empty records list → None returned, no file created."""
         from sglang.srt.debug_utils.comparator.per_token_visualizer import (
@@ -56,6 +60,7 @@ class TestPerTokenVisualizer:
         assert result is None
         assert not output_path.exists()
 
+    # 测试nopertokendatareturnsnone
     def test_no_per_token_data_returns_none(self, tmp_path: Path) -> None:
         """Records without per_token_rel_diff → None."""
         from sglang.srt.debug_utils.comparator.per_token_visualizer import (
@@ -75,6 +80,7 @@ class TestPerTokenVisualizer:
 
         assert result is None
 
+    # 测试generatesvalidpng
     def test_generates_valid_png(self, tmp_path: Path) -> None:
         """Records with per-token data → valid PNG file."""
         from sglang.srt.debug_utils.comparator.per_token_visualizer import (
@@ -101,6 +107,7 @@ class TestPerTokenVisualizer:
             magic: bytes = f.read(4)
         assert magic == _PNG_MAGIC
 
+    # 测试variablelengthsequences
     def test_variable_length_sequences(self, tmp_path: Path) -> None:
         """Records with different token lengths → NaN padding, no crash."""
         from sglang.srt.debug_utils.comparator.per_token_visualizer import (
@@ -135,6 +142,7 @@ class TestPerTokenVisualizer:
             magic: bytes = f.read(4)
         assert magic == _PNG_MAGIC
 
+    # 测试createsparentdirs
     def test_creates_parent_dirs(self, tmp_path: Path) -> None:
         """Output path with non-existent parent dirs → dirs created automatically."""
         from sglang.srt.debug_utils.comparator.per_token_visualizer import (

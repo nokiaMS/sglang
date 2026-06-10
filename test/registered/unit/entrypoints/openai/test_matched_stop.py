@@ -1,3 +1,4 @@
+# 文件名: test_matched_stop.py - 匹配停止条件
 import unittest
 
 from sglang.srt.sampling.sampling_params import MAX_LEN, get_max_seq_length
@@ -6,8 +7,11 @@ from sglang.test.ci.ci_register import register_cpu_ci
 register_cpu_ci(est_time=6, suite="base-a-test-cpu")
 
 
+# TestRegexPatternMaxLength类
 class TestRegexPatternMaxLength(unittest.TestCase):
     @classmethod
+
+    # TestRegexPatternMaxLength类的测试类初始化设置
     def setUpClass(cls):
         cls.regex_str_to_max_len = {
             "((ab|cd(e|f){2}){3,5}g|hij)*k": MAX_LEN,
@@ -46,12 +50,13 @@ class TestRegexPatternMaxLength(unittest.TestCase):
             # Repeat {5} -> 90
         }
 
+    # TestRegexPatternMaxLength类的测试getmaxlength
     def test_get_max_length(self):
         for regex_str, max_len in self.regex_str_to_max_len.items():
             if max_len == MAX_LEN:
                 self.assertGreaterEqual(get_max_seq_length(regex_str), MAX_LEN)
             else:
-                self.assertEqual(get_max_seq_length(regex_str), max_len)
+                self.assertEqual(get_max_seq_length(regex_str), max_len)  # 断言相等
 
 
 if __name__ == "__main__":

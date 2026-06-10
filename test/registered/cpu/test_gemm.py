@@ -1,3 +1,4 @@
+# 文件名: test_gemm.py - 通用矩阵乘法测试
 import unittest
 
 # TODO: use interface in cpu.py
@@ -23,10 +24,12 @@ torch.manual_seed(1234)
 
 
 class Mod(nn.Module):
+    # 执行init
     def __init__(self, input_channel, output_channel, has_bias):
         super(Mod, self).__init__()
         self.linear = torch.nn.Linear(input_channel, output_channel, has_bias)
 
+    # 前向传播
     def forward(self, x):
         return self.linear(x)
 
@@ -40,6 +43,7 @@ class TestGemm(CustomTestCase):
         has_bias=[False, True],
         dim=[2, 3, 4, 5],
     )
+    # 测试bf16gemm
     def test_bf16_gemm(self, M, N, K, has_bias, dim):
         mat1 = torch.randn(M, K, dtype=torch.bfloat16)
         mat2 = torch.randn(N, K, dtype=torch.bfloat16)
@@ -50,12 +54,12 @@ class TestGemm(CustomTestCase):
         if dim == 5:
             mat1 = mat1.unsqueeze(0).unsqueeze(0).unsqueeze(0).repeat(2, 2, 2, 1, 1)
 
-        ref = torch.matmul(mat1.float(), mat2.float().t())
+        ref = torch.matmul(mat1.float(), mat2.float().t())  # 转换为单精度
         if has_bias:
             bias = torch.randn(N, dtype=torch.float32)
-            ref.add_(bias.bfloat16())
+            ref.add_(bias.bfloat16())  # 转换为BF16精度
 
-        ref = ref.bfloat16()
+        ref = ref.bfloat16()  # 转换为BF16精度
 
         out = torch.ops.sgl_kernel.weight_packed_linear(
             mat1, mat2, bias if has_bias else None, False
@@ -77,6 +81,7 @@ class TestGemm(CustomTestCase):
         has_bias=[False, True],
         use_post_sigmul=[False, True],
     )
+    # 执行bf16gemmwithsmalloc
     def bf16_gemm_with_small_oc(self, M, N, K, has_bias, use_post_sigmul):
         use_post_sigmul = use_post_sigmul and N == 1
         mat_mul = (
@@ -109,6 +114,7 @@ class TestGemm(CustomTestCase):
         torch.testing.assert_close(ref, out, atol=atol, rtol=rtol)
 
     @parametrize(M=[2, 128], N=[32 * 12], K=[32 * 17], has_bias=[False, True])
+    # 测试int8gemm
     def test_int8_gemm(self, M, N, K, has_bias):
         dtype = torch.bfloat16
         A = torch.randn((M, K), dtype=dtype) / 10
@@ -140,6 +146,7 @@ class TestGemm(CustomTestCase):
         torch.testing.assert_close(ref_out, fused_out, atol=atol, rtol=rtol)
 
     @parametrize(M=[1, 11], N=[128, 224], K=[512, 576], has_bias=[False, True])
+    # 测试fp8gemm
     def test_fp8_gemm(self, M, N, K, has_bias):
         prepack = True
         chunk = False
@@ -165,9 +172,9 @@ class TestGemm(CustomTestCase):
         )
 
         if has_bias:
-            ref = torch.matmul(data.to(dtype), dq_weight.T) + bias.to(dtype)
+            ref = torch.matmul(data.to(dtype), dq_weight.T) + bias.to(dtype)  # 转换数据类型
         else:
-            ref = torch.matmul(data.to(dtype), dq_weight.T)
+            ref = torch.matmul(data.to(dtype), dq_weight.T)  # 转换数据类型
 
         if prepack:
             fp8_weight = torch.ops.sgl_kernel.convert_weight_packed(fp8_weight)
@@ -185,6 +192,7 @@ class TestGemm(CustomTestCase):
         torch.testing.assert_close(ref, out, atol=atol, rtol=rtol)
 
     @parametrize(M=[1, 11], N=[128, 224], K=[512, 576], has_bias=[False, True])
+    # 测试mxfp4gemm
     def test_mxfp4_gemm(self, M, N, K, has_bias):
         prepack = True
         dtype = torch.bfloat16
@@ -202,7 +210,7 @@ class TestGemm(CustomTestCase):
 
         bias = torch.randn(N) if has_bias else None
 
-        ref = torch.matmul(A.float(), Bdq.float().t()).bfloat16()
+        ref = torch.matmul(A.float(), Bdq.float().t()).bfloat16()  # 转换为单精度
         if bias is not None:
             ref.add_(bias.view(1, -1))
 
@@ -216,6 +224,7 @@ class TestGemm(CustomTestCase):
     @parametrize(
         M=[1, 32], N=[4096], K=[4096], group_size=[128], has_bias=[False, True]
     )
+    # 测试int4awqgemm
     def test_int4_awq_gemm(self, M, N, K, group_size, has_bias):
         awq_weight = torch.randint(-128, 128, (K, N // 8)).to(torch.int)
         awq_zero = torch.randint(0, 10, (K // group_size, N // 8)).to(torch.int)
@@ -251,6 +260,7 @@ class TestGemm(CustomTestCase):
     @parametrize(
         M=[1, 32], N=[4096], K=[4096], group_size=[128], has_bias=[False, True]
     )
+    # 测试int4gptqgemm
     def test_int4_gptq_gemm(self, M, N, K, group_size, has_bias):
         torch.manual_seed(127)
         gptq_weight = torch.randint(-128, 128, (K // 8, N)).to(torch.int)

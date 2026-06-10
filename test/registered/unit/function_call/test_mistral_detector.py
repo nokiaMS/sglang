@@ -1,3 +1,4 @@
+# 文件名: test_mistral_detector.py - Mistral检测器
 """Unit tests for MistralDetector — no server, no model loading."""
 
 import json
@@ -10,7 +11,10 @@ from sglang.test.test_utils import CustomTestCase
 register_cpu_ci(1.0, "base-a-test-cpu")
 
 
+# TestMistralDetector类
 class TestMistralDetector(CustomTestCase):
+
+    # TestMistralDetector类的测试初始化设置
     def setUp(self):
         self.tools = [
             Tool(
@@ -57,15 +61,17 @@ class TestMistralDetector(CustomTestCase):
         text = (
             '[TOOL_CALLS] [{"name": "get_weather", "arguments": {"city": "Beijing"}}]'
         )
-        self.assertTrue(self.detector.has_tool_call(text))
+        self.assertTrue(self.detector.has_tool_call(text))  # 断言为真
 
+    # TestMistralDetector类的测试hastoolcallcompactformat
     def test_has_tool_call_compact_format(self):
         text = '[TOOL_CALLS]get_weather[ARGS]{"city": "Beijing"}'
-        self.assertTrue(self.detector.has_tool_call(text))
+        self.assertTrue(self.detector.has_tool_call(text))  # 断言为真
 
+    # TestMistralDetector类的测试hastoolcallfalse
     def test_has_tool_call_false(self):
         text = "The weather in Beijing is sunny today."
-        self.assertFalse(self.detector.has_tool_call(text))
+        self.assertFalse(self.detector.has_tool_call(text))  # 断言为假
 
     # ==================== JSON Array Format Tests ====================
 
@@ -74,63 +80,67 @@ class TestMistralDetector(CustomTestCase):
             '[TOOL_CALLS] [{"name": "get_weather", "arguments": {"city": "Beijing"}}]'
         )
         result = self.detector.detect_and_parse(text, self.tools)
-        self.assertEqual(len(result.calls), 1)
-        self.assertEqual(result.calls[0].name, "get_weather")
+        self.assertEqual(len(result.calls), 1)  # 断言相等
+        self.assertEqual(result.calls[0].name, "get_weather")  # 断言相等
         args = json.loads(result.calls[0].parameters)
-        self.assertEqual(args["city"], "Beijing")
-        self.assertEqual(result.normal_text, "")
+        self.assertEqual(args["city"], "Beijing")  # 断言相等
+        self.assertEqual(result.normal_text, "")  # 断言相等
 
+    # TestMistralDetector类的测试jsonarraymultipletoolcalls
     def test_json_array_multiple_tool_calls(self):
         text = '[TOOL_CALLS] [{"name": "get_weather", "arguments": {"city": "Beijing"}}, {"name": "search", "arguments": {"query": "restaurants"}}]'
         result = self.detector.detect_and_parse(text, self.tools)
-        self.assertEqual(len(result.calls), 2)
-        self.assertEqual(result.calls[0].name, "get_weather")
-        self.assertEqual(result.calls[1].name, "search")
+        self.assertEqual(len(result.calls), 2)  # 断言相等
+        self.assertEqual(result.calls[0].name, "get_weather")  # 断言相等
+        self.assertEqual(result.calls[1].name, "search")  # 断言相等
 
+    # TestMistralDetector类的测试jsonarraywithleadingtext
     def test_json_array_with_leading_text(self):
         text = 'I will check. [TOOL_CALLS] [{"name": "get_weather", "arguments": {"city": "Tokyo"}}]'
         result = self.detector.detect_and_parse(text, self.tools)
-        self.assertEqual(len(result.calls), 1)
-        self.assertEqual(result.normal_text, "I will check.")
+        self.assertEqual(len(result.calls), 1)  # 断言相等
+        self.assertEqual(result.normal_text, "I will check.")  # 断言相等
 
     # ==================== Compact Format Tests ====================
 
     def test_compact_format_single_tool_call(self):
         text = '[TOOL_CALLS]get_weather[ARGS]{"city": "Beijing"}'
         result = self.detector.detect_and_parse(text, self.tools)
-        self.assertEqual(len(result.calls), 1)
-        self.assertEqual(result.calls[0].name, "get_weather")
+        self.assertEqual(len(result.calls), 1)  # 断言相等
+        self.assertEqual(result.calls[0].name, "get_weather")  # 断言相等
         args = json.loads(result.calls[0].parameters)
-        self.assertEqual(args["city"], "Beijing")
+        self.assertEqual(args["city"], "Beijing")  # 断言相等
 
+    # TestMistralDetector类的测试compactformatwithleadingtext
     def test_compact_format_with_leading_text(self):
         text = 'Let me help. [TOOL_CALLS]get_weather[ARGS]{"city": "Tokyo"}'
         result = self.detector.detect_and_parse(text, self.tools)
-        self.assertEqual(len(result.calls), 1)
-        self.assertEqual(result.normal_text, "Let me help.")
+        self.assertEqual(len(result.calls), 1)  # 断言相等
+        self.assertEqual(result.normal_text, "Let me help.")  # 断言相等
 
     # ==================== No Tool Call Tests ====================
 
     def test_no_tool_call(self):
         text = "The weather is nice today."
         result = self.detector.detect_and_parse(text, self.tools)
-        self.assertEqual(len(result.calls), 0)
-        self.assertEqual(result.normal_text, "The weather is nice today.")
+        self.assertEqual(len(result.calls), 0)  # 断言相等
+        self.assertEqual(result.normal_text, "The weather is nice today.")  # 断言相等
 
     # ==================== Edge Cases ====================
 
     def test_tool_call_with_nested_json(self):
         text = '[TOOL_CALLS] [{"name": "get_weather", "arguments": {"city": "Beijing", "options": {"detailed": true}}}]'
         result = self.detector.detect_and_parse(text, self.tools)
-        self.assertEqual(len(result.calls), 1)
+        self.assertEqual(len(result.calls), 1)  # 断言相等
         args = json.loads(result.calls[0].parameters)
-        self.assertEqual(args["options"]["detailed"], True)
+        self.assertEqual(args["options"]["detailed"], True)  # 断言相等
 
+    # TestMistralDetector类的测试jsonarraywithinvalidjson
     def test_json_array_with_invalid_json(self):
         text = "[TOOL_CALLS] [not valid json]"
         result = self.detector.detect_and_parse(text, self.tools)
-        self.assertEqual(len(result.calls), 0)
-        self.assertEqual(result.normal_text, "")
+        self.assertEqual(len(result.calls), 0)  # 断言相等
+        self.assertEqual(result.normal_text, "")  # 断言相等
 
     # ==================== Internal Methods Tests ====================
 
@@ -139,33 +149,35 @@ class TestMistralDetector(CustomTestCase):
             '[TOOL_CALLS] [{"name": "get_weather", "arguments": {"city": "Beijing"}}]'
         )
         result = self.detector._extract_json_array(text)
-        self.assertIsNotNone(result)
+        self.assertIsNotNone(result)  # 断言不为None
         parsed = json.loads(result)
-        self.assertEqual(len(parsed), 1)
-        self.assertEqual(parsed[0]["name"], "get_weather")
+        self.assertEqual(len(parsed), 1)  # 断言相等
+        self.assertEqual(parsed[0]["name"], "get_weather")  # 断言相等
 
+    # TestMistralDetector类的测试extractjsonarraynestedbrackets
     def test_extract_json_array_nested_brackets(self):
         text = (
             '[TOOL_CALLS] [{"name": "get_weather", "arguments": {"tags": ["a", "b"]}}]'
         )
         result = self.detector._extract_json_array(text)
-        self.assertIsNotNone(result)
+        self.assertIsNotNone(result)  # 断言不为None
         parsed = json.loads(result)
-        self.assertEqual(parsed[0]["arguments"]["tags"], ["a", "b"])
+        self.assertEqual(parsed[0]["arguments"]["tags"], ["a", "b"])  # 断言相等
 
+    # TestMistralDetector类的测试extractjsonarraynomarker
     def test_extract_json_array_no_marker(self):
         text = "no tool calls here"
         result = self.detector._extract_json_array(text)
-        self.assertIsNone(result)
+        self.assertIsNone(result)  # 断言为None
 
     # ==================== structure_info Tests ====================
 
     def test_structure_info(self):
         info_func = self.detector.structure_info()
         info = info_func("get_weather")
-        self.assertIn("get_weather", info.begin)
-        self.assertIn("[TOOL_CALLS]", info.trigger)
-        self.assertEqual(info.end, "}]")
+        self.assertIn("get_weather", info.begin)  # 断言包含
+        self.assertIn("[TOOL_CALLS]", info.trigger)  # 断言包含
+        self.assertEqual(info.end, "}]")  # 断言相等
 
     # ==================== Streaming Tests ====================
 
@@ -182,19 +194,21 @@ class TestMistralDetector(CustomTestCase):
             all_calls.extend(result.calls)
 
         func_calls = [c for c in all_calls if c.name]
-        self.assertEqual(len(func_calls), 1)
-        self.assertEqual(func_calls[0].name, "get_weather")
+        self.assertEqual(len(func_calls), 1)  # 断言相等
+        self.assertEqual(func_calls[0].name, "get_weather")  # 断言相等
 
         full_params = "".join(c.parameters for c in all_calls if c.parameters)
         params = json.loads(full_params)
-        self.assertEqual(params["city"], "Beijing")
+        self.assertEqual(params["city"], "Beijing")  # 断言相等
 
+    # TestMistralDetector类的测试streamingnormaltextbeforetool
     def test_streaming_normal_text_before_tool(self):
         detector = MistralDetector()
         result = detector.parse_streaming_increment("Let me check. ", self.tools)
-        self.assertEqual(result.normal_text, "Let me check. ")
-        self.assertEqual(len(result.calls), 0)
+        self.assertEqual(result.normal_text, "Let me check. ")  # 断言相等
+        self.assertEqual(len(result.calls), 0)  # 断言相等
 
+    # TestMistralDetector类的测试streamingtextthentoolcall
     def test_streaming_text_then_tool_call(self):
         detector = MistralDetector()
         chunks = [
@@ -209,13 +223,13 @@ class TestMistralDetector(CustomTestCase):
             all_calls.extend(result.calls)
             all_normal_text += result.normal_text
 
-        self.assertEqual(all_normal_text, "Sure! ")
+        self.assertEqual(all_normal_text, "Sure! ")  # 断言相等
         func_calls = [c for c in all_calls if c.name]
-        self.assertEqual(len(func_calls), 1)
-        self.assertEqual(func_calls[0].name, "get_weather")
+        self.assertEqual(len(func_calls), 1)  # 断言相等
+        self.assertEqual(func_calls[0].name, "get_weather")  # 断言相等
         full_params = "".join(c.parameters for c in all_calls if c.parameters)
         params = json.loads(full_params)
-        self.assertEqual(params["city"], "Tokyo")
+        self.assertEqual(params["city"], "Tokyo")  # 断言相等
 
 
 if __name__ == "__main__":

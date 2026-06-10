@@ -1,3 +1,8 @@
+# StarCoder2 模型推理实现文件
+# 本文件实现了StarCoder2代码生成模型，兼容HuggingFace权重
+# 基于GPT-NeoX架构，支持GQA和NeoX风格RoPE
+# 包含注意力、MLP、解码层、模型和权重加载等核心组件
+
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
@@ -22,43 +27,45 @@
 # Adapted from https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/models/starcoder2.py
 """PyTorch Starcoder2 model."""
 
-from collections.abc import Iterable
-from typing import Optional, Tuple
+from collections.abc import Iterable  # 导入可迭代类型
+from typing import Optional, Tuple  # 导入类型提示
 
-import torch
-from torch import nn
-from transformers import Starcoder2Config
+import torch  # 导入PyTorch
+from torch import nn  # 导入神经网络模块
+from transformers import Starcoder2Config  # 导入Starcoder2配置
 
-from sglang.srt.distributed import get_pp_group, get_tensor_model_parallel_world_size
-from sglang.srt.layers.activation import get_act_fn
-from sglang.srt.layers.linear import (
+from sglang.srt.distributed import get_pp_group, get_tensor_model_parallel_world_size  # 导入分布式
+from sglang.srt.layers.activation import get_act_fn  # 导入激活函数
+from sglang.srt.layers.linear import (  # 导入线性层
     ColumnParallelLinear,
     QKVParallelLinear,
     RowParallelLinear,
 )
-from sglang.srt.layers.logits_processor import LogitsProcessor
-from sglang.srt.layers.quantization.base_config import QuantizationConfig
-from sglang.srt.layers.radix_attention import RadixAttention
-from sglang.srt.layers.rotary_embedding import get_rope
-from sglang.srt.layers.vocab_parallel_embedding import (
+from sglang.srt.layers.logits_processor import LogitsProcessor  # 导入逻辑处理器
+from sglang.srt.layers.quantization.base_config import QuantizationConfig  # 导入量化配置
+from sglang.srt.layers.radix_attention import RadixAttention  # 导入基数注意力
+from sglang.srt.layers.rotary_embedding import get_rope  # 导入旋转位置编码
+from sglang.srt.layers.vocab_parallel_embedding import (  # 导入词表并行嵌入
     DEFAULT_VOCAB_PADDING_SIZE,
     ParallelLMHead,
     VocabParallelEmbedding,
 )
-from sglang.srt.model_executor.forward_batch_info import ForwardBatch
-from sglang.srt.model_loader.weight_utils import default_weight_loader
-from sglang.srt.utils import add_prefix, make_layers
+from sglang.srt.model_executor.forward_batch_info import ForwardBatch  # 导入前向批次
+from sglang.srt.model_loader.weight_utils import default_weight_loader  # 导入默认权重加载器
+from sglang.srt.utils import add_prefix, make_layers  # 导入工具函数
 
 
 class Starcoder2Attention(nn.Module):
+    """StarCoder2注意力模块"""
 
     def __init__(
         self,
-        config: Starcoder2Config,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
-        layer_id: int = 0,
+        config: Starcoder2Config,  # 模型配置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
+        layer_id: int = 0,  # 层ID
     ):
+        """初始化StarCoder2注意力"""
         super().__init__()
         self.config = config
 
@@ -106,7 +113,7 @@ class Starcoder2Attention(nn.Module):
             rotary_dim=self.head_dim,
             max_position=self.max_position_embeddings,
             base=int(self.rope_theta),
-            is_neox_style=True,
+            is_neox_style=True,  # NeoX风格RoPE
         )
         self.attn = RadixAttention(
             self.num_heads,
@@ -120,10 +127,11 @@ class Starcoder2Attention(nn.Module):
 
     def forward(
         self,
-        positions: torch.Tensor,
-        hidden_states: torch.Tensor,
-        forward_batch: ForwardBatch,
+        positions: torch.Tensor,  # 位置
+        hidden_states: torch.Tensor,  # 隐藏状态
+        forward_batch: ForwardBatch,  # 前向批次
     ) -> torch.Tensor:
+        """StarCoder2注意力前向传播"""
         qkv, _ = self.qkv_proj(hidden_states)
         q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
         q, k = self.rotary_emb(positions, q, k)
@@ -133,13 +141,15 @@ class Starcoder2Attention(nn.Module):
 
 
 class Starcoder2MLP(nn.Module):
+    """StarCoder2 MLP模块"""
 
     def __init__(
         self,
-        config: Starcoder2Config,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        config: Starcoder2Config,  # 模型配置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
     ):
+        """初始化StarCoder2 MLP"""
         super().__init__()
         self.c_fc = ColumnParallelLinear(
             config.hidden_size,
@@ -155,12 +165,13 @@ class Starcoder2MLP(nn.Module):
             quant_config=quant_config,
             prefix=f"{prefix}.c_proj",
         )
-        self.act = get_act_fn(config.hidden_act)
+        self.act = get_act_fn(config.hidden_act)  # 激活函数
 
     def forward(
         self,
-        hidden_states: torch.Tensor,
+        hidden_states: torch.Tensor,  # 隐藏状态
     ) -> torch.Tensor:
+        """MLP前向传播"""
         hidden_states, _ = self.c_fc(hidden_states)
         hidden_states = self.act(hidden_states)
         hidden_states, _ = self.c_proj(hidden_states)
@@ -168,14 +179,16 @@ class Starcoder2MLP(nn.Module):
 
 
 class Starcoder2DecoderLayer(nn.Module):
+    """StarCoder2解码器层"""
 
     def __init__(
         self,
-        config: Starcoder2Config,
-        layer_id: int,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        config: Starcoder2Config,  # 模型配置
+        layer_id: int,  # 层ID
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
     ):
+        """初始化StarCoder2解码器层"""
         super().__init__()
         self.hidden_size = config.hidden_size
         self.self_attn = Starcoder2Attention(
@@ -194,10 +207,11 @@ class Starcoder2DecoderLayer(nn.Module):
 
     def forward(
         self,
-        positions: torch.Tensor,
-        hidden_states: torch.Tensor,
-        forward_batch: ForwardBatch,
+        positions: torch.Tensor,  # 位置
+        hidden_states: torch.Tensor,  # 隐藏状态
+        forward_batch: ForwardBatch,  # 前向批次
     ) -> torch.Tensor:
+        """StarCoder2解码器层前向传播"""
         # Self Attention
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
@@ -218,13 +232,15 @@ class Starcoder2DecoderLayer(nn.Module):
 
 
 class Starcoder2Model(nn.Module):
+    """StarCoder2模型"""
 
     def __init__(
         self,
-        config: Starcoder2Config,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        config: Starcoder2Config,  # 模型配置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
     ):
+        """初始化StarCoder2模型"""
         super().__init__()
 
         self.config = config
@@ -254,11 +270,12 @@ class Starcoder2Model(nn.Module):
 
     def forward(
         self,
-        input_ids: torch.Tensor,
-        positions: torch.Tensor,
-        forward_batch: ForwardBatch,
-        inputs_embeds: Optional[torch.Tensor] = None,
+        input_ids: torch.Tensor,  # 输入ID
+        positions: torch.Tensor,  # 位置
+        forward_batch: ForwardBatch,  # 前向批次
+        inputs_embeds: Optional[torch.Tensor] = None,  # 输入嵌入
     ) -> torch.Tensor:
+        """StarCoder2模型前向传播"""
         if inputs_embeds is None:
             hidden_states = self.embed_tokens(input_ids)
         else:
@@ -275,13 +292,15 @@ class Starcoder2Model(nn.Module):
 
 
 class Starcoder2ForCausalLM(nn.Module):
+    """StarCoder2因果语言模型"""
 
     def __init__(
         self,
-        config: Starcoder2Config,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        config: Starcoder2Config,  # 模型配置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
     ):
+        """初始化StarCoder2因果语言模型"""
         super().__init__()
         self.config = config
         self.model = Starcoder2Model(
@@ -289,7 +308,7 @@ class Starcoder2ForCausalLM(nn.Module):
         )
         self.vocab_size = config.vocab_size
         self.unpadded_vocab_size = config.vocab_size
-        if config.tie_word_embeddings:
+        if config.tie_word_embeddings:  # 权重共享
             self.lm_head = self.model.embed_tokens
         else:
             self.unpadded_vocab_size = config.vocab_size
@@ -305,11 +324,12 @@ class Starcoder2ForCausalLM(nn.Module):
 
     def forward(
         self,
-        input_ids: torch.Tensor,
-        positions: torch.Tensor,
-        forward_batch: ForwardBatch,
-        inputs_embeds: Optional[torch.Tensor] = None,
+        input_ids: torch.Tensor,  # 输入ID
+        positions: torch.Tensor,  # 位置
+        forward_batch: ForwardBatch,  # 前向批次
+        inputs_embeds: Optional[torch.Tensor] = None,  # 输入嵌入
     ) -> torch.Tensor:
+        """StarCoder2因果语言模型前向传播"""
         hidden_states = self.model(
             input_ids=input_ids,
             positions=positions,
@@ -321,6 +341,7 @@ class Starcoder2ForCausalLM(nn.Module):
         )
 
     def load_weights(self, weights: Iterable[Tuple[str, torch.Tensor]]):
+        """加载模型权重"""
         stacked_params_mapping = [
             # (param_name, shard_name, shard_id)
             ("qkv_proj", "q_proj", "q"),
@@ -355,4 +376,4 @@ class Starcoder2ForCausalLM(nn.Module):
             weight_loader(param, loaded_weight)
 
 
-EntryClass = Starcoder2ForCausalLM
+EntryClass = Starcoder2ForCausalLM  # 模型注册入口类

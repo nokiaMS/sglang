@@ -1,3 +1,4 @@
+# 文件名: test_w4a8_deepseek_v3.py - DeepSeek-V3 W4A8测试 - 验证W4AFP8量化下DeepSeek-V3的GSM8K准确性
 import os
 import unittest
 from types import SimpleNamespace
@@ -21,6 +22,7 @@ from sglang.test.test_utils import (
 
 class TestDeepseekV3W4afp8(CustomTestCase):
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         cls.model = try_cached_model(DEFAULT_DEEPSEEK_W4AFP8_MODEL_FOR_TEST)
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -33,9 +35,11 @@ class TestDeepseekV3W4afp8(CustomTestCase):
         )
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -54,6 +58,7 @@ class TestDeepseekV3W4afp8(CustomTestCase):
 
 class TestDeepseekV3W4Afp8Mtp(CustomTestCase):
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         cls.model = try_cached_model(DEFAULT_DEEPSEEK_W4AFP8_MODEL_FOR_TEST)
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -85,9 +90,11 @@ class TestDeepseekV3W4Afp8Mtp(CustomTestCase):
         )
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(
         self,
     ):
@@ -121,6 +128,7 @@ class TestDeepseekV3W4Afp8Mtp(CustomTestCase):
 
 class TestDeepseekV3W4Afp8DeepepNormal(CustomTestCase):
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         cls.model = try_cached_model(DEFAULT_DEEPSEEK_W4AFP8_MODEL_FOR_TEST)
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -153,9 +161,11 @@ class TestDeepseekV3W4Afp8DeepepNormal(CustomTestCase):
         )
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(
         self,
     ):
@@ -176,6 +186,7 @@ class TestDeepseekV3W4Afp8DeepepNormal(CustomTestCase):
 
 class TestDeepseekV3W4Afp8DeepepAutoMtp(CustomTestCase):
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         cls.model = try_cached_model(DEFAULT_DEEPSEEK_W4AFP8_MODEL_FOR_TEST)
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -222,9 +233,11 @@ class TestDeepseekV3W4Afp8DeepepAutoMtp(CustomTestCase):
         )
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(
         self,
     ):

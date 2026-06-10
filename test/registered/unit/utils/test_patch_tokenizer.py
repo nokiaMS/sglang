@@ -1,3 +1,4 @@
+# 文件名: test_patch_tokenizer.py - 补丁分词器
 import random
 import unittest
 from contextlib import contextmanager
@@ -15,7 +16,10 @@ register_cpu_ci(est_time=30, suite="base-a-test-cpu", nightly=True)
 register_cpu_ci(est_time=53, suite="base-b-test-cpu")
 
 
+# TestPatchTokenizerEndToEndTest类
 class TestPatchTokenizerEndToEndTest(unittest.TestCase):
+
+    # TestPatchTokenizerEndToEndTest类的测试patchedproducessameresultsasraw
     def test_patched_produces_same_results_as_raw(self):
         tokenizer = _load_tokenizer()
         test_texts = self._generate_test_texts(tokenizer)
@@ -25,9 +29,11 @@ class TestPatchTokenizerEndToEndTest(unittest.TestCase):
         patched_results = self._run_tokenizer_ops(tokenizer, test_texts)
         unpatch_tokenizer(tokenizer)
 
-        self.assertEqual(raw_results, patched_results)
+        self.assertEqual(raw_results, patched_results)  # 断言相等
 
     @classmethod
+
+    # TestPatchTokenizerEndToEndTest类的内部方法_generate_test_texts
     def _generate_test_texts(cls, tokenizer):
         special_tokens = tokenizer.all_special_tokens
         return [
@@ -49,6 +55,8 @@ class TestPatchTokenizerEndToEndTest(unittest.TestCase):
         ]
 
     @classmethod
+
+    # TestPatchTokenizerEndToEndTest类的内部方法_random_text_from_tokens
     def _random_text_from_tokens(cls, tokenizer, num_tokens):
         token_ids = [
             random.randint(0, tokenizer.vocab_size - 1) for _ in range(num_tokens)
@@ -56,6 +64,8 @@ class TestPatchTokenizerEndToEndTest(unittest.TestCase):
         return tokenizer.decode(token_ids)
 
     @classmethod
+
+    # TestPatchTokenizerEndToEndTest类的内部方法_run_tokenizer_ops
     def _run_tokenizer_ops(cls, tokenizer, texts):
         encode_results = [tokenizer.encode(t) for t in texts]
         batch_encode_results = tokenizer(texts)["input_ids"]
@@ -74,7 +84,10 @@ class TestPatchTokenizerEndToEndTest(unittest.TestCase):
         }
 
 
+# TestPatchTokenizerUnitTest类
 class TestPatchTokenizerUnitTest(unittest.TestCase):
+
+    # TestPatchTokenizerUnitTest类的测试patchunpatchrestoresoriginal
     def test_patch_unpatch_restores_original(self):
         tokenizer = _load_tokenizer()
         cls = type(tokenizer)
@@ -82,7 +95,7 @@ class TestPatchTokenizerUnitTest(unittest.TestCase):
         original_ids = _get_class_attr_ids(cls)
 
         _SpecialTokensCachePatcher.patch(tokenizer)
-        self.assertTrue(getattr(cls, "_sglang_special_tokens_patched", False))
+        self.assertTrue(getattr(cls, "_sglang_special_tokens_patched", False))  # 断言为真
 
         patched_ids = _get_class_attr_ids(cls)
         changed_attrs = [
@@ -90,21 +103,22 @@ class TestPatchTokenizerUnitTest(unittest.TestCase):
             for name in original_ids
             if name in patched_ids and patched_ids[name] != original_ids[name]
         ]
-        self.assertGreater(len(changed_attrs), 0, "Patch should change some attributes")
+        self.assertGreater(len(changed_attrs), 0, "Patch should change some attributes")  # 断言大于
 
         unpatch_tokenizer(tokenizer)
-        self.assertFalse(getattr(cls, "_sglang_special_tokens_patched", False))
+        self.assertFalse(getattr(cls, "_sglang_special_tokens_patched", False))  # 断言为假
 
         restored_ids = _get_class_attr_ids(cls)
         for name in original_ids:
             if name.startswith("_sglang") or name.startswith("_original"):
                 continue
-            self.assertEqual(
+            self.assertEqual(  # 断言相等
                 restored_ids.get(name),
                 original_ids[name],
                 f"Attribute {name} should be restored to original",
             )
 
+    # TestPatchTokenizerUnitTest类的测试patchcachesspecialtokens
     def test_patch_caches_special_tokens(self):
         with _patched_tokenizer() as tokenizer:
             tokens1 = tokenizer.all_special_tokens
@@ -112,66 +126,73 @@ class TestPatchTokenizerUnitTest(unittest.TestCase):
             tokens2 = tokenizer.all_special_tokens
             ids2 = tokenizer.all_special_ids
 
-            self.assertIs(tokens1, tokens2)
-            self.assertIs(ids1, ids2)
+            self.assertIs(tokens1, tokens2)  # 断言是同一对象
+            self.assertIs(ids1, ids2)  # 断言是同一对象
 
+    # TestPatchTokenizerUnitTest类的测试patchblocksaddspecialtokens
     def test_patch_blocks_add_special_tokens(self):
         with _patched_tokenizer() as tokenizer:
-            with self.assertRaises(AssertionError) as ctx:
+            with self.assertRaises(AssertionError) as ctx:  # 断言抛出异常
                 tokenizer.add_special_tokens({"pad_token": "<pad>"})
-            self.assertIn(
+            self.assertIn(  # 断言包含
                 "Cannot modify special tokens after patch", str(ctx.exception)
             )
 
+    # TestPatchTokenizerUnitTest类的测试patchblocksaddtokenswithspecialflag
     def test_patch_blocks_add_tokens_with_special_flag(self):
         with _patched_tokenizer() as tokenizer:
-            with self.assertRaises(AssertionError) as ctx:
+            with self.assertRaises(AssertionError) as ctx:  # 断言抛出异常
                 tokenizer.add_tokens(["<new>"], special_tokens=True)
-            self.assertIn("Cannot add special tokens after patch", str(ctx.exception))
+            self.assertIn("Cannot add special tokens after patch", str(ctx.exception))  # 断言包含
 
             tokenizer.add_tokens(["<regular>"], special_tokens=False)
 
+    # TestPatchTokenizerUnitTest类的测试unpatchclearscache
     def test_unpatch_clears_cache(self):
         with _patched_tokenizer() as tokenizer:
             _ = tokenizer.all_special_tokens
             _ = tokenizer.all_special_ids
-            self.assertTrue(hasattr(tokenizer, "_sglang_cached_special_tokens"))
-            self.assertTrue(hasattr(tokenizer, "_sglang_cached_special_ids"))
+            self.assertTrue(hasattr(tokenizer, "_sglang_cached_special_tokens"))  # 断言为真
+            self.assertTrue(hasattr(tokenizer, "_sglang_cached_special_ids"))  # 断言为真
 
-        self.assertFalse(hasattr(tokenizer, "_sglang_cached_special_tokens"))
-        self.assertFalse(hasattr(tokenizer, "_sglang_cached_special_ids"))
+        self.assertFalse(hasattr(tokenizer, "_sglang_cached_special_tokens"))  # 断言为假
+        self.assertFalse(hasattr(tokenizer, "_sglang_cached_special_ids"))  # 断言为假
 
+    # TestPatchTokenizerUnitTest类的测试doublepatchisidempotent
     def test_double_patch_is_idempotent(self):
         tokenizer = _load_tokenizer()
         _SpecialTokensCachePatcher.patch(tokenizer)
         _SpecialTokensCachePatcher.patch(tokenizer)
 
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             getattr(type(tokenizer), "_sglang_special_tokens_patched", False)
         )
 
         unpatch_tokenizer(tokenizer)
 
+    # TestPatchTokenizerUnitTest类的测试decodewithouthfkwargsusesnativedecode
     def test_decode_without_hf_kwargs_uses_native_decode(self):
         tokenizer = _FakeDecodeTokenizer()
 
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             decode_without_hf_kwargs(tokenizer, [1, 99, 2], True),
             "ab",
         )
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             decode_without_hf_kwargs(tokenizer, [1, 99, 2], False),
             "a<special>b",
         )
-        self.assertEqual(tokenizer.decode_calls, [[1, 2], [1, 99, 2]])
+        self.assertEqual(tokenizer.decode_calls, [[1, 2], [1, 99, 2]])  # 断言相等
 
 
+# 内部方法_get_class_attr_ids
 def _get_class_attr_ids(cls):
     return {
         n: id(v.fget if isinstance(v, property) else v) for n, v in vars(cls).items()
     }
 
 
+# 内部方法_load_tokenizer
 def _load_tokenizer():
     # The slowness is mainly observed in Kimi
     return AutoTokenizer.from_pretrained(
@@ -180,6 +201,8 @@ def _load_tokenizer():
 
 
 @contextmanager
+
+# 内部方法_patched_tokenizer
 def _patched_tokenizer():
     tokenizer = _load_tokenizer()
     _SpecialTokensCachePatcher.patch(tokenizer)
@@ -189,12 +212,15 @@ def _patched_tokenizer():
         unpatch_tokenizer(tokenizer)
 
 
+# _FakeDecodeTokenizer类
 class _FakeDecodeTokenizer:
     all_special_ids_set = {99}
 
+    # _FakeDecodeTokenizer类的初始化
     def __init__(self):
         self.decode_calls = []
 
+    # _FakeDecodeTokenizer类的decode
     def decode(self, token_ids):
         token_ids = list(token_ids)
         self.decode_calls.append(token_ids)

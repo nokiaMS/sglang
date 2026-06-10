@@ -1,3 +1,4 @@
+# 文件名: test_vlms_mmmu_eval.py - 视觉语言模型MMMU评估测试
 import json
 import unittest
 import warnings
@@ -65,10 +66,12 @@ MODEL_THRESHOLDS = {
 
 class TestNightlyVLMMmmuEval(unittest.TestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.models = list(MODEL_THRESHOLDS.keys())
         cls.base_url = DEFAULT_URL_FOR_TEST
 
+    # 测试mmmuvlmmodels
     def test_mmmu_vlm_models(self):
         warnings.filterwarnings(
             "ignore", category=ResourceWarning, message="unclosed.*socket"

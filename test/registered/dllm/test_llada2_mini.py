@@ -1,3 +1,4 @@
+# 文件名: test_llada2_mini.py - LLaDA2 Mini测试
 from sglang.test.ci.ci_register import register_amd_ci, register_cuda_ci
 
 register_cuda_ci(est_time=139, stage="base-b", runner_config="1-gpu-large")
@@ -22,6 +23,7 @@ from sglang.test.test_utils import (
 
 class TestLLaDA2Mini(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = "inclusionAI/LLaDA2.0-mini"
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -53,9 +55,11 @@ class TestLLaDA2Mini(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -75,6 +79,7 @@ class TestLLaDA2Mini(CustomTestCase):
         else:
             self.assertGreater(metrics["output_throughput"], 350)
 
+    # 测试bs1speed
     def test_bs_1_speed(self):
         args = BenchArgs(port=int(self.base_url.split(":")[-1]), max_new_tokens=2048)
         acc_length, speed = send_one_prompt(args)

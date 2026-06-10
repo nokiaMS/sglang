@@ -1,3 +1,4 @@
+# 文件名: test_eval_fp8_accuracy.py - FP8精度评估测试 - 验证静态/动态/在线FP8量化的MMLU准确性
 import unittest
 from types import SimpleNamespace
 
@@ -16,6 +17,7 @@ from sglang.test.test_utils import (
 
 class TestEvalFP8Accuracy(CustomTestCase):
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         cls.model = DEFAULT_MODEL_NAME_FOR_ACCURACY_TEST_FP8
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -24,9 +26,11 @@ class TestEvalFP8Accuracy(CustomTestCase):
         )
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试mmlu
     def test_mmlu(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -47,6 +51,7 @@ class TestEvalFP8Accuracy(CustomTestCase):
 
 class TestEvalFP8DynamicQuantAccuracy(CustomTestCase):
 
+    # 内部方法: run test
     def _run_test(self, model, other_args, expected_score):
         base_url = DEFAULT_URL_FOR_TEST
         other_args = other_args or []
@@ -73,6 +78,7 @@ class TestEvalFP8DynamicQuantAccuracy(CustomTestCase):
         finally:
             kill_process_tree(process.pid)
 
+    # 测试mmlu offline only
     def test_mmlu_offline_only(self):
         """Test with offline quantization only."""
         self._run_test(
@@ -81,6 +87,7 @@ class TestEvalFP8DynamicQuantAccuracy(CustomTestCase):
             expected_score=0.64,
         )
 
+    # 测试mmlu offline and online override
     def test_mmlu_offline_and_online_override(self):
         """Test with both offline and online quantization."""
         self._run_test(
@@ -91,6 +98,7 @@ class TestEvalFP8DynamicQuantAccuracy(CustomTestCase):
             expected_score=0.64,
         )
 
+    # 测试mmlu online only
     def test_mmlu_online_only(self):
         """Test with online quantization only."""
         self._run_test(
@@ -101,6 +109,7 @@ class TestEvalFP8DynamicQuantAccuracy(CustomTestCase):
             expected_score=0.64,
         )
 
+    # 测试mmlu fp16 baseline
     def test_mmlu_fp16_baseline(self):
         """Test with unquantized fp16 baseline."""
         self._run_test(

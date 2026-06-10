@@ -1,3 +1,4 @@
+# 多模态缓存模块：提供多模态嵌入的服务器级缓存，支持基于哈希的嵌入存储与LRU淘汰策略
 import abc
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -8,12 +9,14 @@ import torch
 from sglang.srt.mem_cache.allocator import BaseTokenToKVPoolAllocator
 
 
+# 多模态缓存抽象基类，定义缓存的标准接口
 class MultimodalCache(abc.ABC):
     @abc.abstractmethod
     def __init__(
         self,
     ): ...
 
+    # 将多个多模态项的哈希值组合为一个复合哈希
     @staticmethod
     def combine_hashes(mm_hashes: List[int]) -> Optional[int]:
         """
@@ -23,6 +26,7 @@ class MultimodalCache(abc.ABC):
             return None
         return hash(tuple(mm_hashes))
 
+    # 根据哈希ID提取缓存的嵌入向量，优先使用组合哈希，未命中则回退到逐项查找
     @abc.abstractmethod
     def get(
         self, mm_hashes: List[int], combined_hash: Optional[int] = None
@@ -33,6 +37,7 @@ class MultimodalCache(abc.ABC):
         """
         raise NotImplementedError()
 
+    # 将嵌入向量存储到预分配的位置，并关联一个哈希ID
     @abc.abstractmethod
     def set(
         self,
@@ -45,25 +50,30 @@ class MultimodalCache(abc.ABC):
         """
         raise NotImplementedError()
 
+    # 检查指定哈希ID的缓存是否存在
     @abc.abstractmethod
     def has(self, mm_hash: int) -> bool:
         raise NotImplementedError()
 
+    # 释放指定哈希ID的缓存嵌入，并归还分配的内存
     @abc.abstractmethod
     def free(
         self, mm_hash: int, mm_embedding_allocator: BaseTokenToKVPoolAllocator
     ) -> bool:
         raise NotImplementedError()
 
+    # 清空所有缓存
     @abc.abstractmethod
     def clear(self):
         raise NotImplementedError()
 
+    # 返回缓存中可用的容量
     @abc.abstractmethod
     def available_size(self):
         raise NotImplementedError()
 
 
+# 计算张量的内存大小（字节数）
 def _get_tensor_size(embedding: torch.Tensor):
     return embedding.element_size() * embedding.numel()
 
@@ -73,6 +83,7 @@ class EmbeddingResult:
     embedding: torch.Tensor
 
 
+# 多模态静态缓存实现，使用有序字典和LRU淘汰策略管理嵌入缓存
 class MultiModalStaticCache(MultimodalCache):
     """
     A server-level cache for multimodal embedding.
@@ -99,6 +110,7 @@ class MultiModalStaticCache(MultimodalCache):
             self.mm_cache.move_to_end(combined_hash)
         return embedding
 
+    # 将嵌入存入缓存，若超出最大容量则按LRU策略淘汰旧条目
     def set(
         self,
         mm_hash: int,
@@ -120,6 +132,7 @@ class MultiModalStaticCache(MultimodalCache):
         self.current_size += data_size
         return True
 
+    # 通过哈希ID获取单个缓存嵌入（不进行组合哈希）
     def get_single(self, mm_hash: int) -> Optional[EmbeddingResult]:
         """Get a single cached embedding by its hash (no combine_hashes)."""
         embedding = self.mm_cache.get(mm_hash)

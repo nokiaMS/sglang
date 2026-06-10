@@ -1,3 +1,4 @@
+# 文件名: test_search_tools.py - 搜索工具
 import json
 import sys
 import unittest
@@ -32,7 +33,10 @@ register_cuda_ci(est_time=6, stage="base-b", runner_config="1-gpu-small")
 register_amd_ci(est_time=6, suite="stage-b-test-1-gpu-small-amd")
 
 
+# TestAutoBenchmarkSearchTools类
 class TestAutoBenchmarkSearchTools(AutoBenchmarkTestCase):
+
+    # TestAutoBenchmarkSearchTools类的测试buildcandidatesbytier
     def test_build_candidates_by_tier(self):
         base_flags = {"model_path": "/model", "tp_size": 4}
         search_space = {
@@ -65,11 +69,12 @@ class TestAutoBenchmarkSearchTools(AutoBenchmarkTestCase):
             capability=None,
         )
 
-        self.assertGreater(len(tier1), 1)
-        self.assertGreater(len(tier2), len(tier1))
-        self.assertGreater(len(tier3), len(tier2))
-        self.assertEqual(tier1[0]["model_path"], "/model")
+        self.assertGreater(len(tier1), 1)  # 断言大于
+        self.assertGreater(len(tier2), len(tier1))  # 断言大于
+        self.assertGreater(len(tier3), len(tier2))  # 断言大于
+        self.assertEqual(tier1[0]["model_path"], "/model")  # 断言相等
 
+    # TestAutoBenchmarkSearchTools类的测试parallelsearchderivesdpsize
     def test_parallel_search_derives_dp_size(self):
         server_cfg = {
             "env": {"CUDA_VISIBLE_DEVICES": "0,1,2,3,4,5,6,7"},
@@ -85,9 +90,10 @@ class TestAutoBenchmarkSearchTools(AutoBenchmarkTestCase):
         tp_dp_pairs = {
             (candidate["tp_size"], candidate["dp_size"]) for candidate in candidates
         }
-        self.assertIn((4, 2), tp_dp_pairs)
-        self.assertIn((2, 4), tp_dp_pairs)
+        self.assertIn((4, 2), tp_dp_pairs)  # 断言包含
+        self.assertIn((2, 4), tp_dp_pairs)  # 断言包含
 
+    # TestAutoBenchmarkSearchTools类的测试buildservercandidatesfiltersunsupportedfa3onsm100
     def test_build_server_candidates_filters_unsupported_fa3_on_sm100(self):
         server_cfg = {
             "base_flags": {"model_path": "/model", "tp_size": 1},
@@ -105,12 +111,13 @@ class TestAutoBenchmarkSearchTools(AutoBenchmarkTestCase):
             capability=(10, 0),
         )
 
-        self.assertGreater(len(candidates), 0)
+        self.assertGreater(len(candidates), 0)  # 断言大于
         for candidate in candidates:
-            self.assertNotEqual(candidate.get("attention_backend"), "fa3")
-            self.assertNotEqual(candidate.get("prefill_attention_backend"), "fa3")
-            self.assertNotEqual(candidate.get("decode_attention_backend"), "fa3")
+            self.assertNotEqual(candidate.get("attention_backend"), "fa3")  # 断言不相等
+            self.assertNotEqual(candidate.get("prefill_attention_backend"), "fa3")  # 断言不相等
+            self.assertNotEqual(candidate.get("decode_attention_backend"), "fa3")  # 断言不相等
 
+    # TestAutoBenchmarkSearchTools类的测试buildservercandidateskeepsfa3onsm90
     def test_build_server_candidates_keeps_fa3_on_sm90(self):
         server_cfg = {
             "base_flags": {"model_path": "/model", "tp_size": 1},
@@ -127,7 +134,7 @@ class TestAutoBenchmarkSearchTools(AutoBenchmarkTestCase):
             capability=(9, 0),
         )
 
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             any(
                 candidate.get("prefill_attention_backend") == "fa3"
                 or candidate.get("decode_attention_backend") == "fa3"
@@ -135,6 +142,7 @@ class TestAutoBenchmarkSearchTools(AutoBenchmarkTestCase):
             )
         )
 
+    # TestAutoBenchmarkSearchTools类的测试epaliasandoomclassification
     def test_ep_alias_and_oom_classification(self):
         server_cfg = {
             "base_flags": {"model_path": "/model", "tp_size": 8},
@@ -143,12 +151,13 @@ class TestAutoBenchmarkSearchTools(AutoBenchmarkTestCase):
 
         candidates = build_server_candidates(server_cfg, tier=2, max_candidates=None)
         ep_sizes = {candidate.get("ep_size", 1) for candidate in candidates}
-        self.assertEqual(ep_sizes, {1, 4})
+        self.assertEqual(ep_sizes, {1, 4})  # 断言相等
 
         diagnosis, hint = classify_failure("RuntimeError: CUDA out of memory")
-        self.assertEqual(diagnosis, "oom")
-        self.assertIn("Increase GPU count", hint)
+        self.assertEqual(diagnosis, "oom")  # 断言相等
+        self.assertIn("Increase GPU count", hint)  # 断言包含
 
+    # TestAutoBenchmarkSearchTools类的测试expandrandomdatasetscenarios
     def test_expand_random_dataset_scenarios(self):
         scenarios = expand_dataset_scenarios(
             {
@@ -159,47 +168,53 @@ class TestAutoBenchmarkSearchTools(AutoBenchmarkTestCase):
             }
         )
 
-        self.assertEqual(len(scenarios), 2)
-        self.assertEqual(scenarios[0]["name"], "chat")
-        self.assertEqual(scenarios[0]["cfg"]["random_input_len"], 1000)
-        self.assertEqual(scenarios[1]["cfg"]["random_input_len"], 8000)
-        self.assertEqual(scenarios[1]["cfg"]["random_output_len"], 1000)
+        self.assertEqual(len(scenarios), 2)  # 断言相等
+        self.assertEqual(scenarios[0]["name"], "chat")  # 断言相等
+        self.assertEqual(scenarios[0]["cfg"]["random_input_len"], 1000)  # 断言相等
+        self.assertEqual(scenarios[1]["cfg"]["random_input_len"], 8000)  # 断言相等
+        self.assertEqual(scenarios[1]["cfg"]["random_output_len"], 1000)  # 断言相等
 
+    # TestAutoBenchmarkSearchTools类的测试estimatetrialsandtierdescriptions
     def test_estimate_trials_and_tier_descriptions(self):
         benchmark_cfg = {
             "qps": {"lower": 0.25, "upper": 4.0, "tolerance": 0.1},
             "max_concurrency": [None, 8, 16],
         }
 
-        self.assertEqual(estimate_trials_per_candidate(benchmark_cfg), 15)
-        self.assertIn("default", describe_search_tier(2))
-        self.assertIn("slowest", describe_search_tier(3))
+        self.assertEqual(estimate_trials_per_candidate(benchmark_cfg), 15)  # 断言相等
+        self.assertIn("default", describe_search_tier(2))  # 断言包含
+        self.assertIn("slowest", describe_search_tier(3))  # 断言包含
 
+    # TestAutoBenchmarkSearchTools类的测试resolvemaxcandidatesdefaultstoeight
     def test_resolve_max_candidates_defaults_to_eight(self):
-        self.assertEqual(resolve_max_candidates({}), 8)
-        self.assertIsNone(resolve_max_candidates({"max_candidates": None}))
+        self.assertEqual(resolve_max_candidates({}), 8)  # 断言相等
+        self.assertIsNone(resolve_max_candidates({"max_candidates": None}))  # 断言为None
 
+    # TestAutoBenchmarkSearchTools类的测试resolvemaxcandidatesrejectsnonpositivevalues
     def test_resolve_max_candidates_rejects_non_positive_values(self):
         with self.assertRaisesRegex(ValueError, "search.max_candidates"):
             resolve_max_candidates({"max_candidates": 0})
 
+    # TestAutoBenchmarkSearchTools类的测试buildqpsplanacceptsnumericrequestrate
     def test_build_qps_plan_accepts_numeric_request_rate(self):
         mode, values, tolerance, max_rounds = build_qps_plan({"request_rate": 3.5})
-        self.assertEqual(mode, "fixed")
-        self.assertEqual(values, [3.5])
-        self.assertEqual(tolerance, 0.0)
-        self.assertEqual(max_rounds, 0)
+        self.assertEqual(mode, "fixed")  # 断言相等
+        self.assertEqual(values, [3.5])  # 断言相等
+        self.assertEqual(tolerance, 0.0)  # 断言相等
+        self.assertEqual(max_rounds, 0)  # 断言相等
 
+    # TestAutoBenchmarkSearchTools类的测试buildqpsplanclampsbinaryrounds
     def test_build_qps_plan_clamps_binary_rounds(self):
         mode, values, tolerance, max_rounds = build_qps_plan(
             {"qps": {"lower": 1.0, "upper": 16.0, "tolerance": 0.1, "max_rounds": 99}}
         )
 
-        self.assertEqual(mode, "search")
-        self.assertEqual(values, [1.0, 16.0])
-        self.assertEqual(tolerance, 0.1)
-        self.assertEqual(max_rounds, 5)
+        self.assertEqual(mode, "search")  # 断言相等
+        self.assertEqual(values, [1.0, 16.0])  # 断言相等
+        self.assertEqual(tolerance, 0.1)  # 断言相等
+        self.assertEqual(max_rounds, 5)  # 断言相等
 
+    # TestAutoBenchmarkSearchTools类的测试formatbestprogress
     def test_format_best_progress(self):
         text = format_best_progress(
             {
@@ -219,13 +234,14 @@ class TestAutoBenchmarkSearchTools(AutoBenchmarkTestCase):
             }
         )
 
-        self.assertIn("qps=3.5000", text)
-        self.assertIn("tok/s=1234.6", text)
-        self.assertIn("ttft=250.1ms", text)
-        self.assertIn("tpot=14.8ms", text)
-        self.assertIn("tp=4", text)
-        self.assertIn("ep=4", text)
+        self.assertIn("qps=3.5000", text)  # 断言包含
+        self.assertIn("tok/s=1234.6", text)  # 断言包含
+        self.assertIn("ttft=250.1ms", text)  # 断言包含
+        self.assertIn("tpot=14.8ms", text)  # 断言包含
+        self.assertIn("tp=4", text)  # 断言包含
+        self.assertIn("ep=4", text)  # 断言包含
 
+    # TestAutoBenchmarkSearchTools类的测试appendjsonl
     def test_append_jsonl(self):
         path = self.tmpdir_path / "live_results.jsonl"
         append_jsonl(
@@ -237,11 +253,14 @@ class TestAutoBenchmarkSearchTools(AutoBenchmarkTestCase):
         )
 
         lines = path.read_text(encoding="utf-8").strip().splitlines()
-        self.assertEqual(len(lines), 2)
-        self.assertEqual(json.loads(lines[0])["candidate_id"], 1)
-        self.assertEqual(json.loads(lines[1])["requested_qps"], 3.0)
+        self.assertEqual(len(lines), 2)  # 断言相等
+        self.assertEqual(json.loads(lines[0])["candidate_id"], 1)  # 断言相等
+        self.assertEqual(json.loads(lines[1])["requested_qps"], 3.0)  # 断言相等
 
+    # TestAutoBenchmarkSearchTools类的测试collectstaleserverpidsdedups
     def test_collect_stale_server_pids_dedups(self):
+
+        # fake_run
         def fake_run(command, capture_output, text, check):
             stdout = "123\n" if command[0] == "lsof" else "123\n456\n"
             return SimpleNamespace(returncode=0, stdout=stdout)
@@ -249,8 +268,9 @@ class TestAutoBenchmarkSearchTools(AutoBenchmarkTestCase):
         with mock.patch(
             "sglang.auto_benchmark_lib.subprocess.run", side_effect=fake_run
         ):
-            self.assertEqual(collect_stale_server_pids(30000), [123, 456])
+            self.assertEqual(collect_stale_server_pids(30000), [123, 456])  # 断言相等
 
+    # TestAutoBenchmarkSearchTools类的测试renderedlaunchcommandincludesenv
     def test_rendered_launch_command_includes_env(self):
         text = rendered_launch_command(
             {
@@ -263,10 +283,11 @@ class TestAutoBenchmarkSearchTools(AutoBenchmarkTestCase):
             {"model_path": "Qwen/Qwen3-32B", "tp_size": 1, "port": 30000},
         )
 
-        self.assertIn("CUDA_VISIBLE_DEVICES=0", text)
-        self.assertIn("--model-path Qwen/Qwen3-32B", text)
-        self.assertNotIn("HF_TOKEN", text)
+        self.assertIn("CUDA_VISIBLE_DEVICES=0", text)  # 断言包含
+        self.assertIn("--model-path Qwen/Qwen3-32B", text)  # 断言包含
+        self.assertNotIn("HF_TOKEN", text)  # 断言不包含
 
+    # TestAutoBenchmarkSearchTools类的测试renderscenariosummarymarkdownkeepsrowsinsingletable
     def test_render_scenario_summary_markdown_keeps_rows_in_single_table(self):
         text = render_scenario_summary_markdown(
             [
@@ -296,10 +317,10 @@ class TestAutoBenchmarkSearchTools(AutoBenchmarkTestCase):
         header = (
             "| Scenario | Status | QPS | Output tok/s | TTFT ms | TPOT ms | Summary |"
         )
-        self.assertEqual(text.count(header), 1)
-        self.assertLess(text.index("| chat |"), text.index("## chat"))
-        self.assertLess(text.index("| summarization |"), text.index("## chat"))
-        self.assertLess(text.index("| summarization |"), text.index("## summarization"))
+        self.assertEqual(text.count(header), 1)  # 断言相等
+        self.assertLess(text.index("| chat |"), text.index("## chat"))  # 断言小于
+        self.assertLess(text.index("| summarization |"), text.index("## chat"))  # 断言小于
+        self.assertLess(text.index("| summarization |"), text.index("## summarization"))  # 断言小于
 
 
 if __name__ == "__main__":

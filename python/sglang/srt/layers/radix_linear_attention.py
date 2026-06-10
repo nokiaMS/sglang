@@ -1,3 +1,5 @@
+# 基数线性注意力层实现：支持线性注意力机制的前向传播，
+# 包含统一的线性注意力自定义操作和CUDA图兼容版本
 # Copyright 2025-2026 SGLang Team
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -35,6 +37,7 @@ if TYPE_CHECKING:
     from sglang.srt.model_executor.forward_batch_info import ForwardBatch
 
 
+# 基数线性注意力模块：实现线性注意力机制
 class RadixLinearAttention(nn.Module):
     """
     The Linear Attention Layer Implementation.
@@ -49,6 +52,7 @@ class RadixLinearAttention(nn.Module):
         head_q_dim: int,
         head_k_dim: int,
         head_v_dim: int,
+        # GDN KDA共享权重
         # GDN KDA Shared Weights
         conv_weights: Optional[Union[torch.Tensor, Tuple[torch.Tensor, ...]]] = None,
         bias: Optional[Union[torch.Tensor, Tuple[torch.Tensor, ...]]] = None,
@@ -58,23 +62,28 @@ class RadixLinearAttention(nn.Module):
     ):
         super().__init__()
         self.layer_id = layer_id
+        # 注意力头配置
         self.num_q_heads = num_q_heads
         self.num_k_heads = num_k_heads
         self.num_v_heads = num_v_heads
         self.head_q_dim = head_q_dim
         self.head_k_dim = head_k_dim
         self.head_v_dim = head_v_dim
+        # 计算Q/K/V的总维度
         self.q_dim = num_q_heads * head_q_dim
         self.k_dim = num_k_heads * head_k_dim
         self.v_dim = num_v_heads * head_v_dim
 
+        # 卷积权重和偏置
         self.conv_weights = conv_weights
         self.bias = bias
         self.activation = activation
 
+        # 状态空间模型参数
         self.A_log = A_log
         self.dt_bias = dt_bias
 
+    # 前向传播：扩展模式使用自定义操作，其他模式使用注意力后端
     def forward(
         self,
         forward_batch: ForwardBatch,
@@ -83,6 +92,7 @@ class RadixLinearAttention(nn.Module):
         b: torch.Tensor,
     ) -> torch.Tensor:
         if forward_batch.forward_mode.is_extend() and get_forward_context() is not None:
+            # 线性注意力输出形状：(1, seq_len, num_v_heads, head_v_dim)
             # Output shape from linear attention: (1, seq_len, num_v_heads, head_v_dim)
             seq_len = mixed_qkv.shape[0]
             output = torch.empty(
@@ -91,6 +101,7 @@ class RadixLinearAttention(nn.Module):
                 device=mixed_qkv.device,
             )
             if is_in_breakable_cuda_graph():
+                # CUDA图内使用eager版本
                 bcg_unified_linear_attention_with_output(
                     mixed_qkv,
                     a,
@@ -99,6 +110,7 @@ class RadixLinearAttention(nn.Module):
                     self.layer_id,
                 )
             else:
+                # 正常模式使用自定义操作
                 unified_linear_attention_with_output(
                     mixed_qkv,
                     a,
@@ -108,6 +120,7 @@ class RadixLinearAttention(nn.Module):
                 )
             return output
         else:
+            # 非扩展模式：直接调用注意力后端
             return get_attn_backend().forward(
                 layer=self,
                 forward_batch=forward_batch,
@@ -117,6 +130,7 @@ class RadixLinearAttention(nn.Module):
             )
 
 
+# 统一线性注意力自定义操作：将线性注意力计算封装为可分割的算子
 @register_custom_op(mutates_args=["output"])
 @register_split_op()
 def unified_linear_attention_with_output(
@@ -132,14 +146,19 @@ def unified_linear_attention_with_output(
     context = get_forward_context()
     forward_batch = context.forward_batch
     attention_layers = context.attention_layers
+    # 获取当前层的注意力模块
     attention_layer = attention_layers[layer_id]
+    # 获取实际非填充token数量
     real_num_tokens = forward_batch.num_token_non_padded_cpu
 
+    # 保留原始缓存位置，仅窄化本次后端调用的缓存位置，
+    # 使模型/后端状态仍然写入同一批次
     original_out_cache_loc = forward_batch.out_cache_loc
     # Keep the original ForwardBatch object and only narrow cache locations for
     # this backend call so model/backend state is still written to the same batch.
     forward_batch.out_cache_loc = original_out_cache_loc[:real_num_tokens]
 
+    # 调用注意力后端进行计算
     ret = get_attn_backend().forward(
         layer=attention_layer,
         forward_batch=forward_batch,
@@ -147,12 +166,15 @@ def unified_linear_attention_with_output(
         a=a[:real_num_tokens],
         b=b[:real_num_tokens],
     )
+    # 恢复原始缓存位置
     forward_batch.out_cache_loc = original_out_cache_loc
 
+    # 将结果复制到输出张量
     output[:, :real_num_tokens].copy_(ret)
     return
 
 
+# CUDA图兼容版本的统一线性注意力操作
 bcg_unified_linear_attention_with_output = eager_on_graph(True)(
     unified_linear_attention_with_output
 )

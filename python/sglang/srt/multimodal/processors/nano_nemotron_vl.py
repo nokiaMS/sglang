@@ -1,4 +1,7 @@
-# Copyright 2025 SGLang Team
+# NanoNemotronVL多模态处理器模块
+# 实现NemotronH_Nano_VL_V2和NemotronH_Nano_Omni_Reasoning_V3模型的多模态数据处理
+# 支持图像、视频和音频输入，包含动态分辨率和时序压缩
+# Copyright 2025 SGLang Team  # Copyright 2025 SGLang Team
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -11,96 +14,96 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
-import math
-from math import sqrt
+import logging  # 导入日志模块
+import math  # 导入数学模块
+from math import sqrt  # 导入平方根函数
 
-import numpy as np
-import torch
-from PIL import Image
+import numpy as np  # 导入NumPy
+import torch  # 导入PyTorch
+from PIL import Image  # 导入PIL图像模块
 
-from sglang.srt.configs.nano_nemotron_vl import (
+from sglang.srt.configs.nano_nemotron_vl import (  # 导入NanoNemotron配置类
     NemotronH_Nano_Omni_Reasoning_V3_Config,
     NemotronH_Nano_VL_V2_Config,
 )
-from sglang.srt.managers.schedule_batch import (
+from sglang.srt.managers.schedule_batch import (  # 导入调度批次相关类
     Modality,
     MultimodalDataItem,
     MultimodalProcessorOutput,
 )
-from sglang.srt.models.nano_nemotron_vl import (
+from sglang.srt.models.nano_nemotron_vl import (  # 导入NanoNemotron模型类
     NemotronH_Nano_Omni_Reasoning_V3,
     NemotronH_Nano_VL_V2,
 )
-from sglang.srt.models.parakeet import ParakeetExtractor
-from sglang.srt.multimodal.audio_from_video import extract_audio_from_video_bytes
-from sglang.srt.multimodal.evs import EVSProcessor
-from sglang.srt.multimodal.internvl_utils import (
+from sglang.srt.models.parakeet import ParakeetExtractor  # 导入Parakeet音频提取器
+from sglang.srt.multimodal.audio_from_video import extract_audio_from_video_bytes  # 导入从视频提取音频的工具
+from sglang.srt.multimodal.evs import EVSProcessor  # 导入EVS处理器
+from sglang.srt.multimodal.internvl_utils import (  # 导入InternVL工具函数
     compute_budgeted_image_sizes,
     get_video_target_size_and_feature_size,
     image_to_pixel_values,
     resize_image_to_pixels,
     video_to_pixel_values,
 )
-from sglang.srt.multimodal.processors.base_processor import (
+from sglang.srt.multimodal.processors.base_processor import (  # 导入基础多模态处理器和特殊令牌类
     BaseMultimodalProcessor,
     MultimodalSpecialTokens,
 )
-from sglang.srt.utils.common import sample_video_frames
+from sglang.srt.utils.common import sample_video_frames  # 导入视频帧采样工具
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)  # 获取模块日志器
 
-DEFAULT_NUM_TILES = 12
-NUM_VIDEO_TILES = 1
-DESIRED_FPS = 2  # TODO: allow desired fps/num frames to be configurable
-MAX_FRAMES = 128
+DEFAULT_NUM_TILES = 12  # 默认图像瓦片数
+NUM_VIDEO_TILES = 1  # 视频瓦片数
+DESIRED_FPS = 2  # TODO: allow desired fps/num frames to be configurable  # 期望帧率
+MAX_FRAMES = 128  # 最大帧数
 
 
-class NanoNemotronVLImageProcessor(BaseMultimodalProcessor):
-    models = [NemotronH_Nano_VL_V2, NemotronH_Nano_Omni_Reasoning_V3]
-    gpu_image_decode = (
+class NanoNemotronVLImageProcessor(BaseMultimodalProcessor):  # NanoNemotronVL图像处理器类，继承自基础多模态处理器
+    models = [NemotronH_Nano_VL_V2, NemotronH_Nano_Omni_Reasoning_V3]  # 关联的模型列表
+    gpu_image_decode = (  # NanoNemotronVL显式将加载的图像作为PIL图像处理，禁用GPU图像解码
         False  # NanoNemotronVL processes loaded image as PIL image explicitly
     )
 
-    def __init__(self, hf_config, server_args, _image_processor, *args, **kwargs):
-        super().__init__(hf_config, server_args, _image_processor, *args, **kwargs)
-        self.evs = EVSProcessor(
+    def __init__(self, hf_config, server_args, _image_processor, *args, **kwargs):  # 初始化NanoNemotronVL图像处理器
+        super().__init__(hf_config, server_args, _image_processor, *args, **kwargs)  # 调用父类初始化
+        self.evs = EVSProcessor(  # 创建EVS处理器
             hf_config,
             {
                 NemotronH_Nano_VL_V2_Config: NemotronH_Nano_VL_V2,
                 NemotronH_Nano_Omni_Reasoning_V3_Config: NemotronH_Nano_Omni_Reasoning_V3,
             },
         )
-        Image.MAX_IMAGE_PIXELS = None
-        self.image_size = hf_config.image_size
-        self.VIDEO_CONTEXT_TOKEN = hf_config.video_context_token
-        self.IMG_CONTEXT_TOKEN = hf_config.img_context_token
-        self.IMG_START_TOKEN = hf_config.img_start_token
-        self.IMG_END_TOKEN = hf_config.img_end_token
-        self.num_image_token = int(
+        Image.MAX_IMAGE_PIXELS = None  # 取消PIL图像像素限制
+        self.image_size = hf_config.image_size  # 保存图像尺寸
+        self.VIDEO_CONTEXT_TOKEN = hf_config.video_context_token  # 保存视频上下文令牌
+        self.IMG_CONTEXT_TOKEN = hf_config.img_context_token  # 保存图像上下文令牌
+        self.IMG_START_TOKEN = hf_config.img_start_token  # 保存图像开始令牌
+        self.IMG_END_TOKEN = hf_config.img_end_token  # 保存图像结束令牌
+        self.num_image_token = int(  # 计算每个图像的令牌数
             (self.image_size // hf_config.patch_size) ** 2
             * (hf_config.downsample_ratio**2)
         )
-        if hasattr(self._processor, "tokenizer"):
+        if hasattr(self._processor, "tokenizer"):  # 获取分词器
             tokenizer = self._processor.tokenizer
         else:
             tokenizer = self._processor
         self.tokenizer = tokenizer
 
-        self.img_start_token_id = tokenizer.convert_tokens_to_ids(self.IMG_START_TOKEN)
-        self.img_end_token_id = tokenizer.convert_tokens_to_ids(self.IMG_END_TOKEN)
+        self.img_start_token_id = tokenizer.convert_tokens_to_ids(self.IMG_START_TOKEN)  # 图像开始令牌ID
+        self.img_end_token_id = tokenizer.convert_tokens_to_ids(self.IMG_END_TOKEN)  # 图像结束令牌ID
 
         # Audio support: initialize Parakeet extractor if sound_config is present
-        self.audio_extractor: ParakeetExtractor | None = None
-        self.AUDIO_CONTEXT_TOKEN = getattr(
-            hf_config, "audio_context_token", "<so_embedding>"
+        self.audio_extractor: ParakeetExtractor | None = None  # 音频支持：初始化Parakeet提取器
+        self.AUDIO_CONTEXT_TOKEN = getattr(  # 音频提取器
+            hf_config, "audio_context_token", "<so_embedding>"  # 音频上下文令牌
         )
-        self.AUDIO_START_TOKEN = getattr(hf_config, "audio_start_token", "<so_start>")
-        self.AUDIO_END_TOKEN = getattr(hf_config, "audio_end_token", "<so_end>")
+        self.AUDIO_START_TOKEN = getattr(hf_config, "audio_start_token", "<so_start>")  # 音频开始令牌
+        self.AUDIO_END_TOKEN = getattr(hf_config, "audio_end_token", "<so_end>")  # 音频结束令牌
 
         audio_token_str = None
         audio_token_id = None
-        if getattr(hf_config, "sound_config", None) is not None:
+        if getattr(hf_config, "sound_config", None) is not None:  # 如果配置中有sound_config则初始化音频提取器
             self.audio_extractor = ParakeetExtractor(hf_config.sound_config)
             audio_token_str = self.AUDIO_CONTEXT_TOKEN
             audio_token_id = tokenizer.convert_tokens_to_ids(self.AUDIO_CONTEXT_TOKEN)
@@ -111,7 +114,7 @@ class NanoNemotronVLImageProcessor(BaseMultimodalProcessor):
                 self.AUDIO_END_TOKEN
             )
 
-        self.mm_tokens = MultimodalSpecialTokens(
+        self.mm_tokens = MultimodalSpecialTokens(  # 创建多模态特殊令牌
             image_token=self.IMG_CONTEXT_TOKEN,
             image_token_id=tokenizer.convert_tokens_to_ids(self.IMG_CONTEXT_TOKEN),
             video_token=self.VIDEO_CONTEXT_TOKEN,
@@ -120,19 +123,19 @@ class NanoNemotronVLImageProcessor(BaseMultimodalProcessor):
             audio_token_id=audio_token_id,
         ).build(_image_processor)
 
-        # Normalization config (mean/std) and tiling behavior
+        # Normalization config (mean/std) and tiling behavior  # 标准化配置（均值/标准差）和切片行为
         self.norm_mean = hf_config.norm_mean
         self.norm_std = hf_config.norm_std
         self.use_thumbnail = hf_config.use_thumbnail
 
-        # Dynamic resolution config
+        # Dynamic resolution config  # 动态分辨率配置
         self.dynamic_resolution = getattr(hf_config, "dynamic_resolution", False)
         self.min_num_patches = getattr(hf_config, "min_num_patches", 0)
         self.max_num_patches = getattr(hf_config, "max_num_patches", 0)
         self.patch_size = hf_config.patch_size
         self.downsample_ratio = hf_config.downsample_ratio
 
-        # Video temporal compression config
+        # Video temporal compression config  # 视频时序压缩配置
         self.video_temporal_patch_size = getattr(
             hf_config, "video_temporal_patch_size", 1
         )
@@ -143,14 +146,14 @@ class NanoNemotronVLImageProcessor(BaseMultimodalProcessor):
             hf_config, "video_maintain_aspect_ratio", True
         )
 
-        self.max_model_len = getattr(server_args, "context_length", None) or 8192
+        self.max_model_len = getattr(server_args, "context_length", None) or 8192  # 最大模型长度
 
-        self.PLACEHOLDER = self.tokenizer.unk_token
+        self.PLACEHOLDER = self.tokenizer.unk_token  # 占位符
         assert isinstance(self.PLACEHOLDER, str)
-        self.PLACEHOLDER_ID = tokenizer.convert_tokens_to_ids(self.PLACEHOLDER)
+        self.PLACEHOLDER_ID = tokenizer.convert_tokens_to_ids(self.PLACEHOLDER)  # 占位符ID
         assert isinstance(self.PLACEHOLDER_ID, int)
 
-    def preprocess_image(
+    def preprocess_image(  # 预处理图像
         self, image: Image.Image, *, max_num_tiles: int = DEFAULT_NUM_TILES
     ) -> torch.Tensor:
         return image_to_pixel_values(
@@ -162,13 +165,13 @@ class NanoNemotronVLImageProcessor(BaseMultimodalProcessor):
             std=self.norm_std,
         ).to(dtype=torch.bfloat16)
 
-    def render_image(self, *, num_tiles: int):
+    def render_image(self, *, num_tiles: int):  # 渲染图像令牌
         return f"{self.IMG_START_TOKEN}{self.IMG_CONTEXT_TOKEN * self.num_image_token * num_tiles}{self.IMG_END_TOKEN}"
 
-    def render_image_dynamic(self, *, num_tokens: int):
+    def render_image_dynamic(self, *, num_tokens: int):  # 动态渲染图像
         return f"{self.IMG_START_TOKEN}{self.IMG_CONTEXT_TOKEN * num_tokens}{self.IMG_END_TOKEN}"
 
-    def render_tubelet(
+    def render_tubelet(  # 渲染视频管片段
         self,
         tubelet_index: int,
         frame_indices: list[int],
@@ -186,10 +189,10 @@ class NanoNemotronVLImageProcessor(BaseMultimodalProcessor):
         )
         return f"{parts}: {self.PLACEHOLDER}{self.IMG_CONTEXT_TOKEN * num_tokens}{self.IMG_END_TOKEN}"
 
-    def render_frame(self, frame_index: int, *, timestamp: float, num_tokens: int):
+    def render_frame(self, frame_index: int, *, timestamp: float, num_tokens: int):  # 渲染视频帧
         return f"Frame {frame_index + 1} sampled at {timestamp:.2f} seconds: {self.PLACEHOLDER}{self.IMG_CONTEXT_TOKEN * num_tokens}{self.IMG_END_TOKEN}"
 
-    @staticmethod
+    @staticmethod  # 解析视频
     def parse_video(video) -> tuple[np.ndarray, list[float]]:
         frames = sample_video_frames(
             video, desired_fps=DESIRED_FPS, max_frames=MAX_FRAMES
@@ -203,14 +206,14 @@ class NanoNemotronVLImageProcessor(BaseMultimodalProcessor):
         timestamps = [i * frame_duration_ms / 1000.0 for i in frames]
         return video_array, timestamps
 
-    def render_audio(self, *, num_tokens: int):
+    def render_audio(self, *, num_tokens: int):  # 渲染音频令牌
         return (
             f"{self.AUDIO_START_TOKEN}"
             f"{self.AUDIO_CONTEXT_TOKEN * num_tokens}"
             f"{self.AUDIO_END_TOKEN}"
         )
 
-    async def process_mm_data_async(
+    async def process_mm_data_async(  # 异步处理多模态数据
         self, image_data, audio_data, input_text, request_obj, **kwargs
     ):
         base_output = await self.load_mm_data(

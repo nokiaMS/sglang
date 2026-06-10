@@ -1,3 +1,8 @@
+# GLM-4.5/4.6/4.7 MoE模型推理实现
+# 本文件实现了GLM-4.5、GLM-4.6和GLM-4.7混合专家(MoE)模型的推理逻辑，
+# 包含MLP、注意力、门控、稀疏MoE块、解码器层、模型主体和因果LM等核心组件，
+# 支持张量并行、专家并行、流水线并行、QK归一化和多种量化方案。
+
 # Copyright 2025-2026 SGLang Team
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,1475 +17,1491 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Inference-only GLM-4.5, GLM-4.6 and GLM-4.7 model compatible with HuggingFace weights"""
+"""Inference-only GLM-4.5, GLM-4.6 and GLM-4.7 model compatible with HuggingFace weights"""  # 仅推理的GLM-4.5/4.6/4.7模型，兼容HuggingFace权重
 
-import logging
-import re
-from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
+import logging  # 导入日志模块
+import re  # 导入正则表达式模块
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union  # 导入类型提示
 
-import torch
-import torch.nn.functional as F
-from torch import nn
-from transformers import PretrainedConfig
+import torch  # 导入PyTorch
+import torch.nn.functional as F  # 导入函数式神经网络接口
+from torch import nn  # 导入神经网络模块
+from transformers import PretrainedConfig  # 导入预训练配置类
 
-from sglang.srt.batch_overlap.single_batch_overlap import SboFlags
-from sglang.srt.batch_overlap.two_batch_overlap import model_forward_maybe_tbo
-from sglang.srt.distributed import (
-    get_moe_expert_parallel_world_size,
-    get_pp_group,
-    get_pp_indices,
-    get_tensor_model_parallel_rank,
-    get_tensor_model_parallel_world_size,
-    parallel_state,
-    tensor_model_parallel_all_reduce,
+from sglang.srt.batch_overlap.single_batch_overlap import SboFlags  # 导入单批次重叠标志
+from sglang.srt.batch_overlap.two_batch_overlap import model_forward_maybe_tbo  # 导入可能的双批次重叠前向传播
+from sglang.srt.distributed import (  # 导入分布式通信模块
+    get_moe_expert_parallel_world_size,  # 获取MoE专家并行世界大小
+    get_pp_group,  # 获取流水线并行组
+    get_pp_indices,  # 获取流水线并行索引
+    get_tensor_model_parallel_rank,  # 获取张量并行rank
+    get_tensor_model_parallel_world_size,  # 获取张量并行世界大小
+    parallel_state,  # 并行状态
+    tensor_model_parallel_all_reduce,  # 张量并行全归约
 )
-from sglang.srt.distributed.device_communicators.pynccl_allocator import (
-    use_symmetric_memory,
+from sglang.srt.distributed.device_communicators.pynccl_allocator import (  # 导入NCCL分配器
+    use_symmetric_memory,  # 使用对称内存
 )
-from sglang.srt.environ import envs
-from sglang.srt.eplb.expert_distribution import get_global_expert_distribution_recorder
-from sglang.srt.eplb.expert_location import ModelConfigForExpertLocation
-from sglang.srt.eplb.expert_location_dispatch import ExpertLocationDispatchInfo
-from sglang.srt.layers.activation import SiluAndMul
-from sglang.srt.layers.communicator import (
-    LayerCommunicator,
-    LayerScatterModes,
-    enable_moe_dense_fully_dp,
+from sglang.srt.environ import envs  # 导入环境变量
+from sglang.srt.eplb.expert_distribution import get_global_expert_distribution_recorder  # 导入全局专家分布记录器
+from sglang.srt.eplb.expert_location import ModelConfigForExpertLocation  # 导入专家位置模型配置
+from sglang.srt.eplb.expert_location_dispatch import ExpertLocationDispatchInfo  # 导入专家位置调度信息
+from sglang.srt.layers.activation import SiluAndMul  # 导入SiLU与乘法激活函数
+from sglang.srt.layers.communicator import (  # 导入层通信器
+    LayerCommunicator,  # 层通信器
+    LayerScatterModes,  # 层散射模式
+    enable_moe_dense_fully_dp,  # 启用MoE密集全数据并行
 )
-from sglang.srt.layers.dp_attention import (
-    get_attention_tp_rank,
-    get_attention_tp_size,
-    is_allocation_symmetric,
-    is_dp_attention_enabled,
+from sglang.srt.layers.dp_attention import (  # 导入数据并行注意力
+    get_attention_tp_rank,  # 获取注意力TP rank
+    get_attention_tp_size,  # 获取注意力TP大小
+    is_allocation_symmetric,  # 判断分配是否对称
+    is_dp_attention_enabled,  # 判断是否启用DP注意力
 )
-from sglang.srt.layers.layernorm import RMSNorm
-from sglang.srt.layers.linear import (
-    MergedColumnParallelLinear,
-    QKVParallelLinear,
-    RowParallelLinear,
+from sglang.srt.layers.layernorm import RMSNorm  # 导入RMS归一化层
+from sglang.srt.layers.linear import (  # 导入并行线性层
+    MergedColumnParallelLinear,  # 合并列并行线性层
+    QKVParallelLinear,  # QKV并行线性层
+    RowParallelLinear,  # 行并行线性层
 )
-from sglang.srt.layers.logits_processor import LogitsProcessor
-from sglang.srt.layers.moe import (
-    get_moe_a2a_backend,
-    should_skip_post_experts_all_reduce,
-    should_use_flashinfer_cutlass_moe_fp4_allgather,
+from sglang.srt.layers.logits_processor import LogitsProcessor  # 导入logits处理器
+from sglang.srt.layers.moe import (  # 导入MoE相关模块
+    get_moe_a2a_backend,  # 获取MoE全互连后端
+    should_skip_post_experts_all_reduce,  # 判断是否跳过专家后的全归约
+    should_use_flashinfer_cutlass_moe_fp4_allgather,  # 判断是否使用FlashInfer Cutlass MoE FP4全收集
 )
-from sglang.srt.layers.moe.ep_moe.layer import get_moe_impl_class
-from sglang.srt.layers.moe.fused_moe_triton.layer import FusedMoE
-from sglang.srt.layers.moe.kt_ep_wrapper import KTEPWrapperMethod
-from sglang.srt.layers.moe.topk import TopK
-from sglang.srt.layers.moe.utils import (
-    RoutingMethodType,
-    filter_moe_weight_param_global_expert,
+from sglang.srt.layers.moe.ep_moe.layer import get_moe_impl_class  # 导入MoE实现类获取函数
+from sglang.srt.layers.moe.fused_moe_triton.layer import FusedMoE  # 导入融合MoE Triton层
+from sglang.srt.layers.moe.kt_ep_wrapper import KTEPWrapperMethod  # 导入KT EP包装方法
+from sglang.srt.layers.moe.topk import TopK  # 导入TopK选择器
+from sglang.srt.layers.moe.utils import (  # 导入MoE工具
+    RoutingMethodType,  # 路由方法类型
+    filter_moe_weight_param_global_expert,  # 过滤MoE权重参数
 )
-from sglang.srt.layers.quantization.base_config import QuantizationConfig
-from sglang.srt.layers.quantization.fp8_kernel import is_fp8_fnuz
-from sglang.srt.layers.radix_attention import RadixAttention
-from sglang.srt.layers.rotary_embedding import get_rope
-from sglang.srt.layers.utils import PPMissingLayer
-from sglang.srt.layers.vocab_parallel_embedding import (
-    ParallelLMHead,
-    VocabParallelEmbedding,
+from sglang.srt.layers.quantization.base_config import QuantizationConfig  # 导入量化配置基类
+from sglang.srt.layers.quantization.fp8_kernel import is_fp8_fnuz  # 导入FP8 FNUZ检测
+from sglang.srt.layers.radix_attention import RadixAttention  # 导入基数注意力
+from sglang.srt.layers.rotary_embedding import get_rope  # 导入旋转位置编码获取函数
+from sglang.srt.layers.utils import PPMissingLayer  # 导入流水线并行缺失层
+from sglang.srt.layers.vocab_parallel_embedding import (  # 导入词表并行嵌入层
+    ParallelLMHead,  # 并行语言模型头
+    VocabParallelEmbedding,  # 词表并行嵌入
 )
-from sglang.srt.model_executor.cuda_graph_runner import get_is_capture_mode
-from sglang.srt.model_executor.forward_batch_info import ForwardBatch, PPProxyTensors
-from sglang.srt.model_loader.weight_utils import default_weight_loader
-from sglang.srt.models.deepseek_v2 import DeepseekV2ForCausalLM
-from sglang.srt.models.utils import apply_qk_norm
-from sglang.srt.server_args import get_global_server_args
-from sglang.srt.utils import (
-    add_prefix,
-    cpu_has_amx_support,
-    get_bool_env_var,
-    get_device_sm,
-    is_cpu,
-    is_cuda,
-    is_hip,
-    is_non_idle_and_non_empty,
-    is_npu,
-    log_info_on_rank0,
-    make_layers,
+from sglang.srt.model_executor.cuda_graph_runner import get_is_capture_mode  # 导入CUDA图捕获模式判断
+from sglang.srt.model_executor.forward_batch_info import ForwardBatch, PPProxyTensors  # 导入前向批次信息
+from sglang.srt.model_loader.weight_utils import default_weight_loader  # 导入默认权重加载器
+from sglang.srt.models.deepseek_v2 import DeepseekV2ForCausalLM  # 导入DeepseekV2因果LM
+from sglang.srt.models.utils import apply_qk_norm  # 导入QK归一化应用函数
+from sglang.srt.server_args import get_global_server_args  # 导入全局服务器参数获取函数
+from sglang.srt.utils import (  # 导入工具函数
+    add_prefix,  # 添加前缀
+    cpu_has_amx_support,  # 检测CPU AMX支持
+    get_bool_env_var,  # 获取布尔环境变量
+    get_device_sm,  # 获取设备SM版本
+    is_cpu,  # 是否CPU平台
+    is_cuda,  # 是否CUDA平台
+    is_hip,  # 是否HIP平台
+    is_non_idle_and_non_empty,  # 判断是否非空闲且非空
+    is_npu,  # 是否NPU平台
+    log_info_on_rank0,  # 在rank0上记录日志
+    make_layers,  # 创建层
 )
-from sglang.srt.utils.hf_transformers_utils import get_rope_config
+from sglang.srt.utils.hf_transformers_utils import get_rope_config  # 导入RoPE配置获取函数
 
-_is_hip = is_hip()
-_is_cuda = is_cuda()
-_is_fp8_fnuz = is_fp8_fnuz()
-_use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
-_is_cpu_amx_available = cpu_has_amx_support()
-_is_cpu = is_cpu()
-_is_npu = is_npu()
-_device_sm = get_device_sm()
+_is_hip = is_hip()  # 是否HIP平台
+_is_cuda = is_cuda()  # 是否CUDA平台
+_is_fp8_fnuz = is_fp8_fnuz()  # 是否FP8 FNUZ格式
+_use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip  # 是否使用AITER（仅HIP平台）
+_is_cpu_amx_available = cpu_has_amx_support()  # CPU是否支持AMX
+_is_cpu = is_cpu()  # 是否CPU平台
+_is_npu = is_npu()  # 是否NPU平台
+_device_sm = get_device_sm()  # 设备SM版本
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)  # 创建日志记录器
 
-if _is_npu:
-    from sgl_kernel_npu.norm.split_qkv_rmsnorm_rope import split_qkv_rmsnorm_rope
+if _is_npu:  # 如果是NPU平台
+    from sgl_kernel_npu.norm.split_qkv_rmsnorm_rope import split_qkv_rmsnorm_rope  # 导入NPU融合QKV+RMSNorm+RoPE内核
 
-    from sglang.srt.hardware_backend.npu.utils import (
-        process_shared_expert,
-        wait_share_stream,
+    from sglang.srt.hardware_backend.npu.utils import (  # 导入NPU工具
+        process_shared_expert,  # 处理共享专家
+        wait_share_stream,  # 等待共享流
     )
 
 
 class Glm4MoeMLP(nn.Module):
-    def __init__(
+    """GLM-4 MoE模型的密集MLP层，使用SiLU激活函数。"""
+
+    def __init__(  # 初始化方法
         self,
-        hidden_size: int,
-        intermediate_size: int,
-        hidden_act: str,
-        quant_config: Optional[QuantizationConfig] = None,
-        reduce_results: bool = True,
-        prefix: str = "",
-        tp_rank: Optional[int] = None,
-        tp_size: Optional[int] = None,
+        hidden_size: int,  # 隐藏层大小
+        intermediate_size: int,  # 中间层大小
+        hidden_act: str,  # 隐藏层激活函数
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置，可选
+        reduce_results: bool = True,  # 是否归约结果
+        prefix: str = "",  # 参数前缀
+        tp_rank: Optional[int] = None,  # 张量并行rank，可选
+        tp_size: Optional[int] = None,  # 张量并行大小，可选
     ) -> None:
-        super().__init__()
-        self.tp_size = tp_size
+        super().__init__()  # 调用父类初始化
+        self.tp_size = tp_size  # 张量并行大小
 
-        self.gate_up_proj = MergedColumnParallelLinear(
-            hidden_size,
-            [intermediate_size] * 2,
-            bias=False,
-            quant_config=quant_config,
-            prefix=add_prefix("gate_up_proj", prefix),
-            tp_rank=tp_rank,
-            tp_size=tp_size,
+        self.gate_up_proj = MergedColumnParallelLinear(  # 合并的gate-up并行线性层
+            hidden_size,  # 输入大小
+            [intermediate_size] * 2,  # 输出大小为中间大小的两倍（gate和up）
+            bias=False,  # 不使用偏置
+            quant_config=quant_config,  # 量化配置
+            prefix=add_prefix("gate_up_proj", prefix),  # 添加前缀
+            tp_rank=tp_rank,  # 张量并行rank
+            tp_size=tp_size,  # 张量并行大小
         )
-        self.down_proj = RowParallelLinear(
-            intermediate_size,
-            hidden_size,
-            bias=False,
-            quant_config=quant_config,
-            reduce_results=reduce_results,
-            prefix=add_prefix("down_proj", prefix),
-            tp_rank=tp_rank,
-            tp_size=tp_size,
+        self.down_proj = RowParallelLinear(  # 行并行下投影层
+            intermediate_size,  # 输入大小
+            hidden_size,  # 输出大小
+            bias=False,  # 不使用偏置
+            quant_config=quant_config,  # 量化配置
+            reduce_results=reduce_results,  # 是否归约结果
+            prefix=add_prefix("down_proj", prefix),  # 添加前缀
+            tp_rank=tp_rank,  # 张量并行rank
+            tp_size=tp_size,  # 张量并行大小
         )
-        if hidden_act != "silu":
-            raise ValueError(
-                f"Unsupported activation: {hidden_act}. Only silu is supported for now."
+        if hidden_act != "silu":  # 如果激活函数不是silu
+            raise ValueError(  # 抛出值错误
+                f"Unsupported activation: {hidden_act}. Only silu is supported for now."  # 不支持的激活函数，目前仅支持silu
             )
-        self.act_fn = SiluAndMul()
+        self.act_fn = SiluAndMul()  # SiLU与乘法激活函数
 
-    def forward(
+    def forward(  # 前向传播方法
         self,
-        x,
-        forward_batch=None,
-        should_allreduce_fusion: bool = False,
-        use_reduce_scatter: bool = False,
+        x,  # 输入张量
+        forward_batch=None,  # 前向批次，可选
+        should_allreduce_fusion: bool = False,  # 是否融合全归约
+        use_reduce_scatter: bool = False,  # 是否使用reduce-scatter
     ):
-        if (self.tp_size == 1) and x.shape[0] == 0:
-            return x
+        if (self.tp_size == 1) and x.shape[0] == 0:  # 如果单卡且输入为空
+            return x  # 直接返回
 
-        gate_up, _ = self.gate_up_proj(x)
-        x = self.act_fn(gate_up)
-        x, _ = self.down_proj(
-            x, skip_all_reduce=should_allreduce_fusion or use_reduce_scatter
+        gate_up, _ = self.gate_up_proj(x)  # 通过gate_up投影
+        x = self.act_fn(gate_up)  # SiLU激活并乘以up部分
+        x, _ = self.down_proj(  # 通过下投影
+            x, skip_all_reduce=should_allreduce_fusion or use_reduce_scatter  # 是否跳过全归约
         )
-        return x
+        return x  # 返回输出
 
 
 class Glm4MoeAttention(nn.Module):
-    def __init__(
+    """GLM-4 MoE模型的注意力层，支持QK归一化和部分旋转位置编码。"""
+
+    def __init__(  # 初始化方法
         self,
-        hidden_size: int,
-        num_heads: int,
-        num_kv_heads: int,
-        layer_id: int = 0,
-        start_layer: int = 0,
-        rope_theta: float = 1000000,
-        partial_rotary_factor: float = 0.5,
-        rope_scaling: Optional[Dict[str, Any]] = None,
-        max_position_embeddings: int = 8192,
-        head_dim: Optional[int] = None,
-        rms_norm_eps: float = 1e-05,
-        attention_bias: bool = True,
-        quant_config: Optional[QuantizationConfig] = None,
-        use_qk_norm: bool = False,
-        prefix: str = "",
-        alt_stream: Optional[torch.cuda.Stream] = None,
+        hidden_size: int,  # 隐藏层大小
+        num_heads: int,  # 注意力头数
+        num_kv_heads: int,  # KV头数
+        layer_id: int = 0,  # 层ID
+        start_layer: int = 0,  # 起始层
+        rope_theta: float = 1000000,  # RoPE的theta参数
+        partial_rotary_factor: float = 0.5,  # 部分旋转因子
+        rope_scaling: Optional[Dict[str, Any]] = None,  # RoPE缩放配置
+        max_position_embeddings: int = 8192,  # 最大位置嵌入数
+        head_dim: Optional[int] = None,  # 头维度，可选
+        rms_norm_eps: float = 1e-05,  # RMS归一化epsilon
+        attention_bias: bool = True,  # 是否使用注意力偏置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        use_qk_norm: bool = False,  # 是否使用QK归一化
+        prefix: str = "",  # 参数前缀
+        alt_stream: Optional[torch.cuda.Stream] = None,  # 备用CUDA流
     ) -> None:
-        super().__init__()
-        self.hidden_size = hidden_size
-        self.start_layer = start_layer
+        super().__init__()  # 调用父类初始化
+        self.hidden_size = hidden_size  # 隐藏层大小
+        self.start_layer = start_layer  # 起始层
 
-        attn_tp_rank = get_attention_tp_rank()
-        attn_tp_size = get_attention_tp_size()
+        attn_tp_rank = get_attention_tp_rank()  # 获取注意力TP rank
+        attn_tp_size = get_attention_tp_size()  # 获取注意力TP大小
 
-        self.total_num_heads = num_heads
-        assert self.total_num_heads % attn_tp_size == 0
-        self.num_heads = self.total_num_heads // attn_tp_size
-        self.total_num_kv_heads = num_kv_heads
-        if self.total_num_kv_heads >= attn_tp_size:
-            # Number of KV heads is greater than TP size, so we partition
-            # the KV heads across multiple tensor parallel GPUs.
-            assert self.total_num_kv_heads % attn_tp_size == 0
-        else:
-            # Number of KV heads is less than TP size, so we replicate
-            # the KV heads across multiple tensor parallel GPUs.
-            assert attn_tp_size % self.total_num_kv_heads == 0
-        self.num_kv_heads = max(1, self.total_num_kv_heads // attn_tp_size)
-        self.head_dim = head_dim or hidden_size // self.total_num_heads
-        self.q_size = self.num_heads * self.head_dim
-        self.kv_size = self.num_kv_heads * self.head_dim
-        self.scaling = self.head_dim**-0.5
-        self.rope_theta = rope_theta
-        self.use_qk_norm = use_qk_norm
-        self.max_position_embeddings = max_position_embeddings
-        self.tp_rank = get_tensor_model_parallel_rank()
+        self.total_num_heads = num_heads  # 总头数
+        assert self.total_num_heads % attn_tp_size == 0  # 确保头数可被TP大小整除
+        self.num_heads = self.total_num_heads // attn_tp_size  # 每个分区的头数
+        self.total_num_kv_heads = num_kv_heads  # 总KV头数
+        if self.total_num_kv_heads >= attn_tp_size:  # 如果KV头数>=TP大小
+            # Number of KV heads is greater than TP size, so we partition  # KV头数大于TP大小，需要分区
+            # the KV heads across multiple tensor parallel GPUs.  # 在多个张量并行GPU间分配KV头
+            assert self.total_num_kv_heads % attn_tp_size == 0  # 确保可整除
+        else:  # 否则
+            # Number of KV heads is less than TP size, so we replicate  # KV头数小于TP大小，需要复制
+            # the KV heads across multiple tensor parallel GPUs.  # 在多个张量并行GPU间复制KV头
+            assert attn_tp_size % self.total_num_kv_heads == 0  # 确保TP大小可被KV头数整除
+        self.num_kv_heads = max(1, self.total_num_kv_heads // attn_tp_size)  # 每个分区的KV头数
+        self.head_dim = head_dim or hidden_size // self.total_num_heads  # 头维度
+        self.q_size = self.num_heads * self.head_dim  # Q大小
+        self.kv_size = self.num_kv_heads * self.head_dim  # KV大小
+        self.scaling = self.head_dim**-0.5  # 缩放因子
+        self.rope_theta = rope_theta  # RoPE theta
+        self.use_qk_norm = use_qk_norm  # 是否使用QK归一化
+        self.max_position_embeddings = max_position_embeddings  # 最大位置嵌入
+        self.tp_rank = get_tensor_model_parallel_rank()  # 张量并行rank
 
-        self.qkv_proj = QKVParallelLinear(
-            hidden_size,
-            self.head_dim,
-            self.total_num_heads,
-            self.total_num_kv_heads,
-            bias=attention_bias,
-            quant_config=quant_config,
-            tp_rank=attn_tp_rank,
-            tp_size=attn_tp_size,
-            prefix=add_prefix("qkv_proj", prefix),
+        self.qkv_proj = QKVParallelLinear(  # QKV并行线性层
+            hidden_size,  # 输入大小
+            self.head_dim,  # 头维度
+            self.total_num_heads,  # 总Q头数
+            self.total_num_kv_heads,  # 总KV头数
+            bias=attention_bias,  # 是否使用偏置
+            quant_config=quant_config,  # 量化配置
+            tp_rank=attn_tp_rank,  # TP rank
+            tp_size=attn_tp_size,  # TP大小
+            prefix=add_prefix("qkv_proj", prefix),  # 添加前缀
         )
 
-        self.o_proj = RowParallelLinear(
-            self.total_num_heads * self.head_dim,
-            hidden_size,
-            bias=False,
-            quant_config=quant_config,
-            tp_rank=attn_tp_rank,
-            tp_size=attn_tp_size,
-            reduce_results=False,
-            prefix=add_prefix("o_proj", prefix),
+        self.o_proj = RowParallelLinear(  # 行并行输出投影层
+            self.total_num_heads * self.head_dim,  # 输入大小
+            hidden_size,  # 输出大小
+            bias=False,  # 不使用偏置
+            quant_config=quant_config,  # 量化配置
+            tp_rank=attn_tp_rank,  # TP rank
+            tp_size=attn_tp_size,  # TP大小
+            reduce_results=False,  # 不归约结果
+            prefix=add_prefix("o_proj", prefix),  # 添加前缀
         )
 
-        self.rotary_emb = get_rope(
-            self.head_dim,
-            rotary_dim=self.head_dim,
-            max_position=max_position_embeddings,
-            partial_rotary_factor=partial_rotary_factor,
-            base=rope_theta,
-            rope_scaling=rope_scaling,
+        self.rotary_emb = get_rope(  # 旋转位置编码
+            self.head_dim,  # 头维度
+            rotary_dim=self.head_dim,  # 旋转维度
+            max_position=max_position_embeddings,  # 最大位置
+            partial_rotary_factor=partial_rotary_factor,  # 部分旋转因子
+            base=rope_theta,  # 基数
+            rope_scaling=rope_scaling,  # 缩放配置
         )
-        self.attn = RadixAttention(
-            self.num_heads,
-            self.head_dim,
-            self.scaling,
-            num_kv_heads=self.num_kv_heads,
-            layer_id=layer_id,
-            prefix=add_prefix("attn", prefix),
-        )
-
-        if self.use_qk_norm:
-            self.q_norm = RMSNorm(self.head_dim, eps=rms_norm_eps)
-            self.k_norm = RMSNorm(self.head_dim, eps=rms_norm_eps)
-        self.alt_stream = alt_stream
-
-    def op_prepare(self, state):
-        state.attn_intermediate_state = self.forward_prepare(
-            positions=state.positions,
-            hidden_states=state.pop("hidden_states_after_comm_pre_attn"),
-            forward_batch=state.forward_batch,
+        self.attn = RadixAttention(  # 基数注意力
+            self.num_heads,  # 头数
+            self.head_dim,  # 头维度
+            self.scaling,  # 缩放因子
+            num_kv_heads=self.num_kv_heads,  # KV头数
+            layer_id=layer_id,  # 层ID
+            prefix=add_prefix("attn", prefix),  # 添加前缀
         )
 
-    def op_core(self, state):
-        state.hidden_states_after_attn = self.forward_core(
-            state.pop("attn_intermediate_state")
+        if self.use_qk_norm:  # 如果使用QK归一化
+            self.q_norm = RMSNorm(self.head_dim, eps=rms_norm_eps)  # Q归一化层
+            self.k_norm = RMSNorm(self.head_dim, eps=rms_norm_eps)  # K归一化层
+        self.alt_stream = alt_stream  # 备用CUDA流
+
+    def op_prepare(self, state):  # 操作：准备注意力中间状态
+        state.attn_intermediate_state = self.forward_prepare(  # 保存准备阶段的中间状态
+            positions=state.positions,  # 位置编码
+            hidden_states=state.pop("hidden_states_after_comm_pre_attn"),  # 通信后的隐藏状态
+            forward_batch=state.forward_batch,  # 前向批次
         )
 
-    def forward_prepare(
+    def op_core(self, state):  # 操作：注意力核心计算
+        state.hidden_states_after_attn = self.forward_core(  # 保存注意力计算结果
+            state.pop("attn_intermediate_state")  # 弹出中间状态
+        )
+
+    def forward_prepare(  # 注意力准备阶段
         self,
-        positions: torch.Tensor,
-        hidden_states: torch.Tensor,
-        forward_batch: ForwardBatch,
+        positions: torch.Tensor,  # 位置编码
+        hidden_states: torch.Tensor,  # 隐藏状态
+        forward_batch: ForwardBatch,  # 前向批次
     ):
-        # hidden_states can be a (fp8_tensor, scale) tuple from fused RMSNorm+Quant
-        hs = hidden_states[0] if isinstance(hidden_states, tuple) else hidden_states
-        if hs.shape[0] == 0:
-            return hidden_states, forward_batch, None
-        qkv, _ = self.qkv_proj(hidden_states)
+        # hidden_states can be a (fp8_tensor, scale) tuple from fused RMSNorm+Quant  # hidden_states可能是融合RMSNorm+量化后的(fp8张量, 缩放)元组
+        hs = hidden_states[0] if isinstance(hidden_states, tuple) else hidden_states  # 解包元组或直接使用
+        if hs.shape[0] == 0:  # 如果没有token
+            return hidden_states, forward_batch, None  # 返回空结果
+        qkv, _ = self.qkv_proj(hidden_states)  # QKV投影
 
-        if (
-            not _is_npu
-            or forward_batch.forward_mode.is_extend_or_draft_extend_or_mixed()
+        if (  # 如果
+            not _is_npu  # 非NPU平台
+            or forward_batch.forward_mode.is_extend_or_draft_extend_or_mixed()  # 或扩展/草稿扩展/混合模式
         ):
-            q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
-            if self.use_qk_norm:
-                q, k = apply_qk_norm(
-                    q=q,
-                    k=k,
-                    q_norm=self.q_norm,
-                    k_norm=self.k_norm,
-                    head_dim=self.head_dim,
-                    alt_stream=self.alt_stream,
+            q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)  # 分割QKV
+            if self.use_qk_norm:  # 如果使用QK归一化
+                q, k = apply_qk_norm(  # 应用QK归一化
+                    q=q,  # Q张量
+                    k=k,  # K张量
+                    q_norm=self.q_norm,  # Q归一化层
+                    k_norm=self.k_norm,  # K归一化层
+                    head_dim=self.head_dim,  # 头维度
+                    alt_stream=self.alt_stream,  # 备用CUDA流
                 )
-            q, k = self.rotary_emb(positions, q, k)
-        else:
-            if self.attn.layer_id == self.start_layer:
-                self.rotary_emb.get_cos_sin_with_position(positions)
-            if self.use_qk_norm:
-                eps = self.q_norm.variance_epsilon
-                q_weight = self.q_norm.weight
-                k_weight = self.k_norm.weight
-                q_bias = getattr(self.q_norm, "bias", None)
-                k_bias = getattr(self.k_norm, "bias", None)
-            else:
-                eps = None
-                q_weight = None
-                k_weight = None
-                q_bias = None
-                k_bias = None
-            q, k, v = split_qkv_rmsnorm_rope(
-                qkv,
-                self.rotary_emb.position_sin,
-                self.rotary_emb.position_cos,
-                self.q_size,
-                self.kv_size,
-                self.head_dim,
-                eps=eps,
-                q_weight=q_weight,
-                k_weight=k_weight,
-                q_bias=q_bias,
-                k_bias=k_bias,
+            q, k = self.rotary_emb(positions, q, k)  # 应用旋转位置编码
+        else:  # NPU平台非扩展模式
+            if self.attn.layer_id == self.start_layer:  # 如果是起始层
+                self.rotary_emb.get_cos_sin_with_position(positions)  # 预计算cos/sin
+            if self.use_qk_norm:  # 如果使用QK归一化
+                eps = self.q_norm.variance_epsilon  # 获取epsilon
+                q_weight = self.q_norm.weight  # Q归一化权重
+                k_weight = self.k_norm.weight  # K归一化权重
+                q_bias = getattr(self.q_norm, "bias", None)  # Q偏置
+                k_bias = getattr(self.k_norm, "bias", None)  # K偏置
+            else:  # 不使用QK归一化
+                eps = None  # epsilon为None
+                q_weight = None  # Q权重为None
+                k_weight = None  # K权重为None
+                q_bias = None  # Q偏置为None
+                k_bias = None  # K偏置为None
+            q, k, v = split_qkv_rmsnorm_rope(  # NPU融合QKV+RMSNorm+RoPE
+                qkv,  # QKV张量
+                self.rotary_emb.position_sin,  # 位置sin
+                self.rotary_emb.position_cos,  # 位置cos
+                self.q_size,  # Q大小
+                self.kv_size,  # KV大小
+                self.head_dim,  # 头维度
+                eps=eps,  # epsilon
+                q_weight=q_weight,  # Q权重
+                k_weight=k_weight,  # K权重
+                q_bias=q_bias,  # Q偏置
+                k_bias=k_bias,  # K偏置
             )
 
-        inner_state = q, k, v, forward_batch
-        return None, forward_batch, inner_state
+        inner_state = q, k, v, forward_batch  # 内部状态：Q, K, V和前向批次
+        return None, forward_batch, inner_state  # 返回中间状态
 
-    def forward_core(self, intermediate_state):
-        hidden_states, forward_batch, inner_state = intermediate_state
-        if inner_state is None:
-            return hidden_states
-        attn_output = self.attn(*inner_state)
-        output, _ = self.o_proj(attn_output)
-        return output
+    def forward_core(self, intermediate_state):  # 注意力核心计算
+        hidden_states, forward_batch, inner_state = intermediate_state  # 解包中间状态
+        if inner_state is None:  # 如果无内部状态（空token）
+            return hidden_states  # 返回原始隐藏状态
+        attn_output = self.attn(*inner_state)  # 通过基数注意力计算
+        output, _ = self.o_proj(attn_output)  # 通过输出投影
+        return output  # 返回输出
 
-    def forward(
+    def forward(  # 前向传播方法
         self,
-        positions: torch.Tensor,
-        hidden_states: torch.Tensor,
-        forward_batch: ForwardBatch,
+        positions: torch.Tensor,  # 位置编码
+        hidden_states: torch.Tensor,  # 隐藏状态
+        forward_batch: ForwardBatch,  # 前向批次
     ) -> torch.Tensor:
-        s = self.forward_prepare(
-            positions=positions,
-            hidden_states=hidden_states,
-            forward_batch=forward_batch,
+        s = self.forward_prepare(  # 准备阶段
+            positions=positions,  # 位置编码
+            hidden_states=hidden_states,  # 隐藏状态
+            forward_batch=forward_batch,  # 前向批次
         )
-        return self.forward_core(s)
+        return self.forward_core(s)  # 核心计算
 
 
 class Glm4MoeGate(nn.Module):
-    def __init__(
-        self,
-        config,
-        prefix: str = "",
-    ):
-        super().__init__()
-        self.weight = nn.Parameter(
-            torch.empty((config.n_routed_experts, config.hidden_size))
-        )
-        self.e_score_correction_bias = nn.Parameter(
-            torch.empty((config.n_routed_experts), dtype=torch.float32)
-        )
-        # GLM requires FP32 gate projection; cache to avoid per-forward cast.
-        # FIXME: if gate weight is updated at runtime (e.g. expert rebalancing), _weight_fp32 must be invalidated.
-        self.register_buffer("_weight_fp32", None, persistent=False)
+    """GLM-4 MoE门控网络，使用FP32精度计算路由logits。"""
 
-    def forward(self, hidden_states):
-        if self._weight_fp32 is None:
-            self._weight_fp32 = self.weight.data.to(torch.float32)
-        logits = F.linear(hidden_states.to(torch.float32), self._weight_fp32, None)
-        return logits
+    def __init__(  # 初始化方法
+        self,
+        config,  # 模型配置
+        prefix: str = "",  # 参数前缀
+    ):
+        super().__init__()  # 调用父类初始化
+        self.weight = nn.Parameter(  # 门控权重参数
+            torch.empty((config.n_routed_experts, config.hidden_size))  # 形状为[路由专家数, 隐藏大小]
+        )
+        self.e_score_correction_bias = nn.Parameter(  # 专家分数校正偏置
+            torch.empty((config.n_routed_experts), dtype=torch.float32)  # 形状为[路由专家数]，FP32精度
+        )
+        # GLM requires FP32 gate projection; cache to avoid per-forward cast.  # GLM要求FP32门控投影；缓存以避免每次前向传播时转换
+        # FIXME: if gate weight is updated at runtime (e.g. expert rebalancing), _weight_fp32 must be invalidated.  # FIXME：如果运行时更新门控权重（如专家重平衡），必须使_weight_fp32失效
+        self.register_buffer("_weight_fp32", None, persistent=False)  # 注册FP32权重缓存缓冲区
+
+    def forward(self, hidden_states):  # 前向传播方法
+        if self._weight_fp32 is None:  # 如果FP32缓存为空
+            self._weight_fp32 = self.weight.data.to(torch.float32)  # 将权重转为FP32并缓存
+        logits = F.linear(hidden_states.to(torch.float32), self._weight_fp32, None)  # FP32精度的线性投影
+        return logits  # 返回路由logits
 
 
 class Glm4MoeSparseMoeBlock(nn.Module):
-    def __init__(
+    """GLM-4 MoE稀疏MoE块，包含路由门控、专家网络和共享专家。"""
+
+    def __init__(  # 初始化方法
         self,
-        config: PretrainedConfig,
-        layer_id: int,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
-        alt_stream: Optional[torch.cuda.Stream] = None,
+        config: PretrainedConfig,  # 预训练配置
+        layer_id: int,  # 层ID
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置，可选
+        prefix: str = "",  # 参数前缀
+        alt_stream: Optional[torch.cuda.Stream] = None,  # 备用CUDA流，可选
     ):
-        nn.Module.__init__(self)
-        self.top_k = config.num_experts_per_tok
-        self.tp_size = get_tensor_model_parallel_world_size()
-        self.moe_ep_size = get_moe_expert_parallel_world_size()
-        self.routed_scaling_factor = config.routed_scaling_factor
-        self.n_shared_experts = config.n_shared_experts
-        self.num_fused_shared_experts = (
-            0
-            if get_global_server_args().disable_shared_experts_fusion
-            else config.n_shared_experts
+        nn.Module.__init__(self)  # 直接调用nn.Module初始化
+        self.top_k = config.num_experts_per_tok  # 每token选择的专家数
+        self.tp_size = get_tensor_model_parallel_world_size()  # 张量并行大小
+        self.moe_ep_size = get_moe_expert_parallel_world_size()  # MoE专家并行大小
+        self.routed_scaling_factor = config.routed_scaling_factor  # 路由专家缩放因子
+        self.n_shared_experts = config.n_shared_experts  # 共享专家数量
+        self.num_fused_shared_experts = (  # 融合共享专家数量
+            0  # 0
+            if get_global_server_args().disable_shared_experts_fusion  # 如果禁用共享专家融合
+            else config.n_shared_experts  # 否则等于共享专家数量
         )
 
-        self.config = config
-        self.layer_id = layer_id
-        self.alt_stream = alt_stream
+        self.config = config  # 保存配置
+        self.layer_id = layer_id  # 层ID
+        self.alt_stream = alt_stream  # 备用CUDA流
 
-        if self.tp_size > config.n_routed_experts:
-            raise ValueError(
-                f"Tensor parallel size {self.tp_size} is greater than "
-                f"the number of experts {config.n_routed_experts}."
+        if self.tp_size > config.n_routed_experts:  # 如果TP大小大于路由专家数
+            raise ValueError(  # 抛出值错误
+                f"Tensor parallel size {self.tp_size} is greater than "  # 张量并行大小大于
+                f"the number of experts {config.n_routed_experts}."  # 专家数量
             )
 
-        if config.hidden_act != "silu":
-            raise ValueError(
-                f"Unsupported activation: {config.hidden_act}. "
-                "Only silu is supported for now."
+        if config.hidden_act != "silu":  # 如果激活函数不是silu
+            raise ValueError(  # 抛出值错误
+                f"Unsupported activation: {config.hidden_act}. "  # 不支持的激活函数
+                "Only silu is supported for now."  # 目前仅支持silu
             )
 
-        self.gate = Glm4MoeGate(config=config, prefix=add_prefix("gate", prefix))
+        self.gate = Glm4MoeGate(config=config, prefix=add_prefix("gate", prefix))  # MoE门控网络
 
-        self.experts = get_moe_impl_class(quant_config)(
-            num_experts=config.n_routed_experts + self.num_fused_shared_experts,
-            num_fused_shared_experts=self.num_fused_shared_experts,
-            top_k=self.top_k + self.num_fused_shared_experts,
-            layer_id=self.layer_id,
-            hidden_size=config.hidden_size,
-            intermediate_size=config.moe_intermediate_size,
-            quant_config=quant_config,
-            routed_scaling_factor=self.routed_scaling_factor,
-            routing_method_type=RoutingMethodType.DeepSeekV3,
-            prefix=add_prefix("experts", prefix),
+        self.experts = get_moe_impl_class(quant_config)(  # 获取MoE实现类并实例化
+            num_experts=config.n_routed_experts + self.num_fused_shared_experts,  # 总专家数
+            num_fused_shared_experts=self.num_fused_shared_experts,  # 融合共享专家数
+            top_k=self.top_k + self.num_fused_shared_experts,  # top-k值
+            layer_id=self.layer_id,  # 层ID
+            hidden_size=config.hidden_size,  # 隐藏大小
+            intermediate_size=config.moe_intermediate_size,  # MoE中间层大小
+            quant_config=quant_config,  # 量化配置
+            routed_scaling_factor=self.routed_scaling_factor,  # 路由缩放因子
+            routing_method_type=RoutingMethodType.DeepSeekV3,  # 使用DeepSeekV3路由方法
+            prefix=add_prefix("experts", prefix),  # 添加前缀
         )
 
-        self.topk = TopK(
-            top_k=self.top_k + self.num_fused_shared_experts,
-            layer_id=self.layer_id,
-            renormalize=config.norm_topk_prob,
-            use_grouped_topk=True,
-            num_expert_group=config.n_group,
-            topk_group=config.topk_group,
-            correction_bias=self.gate.e_score_correction_bias,
-            routed_scaling_factor=self.routed_scaling_factor,
-            num_fused_shared_experts=self.num_fused_shared_experts,
-            apply_routed_scaling_factor_on_output=getattr(
-                self.experts, "should_fuse_routed_scaling_factor_in_topk", False
+        self.topk = TopK(  # Top-K选择器
+            top_k=self.top_k + self.num_fused_shared_experts,  # top-k值
+            layer_id=self.layer_id,  # 层ID
+            renormalize=config.norm_topk_prob,  # 是否重归一化
+            use_grouped_topk=True,  # 使用分组top-k
+            num_expert_group=config.n_group,  # 专家分组数
+            topk_group=config.topk_group,  # 每组选择的专家数
+            correction_bias=self.gate.e_score_correction_bias,  # 校正偏置
+            routed_scaling_factor=self.routed_scaling_factor,  # 路由缩放因子
+            num_fused_shared_experts=self.num_fused_shared_experts,  # 融合共享专家数
+            apply_routed_scaling_factor_on_output=getattr(  # 是否在输出上应用路由缩放因子
+                self.experts, "should_fuse_routed_scaling_factor_in_topk", False  # 默认为False
             ),
-            fused_shared_experts_scaling_factor=1,
+            fused_shared_experts_scaling_factor=1,  # 融合共享专家缩放因子
         )
 
-        self.shared_experts_is_int8 = False
-        self.shared_experts_is_fp8 = False
-        self.shared_experts_weight_block_size = None
-        if config.n_shared_experts is not None and self.num_fused_shared_experts == 0:
-            intermediate_size = config.moe_intermediate_size * config.n_shared_experts
-            # disable tp for shared experts when enable deepep moe, or with fp4 allgather
-            self.shared_experts = Glm4MoeMLP(
-                hidden_size=config.hidden_size,
-                intermediate_size=intermediate_size,
-                hidden_act=config.hidden_act,
-                quant_config=quant_config,
-                reduce_results=False,
-                prefix=add_prefix("shared_experts", prefix),
-                **(
-                    dict(tp_rank=0, tp_size=1)
-                    if get_moe_a2a_backend().is_deepep()
-                    or get_moe_a2a_backend().is_mooncake()
-                    or get_moe_a2a_backend().is_nixl()
-                    or get_moe_a2a_backend().is_mori()
-                    or get_moe_a2a_backend().is_ascend_fuseep()
-                    or get_moe_a2a_backend().is_flashinfer()
-                    or should_use_flashinfer_cutlass_moe_fp4_allgather()
-                    else {}
+        self.shared_experts_is_int8 = False  # 共享专家是否为INT8
+        self.shared_experts_is_fp8 = False  # 共享专家是否为FP8
+        self.shared_experts_weight_block_size = None  # 共享专家权重块大小
+        if config.n_shared_experts is not None and self.num_fused_shared_experts == 0:  # 如果有共享专家且未融合
+            intermediate_size = config.moe_intermediate_size * config.n_shared_experts  # 共享专家中间层大小
+            # disable tp for shared experts when enable deepep moe, or with fp4 allgather  # 启用deepep MoE或FP4全收集时禁用共享专家的TP
+            self.shared_experts = Glm4MoeMLP(  # 共享专家MLP
+                hidden_size=config.hidden_size,  # 隐藏大小
+                intermediate_size=intermediate_size,  # 中间层大小
+                hidden_act=config.hidden_act,  # 激活函数
+                quant_config=quant_config,  # 量化配置
+                reduce_results=False,  # 不归约结果
+                prefix=add_prefix("shared_experts", prefix),  # 添加前缀
+                **(  # 条件参数
+                    dict(tp_rank=0, tp_size=1)  # TP=1
+                    if get_moe_a2a_backend().is_deepep()  # 如果是DeepEP
+                    or get_moe_a2a_backend().is_mooncake()  # 或Mooncake
+                    or get_moe_a2a_backend().is_nixl()  # 或NIXL
+                    or get_moe_a2a_backend().is_mori()  # 或Mori
+                    or get_moe_a2a_backend().is_ascend_fuseep()  # 或Ascend FuseEP
+                    or get_moe_a2a_backend().is_flashinfer()  # 或FlashInfer
+                    or should_use_flashinfer_cutlass_moe_fp4_allgather()  # 或使用FP4全收集
+                    else {}  # 否则不添加额外参数
                 ),
             )
-            is_packed_weight = hasattr(
-                self.shared_experts.gate_up_proj.quant_method, "quant_config"
-            ) and self.shared_experts.gate_up_proj.quant_method.quant_config.get_name() in {
-                "awq",
-                "awq_marlin",
-                "moe_wna16",
+            is_packed_weight = hasattr(  # 检查是否为打包权重
+                self.shared_experts.gate_up_proj.quant_method, "quant_config"  # 量化方法是否有quant_config
+            ) and self.shared_experts.gate_up_proj.quant_method.quant_config.get_name() in {  # 且量化名称在集合中
+                "awq",  # AWQ
+                "awq_marlin",  # AWQ Marlin
+                "moe_wna16",  # MoE WNA16
             }
-            self.shared_experts_is_int8 = (
-                not is_packed_weight
-                and self.shared_experts.gate_up_proj.weight.dtype == torch.int8
+            self.shared_experts_is_int8 = (  # 判断共享专家是否为INT8
+                not is_packed_weight  # 非打包权重
+                and self.shared_experts.gate_up_proj.weight.dtype == torch.int8  # 且权重为INT8
             )
-            self.shared_experts_is_fp8 = (
-                not is_packed_weight
-                and self.shared_experts.gate_up_proj.weight.dtype == torch.float8_e4m3fn
+            self.shared_experts_is_fp8 = (  # 判断共享专家是否为FP8
+                not is_packed_weight  # 非打包权重
+                and self.shared_experts.gate_up_proj.weight.dtype == torch.float8_e4m3fn  # 且权重为FP8
             )
-            if self.shared_experts_is_fp8:
-                if (
-                    _use_aiter
-                    and config.quantization_config.get("quant_method")
-                    == "compressed-tensors"
+            if self.shared_experts_is_fp8:  # 如果是FP8
+                if (  # 如果
+                    _use_aiter  # 使用AITER
+                    and config.quantization_config.get("quant_method")  # 且量化方法
+                    == "compressed-tensors"  # 为compressed-tensors
                 ):
-                    # For compressed-tensors ptpc model, don't need to check the weight_block_size
-                    pass
-                else:
-                    assert (
-                        self.shared_experts.gate_up_proj.quant_method.quant_config.weight_block_size
-                        == self.shared_experts.down_proj.quant_method.quant_config.weight_block_size
+                    # For compressed-tensors ptpc model, don't need to check the weight_block_size  # 对于compressed-tensors ptpc模型，不需要检查weight_block_size
+                    pass  # 跳过
+                else:  # 否则
+                    assert (  # 确保
+                        self.shared_experts.gate_up_proj.quant_method.quant_config.weight_block_size  # gate_up_proj的权重块大小
+                        == self.shared_experts.down_proj.quant_method.quant_config.weight_block_size  # 等于down_proj的权重块大小
                     )
-                    self.shared_experts_weight_block_size = (
-                        self.shared_experts.gate_up_proj.quant_method.quant_config.weight_block_size
+                    self.shared_experts_weight_block_size = (  # 保存权重块大小
+                        self.shared_experts.gate_up_proj.quant_method.quant_config.weight_block_size  # gate_up_proj的权重块大小
                     )
 
-        self.top_k = config.num_experts_per_tok
+        self.top_k = config.num_experts_per_tok  # 每token选择的专家数
 
-        if (
-            get_moe_a2a_backend().is_deepep()
-            or get_moe_a2a_backend().is_mooncake()
-            or get_moe_a2a_backend().is_nixl()
-            or get_moe_a2a_backend().is_mori()
-            or get_moe_a2a_backend().is_ascend_fuseep()
+        if (  # 如果使用以下任一后端
+            get_moe_a2a_backend().is_deepep()  # DeepEP
+            or get_moe_a2a_backend().is_mooncake()  # Mooncake
+            or get_moe_a2a_backend().is_nixl()  # NIXL
+            or get_moe_a2a_backend().is_mori()  # Mori
+            or get_moe_a2a_backend().is_ascend_fuseep()  # Ascend FuseEP
         ):
-            # TODO: we will support tp < ep in the future
-            self.ep_size = get_moe_expert_parallel_world_size()
-            self.num_experts = (
-                config.n_routed_experts
-                + get_global_server_args().ep_num_redundant_experts
+            # TODO: we will support tp < ep in the future  # TODO：未来将支持TP < EP
+            self.ep_size = get_moe_expert_parallel_world_size()  # 专家并行大小
+            self.num_experts = (  # 专家总数
+                config.n_routed_experts  # 路由专家数
+                + get_global_server_args().ep_num_redundant_experts  # + 冗余专家数
             )
-            self.renormalize = config.norm_topk_prob
-            self.topk_group = config.topk_group
-            self.num_expert_group = config.n_group
-            self.correction_bias = (
-                self.gate.e_score_correction_bias.data
-                if self.gate.e_score_correction_bias is not None
-                else None
+            self.renormalize = config.norm_topk_prob  # 是否重归一化
+            self.topk_group = config.topk_group  # 每组top-k
+            self.num_expert_group = config.n_group  # 专家分组数
+            self.correction_bias = (  # 校正偏置
+                self.gate.e_score_correction_bias.data  # 门控校正偏置数据
+                if self.gate.e_score_correction_bias is not None  # 如果存在
+                else None  # 否则为None
             )
 
-        self._enable_a2a_moe = (
-            get_moe_a2a_backend().is_deepep()
-            or get_moe_a2a_backend().is_mooncake()
-            or get_moe_a2a_backend().is_nixl()
-            or get_moe_a2a_backend().is_mori()
-            or get_moe_a2a_backend().is_ascend_fuseep()
-            or get_moe_a2a_backend().is_flashinfer()
+        self._enable_a2a_moe = (  # 是否启用全互连MoE
+            get_moe_a2a_backend().is_deepep()  # DeepEP
+            or get_moe_a2a_backend().is_mooncake()  # Mooncake
+            or get_moe_a2a_backend().is_nixl()  # NIXL
+            or get_moe_a2a_backend().is_mori()  # Mori
+            or get_moe_a2a_backend().is_ascend_fuseep()  # Ascend FuseEP
+            or get_moe_a2a_backend().is_flashinfer()  # FlashInfer
         )
-        self._fuse_shared_experts_inside_sbo = SboFlags.fuse_shared_experts_inside_sbo()
+        self._fuse_shared_experts_inside_sbo = SboFlags.fuse_shared_experts_inside_sbo()  # 是否在SBO内融合共享专家
 
-    def get_moe_weights(self):
-        return [
-            x.data
-            for name, x in self.experts.named_parameters()
-            if name not in ["correction_bias"]
-            and filter_moe_weight_param_global_expert(
-                name, x, self.experts.num_local_experts
+    def get_moe_weights(self):  # 获取MoE权重
+        return [  # 返回权重列表
+            x.data  # 权重数据
+            for name, x in self.experts.named_parameters()  # 遍历专家参数
+            if name not in ["correction_bias"]  # 排除校正偏置
+            and filter_moe_weight_param_global_expert(  # 过滤全局专家权重参数
+                name, x, self.experts.num_local_experts  # 传入名称、参数和本地专家数
             )
         ]
 
-    def forward(
+    def forward(  # 前向传播方法
         self,
-        hidden_states: torch.Tensor,
-        forward_batch: Optional[ForwardBatch] = None,
-        should_allreduce_fusion: bool = False,
-        use_reduce_scatter: bool = False,
+        hidden_states: torch.Tensor,  # 隐藏状态
+        forward_batch: Optional[ForwardBatch] = None,  # 前向批次，可选
+        should_allreduce_fusion: bool = False,  # 是否融合全归约
+        use_reduce_scatter: bool = False,  # 是否使用reduce-scatter
     ) -> torch.Tensor:
-        if not self._enable_a2a_moe:
-            if (
-                self.alt_stream is not None
-                and self.num_fused_shared_experts == 0
-                and hidden_states.shape[0] > 0
-                and get_is_capture_mode()
+        if not self._enable_a2a_moe:  # 如果未启用全互连MoE
+            if (  # 如果
+                self.alt_stream is not None  # 有备用CUDA流
+                and self.num_fused_shared_experts == 0  # 未融合共享专家
+                and hidden_states.shape[0] > 0  # 有有效token
+                and get_is_capture_mode()  # 处于CUDA图捕获模式
             ):
-                return self.forward_normal_dual_stream(
-                    hidden_states,
-                    should_allreduce_fusion,
-                    use_reduce_scatter,
+                return self.forward_normal_dual_stream(  # 使用双流前向传播
+                    hidden_states,  # 隐藏状态
+                    should_allreduce_fusion,  # 是否融合全归约
+                    use_reduce_scatter,  # 是否使用reduce-scatter
                 )
-            else:
-                return self.forward_normal(
-                    hidden_states,
-                    should_allreduce_fusion,
-                    use_reduce_scatter,
+            else:  # 否则
+                return self.forward_normal(  # 使用普通前向传播
+                    hidden_states,  # 隐藏状态
+                    should_allreduce_fusion,  # 是否融合全归约
+                    use_reduce_scatter,  # 是否使用reduce-scatter
                 )
-        else:
-            return self.forward_deepep(hidden_states, forward_batch)
+        else:  # 启用全互连MoE
+            return self.forward_deepep(hidden_states, forward_batch)  # 使用DeepEP前向传播
 
-    def forward_normal_dual_stream(
+    def forward_normal_dual_stream(  # 双流普通前向传播方法
         self,
-        hidden_states: torch.Tensor,
-        should_allreduce_fusion: bool = False,
-        use_reduce_scatter: bool = False,
+        hidden_states: torch.Tensor,  # 隐藏状态
+        should_allreduce_fusion: bool = False,  # 是否融合全归约
+        use_reduce_scatter: bool = False,  # 是否使用reduce-scatter
     ) -> torch.Tensor:
-        current_stream = torch.cuda.current_stream()
-        self.alt_stream.wait_stream(current_stream)
-        shared_output = self._forward_shared_experts(hidden_states)
+        current_stream = torch.cuda.current_stream()  # 获取当前CUDA流
+        self.alt_stream.wait_stream(current_stream)  # 等待当前流完成
+        shared_output = self._forward_shared_experts(hidden_states)  # 计算共享专家输出
 
-        with torch.cuda.stream(self.alt_stream):
-            # router_logits: (num_tokens, n_experts)
-            router_logits = self.gate(hidden_states)
-            topk_output = self.topk(hidden_states, router_logits)
-            final_hidden_states = self.experts(hidden_states, topk_output)
-            if not _is_cuda or isinstance(self.experts.quant_method, KTEPWrapperMethod):
-                final_hidden_states *= self.routed_scaling_factor
+        with torch.cuda.stream(self.alt_stream):  # 在备用流上执行
+            # router_logits: (num_tokens, n_experts)  # 路由logits：(token数, 专家数)
+            router_logits = self.gate(hidden_states)  # 计算路由logits
+            topk_output = self.topk(hidden_states, router_logits)  # Top-K选择
+            final_hidden_states = self.experts(hidden_states, topk_output)  # 路由专家计算
+            if not _is_cuda or isinstance(self.experts.quant_method, KTEPWrapperMethod):  # 非CUDA或使用KT EP包装
+                final_hidden_states *= self.routed_scaling_factor  # 乘以路由缩放因子
 
-        current_stream.wait_stream(self.alt_stream)
-        final_hidden_states += shared_output
-        if self.tp_size > 1 and not should_skip_post_experts_all_reduce(
-            is_tp_path=True,
-            use_reduce_scatter=use_reduce_scatter,
-            should_allreduce_fusion=should_allreduce_fusion,
+        current_stream.wait_stream(self.alt_stream)  # 等待备用流完成
+        final_hidden_states += shared_output  # 加上共享专家输出
+        if self.tp_size > 1 and not should_skip_post_experts_all_reduce(  # 如果TP>1且不跳过全归约
+            is_tp_path=True,  # TP路径
+            use_reduce_scatter=use_reduce_scatter,  # 是否使用reduce-scatter
+            should_allreduce_fusion=should_allreduce_fusion,  # 是否融合全归约
         ):
-            final_hidden_states = tensor_model_parallel_all_reduce(final_hidden_states)
-        return final_hidden_states
+            final_hidden_states = tensor_model_parallel_all_reduce(final_hidden_states)  # 张量并行全归约
+        return final_hidden_states  # 返回最终隐藏状态
 
-    def forward_normal(
+    def forward_normal(  # 普通前向传播方法
         self,
-        hidden_states: torch.Tensor,
-        should_allreduce_fusion: bool = False,
-        use_reduce_scatter: bool = False,
+        hidden_states: torch.Tensor,  # 隐藏状态
+        should_allreduce_fusion: bool = False,  # 是否融合全归约
+        use_reduce_scatter: bool = False,  # 是否使用reduce-scatter
     ) -> torch.Tensor:
-        if hidden_states.shape[0] > 0:
-            shared_output = self._forward_shared_experts(hidden_states)
-            # router_logits: (num_tokens, n_experts)
-            router_logits = self.gate(hidden_states)
-            topk_output = self.topk(hidden_states, router_logits)
-        else:
-            shared_output = None
-            topk_output = self.topk.empty_topk_output(hidden_states.device)
+        if hidden_states.shape[0] > 0:  # 如果有有效token
+            shared_output = self._forward_shared_experts(hidden_states)  # 计算共享专家输出
+            # router_logits: (num_tokens, n_experts)  # 路由logits：(token数, 专家数)
+            router_logits = self.gate(hidden_states)  # 计算路由logits
+            topk_output = self.topk(hidden_states, router_logits)  # Top-K选择
+        else:  # 无有效token
+            shared_output = None  # 共享输出为None
+            topk_output = self.topk.empty_topk_output(hidden_states.device)  # 空Top-K输出
 
-        final_hidden_states = self.experts(hidden_states, topk_output)
-        if not _is_cuda and not _use_aiter:
-            final_hidden_states *= self.routed_scaling_factor
-        if shared_output is not None:
-            with use_symmetric_memory(
-                parallel_state.get_tp_group(), disabled=not is_allocation_symmetric()
+        final_hidden_states = self.experts(hidden_states, topk_output)  # 路由专家计算
+        if not _is_cuda and not _use_aiter:  # 非CUDA且非AITER
+            final_hidden_states *= self.routed_scaling_factor  # 乘以路由缩放因子
+        if shared_output is not None:  # 如果有共享专家输出
+            with use_symmetric_memory(  # 使用对称内存
+                parallel_state.get_tp_group(), disabled=not is_allocation_symmetric()  # 分配不对称时禁用
             ):
-                final_hidden_states_out = torch.empty_like(final_hidden_states)
-            torch.add(final_hidden_states, shared_output, out=final_hidden_states_out)
-            final_hidden_states = final_hidden_states_out
-        if self.tp_size > 1 and not should_skip_post_experts_all_reduce(
-            is_tp_path=True,
-            use_reduce_scatter=use_reduce_scatter,
-            should_allreduce_fusion=should_allreduce_fusion,
+                final_hidden_states_out = torch.empty_like(final_hidden_states)  # 分配输出缓冲区
+            torch.add(final_hidden_states, shared_output, out=final_hidden_states_out)  # 原地加法
+            final_hidden_states = final_hidden_states_out  # 更新最终隐藏状态
+        if self.tp_size > 1 and not should_skip_post_experts_all_reduce(  # 如果TP>1且不跳过全归约
+            is_tp_path=True,  # TP路径
+            use_reduce_scatter=use_reduce_scatter,  # 是否使用reduce-scatter
+            should_allreduce_fusion=should_allreduce_fusion,  # 是否融合全归约
         ):
-            final_hidden_states = tensor_model_parallel_all_reduce(final_hidden_states)
-        return final_hidden_states
+            final_hidden_states = tensor_model_parallel_all_reduce(final_hidden_states)  # 张量并行全归约
+        return final_hidden_states  # 返回最终隐藏状态
 
-    def forward_deepep(
-        self, hidden_states: torch.Tensor, forward_batch: ForwardBatch
+    def forward_deepep(  # DeepEP前向传播方法
+        self, hidden_states: torch.Tensor, forward_batch: ForwardBatch  # 隐藏状态、前向批次
     ) -> torch.Tensor:
-        shared_output = None
-        enable_npu_dual_stream = (
-            _is_npu
-            and (
-                forward_batch.forward_mode.is_extend()
-                or forward_batch.forward_mode.is_target_verify()
+        shared_output = None  # 初始化共享输出
+        enable_npu_dual_stream = (  # 是否启用NPU双流
+            _is_npu  # NPU平台
+            and (  # 且
+                forward_batch.forward_mode.is_extend()  # 扩展模式
+                or forward_batch.forward_mode.is_target_verify()  # 或目标验证模式
             )
-            and envs.SGLANG_NPU_USE_MULTI_STREAM.get()
+            and envs.SGLANG_NPU_USE_MULTI_STREAM.get()  # 且启用了多流
         )
 
-        if hidden_states.shape[0] > 0:
-            # router_logits: (num_tokens, n_experts)
-            router_logits = self.gate(hidden_states)
-            if enable_npu_dual_stream:
-                shared_output = process_shared_expert(
-                    hidden_states, self._forward_shared_experts
+        if hidden_states.shape[0] > 0:  # 如果有有效token
+            # router_logits: (num_tokens, n_experts)  # 路由logits：(token数, 专家数)
+            router_logits = self.gate(hidden_states)  # 计算路由logits
+            if enable_npu_dual_stream:  # 如果启用NPU双流
+                shared_output = process_shared_expert(  # 在备用流上处理共享专家
+                    hidden_states, self._forward_shared_experts  # 传入隐藏状态和共享专家前向函数
                 )
-            else:
-                shared_output = self._forward_shared_experts(hidden_states)
-            topk_output = self.topk(
-                hidden_states,
-                router_logits,
-                num_token_non_padded=forward_batch.num_token_non_padded,
-                expert_location_dispatch_info=ExpertLocationDispatchInfo.init_new(
-                    layer_id=self.layer_id,
+            else:  # 否则
+                shared_output = self._forward_shared_experts(hidden_states)  # 直接计算共享专家输出
+            topk_output = self.topk(  # Top-K选择
+                hidden_states,  # 隐藏状态
+                router_logits,  # 路由logits
+                num_token_non_padded=forward_batch.num_token_non_padded,  # 非填充token数
+                expert_location_dispatch_info=ExpertLocationDispatchInfo.init_new(  # 专家位置调度信息
+                    layer_id=self.layer_id,  # 层ID
                 ),
             )
-        else:
-            topk_output = self.topk.empty_topk_output(hidden_states.device)
+        else:  # 无有效token
+            topk_output = self.topk.empty_topk_output(hidden_states.device)  # 空Top-K输出
 
-        final_hidden_states = self.experts(
-            hidden_states=hidden_states,
-            topk_output=topk_output,
+        final_hidden_states = self.experts(  # 路由专家计算
+            hidden_states=hidden_states,  # 隐藏状态
+            topk_output=topk_output,  # Top-K输出
         )
-        if enable_npu_dual_stream:
-            wait_share_stream()
+        if enable_npu_dual_stream:  # 如果启用了NPU双流
+            wait_share_stream()  # 等待共享流完成
 
-        if shared_output is not None:
-            x = shared_output
-            if self.experts.should_fuse_routed_scaling_factor_in_topk:
-                x.add_(final_hidden_states)
-            else:
-                x.add_(final_hidden_states, alpha=self.routed_scaling_factor)
-            final_hidden_states = x
-        else:
-            if not self.experts.should_fuse_routed_scaling_factor_in_topk:
-                final_hidden_states *= self.routed_scaling_factor
+        if shared_output is not None:  # 如果有共享专家输出
+            x = shared_output  # 取共享输出
+            if self.experts.should_fuse_routed_scaling_factor_in_topk:  # 如果在top-k中融合路由缩放因子
+                x.add_(final_hidden_states)  # 直接加
+            else:  # 否则
+                x.add_(final_hidden_states, alpha=self.routed_scaling_factor)  # 带缩放因子的加法
+            final_hidden_states = x  # 更新最终隐藏状态
+        else:  # 无共享专家输出
+            if not self.experts.should_fuse_routed_scaling_factor_in_topk:  # 如果未在top-k中融合路由缩放因子
+                final_hidden_states *= self.routed_scaling_factor  # 乘以路由缩放因子
 
-        return final_hidden_states
+        return final_hidden_states  # 返回最终隐藏状态
 
-    def _forward_shared_experts(self, hidden_states: torch.Tensor):
-        if (hidden_states.shape[0] > 0) and (self.num_fused_shared_experts == 0):
-            return self.shared_experts(hidden_states)
-        else:
-            return None
+    def _forward_shared_experts(self, hidden_states: torch.Tensor):  # 共享专家前向传播
+        if (hidden_states.shape[0] > 0) and (self.num_fused_shared_experts == 0):  # 有token且未融合共享专家
+            return self.shared_experts(hidden_states)  # 通过共享专家
+        else:  # 否则
+            return None  # 返回None
 
-    def op_gate(self, state):
-        if is_non_idle_and_non_empty(
-            state.forward_batch.forward_mode, state.hidden_states_mlp_input
+    def op_gate(self, state):  # 操作：门控计算
+        if is_non_idle_and_non_empty(  # 如果非空闲且非空
+            state.forward_batch.forward_mode, state.hidden_states_mlp_input  # 前向模式和MLP输入
         ):
-            # router_logits: (num_tokens, n_experts)
-            state.router_logits = self.gate(state.hidden_states_mlp_input)
-        else:
-            state.router_logits = None
+            # router_logits: (num_tokens, n_experts)  # 路由logits：(token数, 专家数)
+            state.router_logits = self.gate(state.hidden_states_mlp_input)  # 计算路由logits
+        else:  # 否则
+            state.router_logits = None  # 路由logits为None
 
-    def op_select_experts(self, state):
-        router_logits = state.pop("router_logits")
-        hidden_states = state.hidden_states_mlp_input
+    def op_select_experts(self, state):  # 操作：专家选择
+        router_logits = state.pop("router_logits")  # 弹出路由logits
+        hidden_states = state.hidden_states_mlp_input  # 获取MLP输入隐藏状态
 
-        if router_logits is not None:
-            with get_global_expert_distribution_recorder().with_current_layer(
-                self.layer_id
+        if router_logits is not None:  # 如果有路由logits
+            with get_global_expert_distribution_recorder().with_current_layer(  # 记录当前层
+                self.layer_id  # 层ID
             ):
-                state.topk_output = self.topk(
-                    hidden_states=hidden_states,
-                    router_logits=router_logits,
-                    num_token_non_padded=state.forward_batch.num_token_non_padded,
-                    expert_location_dispatch_info=ExpertLocationDispatchInfo.init_new(
-                        layer_id=self.layer_id,
+                state.topk_output = self.topk(  # Top-K选择
+                    hidden_states=hidden_states,  # 隐藏状态
+                    router_logits=router_logits,  # 路由logits
+                    num_token_non_padded=state.forward_batch.num_token_non_padded,  # 非填充token数
+                    expert_location_dispatch_info=ExpertLocationDispatchInfo.init_new(  # 专家位置调度信息
+                        layer_id=self.layer_id,  # 层ID
                     ),
                 )
-        else:
-            state.topk_output = self.topk.empty_topk_output(hidden_states.device)
+        else:  # 无路由logits
+            state.topk_output = self.topk.empty_topk_output(hidden_states.device)  # 空Top-K输出
 
-    def op_dispatch_a(self, state):
-        if self.ep_size > 1:
-            self.experts.dispatcher.dispatch_a(
-                hidden_states=state.hidden_states_mlp_input,
-                topk_output=state.pop("topk_output"),
-                tbo_subbatch_index=state.get("tbo_subbatch_index"),
+    def op_dispatch_a(self, state):  # 操作：调度阶段A
+        if self.ep_size > 1:  # 如果EP>1
+            self.experts.dispatcher.dispatch_a(  # 执行调度A
+                hidden_states=state.hidden_states_mlp_input,  # 隐藏状态
+                topk_output=state.pop("topk_output"),  # 弹出Top-K输出
+                tbo_subbatch_index=state.get("tbo_subbatch_index"),  # TBO子批次索引
             )
 
-    def op_dispatch_b(self, state):
-        if self.ep_size > 1:
-            with get_global_expert_distribution_recorder().with_current_layer(
-                self.layer_id
+    def op_dispatch_b(self, state):  # 操作：调度阶段B
+        if self.ep_size > 1:  # 如果EP>1
+            with get_global_expert_distribution_recorder().with_current_layer(  # 记录当前层
+                self.layer_id  # 层ID
             ):
-                state.dispatch_output = self.experts.dispatcher.dispatch_b(
-                    tbo_subbatch_index=state.get("tbo_subbatch_index"),
+                state.dispatch_output = self.experts.dispatcher.dispatch_b(  # 执行调度B
+                    tbo_subbatch_index=state.get("tbo_subbatch_index"),  # TBO子批次索引
                 )
 
-    def op_experts(self, state):
-        state.combine_input = self.experts.run_moe_core(
-            dispatch_output=state.dispatch_output,
+    def op_experts(self, state):  # 操作：专家计算
+        state.combine_input = self.experts.run_moe_core(  # 运行MoE核心计算
+            dispatch_output=state.dispatch_output,  # 调度输出
         )
 
-    def op_combine_a(self, state):
-        if self.ep_size > 1:
-            self.experts.dispatcher.combine_a(
-                combine_input=state.pop("combine_input"),
-                tbo_subbatch_index=state.get("tbo_subbatch_index"),
+    def op_combine_a(self, state):  # 操作：合并阶段A
+        if self.ep_size > 1:  # 如果EP>1
+            self.experts.dispatcher.combine_a(  # 执行合并A
+                combine_input=state.pop("combine_input"),  # 弹出合并输入
+                tbo_subbatch_index=state.get("tbo_subbatch_index"),  # TBO子批次索引
             )
-            state.pop("dispatch_output")
+            state.pop("dispatch_output")  # 弹出调度输出
 
-    def op_combine_b(self, state):
-        if self.ep_size > 1:
-            state.hidden_states_after_combine = self.experts.dispatcher.combine_b(
-                tbo_subbatch_index=state.get("tbo_subbatch_index"),
+    def op_combine_b(self, state):  # 操作：合并阶段B
+        if self.ep_size > 1:  # 如果EP>1
+            state.hidden_states_after_combine = self.experts.dispatcher.combine_b(  # 执行合并B
+                tbo_subbatch_index=state.get("tbo_subbatch_index"),  # TBO子批次索引
             )
 
-    def op_output(self, state):
-        final_hidden_states = state.pop("hidden_states_after_combine")
+    def op_output(self, state):  # 操作：输出处理
+        final_hidden_states = state.pop("hidden_states_after_combine")  # 弹出合并后的隐藏状态
 
-        if (shared_output := state.pop("shared_output")) is not None:
-            x = shared_output
-            x.add_(final_hidden_states, alpha=self.routed_scaling_factor)
-            final_hidden_states = x
-        else:
-            final_hidden_states *= self.routed_scaling_factor
+        if (shared_output := state.pop("shared_output")) is not None:  # 如果有共享输出
+            x = shared_output  # 取共享输出
+            x.add_(final_hidden_states, alpha=self.routed_scaling_factor)  # 带缩放因子加法
+            final_hidden_states = x  # 更新最终隐藏状态
+        else:  # 无共享输出
+            final_hidden_states *= self.routed_scaling_factor  # 乘以路由缩放因子
 
-        state.hidden_states_mlp_output = final_hidden_states
+        state.hidden_states_mlp_output = final_hidden_states  # 保存MLP输出
 
 
 class Glm4MoeDecoderLayer(nn.Module):
-    def __init__(
+    """GLM-4 MoE解码器层，包含注意力和MoE/密集MLP。"""
+
+    def __init__(  # 初始化方法
         self,
-        config: PretrainedConfig,
-        layer_id: int,
-        start_layer: int = 0,
-        quant_config: Optional[QuantizationConfig] = None,
-        is_nextn: bool = False,
-        prefix: str = "",
-        alt_stream: Optional[torch.cuda.Stream] = None,
+        config: PretrainedConfig,  # 预训练配置
+        layer_id: int,  # 层ID
+        start_layer: int = 0,  # 起始层
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置，可选
+        is_nextn: bool = False,  # 是否为Next-N层
+        prefix: str = "",  # 参数前缀
+        alt_stream: Optional[torch.cuda.Stream] = None,  # 备用CUDA流
     ) -> None:
-        nn.Module.__init__(self)
-        self.hidden_size = config.hidden_size
-        self.config = config
-        rope_theta, rope_scaling = get_rope_config(config)
-        partial_rotary_factor = (rope_scaling or {}).get("partial_rotary_factor")
-        if partial_rotary_factor is None:
-            partial_rotary_factor = getattr(config, "partial_rotary_factor", 0.5)
-        max_position_embeddings = getattr(config, "max_position_embeddings", 8192)
-        head_dim = getattr(
-            config, "head_dim", config.hidden_size // config.num_attention_heads
+        nn.Module.__init__(self)  # 直接调用nn.Module初始化
+        self.hidden_size = config.hidden_size  # 隐藏层大小
+        self.config = config  # 保存配置
+        rope_theta, rope_scaling = get_rope_config(config)  # 获取RoPE配置
+        partial_rotary_factor = (rope_scaling or {}).get("partial_rotary_factor")  # 获取部分旋转因子
+        if partial_rotary_factor is None:  # 如果未指定
+            partial_rotary_factor = getattr(config, "partial_rotary_factor", 0.5)  # 从配置获取或默认0.5
+        max_position_embeddings = getattr(config, "max_position_embeddings", 8192)  # 最大位置嵌入数
+        head_dim = getattr(  # 获取头维度
+            config, "head_dim", config.hidden_size // config.num_attention_heads  # 默认为隐藏大小/头数
         )
-        rms_norm_eps = config.rms_norm_eps
-        attention_bias = config.attention_bias
-        self.layer_id = layer_id
+        rms_norm_eps = config.rms_norm_eps  # RMS归一化epsilon
+        attention_bias = config.attention_bias  # 是否使用注意力偏置
+        self.layer_id = layer_id  # 层ID
 
-        use_qk_norm = config.use_qk_norm if hasattr(config, "use_qk_norm") else False
+        use_qk_norm = config.use_qk_norm if hasattr(config, "use_qk_norm") else False  # 是否使用QK归一化
 
-        self.self_attn = Glm4MoeAttention(
-            hidden_size=self.hidden_size,
-            num_heads=config.num_attention_heads,
-            num_kv_heads=config.num_key_value_heads,
-            layer_id=layer_id,
-            start_layer=start_layer,
-            rope_theta=rope_theta,
-            rope_scaling=rope_scaling,
-            partial_rotary_factor=partial_rotary_factor,
-            max_position_embeddings=max_position_embeddings,
-            head_dim=head_dim,
-            rms_norm_eps=rms_norm_eps,
-            attention_bias=attention_bias,
-            quant_config=quant_config,
-            prefix=add_prefix("self_attn", prefix),
-            use_qk_norm=use_qk_norm,
-            alt_stream=alt_stream,
-        )
-
-        self.is_layer_sparse = self._is_layer_sparse(layer_id, is_nextn=is_nextn)
-        is_previous_layer_sparse = self._is_layer_sparse(layer_id - 1, is_nextn=False)
-        is_next_layer_sparse = self._is_layer_sparse(layer_id + 1, is_nextn=False)
-
-        self.layer_scatter_modes = LayerScatterModes.init_new(
-            layer_id=layer_id,
-            num_layers=1 if is_nextn else config.num_hidden_layers,
-            is_layer_sparse=self.is_layer_sparse,
-            is_previous_layer_sparse=is_previous_layer_sparse,
-            is_next_layer_sparse=is_next_layer_sparse,
+        self.self_attn = Glm4MoeAttention(  # 自注意力层
+            hidden_size=self.hidden_size,  # 隐藏大小
+            num_heads=config.num_attention_heads,  # 注意力头数
+            num_kv_heads=config.num_key_value_heads,  # KV头数
+            layer_id=layer_id,  # 层ID
+            start_layer=start_layer,  # 起始层
+            rope_theta=rope_theta,  # RoPE theta
+            rope_scaling=rope_scaling,  # RoPE缩放
+            partial_rotary_factor=partial_rotary_factor,  # 部分旋转因子
+            max_position_embeddings=max_position_embeddings,  # 最大位置嵌入
+            head_dim=head_dim,  # 头维度
+            rms_norm_eps=rms_norm_eps,  # RMS epsilon
+            attention_bias=attention_bias,  # 注意力偏置
+            quant_config=quant_config,  # 量化配置
+            prefix=add_prefix("self_attn", prefix),  # 添加前缀
+            use_qk_norm=use_qk_norm,  # 是否使用QK归一化
+            alt_stream=alt_stream,  # 备用CUDA流
         )
 
-        if self.is_layer_sparse:
-            self.mlp = Glm4MoeSparseMoeBlock(
-                config=config,
-                quant_config=quant_config,
-                prefix=add_prefix("mlp", prefix),
-                layer_id=self.layer_id,
-                alt_stream=alt_stream,
+        self.is_layer_sparse = self._is_layer_sparse(layer_id, is_nextn=is_nextn)  # 判断是否为稀疏层
+        is_previous_layer_sparse = self._is_layer_sparse(layer_id - 1, is_nextn=False)  # 前一层是否稀疏
+        is_next_layer_sparse = self._is_layer_sparse(layer_id + 1, is_nextn=False)  # 后一层是否稀疏
+
+        self.layer_scatter_modes = LayerScatterModes.init_new(  # 初始化层散射模式
+            layer_id=layer_id,  # 层ID
+            num_layers=1 if is_nextn else config.num_hidden_layers,  # 总层数
+            is_layer_sparse=self.is_layer_sparse,  # 是否稀疏层
+            is_previous_layer_sparse=is_previous_layer_sparse,  # 前一层是否稀疏
+            is_next_layer_sparse=is_next_layer_sparse,  # 后一层是否稀疏
+        )
+
+        if self.is_layer_sparse:  # 如果是稀疏层
+            self.mlp = Glm4MoeSparseMoeBlock(  # 使用稀疏MoE块
+                config=config,  # 配置
+                quant_config=quant_config,  # 量化配置
+                prefix=add_prefix("mlp", prefix),  # 添加前缀
+                layer_id=self.layer_id,  # 层ID
+                alt_stream=alt_stream,  # 备用CUDA流
             )
-        else:
-            if enable_moe_dense_fully_dp():
-                mlp_tp_rank, mlp_tp_size = 0, 1
-            else:
-                mlp_tp_rank, mlp_tp_size = None, None
-            self.mlp = Glm4MoeMLP(
-                hidden_size=config.hidden_size,
-                intermediate_size=config.intermediate_size,
-                hidden_act=config.hidden_act,
-                quant_config=quant_config,
-                prefix=add_prefix("mlp", prefix),
-                tp_rank=mlp_tp_rank,
-                tp_size=mlp_tp_size,
+        else:  # 密集层
+            if enable_moe_dense_fully_dp():  # 如果启用MoE密集全DP
+                mlp_tp_rank, mlp_tp_size = 0, 1  # TP=1
+            else:  # 否则
+                mlp_tp_rank, mlp_tp_size = None, None  # 使用默认TP
+            self.mlp = Glm4MoeMLP(  # 使用密集MLP
+                hidden_size=config.hidden_size,  # 隐藏大小
+                intermediate_size=config.intermediate_size,  # 中间层大小
+                hidden_act=config.hidden_act,  # 激活函数
+                quant_config=quant_config,  # 量化配置
+                prefix=add_prefix("mlp", prefix),  # 添加前缀
+                tp_rank=mlp_tp_rank,  # TP rank
+                tp_size=mlp_tp_size,  # TP大小
             )
 
-        self.input_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.post_attention_layernorm = RMSNorm(
-            config.hidden_size, eps=config.rms_norm_eps
+        self.input_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)  # 输入层归一化
+        self.post_attention_layernorm = RMSNorm(  # 注意力后归一化
+            config.hidden_size, eps=config.rms_norm_eps  # 隐藏大小和epsilon
         )
 
-        self.layer_communicator = LayerCommunicator(
-            layer_scatter_modes=self.layer_scatter_modes,
-            input_layernorm=self.input_layernorm,
-            post_attention_layernorm=self.post_attention_layernorm,
-            allow_reduce_scatter=True,
-            is_last_layer=(
-                is_nextn or (self.layer_id == self.config.num_hidden_layers - 1)
+        self.layer_communicator = LayerCommunicator(  # 层通信器
+            layer_scatter_modes=self.layer_scatter_modes,  # 层散射模式
+            input_layernorm=self.input_layernorm,  # 输入归一化
+            post_attention_layernorm=self.post_attention_layernorm,  # 注意力后归一化
+            allow_reduce_scatter=True,  # 允许reduce-scatter
+            is_last_layer=(  # 是否为最后一层
+                is_nextn or (self.layer_id == self.config.num_hidden_layers - 1)  # Next-N层或最后一个隐藏层
             ),
         )
 
-        # Detect if QKV uses aiter FP8 per-token quant so we can fuse
-        # RMSNorm + FP8 quant into a single kernel in prepare_attn
-        self.attn_quant_format = ""
-        self._detect_attn_quant_format()
+        # Detect if QKV uses aiter FP8 per-token quant so we can fuse  # 检测QKV是否使用aiter FP8逐token量化，以便融合
+        # RMSNorm + FP8 quant into a single kernel in prepare_attn  # 将RMSNorm + FP8量化融合为prepare_attn中的单个内核
+        self.attn_quant_format = ""  # 注意力量化格式
+        self._detect_attn_quant_format()  # 检测注意力量化格式
 
-    def _detect_fp8_per_token_quant(self, linear_layer, label: str) -> str:
-        """Check if a linear layer uses aiter FP8 per-token quantization."""
-        from sglang.srt.utils import get_bool_env_var, is_hip
+    def _detect_fp8_per_token_quant(self, linear_layer, label: str) -> str:  # 检测FP8逐token量化
+        """Check if a linear layer uses aiter FP8 per-token quantization."""  # 检查线性层是否使用aiter FP8逐token量化
+        from sglang.srt.utils import get_bool_env_var, is_hip  # 导入工具函数
 
-        if not (get_bool_env_var("SGLANG_USE_AITER") and is_hip()):
-            return ""
-        if not hasattr(linear_layer, "quant_method"):
-            return ""
-        scheme = getattr(linear_layer, "scheme", None) or getattr(
-            linear_layer.quant_method, "scheme", None
+        if not (get_bool_env_var("SGLANG_USE_AITER") and is_hip()):  # 如果不使用AITER或非HIP
+            return ""  # 返回空字符串
+        if not hasattr(linear_layer, "quant_method"):  # 如果没有量化方法
+            return ""  # 返回空字符串
+        scheme = getattr(linear_layer, "scheme", None) or getattr(  # 获取量化方案
+            linear_layer.quant_method, "scheme", None  # 从量化方法获取
         )
-        if scheme is not None:
-            from compressed_tensors.quantization import QuantizationStrategy
+        if scheme is not None:  # 如果有方案
+            from compressed_tensors.quantization import QuantizationStrategy  # 导入量化策略
 
-            from sglang.srt.layers.quantization.compressed_tensors.schemes.compressed_tensors_w8a8_fp8 import (
+            from sglang.srt.layers.quantization.compressed_tensors.schemes.compressed_tensors_w8a8_fp8 import (  # 导入FP8量化方案
                 CompressedTensorsW8A8Fp8,
             )
 
-            if (
-                isinstance(scheme, CompressedTensorsW8A8Fp8)
-                and scheme.strategy == QuantizationStrategy.CHANNEL
+            if (  # 如果
+                isinstance(scheme, CompressedTensorsW8A8Fp8)  # 方案是FP8 W8A8
+                and scheme.strategy == QuantizationStrategy.CHANNEL  # 且策略为CHANNEL
             ):
-                logger.info(
-                    "layer_%d Fused RMSNorm+Quant %s: ENABLED (fp8_per_token)",
-                    self.layer_id,
-                    label,
+                logger.info(  # 记录信息
+                    "layer_%d Fused RMSNorm+Quant %s: ENABLED (fp8_per_token)",  # 第%d层融合RMSNorm+量化%s：已启用(fp8_per_token)
+                    self.layer_id,  # 层ID
+                    label,  # 标签
                 )
-                return "fp8_per_token"
-        logger.info(
-            "layer_%d Fused RMSNorm+Quant %s: skipped",
-            self.layer_id,
-            label,
+                return "fp8_per_token"  # 返回fp8_per_token
+        logger.info(  # 记录信息
+            "layer_%d Fused RMSNorm+Quant %s: skipped",  # 第%d层融合RMSNorm+量化%s：已跳过
+            self.layer_id,  # 层ID
+            label,  # 标签
         )
-        return ""
+        return ""  # 返回空字符串
 
-    def _detect_attn_quant_format(self):
-        self.attn_quant_format = self._detect_fp8_per_token_quant(
-            self.self_attn.qkv_proj, "attn"
-        )
-
-    def _is_layer_sparse(self, layer_id: int, is_nextn: bool) -> bool:
-        return is_nextn or (
-            self.config.n_routed_experts is not None
-            and layer_id >= self.config.first_k_dense_replace
+    def _detect_attn_quant_format(self):  # 检测注意力量化格式
+        self.attn_quant_format = self._detect_fp8_per_token_quant(  # 检测QKV投影的FP8量化
+            self.self_attn.qkv_proj, "attn"  # QKV投影和标签
         )
 
-    def forward(
+    def _is_layer_sparse(self, layer_id: int, is_nextn: bool) -> bool:  # 判断是否为稀疏层
+        return is_nextn or (  # Next-N层或
+            self.config.n_routed_experts is not None  # 配置了路由专家
+            and layer_id >= self.config.first_k_dense_replace  # 层ID大于等于首个替换层
+        )
+
+    def forward(  # 前向传播方法
         self,
-        positions: torch.Tensor,
-        hidden_states: torch.Tensor,
-        forward_batch: ForwardBatch,
-        residual: Optional[torch.Tensor],
+        positions: torch.Tensor,  # 位置编码
+        hidden_states: torch.Tensor,  # 隐藏状态
+        forward_batch: ForwardBatch,  # 前向批次
+        residual: Optional[torch.Tensor],  # 残差
     ) -> torch.Tensor:
 
-        hidden_states, residual = self.layer_communicator.prepare_attn(
-            hidden_states,
-            residual,
-            forward_batch,
-            quant_format=self.attn_quant_format,
+        hidden_states, residual = self.layer_communicator.prepare_attn(  # 准备注意力输入
+            hidden_states,  # 隐藏状态
+            residual,  # 残差
+            forward_batch,  # 前向批次
+            quant_format=self.attn_quant_format,  # 量化格式
         )
 
-        hidden_states = self.self_attn(
-            positions=positions,
-            hidden_states=hidden_states,
-            forward_batch=forward_batch,
+        hidden_states = self.self_attn(  # 通过自注意力层
+            positions=positions,  # 位置编码
+            hidden_states=hidden_states,  # 隐藏状态
+            forward_batch=forward_batch,  # 前向批次
         )
 
-        hidden_states, residual = self.layer_communicator.prepare_mlp(
-            hidden_states, residual, forward_batch
+        hidden_states, residual = self.layer_communicator.prepare_mlp(  # 准备MLP输入
+            hidden_states, residual, forward_batch  # 传入隐藏状态、残差和批次
         )
 
-        should_allreduce_fusion = (
-            self.layer_communicator.should_fuse_mlp_allreduce_with_next_layer(
-                forward_batch
+        should_allreduce_fusion = (  # 是否融合全归约
+            self.layer_communicator.should_fuse_mlp_allreduce_with_next_layer(  # 判断是否与下一层融合
+                forward_batch  # 前向批次
             )
         )
 
-        # For DP with padding, reduce scatter can be used instead of all-reduce.
-        use_reduce_scatter = self.layer_communicator.should_use_reduce_scatter(
-            forward_batch
+        # For DP with padding, reduce scatter can be used instead of all-reduce.  # 对于带填充的DP，可使用reduce-scatter代替all-reduce
+        use_reduce_scatter = self.layer_communicator.should_use_reduce_scatter(  # 判断是否使用reduce-scatter
+            forward_batch  # 前向批次
         )
 
-        hidden_states = self.mlp(
-            hidden_states, forward_batch, should_allreduce_fusion, use_reduce_scatter
+        hidden_states = self.mlp(  # 通过MLP/MoE层
+            hidden_states, forward_batch, should_allreduce_fusion, use_reduce_scatter  # 传入参数
         )
 
-        if should_allreduce_fusion:
-            hidden_states._sglang_needs_allreduce_fusion = True
-        else:
-            hidden_states, residual = self.layer_communicator.postprocess_layer(
-                hidden_states, residual, forward_batch
+        if should_allreduce_fusion:  # 如果需要融合全归约
+            hidden_states._sglang_needs_allreduce_fusion = True  # 标记需要融合
+        else:  # 否则
+            hidden_states, residual = self.layer_communicator.postprocess_layer(  # 后处理层
+                hidden_states, residual, forward_batch  # 传入隐藏状态、残差和批次
             )
 
-        return hidden_states, residual
+        return hidden_states, residual  # 返回隐藏状态和残差
 
-    def op_comm_prepare_attn(
+    def op_comm_prepare_attn(  # 操作：准备注意力通信
         self,
-        state,
-        positions: torch.Tensor,
-        hidden_states: torch.Tensor,
-        forward_batch: ForwardBatch,
-        residual: Optional[torch.Tensor],
-        tbo_subbatch_index: Optional[int] = None,
+        state,  # 状态对象
+        positions: torch.Tensor,  # 位置编码
+        hidden_states: torch.Tensor,  # 隐藏状态
+        forward_batch: ForwardBatch,  # 前向批次
+        residual: Optional[torch.Tensor],  # 残差，可选
+        tbo_subbatch_index: Optional[int] = None,  # TBO子批次索引，可选
     ):
-        state.hidden_states_after_comm_pre_attn, state.residual_after_input_ln = (
-            self.layer_communicator.prepare_attn(
-                hidden_states,
-                residual,
-                forward_batch,
-                quant_format=self.attn_quant_format,
+        state.hidden_states_after_comm_pre_attn, state.residual_after_input_ln = (  # 通信后注意力前隐藏状态和残差
+            self.layer_communicator.prepare_attn(  # 准备注意力
+                hidden_states,  # 隐藏状态
+                residual,  # 残差
+                forward_batch,  # 前向批次
+                quant_format=self.attn_quant_format,  # 量化格式
             )
         )
-        state.update(
+        state.update(  # 更新状态
             dict(
-                forward_batch=forward_batch,
-                positions=positions,
-                tbo_subbatch_index=tbo_subbatch_index,
+                forward_batch=forward_batch,  # 前向批次
+                positions=positions,  # 位置编码
+                tbo_subbatch_index=tbo_subbatch_index,  # TBO子批次索引
             )
         )
 
-    def op_comm_prepare_mlp(self, state):
-        state.hidden_states_mlp_input, state.residual_after_comm_pre_mlp = (
-            self.layer_communicator.prepare_mlp(
-                state.pop("hidden_states_after_attn"),
-                state.pop("residual_after_input_ln"),
-                state.forward_batch,
+    def op_comm_prepare_mlp(self, state):  # 操作：准备MLP通信
+        state.hidden_states_mlp_input, state.residual_after_comm_pre_mlp = (  # MLP输入和残差
+            self.layer_communicator.prepare_mlp(  # 准备MLP
+                state.pop("hidden_states_after_attn"),  # 弹出注意力后的隐藏状态
+                state.pop("residual_after_input_ln"),  # 弹出输入归一化后的残差
+                state.forward_batch,  # 前向批次
             )
         )
 
-    def op_comm_postprocess_layer(self, state):
-        hidden_states, residual = self.layer_communicator.postprocess_layer(
-            state.pop("hidden_states_mlp_output"),
-            state.pop("residual_after_comm_pre_mlp"),
-            state.forward_batch,
+    def op_comm_postprocess_layer(self, state):  # 操作：层后处理通信
+        hidden_states, residual = self.layer_communicator.postprocess_layer(  # 后处理层
+            state.pop("hidden_states_mlp_output"),  # 弹出MLP输出
+            state.pop("residual_after_comm_pre_mlp"),  # 弹出MLP前的残差
+            state.forward_batch,  # 前向批次
         )
 
-        output = dict(
-            positions=state.positions,
-            hidden_states=hidden_states,
-            residual=residual,
-            forward_batch=state.forward_batch,
-            tbo_subbatch_index=state.tbo_subbatch_index,
+        output = dict(  # 输出字典
+            positions=state.positions,  # 位置编码
+            hidden_states=hidden_states,  # 隐藏状态
+            residual=residual,  # 残差
+            forward_batch=state.forward_batch,  # 前向批次
+            tbo_subbatch_index=state.tbo_subbatch_index,  # TBO子批次索引
         )
 
-        state.clear(
-            expect_keys={
-                "positions",
-                "forward_batch",
-                "tbo_subbatch_index",
+        state.clear(  # 清除状态
+            expect_keys={  # 期望保留的键
+                "positions",  # 位置
+                "forward_batch",  # 前向批次
+                "tbo_subbatch_index",  # TBO子批次索引
             }
         )
-        return output
+        return output  # 返回输出
 
 
 class Glm4MoeModel(nn.Module):
-    def __init__(
+    """GLM-4 MoE模型主体，包含词嵌入、解码器层堆叠和归一化。"""
+
+    def __init__(  # 初始化方法
         self,
-        config: PretrainedConfig,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        config: PretrainedConfig,  # 预训练配置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置，可选
+        prefix: str = "",  # 参数前缀
     ):
-        super().__init__()
-        self.pp_group = get_pp_group()
-        self.config = config
-        self.vocab_size = config.vocab_size
-        self.first_k_dense_replace = config.first_k_dense_replace
-        self.embed_dim = config.hidden_size
-        if self.pp_group.is_first_rank:
-            self.embed_tokens = VocabParallelEmbedding(
-                config.vocab_size,
-                config.hidden_size,
-                use_attn_tp_group=is_dp_attention_enabled(),
+        super().__init__()  # 调用父类初始化
+        self.pp_group = get_pp_group()  # 获取流水线并行组
+        self.config = config  # 保存配置
+        self.vocab_size = config.vocab_size  # 词表大小
+        self.first_k_dense_replace = config.first_k_dense_replace  # 前k个密集层
+        self.embed_dim = config.hidden_size  # 嵌入维度
+        if self.pp_group.is_first_rank:  # 如果是第一个rank
+            self.embed_tokens = VocabParallelEmbedding(  # 词表并行嵌入
+                config.vocab_size,  # 词表大小
+                config.hidden_size,  # 隐藏大小
+                use_attn_tp_group=is_dp_attention_enabled(),  # 是否使用注意力TP组
             )
-        else:
-            self.embed_tokens = PPMissingLayer()
+        else:  # 否则
+            self.embed_tokens = PPMissingLayer()  # 流水线并行缺失层占位
 
-        self.alt_stream = torch.cuda.Stream() if _is_cuda else None
-        pp_start_layer, _ = get_pp_indices(
-            config.num_hidden_layers,
-            self.pp_group.rank_in_group,
-            self.pp_group.world_size,
+        self.alt_stream = torch.cuda.Stream() if _is_cuda else None  # CUDA平台创建备用流
+        pp_start_layer, _ = get_pp_indices(  # 获取流水线并行起始层索引
+            config.num_hidden_layers,  # 总层数
+            self.pp_group.rank_in_group,  # 当前rank
+            self.pp_group.world_size,  # 世界大小
         )
-        self.layers, self.start_layer, self.end_layer = make_layers(
-            config.num_hidden_layers,
-            lambda idx, prefix: Glm4MoeDecoderLayer(
-                layer_id=idx,
-                start_layer=pp_start_layer,
-                config=config,
-                quant_config=quant_config,
-                prefix=prefix,
-                alt_stream=self.alt_stream,
+        self.layers, self.start_layer, self.end_layer = make_layers(  # 创建解码器层
+            config.num_hidden_layers,  # 层数
+            lambda idx, prefix: Glm4MoeDecoderLayer(  # 解码器层工厂函数
+                layer_id=idx,  # 层ID
+                start_layer=pp_start_layer,  # 起始层
+                config=config,  # 配置
+                quant_config=quant_config,  # 量化配置
+                prefix=prefix,  # 前缀
+                alt_stream=self.alt_stream,  # 备用流
             ),
-            pp_rank=self.pp_group.rank_in_group,
-            pp_size=self.pp_group.world_size,
-            prefix=add_prefix("layers", prefix),
+            pp_rank=self.pp_group.rank_in_group,  # 流水线并行rank
+            pp_size=self.pp_group.world_size,  # 流水线并行世界大小
+            prefix=add_prefix("layers", prefix),  # 添加前缀
         )
-        if self.pp_group.is_last_rank:
-            self.norm = RMSNorm(self.embed_dim, eps=config.rms_norm_eps)
-        else:
-            self.norm = PPMissingLayer(return_tuple=True)
+        if self.pp_group.is_last_rank:  # 如果是最后一个rank
+            self.norm = RMSNorm(self.embed_dim, eps=config.rms_norm_eps)  # 最终归一化层
+        else:  # 否则
+            self.norm = PPMissingLayer(return_tuple=True)  # 流水线并行缺失层
 
-        self.layers_to_capture = []
+        self.layers_to_capture = []  # 需要捕获辅助隐藏状态的层列表
 
-    def get_input_embeddings(self) -> torch.Tensor:
-        return self.embed_tokens
+    def get_input_embeddings(self) -> torch.Tensor:  # 获取输入嵌入
+        return self.embed_tokens  # 返回词嵌入层
 
-    def forward(
+    def forward(  # 前向传播方法
         self,
-        input_ids: torch.Tensor,
-        positions: torch.Tensor,
-        forward_batch: ForwardBatch,
-        input_embeds: torch.Tensor = None,
-        pp_proxy_tensors: Optional[PPProxyTensors] = None,
+        input_ids: torch.Tensor,  # 输入token ID
+        positions: torch.Tensor,  # 位置编码
+        forward_batch: ForwardBatch,  # 前向批次
+        input_embeds: torch.Tensor = None,  # 输入嵌入，可选
+        pp_proxy_tensors: Optional[PPProxyTensors] = None,  # 流水线代理张量，可选
     ) -> Union[torch.Tensor, PPProxyTensors]:
-        if self.pp_group.is_first_rank:
-            if input_embeds is None:
-                hidden_states = self.embed_tokens(input_ids)
-            else:
-                hidden_states = input_embeds
-            residual = None
-        else:
-            assert pp_proxy_tensors is not None
-            hidden_states = pp_proxy_tensors["hidden_states"]
-            residual = pp_proxy_tensors["residual"]
+        if self.pp_group.is_first_rank:  # 如果是第一个rank
+            if input_embeds is None:  # 如果没有提供嵌入
+                hidden_states = self.embed_tokens(input_ids)  # 通过词嵌入层
+            else:  # 否则
+                hidden_states = input_embeds  # 直接使用输入嵌入
+            residual = None  # 初始化残差为None
+        else:  # 非第一个rank
+            assert pp_proxy_tensors is not None  # 确保有代理张量
+            hidden_states = pp_proxy_tensors["hidden_states"]  # 从代理张量获取隐藏状态
+            residual = pp_proxy_tensors["residual"]  # 从代理张量获取残差
 
-        normal_start_layer = self.start_layer
-        normal_end_layer = self.end_layer
-        if forward_batch.can_run_tbo:
-            if (
-                self.first_k_dense_replace > normal_start_layer
-                and self.first_k_dense_replace < normal_end_layer
+        normal_start_layer = self.start_layer  # 正常前向起始层
+        normal_end_layer = self.end_layer  # 正常前向结束层
+        if forward_batch.can_run_tbo:  # 如果可以运行双批次重叠
+            if (  # 如果
+                self.first_k_dense_replace > normal_start_layer  # 首个稀疏层在起始层之后
+                and self.first_k_dense_replace < normal_end_layer  # 首个稀疏层在结束层之前
             ):
-                normal_end_layer = self.first_k_dense_replace
-            elif self.first_k_dense_replace < normal_start_layer:
-                normal_end_layer = normal_start_layer = 0
+                normal_end_layer = self.first_k_dense_replace  # 正常前向只到首个稀疏层
+            elif self.first_k_dense_replace < normal_start_layer:  # 首个稀疏层在起始层之前
+                normal_end_layer = normal_start_layer = 0  # 全部用TBO
 
-        aux_hidden_states = []
-        for i in range(normal_start_layer, normal_end_layer):
-            with get_global_expert_distribution_recorder().with_current_layer(i):
-                if i in self.layers_to_capture:
-                    aux_hidden_states.append(hidden_states + residual)
-                layer = self.layers[i]
-                hidden_states, residual = layer(
-                    positions,
-                    hidden_states,
-                    forward_batch,
-                    residual,
+        aux_hidden_states = []  # 辅助隐藏状态列表
+        for i in range(normal_start_layer, normal_end_layer):  # 遍历正常前向层
+            with get_global_expert_distribution_recorder().with_current_layer(i):  # 记录当前层
+                if i in self.layers_to_capture:  # 如果需要捕获此层
+                    aux_hidden_states.append(hidden_states + residual)  # 添加辅助隐藏状态
+                layer = self.layers[i]  # 获取层
+                hidden_states, residual = layer(  # 前向传播
+                    positions,  # 位置编码
+                    hidden_states,  # 隐藏状态
+                    forward_batch,  # 前向批次
+                    residual,  # 残差
                 )
 
-        if normal_end_layer != self.end_layer:
-            hidden_states, residual = model_forward_maybe_tbo(
-                layers=self.layers[normal_end_layer : self.end_layer],
-                enable_tbo=True,
-                positions=positions,
-                forward_batch=forward_batch,
-                hidden_states=hidden_states,
-                residual=residual,
-                input_data_scatter_mode=self.layers[
+        if normal_end_layer != self.end_layer:  # 如果有TBO层
+            hidden_states, residual = model_forward_maybe_tbo(  # 双批次重叠前向
+                layers=self.layers[normal_end_layer : self.end_layer],  # TBO层
+                enable_tbo=True,  # 启用TBO
+                positions=positions,  # 位置编码
+                forward_batch=forward_batch,  # 前向批次
+                hidden_states=hidden_states,  # 隐藏状态
+                residual=residual,  # 残差
+                input_data_scatter_mode=self.layers[  # 输入数据散射模式
                     normal_end_layer - 1
                 ].layer_scatter_modes.layer_output_mode,
             )
 
-        if not self.pp_group.is_last_rank:
-            return PPProxyTensors(
+        if not self.pp_group.is_last_rank:  # 如果不是最后一个rank
+            return PPProxyTensors(  # 返回流水线代理张量
                 {
-                    "hidden_states": hidden_states,
-                    "residual": residual,
+                    "hidden_states": hidden_states,  # 隐藏状态
+                    "residual": residual,  # 残差
                 }
             )
-        else:
-            if not forward_batch.forward_mode.is_idle():
-                if residual is None:
-                    hidden_states = self.norm(hidden_states)
-                else:
-                    hidden_states, _ = self.norm(hidden_states, residual)
-        if len(aux_hidden_states) == 0:
-            return hidden_states
-        return hidden_states, aux_hidden_states
+        else:  # 最后一个rank
+            if not forward_batch.forward_mode.is_idle():  # 如果不是空闲模式
+                if residual is None:  # 如果没有残差
+                    hidden_states = self.norm(hidden_states)  # 仅归一化
+                else:  # 有残差
+                    hidden_states, _ = self.norm(hidden_states, residual)  # 带残差的归一化
+        if len(aux_hidden_states) == 0:  # 如果没有辅助隐藏状态
+            return hidden_states  # 返回隐藏状态
+        return hidden_states, aux_hidden_states  # 返回隐藏状态和辅助隐藏状态
 
 
 class Glm4MoeForCausalLM(nn.Module):
-    def __init__(
+    """GLM-4 MoE因果语言模型，整合模型主体和语言模型头。"""
+
+    def __init__(  # 初始化方法
         self,
-        config: PretrainedConfig,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        config: PretrainedConfig,  # 预训练配置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置，可选
+        prefix: str = "",  # 参数前缀
     ) -> None:
-        nn.Module.__init__(self)
-        self.pp_group = get_pp_group()
-        self.config = config
-        self.tp_size = get_tensor_model_parallel_world_size()
-        self.quant_config = quant_config
-        self.num_fused_shared_experts = 0
-        self.determine_num_fused_shared_experts()
-        self.model = Glm4MoeModel(
-            config, quant_config, prefix=add_prefix("model", prefix)
+        nn.Module.__init__(self)  # 直接调用nn.Module初始化
+        self.pp_group = get_pp_group()  # 获取流水线并行组
+        self.config = config  # 保存配置
+        self.tp_size = get_tensor_model_parallel_world_size()  # 张量并行大小
+        self.quant_config = quant_config  # 量化配置
+        self.num_fused_shared_experts = 0  # 初始化融合共享专家数为0
+        self.determine_num_fused_shared_experts()  # 确定融合共享专家数量
+        self.model = Glm4MoeModel(  # 创建模型主体
+            config, quant_config, prefix=add_prefix("model", prefix)  # 传入配置和前缀
         )
-        self.lm_head = ParallelLMHead(
-            config.vocab_size,
-            config.hidden_size,
-            quant_config=quant_config,
-            prefix=add_prefix("lm_head", prefix),
-            use_attn_tp_group=get_global_server_args().enable_dp_lm_head,
+        self.lm_head = ParallelLMHead(  # 并行语言模型头
+            config.vocab_size,  # 词表大小
+            config.hidden_size,  # 隐藏大小
+            quant_config=quant_config,  # 量化配置
+            prefix=add_prefix("lm_head", prefix),  # 添加前缀
+            use_attn_tp_group=get_global_server_args().enable_dp_lm_head,  # 是否使用注意力TP组
         )
-        self.logits_processor = LogitsProcessor(config)
+        self.logits_processor = LogitsProcessor(config)  # logits处理器
 
-        # For EAGLE3 support
-        self.capture_aux_hidden_states = False
+        # For EAGLE3 support  # 用于EAGLE3推测解码支持
+        self.capture_aux_hidden_states = False  # 是否捕获辅助隐藏状态
 
-    def determine_num_fused_shared_experts(self):
-        if get_global_server_args().disable_shared_experts_fusion:
-            return
+    def determine_num_fused_shared_experts(self):  # 确定融合共享专家数量
+        if get_global_server_args().disable_shared_experts_fusion:  # 如果禁用共享专家融合
+            return  # 返回
 
-        disable_reason = None
-        if (not _is_cuda or torch.cuda.get_device_capability("cuda") < (8, 0)) and (
-            not _is_hip or torch.cuda.get_device_capability("cuda") < (9, 4)
+        disable_reason = None  # 禁用原因
+        if (not _is_cuda or torch.cuda.get_device_capability("cuda") < (8, 0)) and (  # 非CUDA或计算能力<8.0，且
+            not _is_hip or torch.cuda.get_device_capability("cuda") < (9, 4)  # 非HIP或计算能力<9.4
         ):
-            disable_reason = (
-                "Only GLM-4.5 on NV-platform with capability >= 80 "
-                "or AMD-platform with capability >= gfx942(MI30x) can use shared experts fusion optimization."
+            disable_reason = (  # 禁用原因
+                "Only GLM-4.5 on NV-platform with capability >= 80 "  # 仅NV平台能力>=80的GLM-4.5
+                "or AMD-platform with capability >= gfx942(MI30x) can use shared experts fusion optimization."  # 或AMD平台能力>=gfx942(MI30x)可使用共享专家融合优化
             )
-        elif get_moe_expert_parallel_world_size() > 1 and (
-            not _is_hip or torch.cuda.get_device_capability("cuda") < (9, 4)
+        elif get_moe_expert_parallel_world_size() > 1 and (  # 专家并行>1且
+            not _is_hip or torch.cuda.get_device_capability("cuda") < (9, 4)  # 非HIP或能力<9.4
         ):
-            disable_reason = "Only GLM-4.5 on AMD-platform with capability >= gfx942(MI30x) can use shared experts fusion optimization under expert parallelism."
-        elif disable_reason is None and (
-            get_moe_a2a_backend().is_deepep() or get_moe_a2a_backend().is_mori()
+            disable_reason = "Only GLM-4.5 on AMD-platform with capability >= gfx942(MI30x) can use shared experts fusion optimization under expert parallelism."  # 仅AMD平台能力>=gfx942的GLM-4.5在专家并行下可使用共享专家融合
+        elif disable_reason is None and (  # 无禁用原因且
+            get_moe_a2a_backend().is_deepep() or get_moe_a2a_backend().is_mori()  # 使用DeepEP或Mori
         ):
-            disable_reason = "GLM-4.5 cannot use shared experts fusion optimization under deepep expert parallelism."
-        elif self.quant_config and self.quant_config.get_name() == "w4afp8":
-            disable_reason = "GLM-4.5 W4AFP8 model uses different quant method for routed experts and shared experts."
+            disable_reason = "GLM-4.5 cannot use shared experts fusion optimization under deepep expert parallelism."  # GLM-4.5在DeepEP专家并行下不能使用共享专家融合
+        elif self.quant_config and self.quant_config.get_name() == "w4afp8":  # W4AFP8量化
+            disable_reason = "GLM-4.5 W4AFP8 model uses different quant method for routed experts and shared experts."  # GLM-4.5 W4AFP8模型对路由专家和共享专家使用不同的量化方法
 
-        if disable_reason is not None:
-            get_global_server_args().disable_shared_experts_fusion = True
-            self.num_fused_shared_experts = 0
-            log_info_on_rank0(
-                logger,
-                f"{disable_reason} Shared experts fusion optimization is disabled.",
+        if disable_reason is not None:  # 如果有禁用原因
+            get_global_server_args().disable_shared_experts_fusion = True  # 全局禁用共享专家融合
+            self.num_fused_shared_experts = 0  # 融合共享专家数为0
+            log_info_on_rank0(  # 在rank0上记录
+                logger,  # 日志记录器
+                f"{disable_reason} Shared experts fusion optimization is disabled.",  # 禁用原因和提示
             )
-            return
+            return  # 返回
 
-        self.num_fused_shared_experts = self.config.n_shared_experts
+        self.num_fused_shared_experts = self.config.n_shared_experts  # 设置融合共享专家数
 
-    def get_input_embeddings(self) -> nn.Embedding:
-        return self.model.embed_tokens
+    def get_input_embeddings(self) -> nn.Embedding:  # 获取输入嵌入
+        return self.model.embed_tokens  # 返回模型词嵌入层
 
-    @torch.no_grad()
-    def forward(
+    @torch.no_grad()  # 禁用梯度计算
+    def forward(  # 前向传播方法
         self,
-        input_ids: torch.Tensor,
-        positions: torch.Tensor,
-        forward_batch: ForwardBatch,
-        input_embeds: torch.Tensor = None,
-        pp_proxy_tensors: Optional[PPProxyTensors] = None,
+        input_ids: torch.Tensor,  # 输入token ID
+        positions: torch.Tensor,  # 位置编码
+        forward_batch: ForwardBatch,  # 前向批次
+        input_embeds: torch.Tensor = None,  # 输入嵌入，可选
+        pp_proxy_tensors: Optional[PPProxyTensors] = None,  # 流水线代理张量，可选
     ) -> torch.Tensor:
-        hidden_states = self.model(
-            input_ids, positions, forward_batch, input_embeds, pp_proxy_tensors
+        hidden_states = self.model(  # 通过模型主体
+            input_ids, positions, forward_batch, input_embeds, pp_proxy_tensors  # 传入所有参数
         )
-        aux_hidden_states = None
-        if self.capture_aux_hidden_states:
-            hidden_states, aux_hidden_states = hidden_states
+        aux_hidden_states = None  # 辅助隐藏状态
+        if self.capture_aux_hidden_states:  # 如果需要捕获辅助隐藏状态
+            hidden_states, aux_hidden_states = hidden_states  # 解包
 
-        if self.pp_group.is_last_rank:
-            return self.logits_processor(
-                input_ids, hidden_states, self.lm_head, forward_batch, aux_hidden_states
+        if self.pp_group.is_last_rank:  # 如果是最后一个rank
+            return self.logits_processor(  # 通过logits处理器
+                input_ids, hidden_states, self.lm_head, forward_batch, aux_hidden_states  # 传入参数
             )
-        else:
-            return hidden_states
+        else:  # 否则
+            return hidden_states  # 返回隐藏状态
 
-    @property
-    def start_layer(self):
-        return self.model.start_layer
+    @property  # 属性装饰器
+    def start_layer(self):  # 起始层属性
+        return self.model.start_layer  # 返回模型的起始层
 
-    @property
-    def end_layer(self):
-        return self.model.end_layer
+    @property  # 属性装饰器
+    def end_layer(self):  # 结束层属性
+        return self.model.end_layer  # 返回模型的结束层
 
-    def load_weights(
+    def load_weights(  # 加载权重方法
         self,
-        weights: Iterable[Tuple[str, torch.Tensor]],
-        is_nextn=False,
-        params_dict=None,
+        weights: Iterable[Tuple[str, torch.Tensor]],  # 权重迭代器
+        is_nextn=False,  # 是否为Next-N模式
+        params_dict=None,  # 参数字典，可选
     ):
-        if is_nextn:
-            if hasattr(self.config, "num_nextn_predict_layers"):
-                num_nextn_layers = self.config.num_nextn_predict_layers
-                assert num_nextn_layers == 1, "Only 1 nextn layer is supported"
-                # compatible with old design
-                nextn_layer_id = (
-                    0
-                    if self.config.num_hidden_layers == 1
-                    else self.config.num_hidden_layers
+        if is_nextn:  # 如果是Next-N模式
+            if hasattr(self.config, "num_nextn_predict_layers"):  # 如果配置中有Next-N预测层数
+                num_nextn_layers = self.config.num_nextn_predict_layers  # 获取层数
+                assert num_nextn_layers == 1, "Only 1 nextn layer is supported"  # 仅支持1个Next-N层
+                # compatible with old design  # 兼容旧设计
+                nextn_layer_id = (  # Next-N层ID
+                    0  # 如果只有1个隐藏层
+                    if self.config.num_hidden_layers == 1  # 单层
+                    else self.config.num_hidden_layers  # 否则为最后一层
                 )
-            else:
-                raise ValueError("num_nextn_predict_layers is not in the config")
+            else:  # 配置中没有Next-N预测层数
+                raise ValueError("num_nextn_predict_layers is not in the config")  # 抛出值错误
 
-        stacked_params_mapping = [
-            # (param_name, shard_name, shard_id)
-            ("qkv_proj", "q_proj", "q"),
-            ("qkv_proj", "k_proj", "k"),
-            ("qkv_proj", "v_proj", "v"),
-            ("gate_up_proj", "gate_proj", 0),
-            ("gate_up_proj", "up_proj", 1),
+        stacked_params_mapping = [  # 堆叠参数映射
+            # (param_name, shard_name, shard_id)  # (参数名, 分片名, 分片ID)
+            ("qkv_proj", "q_proj", "q"),  # Q投影
+            ("qkv_proj", "k_proj", "k"),  # K投影
+            ("qkv_proj", "v_proj", "v"),  # V投影
+            ("gate_up_proj", "gate_proj", 0),  # gate投影
+            ("gate_up_proj", "up_proj", 1),  # up投影
         ]
 
-        if self.num_fused_shared_experts > 0:
-            assert self.num_fused_shared_experts == 1
+        if self.num_fused_shared_experts > 0:  # 如果有融合共享专家
+            assert self.num_fused_shared_experts == 1  # 确保只有1个
 
-            def iter_weights_with_fused_shared_experts(
-                weights: Iterable[Tuple[str, torch.Tensor]],
+            def iter_weights_with_fused_shared_experts(  # 迭代融合共享专家权重的生成器
+                weights: Iterable[Tuple[str, torch.Tensor]],  # 权重迭代器
             ) -> Iterable[Tuple[str, torch.Tensor]]:
 
-                pattern = re.compile(
-                    r"^model\.layers\.(\d+)\.mlp\.shared_experts\.(.+)$"
+                pattern = re.compile(  # 编译正则表达式
+                    r"^model\.layers\.(\d+)\.mlp\.shared_experts\.(.+)$"  # 匹配shared_experts权重
                 )
-                for name, weight in weights:
-                    match = pattern.match(name)
-                    if match:
-                        layer_id = int(match.group(1))
-                        suffix = match.group(2)
-                        name = f"model.layers.{layer_id}.mlp.experts.{self.config.n_routed_experts}.{suffix}"
-                    yield name, weight
+                for name, weight in weights:  # 遍历权重
+                    match = pattern.match(name)  # 匹配名称
+                    if match:  # 如果匹配
+                        layer_id = int(match.group(1))  # 获取层ID
+                        suffix = match.group(2)  # 获取后缀
+                        name = f"model.layers.{layer_id}.mlp.experts.{self.config.n_routed_experts}.{suffix}"  # 重映射到专家层
+                    yield name, weight  # 生成权重
 
-            weights = iter_weights_with_fused_shared_experts(weights)
+            weights = iter_weights_with_fused_shared_experts(weights)  # 使用生成器
 
-        # Params for weights, fp8 weight scales, fp8 activation scales
-        # (param_name, weight_name, expert_id, shard_id)
-        expert_params_mapping = FusedMoE.make_expert_params_mapping(
-            ckpt_gate_proj_name="gate_proj",
-            ckpt_down_proj_name="down_proj",
-            ckpt_up_proj_name="up_proj",
-            num_experts=self.config.n_routed_experts + self.num_fused_shared_experts,
+        # Params for weights, fp8 weight scales, fp8 activation scales  # 权重、FP8权重缩放、FP8激活缩放的参数
+        # (param_name, weight_name, expert_id, shard_id)  # (参数名, 权重名, 专家ID, 分片ID)
+        expert_params_mapping = FusedMoE.make_expert_params_mapping(  # 创建专家参数映射
+            ckpt_gate_proj_name="gate_proj",  # 检查点gate投影名
+            ckpt_down_proj_name="down_proj",  # 检查点down投影名
+            ckpt_up_proj_name="up_proj",  # 检查点up投影名
+            num_experts=self.config.n_routed_experts + self.num_fused_shared_experts,  # 总专家数
         )
 
-        if is_nextn:
-            nextn_layer_prefix = f"model.layers.{nextn_layer_id}"
-            nextn_spec_weight_names = [
-                "shared_head.norm",
-                "eh_proj",
-                "enorm",
-                "hnorm",
+        if is_nextn:  # Next-N模式
+            nextn_layer_prefix = f"model.layers.{nextn_layer_id}"  # Next-N层前缀
+            nextn_spec_weight_names = [  # Next-N特定权重名
+                "shared_head.norm",  # 共享头归一化
+                "eh_proj",  # 嵌入隐藏投影
+                "enorm",  # 嵌入归一化
+                "hnorm",  # 隐藏归一化
             ]
-        else:
-            nextn_layer_prefix = None
-            nextn_spec_weight_names = []
+        else:  # 非Next-N模式
+            nextn_layer_prefix = None  # 无前缀
+            nextn_spec_weight_names = []  # 空列表
 
-        if params_dict is None:
-            params_dict = dict(self.named_parameters())
+        if params_dict is None:  # 如果未提供参数字典
+            params_dict = dict(self.named_parameters())  # 获取模型参数字典
 
-        weight_names = []
-        for name, loaded_weight in weights:
-            weight_names.append(name)
+        weight_names = []  # 权重名称列表
+        for name, loaded_weight in weights:  # 遍历权重
+            weight_names.append(name)  # 记录权重名
 
-            if not is_nextn:
-                if hasattr(self.config, "num_nextn_predict_layers"):
-                    num_nextn_layers = self.config.num_nextn_predict_layers
-                    if num_nextn_layers > 0 and name.startswith("model.layers"):
-                        name_list = name.split(".")
-                        if (
-                            len(name_list) >= 3
-                            and int(name_list[2]) >= self.config.num_hidden_layers
+            if not is_nextn:  # 非Next-N模式
+                if hasattr(self.config, "num_nextn_predict_layers"):  # 如果配置中有Next-N预测层数
+                    num_nextn_layers = self.config.num_nextn_predict_layers  # 获取层数
+                    if num_nextn_layers > 0 and name.startswith("model.layers"):  # 有Next-N层且名称以model.layers开头
+                        name_list = name.split(".")  # 分割名称
+                        if (  # 如果
+                            len(name_list) >= 3  # 至少3层
+                            and int(name_list[2]) >= self.config.num_hidden_layers  # 层ID>=隐藏层数
                         ):
-                            continue
-            else:
-                if nextn_layer_prefix and not name.startswith(nextn_layer_prefix):
-                    continue
+                            continue  # 跳过Next-N层
+            else:  # Next-N模式
+                if nextn_layer_prefix and not name.startswith(nextn_layer_prefix):  # 非Next-N层权重
+                    continue  # 跳过
 
-                if nextn_layer_prefix is not None:  # mtp
-                    # Use shared head and embed weights from target model
-                    if "shared_head.head" in name or "embed_tokens" in name:
-                        continue
+                if nextn_layer_prefix is not None:  # mtp  # MTP（多token预测）
+                    # Use shared head and embed weights from target model  # 使用目标模型的共享头和嵌入权重
+                    if "shared_head.head" in name or "embed_tokens" in name:  # 共享头或嵌入
+                        continue  # 跳过
 
-                    is_decoder = True
-                    # For nextn specific weights
-                    for weight_name in nextn_spec_weight_names:
-                        if weight_name in name:
-                            name = name.replace(nextn_layer_prefix, "model")
-                            is_decoder = False
-                            break
-                    # For decoder layer weights
-                    if is_decoder:
-                        name = name.replace(nextn_layer_prefix, "model.decoder")
+                    is_decoder = True  # 标记为解码器权重
+                    # For nextn specific weights  # Next-N特定权重
+                    for weight_name in nextn_spec_weight_names:  # 遍历特定权重名
+                        if weight_name in name:  # 如果名称包含
+                            name = name.replace(nextn_layer_prefix, "model")  # 替换前缀
+                            is_decoder = False  # 非解码器权重
+                            break  # 跳出
+                    # For decoder layer weights  # 解码器层权重
+                    if is_decoder:  # 如果是解码器权重
+                        name = name.replace(nextn_layer_prefix, "model.decoder")  # 替换为model.decoder
 
-            if "rotary_emb.inv_freq" in name:
-                continue
-            for param_name, weight_name, shard_id in stacked_params_mapping:
-                # Skip non-stacked layers and experts (experts handled below).
-                if weight_name not in name:
-                    continue
-                # We have mlp.experts[0].gate_proj in the checkpoint.
-                # Since we handle the experts below in expert_params_mapping,
-                # we need to skip here BEFORE we update the name, otherwise
-                # name will be updated to mlp.experts[0].gate_up_proj, which
-                # will then be updated below in expert_params_mapping
-                # for mlp.experts[0].gate_gate_up_proj, which breaks load.
-                if "mlp.experts" in name:
-                    continue
-                name = name.replace(weight_name, param_name)
-                # Skip loading extra bias for GPTQ models.
-                if name.endswith(".bias") and name not in params_dict:
-                    continue
-                if name not in params_dict:
-                    continue
+            if "rotary_emb.inv_freq" in name:  # 跳过旋转位置编码逆频率
+                continue  # 跳过
+            for param_name, weight_name, shard_id in stacked_params_mapping:  # 遍历堆叠参数映射
+                # Skip non-stacked layers and experts (experts handled below).  # 跳过非堆叠层和专家（专家在下面处理）
+                if weight_name not in name:  # 权重名不在名称中
+                    continue  # 跳过
+                # We have mlp.experts[0].gate_proj in the checkpoint.  # 检查点中有mlp.experts[0].gate_proj
+                # Since we handle the experts below in expert_params_mapping,  # 因为在expert_params_mapping中处理专家
+                # we need to skip here BEFORE we update the name, otherwise  # 需要在更新名称之前跳过，否则
+                # name will be updated to mlp.experts[0].gate_up_proj, which  # 名称会更新为mlp.experts[0].gate_up_proj
+                # will then be updated below in expert_params_mapping  # 然后在expert_params_mapping中再次更新
+                # for mlp.experts[0].gate_gate_up_proj, which breaks load.  # 变为mlp.experts[0].gate_gate_up_proj，导致加载失败
+                if "mlp.experts" in name:  # 如果是专家权重
+                    continue  # 跳过
+                name = name.replace(weight_name, param_name)  # 替换权重名为参数名
+                # Skip loading extra bias for GPTQ models.  # 跳过GPTQ模型的额外偏置加载
+                if name.endswith(".bias") and name not in params_dict:  # 偏置不在参数字典中
+                    continue  # 跳过
+                if name not in params_dict:  # 参数不在字典中
+                    continue  # 跳过
 
-                param = params_dict[name]
-                weight_loader = param.weight_loader
-                weight_loader(param, loaded_weight, shard_id)
-                break
-            else:
-                # Track if this is an expert weight to enable early skipping
-                is_expert_weight = False
+                param = params_dict[name]  # 获取参数
+                weight_loader = param.weight_loader  # 获取权重加载器
+                weight_loader(param, loaded_weight, shard_id)  # 加载权重分片
+                break  # 跳出循环
+            else:  # 非堆叠参数
+                # Track if this is an expert weight to enable early skipping  # 跟踪是否为专家权重以启用早期跳过
+                is_expert_weight = False  # 初始化专家权重标志
 
-                for mapping in expert_params_mapping:
-                    param_name, weight_name, expert_id, shard_id = mapping
-                    if weight_name not in name:
-                        continue
+                for mapping in expert_params_mapping:  # 遍历专家参数映射
+                    param_name, weight_name, expert_id, shard_id = mapping  # 解包映射
+                    if weight_name not in name:  # 权重名不在名称中
+                        continue  # 跳过
 
-                    # Mark as expert weight regardless of whether we can process it
-                    is_expert_weight = True
+                    # Mark as expert weight regardless of whether we can process it  # 无论是否能处理，都标记为专家权重
+                    is_expert_weight = True  # 标记为专家权重
 
-                    name = name.replace(weight_name, param_name)
-                    if name not in params_dict:
-                        # Expert weight not on this rank, will be skipped below
-                        continue
+                    name = name.replace(weight_name, param_name)  # 替换权重名
+                    if name not in params_dict:  # 参数不在字典中
+                        # Expert weight not on this rank, will be skipped below  # 专家权重不在本rank，将跳过
+                        continue  # 跳过
 
-                    param = params_dict[name]
-                    weight_loader = param.weight_loader
-                    weight_loader(
-                        param,
-                        loaded_weight,
-                        name,
-                        shard_id=shard_id,
-                        expert_id=expert_id,
+                    param = params_dict[name]  # 获取参数
+                    weight_loader = param.weight_loader  # 获取权重加载器
+                    weight_loader(  # 加载权重
+                        param,  # 参数
+                        loaded_weight,  # 加载的权重
+                        name,  # 名称
+                        shard_id=shard_id,  # 分片ID
+                        expert_id=expert_id,  # 专家ID
                     )
-                    break
-                else:
-                    if is_expert_weight:
-                        # This is an expert weight but not mapped to this rank, skip all remaining processing
-                        continue
+                    break  # 跳出循环
+                else:  # 非专家权重
+                    if is_expert_weight:  # 如果是专家权重但不在本rank
+                        # This is an expert weight but not mapped to this rank, skip all remaining processing  # 这是专家权重但未映射到本rank，跳过所有后续处理
+                        continue  # 跳过
 
-                    # Skip loading extra bias for GPTQ models.
-                    if name.endswith(".bias") and name not in params_dict:
-                        continue
+                    # Skip loading extra bias for GPTQ models.  # 跳过GPTQ模型的额外偏置加载
+                    if name.endswith(".bias") and name not in params_dict:  # 偏置不在参数字典中
+                        continue  # 跳过
 
-                    if name not in params_dict:
-                        continue
+                    if name not in params_dict:  # 参数不在字典中
+                        continue  # 跳过
 
-                    if name in params_dict.keys():
-                        param = params_dict[name]
-                        weight_loader = getattr(
-                            param, "weight_loader", default_weight_loader
+                    if name in params_dict.keys():  # 如果名称在参数字典中
+                        param = params_dict[name]  # 获取参数
+                        weight_loader = getattr(  # 获取权重加载器
+                            param, "weight_loader", default_weight_loader  # 默认使用default_weight_loader
                         )
-                        weight_loader(param, loaded_weight)
-                    else:
-                        logger.warning(f"Parameter {name} not found in params_dict")
+                        weight_loader(param, loaded_weight)  # 加载权重
+                    else:  # 否则
+                        logger.warning(f"Parameter {name} not found in params_dict")  # 记录警告
 
-    def get_embed_and_head(self):
-        return self.model.embed_tokens.weight, self.lm_head.weight
+    def get_embed_and_head(self):  # 获取嵌入和语言模型头权重
+        return self.model.embed_tokens.weight, self.lm_head.weight  # 返回词嵌入权重和LM头权重
 
-    def set_embed_and_head(self, embed, head):
-        del self.model.embed_tokens.weight
-        del self.lm_head.weight
-        self.model.embed_tokens.weight = embed
-        self.lm_head.weight = head
-        torch.cuda.empty_cache()
-        torch.cuda.synchronize()
+    def set_embed_and_head(self, embed, head):  # 设置嵌入和语言模型头权重
+        del self.model.embed_tokens.weight  # 删除旧词嵌入权重
+        del self.lm_head.weight  # 删除旧LM头权重
+        self.model.embed_tokens.weight = embed  # 设置新词嵌入权重
+        self.lm_head.weight = head  # 设置新LM头权重
+        torch.cuda.empty_cache()  # 清空CUDA缓存
+        torch.cuda.synchronize()  # 同步CUDA
 
-    @classmethod
-    def get_model_config_for_expert_location(cls, config):
-        return ModelConfigForExpertLocation(
-            num_layers=config.num_hidden_layers,
-            num_logical_experts=config.n_routed_experts,
-            num_groups=config.n_group,
+    @classmethod  # 类方法
+    def get_model_config_for_expert_location(cls, config):  # 获取专家位置的模型配置
+        return ModelConfigForExpertLocation(  # 返回专家位置模型配置
+            num_layers=config.num_hidden_layers,  # 隐藏层数
+            num_logical_experts=config.n_routed_experts,  # 逻辑专家数
+            num_groups=config.n_group,  # 分组数
         )
 
-    def set_eagle3_layers_to_capture(self, layer_ids: Optional[List[int]] = None):
-        if not self.pp_group.is_last_rank:
-            return
+    def set_eagle3_layers_to_capture(self, layer_ids: Optional[List[int]] = None):  # 设置EAGLE3捕获层
+        if not self.pp_group.is_last_rank:  # 如果不是最后一个rank
+            return  # 返回
 
-        if layer_ids is None:
-            self.capture_aux_hidden_states = True
-            num_layers = self.config.num_hidden_layers
-            self.model.layers_to_capture = [2, num_layers // 2, num_layers - 3]
-        else:
-            self.capture_aux_hidden_states = True
-            # we plus 1 here because in sglang, for the ith layer, it takes the output
-            # of the (i-1)th layer as aux hidden state
-            self.model.layers_to_capture = [val + 1 for val in layer_ids]
+        if layer_ids is None:  # 如果未指定层ID
+            self.capture_aux_hidden_states = True  # 启用辅助隐藏状态捕获
+            num_layers = self.config.num_hidden_layers  # 总层数
+            self.model.layers_to_capture = [2, num_layers // 2, num_layers - 3]  # 默认捕获第2、中间、倒数第3层
+        else:  # 指定了层ID
+            self.capture_aux_hidden_states = True  # 启用辅助隐藏状态捕获
+            # we plus 1 here because in sglang, for the ith layer, it takes the output  # 这里加1是因为在sglang中，第i层取的是
+            # of the (i-1)th layer as aux hidden state  # 第(i-1)层的输出作为辅助隐藏状态
+            self.model.layers_to_capture = [val + 1 for val in layer_ids]  # 所有层ID加1
 
 
 class GlmMoeDsaForCausalLM(DeepseekV2ForCausalLM):
-    def determine_num_fused_shared_experts(self):
-        super().determine_num_fused_shared_experts("GlmMoeDsaForCausalLM")
+    """GLM MoE DSA因果语言模型，继承自DeepseekV2ForCausalLM。"""
+
+    def determine_num_fused_shared_experts(self):  # 确定融合共享专家数量
+        super().determine_num_fused_shared_experts("GlmMoeDsaForCausalLM")  # 调用父类方法，传入架构名
 
 
-EntryClass = [Glm4MoeForCausalLM, GlmMoeDsaForCausalLM]
+EntryClass = [Glm4MoeForCausalLM, GlmMoeDsaForCausalLM]  # 入口类列表

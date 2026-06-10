@@ -1,3 +1,4 @@
+# 文件名: test_triton_attention_kernels.py - Triton注意力内核测试
 import random
 import unittest
 
@@ -27,6 +28,7 @@ register_cuda_ci(est_time=19, stage="base-b", runner_config="1-gpu-large")
 register_amd_ci(est_time=30, suite="stage-b-test-1-gpu-small-amd")
 
 
+# 执行extendattentionfwdtorch
 def extend_attention_fwd_torch(
     q: torch.Tensor,  # [extend_tokens, H_Q, D]
     k: torch.Tensor,  # [extend_tokens, H_KV, D]
@@ -47,10 +49,10 @@ def extend_attention_fwd_torch(
     scale = 1.0 / D**0.5
 
     for i in range(B):
-        q_start = int(qo_indptr[i].item())
-        q_end = int(qo_indptr[i + 1].item())
-        kv_start = int(kv_indptr[i].item())
-        kv_end = int(kv_indptr[i + 1].item())
+        q_start = int(qo_indptr[i].item())  # 获取标量值
+        q_end = int(qo_indptr[i + 1].item())  # 获取标量值
+        kv_start = int(kv_indptr[i].item())  # 获取标量值
+        kv_end = int(kv_indptr[i + 1].item())  # 获取标量值
 
         prefix_indices = kv_indices[kv_start:kv_end]
         k_prefix = k_cache[prefix_indices]  # [prefix_len, H_KV, D]
@@ -101,6 +103,7 @@ def extend_attention_fwd_torch(
         o[q_start:q_end] = torch.einsum("qhk,khd->qhd", attn_weights, v_full_hq)
 
 
+# 执行decodeattentionfwdtorch
 def decode_attention_fwd_torch(
     q: torch.Tensor,  # [B, H_Q, D]
     k_buffer: torch.Tensor,  # [total_tokens, H_KV, D]
@@ -123,8 +126,8 @@ def decode_attention_fwd_torch(
     o_ref = torch.empty((B, H_Q, D), dtype=torch.float32, device=q.device)
 
     for b in range(B):
-        start = int(kv_indptr[b].item())
-        end = int(kv_indptr[b + 1].item())
+        start = int(kv_indptr[b].item())  # 获取标量值
+        end = int(kv_indptr[b + 1].item())  # 获取标量值
         idx = kv_indices[start:end]
 
         k_seq = k_buffer.index_select(0, idx)  # [L, H_KV, D]
@@ -151,6 +154,7 @@ def decode_attention_fwd_torch(
 
 class TestTritonAttention(CustomTestCase):
 
+    # 执行setallseeds
     def _set_all_seeds(self, seed):
         """Set all random seeds for reproducibility."""
         random.seed(seed)
@@ -160,10 +164,12 @@ class TestTritonAttention(CustomTestCase):
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
+    # 初始化设置
     def setUp(self):
         # Set seeds before each test method
         self._set_all_seeds(42)
 
+    # 执行testextendattentiononce
     def _test_extend_attention_once(self, B, N_CTX, H_Q, H_KV, D):
         dtype = torch.bfloat16
         device = get_device()
@@ -175,7 +181,7 @@ class TestTritonAttention(CustomTestCase):
             1, N_CTX // 2, (B,), dtype=torch.int32, device=device
         )
         b_seq_len = b_seq_len_prefix + b_seq_len_extend
-        max_len_in_batch = torch.max(b_seq_len, 0)[0].item()
+        max_len_in_batch = torch.max(b_seq_len, 0)[0].item()  # 获取标量值
 
         b_req_idx = torch.arange(B, dtype=torch.int32, device=device)
         b_start_loc = torch.zeros((B,), dtype=torch.int32, device=device)
@@ -186,7 +192,7 @@ class TestTritonAttention(CustomTestCase):
         kv_indptr = torch.zeros((B + 1,), dtype=torch.int32, device=device)
         kv_indptr[1 : B + 1] = torch.cumsum(b_seq_len_prefix[:B], dim=0)
         kv_indices = torch.zeros(
-            (b_seq_len_prefix.sum().item(),), dtype=torch.int32, device=device
+            (b_seq_len_prefix.sum().item(),), dtype=torch.int32, device=device  # 获取标量值
         )
 
         for i in range(B):
@@ -194,8 +200,8 @@ class TestTritonAttention(CustomTestCase):
                 b_start_loc[i], b_start_loc[i] + b_seq_len_prefix[i]
             )
 
-        total_token_num = torch.sum(b_seq_len).item()
-        extend_token_num = torch.sum(b_seq_len_extend).item()
+        total_token_num = torch.sum(b_seq_len).item()  # 获取标量值
+        extend_token_num = torch.sum(b_seq_len_extend).item()  # 获取标量值
         k_buffer = torch.empty(
             (total_token_num, H_KV, D), dtype=dtype, device=device
         ).normal_(mean=0.1, std=0.2)
@@ -230,7 +236,7 @@ class TestTritonAttention(CustomTestCase):
         )
 
         b_seq_len_extend = b_seq_len - b_seq_len_prefix
-        max_len_extend = torch.max(b_seq_len_extend, 0)[0].item()
+        max_len_extend = torch.max(b_seq_len_extend, 0)[0].item()  # 获取标量值
         qo_indptr = torch.zeros((B + 1,), dtype=torch.int32, device=device)
         qo_indptr[1 : B + 1] = torch.cumsum(b_seq_len_extend[:B], dim=0)
 
@@ -257,7 +263,7 @@ class TestTritonAttention(CustomTestCase):
 
         b_seq_mask_len = b_seq_len_extend * b_seq_len
         custom_mask = torch.ones(
-            (b_seq_mask_len.sum().item(),), dtype=torch.bool, device=device
+            (b_seq_mask_len.sum().item(),), dtype=torch.bool, device=device  # 获取标量值
         )
         mask_indptr = torch.zeros((B + 1,), dtype=torch.int64, device=device)
         mask_indptr[1 : B + 1] = torch.cumsum(b_seq_mask_len[:B], dim=0)
@@ -309,6 +315,7 @@ class TestTritonAttention(CustomTestCase):
             torch.allclose(o_extend_mask, o_redundant, rtol=1e-2, atol=1e-3)
         )
 
+    # 测试extendattention
     def test_extend_attention(self):
 
         # Define the varying parameter values
@@ -318,6 +325,7 @@ class TestTritonAttention(CustomTestCase):
         for value in attention_values:
             self._test_extend_attention_once(19, 12331, 12, 4, value)
 
+    # 执行testextendattentionslidingwindowonce
     def _test_extend_attention_sliding_window_once(
         self, B, N_CTX, H_Q, H_KV, D, WINDOW_SIZE
     ):
@@ -340,7 +348,7 @@ class TestTritonAttention(CustomTestCase):
         kv_indptr = torch.zeros((B + 1,), dtype=torch.int32, device=device)
         kv_indptr[1 : B + 1] = torch.cumsum(b_seq_len_prefix[:B], dim=0)
         kv_indices = torch.zeros(
-            (b_seq_len_prefix.sum().item(),), dtype=torch.int32, device=device
+            (b_seq_len_prefix.sum().item(),), dtype=torch.int32, device=device  # 获取标量值
         )
 
         for i in range(B):
@@ -348,8 +356,8 @@ class TestTritonAttention(CustomTestCase):
                 b_start_loc[i], b_start_loc[i] + b_seq_len_prefix[i]
             )
 
-        total_token_num = torch.sum(b_seq_len).item()
-        extend_token_num = torch.sum(b_seq_len_extend).item()
+        total_token_num = torch.sum(b_seq_len).item()  # 获取标量值
+        extend_token_num = torch.sum(b_seq_len_extend).item()  # 获取标量值
         k_buffer = torch.empty(
             (total_token_num, H_KV, D), dtype=dtype, device=device
         ).normal_(mean=0.1, std=0.2)
@@ -383,7 +391,7 @@ class TestTritonAttention(CustomTestCase):
         )
 
         b_seq_len_extend = b_seq_len - b_seq_len_prefix
-        max_len_extend = torch.max(b_seq_len_extend, 0)[0].item()
+        max_len_extend = torch.max(b_seq_len_extend, 0)[0].item()  # 获取标量值
         qo_indptr = torch.zeros((B + 1,), dtype=torch.int32, device=device)
         qo_indptr[1 : B + 1] = torch.cumsum(b_seq_len_extend[:B], dim=0)
 
@@ -423,6 +431,7 @@ class TestTritonAttention(CustomTestCase):
             torch.allclose(o_extend_triton, o_extend_torch, rtol=1e-3, atol=1e-3)
         )
 
+    # 测试extendattentionslidingwindow
     def test_extend_attention_sliding_window(self):
         window_sizes = [-1, 127]
         for window_size in window_sizes:
@@ -430,6 +439,7 @@ class TestTritonAttention(CustomTestCase):
                 19, 12331, 64, 8, 128, window_size
             )
 
+    # 执行testcontextattentiononce
     def _test_context_attention_once(self, head_dim, is_causal):
         # Set up a simple test case
         device = get_device()
@@ -467,9 +477,10 @@ class TestTritonAttention(CustomTestCase):
             cos_sim = torch.nn.functional.cosine_similarity(
                 o[start:end].flatten(), o_torch.flatten(), dim=0
             )
-            self.assertTrue(cos_sim.item() > 1 - (1e-5))
+            self.assertTrue(cos_sim.item() > 1 - (1e-5))  # 获取标量值
             self.assertTrue(torch.allclose(o[start:end], o_torch, atol=1e-2))
 
+    # 测试contextattention
     def test_context_attention(self):
         head_dim = [128, 96, 80, 13]
 
@@ -477,6 +488,7 @@ class TestTritonAttention(CustomTestCase):
             for is_causal in [True, False]:
                 self._test_context_attention_once(dim, is_causal)
 
+    # 执行testdecodeattentiononce
     def _test_decode_attention_once(self, B, H_Q, H_KV, D):
         device = get_device()
         dtype = torch.bfloat16
@@ -534,12 +546,13 @@ class TestTritonAttention(CustomTestCase):
             q, k_buffer, v_buffer, kv_indptr, kv_indices, sm_scale
         )
 
-        max_abs_err = (o.to(torch.float32) - o_ref).abs().max().item()
+        max_abs_err = (o.to(torch.float32) - o_ref).abs().max().item()  # 获取标量值
         self.assertTrue(
             torch.allclose(o.to(torch.float32), o_ref, atol=1e-2, rtol=1e-2),
             msg=f"decode_attention mismatch, max_abs_err={max_abs_err}",
         )
 
+    # 测试decodeattention
     def test_decode_attention(self):
         # Test configurations
         configs = [
@@ -552,6 +565,7 @@ class TestTritonAttention(CustomTestCase):
         for B, H_Q, H_KV, D in configs:
             self._test_decode_attention_once(B, H_Q, H_KV, D)
 
+    # 执行testgroupeddecodeattentiononce
     def _test_grouped_decode_attention_once(self, B, S, H_Q, H_KV, D, D_V):
         dtype = torch.bfloat16
         device = get_device()
@@ -633,13 +647,14 @@ class TestTritonAttention(CustomTestCase):
         cos_sim = torch.nn.functional.cosine_similarity(
             o.flatten(), o_grouped.flatten(), dim=0
         )
-        print(cos_sim.item())
-        self.assertTrue(cos_sim.item() > 0.99)
+        print(cos_sim.item())  # 获取标量值
+        self.assertTrue(cos_sim.item() > 0.99)  # 获取标量值
         if is_in_amd_ci():
             self.assertTrue(torch.allclose(o, o_grouped, atol=5e-2))
         else:
             self.assertTrue(torch.allclose(o, o_grouped, atol=3e-2))
 
+    # 测试groupeddecodeattention
     def test_grouped_decode_attention(self):
         seq_lens = [5, 100, 128, 500]
         configs = [
@@ -655,6 +670,7 @@ class TestTritonAttention(CustomTestCase):
             for B, H_Q, H_KV, D, D_V in configs:
                 self._test_grouped_decode_attention_once(B, S, H_Q, H_KV, D, D_V)
 
+    # 执行testextendattentionunifiedvsregularonce
     def _test_extend_attention_unified_vs_regular_once(self, B, N_CTX, H_Q, H_KV, D):
         """Test that unified kernel produces same results as 2-stage kernel."""
         dtype = torch.bfloat16
@@ -677,7 +693,7 @@ class TestTritonAttention(CustomTestCase):
         kv_indptr = torch.zeros((B + 1,), dtype=torch.int32, device=device)
         kv_indptr[1 : B + 1] = torch.cumsum(b_seq_len_prefix[:B], dim=0)
         kv_indices = torch.zeros(
-            (b_seq_len_prefix.sum().item(),), dtype=torch.int64, device=device
+            (b_seq_len_prefix.sum().item(),), dtype=torch.int64, device=device  # 获取标量值
         )
 
         for i in range(B):
@@ -685,8 +701,8 @@ class TestTritonAttention(CustomTestCase):
                 b_start_loc[i], b_start_loc[i] + b_seq_len_prefix[i]
             )
 
-        total_token_num = torch.sum(b_seq_len).item()
-        extend_token_num = torch.sum(b_seq_len_extend).item()
+        total_token_num = torch.sum(b_seq_len).item()  # 获取标量值
+        extend_token_num = torch.sum(b_seq_len_extend).item()  # 获取标量值
         k_buffer = torch.empty(
             (total_token_num, H_KV, D), dtype=dtype, device=device
         ).normal_(mean=0.1, std=0.2)
@@ -714,7 +730,7 @@ class TestTritonAttention(CustomTestCase):
             ).normal_(mean=0.1, std=0.2)
 
         # Setup for extend attention
-        max_len_extend = torch.max(b_seq_len_extend, 0)[0].item()
+        max_len_extend = torch.max(b_seq_len_extend, 0)[0].item()  # 获取标量值
         qo_indptr = torch.zeros((B + 1,), dtype=torch.int32, device=device)
         qo_indptr[1 : B + 1] = torch.cumsum(b_seq_len_extend[:B], dim=0)
 
@@ -792,6 +808,7 @@ class TestTritonAttention(CustomTestCase):
                 f"Max diff: {(o_regular - o_unified).abs().max()}",
             )
 
+    # 测试extendattentionunifiedvsregular
     def test_extend_attention_unified_vs_regular(self):
         """Test unified kernel matches 2-stage kernel across different configs."""
         configs = [
@@ -806,6 +823,7 @@ class TestTritonAttention(CustomTestCase):
                     B, N_CTX, H_Q, H_KV, D
                 )
 
+    # 测试buildunifiedkvindices
     def test_build_unified_kv_indices(self):
         """Test build_unified_kv_indices correctness."""
         B = 4
@@ -820,15 +838,15 @@ class TestTritonAttention(CustomTestCase):
         prefix_kv_indptr = torch.zeros((B + 1,), dtype=torch.int32, device=device)
         prefix_kv_indptr[1:] = torch.cumsum(prefix_lens, dim=0)
         prefix_kv_indices = torch.arange(
-            prefix_lens.sum().item(), dtype=dtype, device=device
+            prefix_lens.sum().item(), dtype=dtype, device=device  # 获取标量值
         )
 
         # Build extend indices
         extend_start_loc = torch.zeros((B,), dtype=torch.int32, device=device)
         extend_start_loc[1:] = torch.cumsum(extend_lens[:-1], dim=0)
         extend_kv_indices = torch.arange(
-            prefix_lens.sum().item(),
-            prefix_lens.sum().item() + extend_lens.sum().item(),
+            prefix_lens.sum().item(),  # 获取标量值
+            prefix_lens.sum().item() + extend_lens.sum().item(),  # 获取标量值
             dtype=dtype,
             device=device,
         )

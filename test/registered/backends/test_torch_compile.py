@@ -1,3 +1,4 @@
+# 文件名: test_torch_compile.py - Torch编译后端测试
 import time
 import unittest
 
@@ -25,6 +26,7 @@ class TestTorchCompile(CustomTestCase, MMLUMixin):
     mmlu_num_threads = 32
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = DEFAULT_MODEL_NAME_FOR_TEST
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -36,9 +38,11 @@ class TestTorchCompile(CustomTestCase, MMLUMixin):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 运行decode
     def run_decode(self, max_new_tokens):
         response = requests.post(
             self.base_url + "/generate",
@@ -53,6 +57,7 @@ class TestTorchCompile(CustomTestCase, MMLUMixin):
         )
         return response.json()
 
+    # 测试吞吐量
     def test_throughput(self):
         # Warmup
         res = self.run_decode(16)

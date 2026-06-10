@@ -1,3 +1,4 @@
+# 文件名: test_data_parallel_controller.py - 数据并行控制器
 """DPBudget + DataParallelController dispatch tests.
 
 `total_tokens` (the most complex algorithm) is exercised end-to-end in
@@ -39,10 +40,12 @@ _BASE_LOAD = msgspec.structs.replace(
 )
 
 
+# 内部方法_load
 def _load(**overrides) -> LoadSnapshot:
     return msgspec.structs.replace(_BASE_LOAD, **overrides)
 
 
+# 内部方法_make_controller
 def _make_controller(dp_size: int) -> DataParallelController:
     """Bypass __init__; inject only the attrs dispatch methods read."""
     ctl = DataParallelController.__new__(DataParallelController)
@@ -53,6 +56,7 @@ def _make_controller(dp_size: int) -> DataParallelController:
     return ctl
 
 
+# 内部方法_req
 def _req(routed_dp_rank=None, bootstrap_room=None, input_ids=None):
     """Req stand-in; SimpleNamespace avoids pinning to the Req dataclass schema."""
     return SimpleNamespace(
@@ -62,7 +66,10 @@ def _req(routed_dp_rank=None, bootstrap_room=None, input_ids=None):
     )
 
 
+# TestDPBudgetUpdateBudget类
 class TestDPBudgetUpdateBudget(CustomTestCase):
+
+    # TestDPBudgetUpdateBudget类的测试mapsrunningpluswaitingtototalrequests
     def test_maps_running_plus_waiting_to_total_requests(self):
         budget = DPBudget(dp_size=2)
         budget.update_budget(
@@ -71,8 +78,9 @@ class TestDPBudgetUpdateBudget(CustomTestCase):
                 _load(dp_rank=1, timestamp=1.0, num_running_reqs=5, num_waiting_reqs=1),
             ]
         )
-        self.assertEqual(budget.total_requests, [5, 6])
+        self.assertEqual(budget.total_requests, [5, 6])  # 断言相等
 
+    # TestDPBudgetUpdateBudget类的测试mapsnumtotaltokensnotnumusedtokens
     def test_maps_num_total_tokens_not_num_used_tokens(self):
         budget = DPBudget(dp_size=2)
         budget.update_budget(
@@ -85,8 +93,9 @@ class TestDPBudgetUpdateBudget(CustomTestCase):
                 ),
             ]
         )
-        self.assertEqual(budget.total_tokens, [150, 80])
+        self.assertEqual(budget.total_tokens, [150, 80])  # 断言相等
 
+    # TestDPBudgetUpdateBudget类的测试partialupdateonlyaffectsreportedrank
     def test_partial_update_only_affects_reported_rank(self):
         budget = DPBudget(dp_size=3)
         budget.update_budget(
@@ -113,10 +122,11 @@ class TestDPBudgetUpdateBudget(CustomTestCase):
                 )
             ]
         )
-        self.assertEqual(budget.total_requests, [10, 2, 30])
-        self.assertEqual(budget.total_tokens, [100, 50, 300])
+        self.assertEqual(budget.total_requests, [10, 2, 30])  # 断言相等
+        self.assertEqual(budget.total_tokens, [100, 50, 300])  # 断言相等
 
 
+# TestDPBudgetDispatch类
 class TestDPBudgetDispatch(CustomTestCase):
     """DPBudget.dispatch picks a rank from current state and updates counters."""
 
@@ -124,56 +134,63 @@ class TestDPBudgetDispatch(CustomTestCase):
         budget = DPBudget(dp_size=3)
         budget.total_requests = [4, 2, 7]
         rank = budget.dispatch(LoadBalanceMethod.TOTAL_REQUESTS)
-        self.assertEqual(rank, 1)
-        self.assertEqual(
+        self.assertEqual(rank, 1)  # 断言相等
+        self.assertEqual(  # 断言相等
             budget.total_requests[1],
             3,
             "dispatch should increment chosen worker's request count",
         )
 
+    # TestDPBudgetDispatch类的测试totaltokensdispatchappliesestimatedtokens
     def test_total_tokens_dispatch_applies_estimated_tokens(self):
         budget = DPBudget(dp_size=3)
         budget.total_tokens = [100, 50, 200]
         budget.total_requests = [0, 0, 0]
         rank = budget.dispatch(LoadBalanceMethod.TOTAL_TOKENS, estimated_tokens=30)
-        self.assertEqual(rank, 1, "should pick worker with min total_tokens")
-        self.assertEqual(
+        self.assertEqual(rank, 1, "should pick worker with min total_tokens")  # 断言相等
+        self.assertEqual(  # 断言相等
             budget.total_tokens[1],
             80,
             "dispatch should add estimated_tokens to chosen worker",
         )
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             budget.total_requests[1],
             1,
             "dispatch should also increment request count",
         )
 
+    # TestDPBudgetDispatch类的测试totaltokenstiebreaksontotalrequests
     def test_total_tokens_tie_breaks_on_total_requests(self):
         budget = DPBudget(dp_size=3)
         budget.total_tokens = [50, 50, 50]
         budget.total_requests = [4, 2, 7]
         rank = budget.dispatch(LoadBalanceMethod.TOTAL_TOKENS, estimated_tokens=10)
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             rank, 1, "tie on total_tokens should fall back to min total_requests"
         )
 
+    # TestDPBudgetDispatch类的测试dispatchreturnsnoneformethodsnothandled
     def test_dispatch_returns_none_for_methods_not_handled(self):
         """Round-robin and follow_bootstrap_room dispatch elsewhere; DPBudget
         only handles the load-aware variants."""
         budget = DPBudget(dp_size=3)
-        self.assertIsNone(budget.dispatch(LoadBalanceMethod.ROUND_ROBIN))
-        self.assertIsNone(budget.dispatch(LoadBalanceMethod.FOLLOW_BOOTSTRAP_ROOM))
+        self.assertIsNone(budget.dispatch(LoadBalanceMethod.ROUND_ROBIN))  # 断言为None
+        self.assertIsNone(budget.dispatch(LoadBalanceMethod.FOLLOW_BOOTSTRAP_ROOM))  # 断言为None
 
 
+# TestRoundRobinScheduler类
 class TestRoundRobinScheduler(CustomTestCase):
+
+    # TestRoundRobinScheduler类的测试cyclesthroughactiveworkersinorder
     def test_cycles_through_active_workers_in_order(self):
         ctl = _make_controller(dp_size=4)
         for _ in range(8):
             ctl.round_robin_scheduler(_req())
         # 8 reqs across 4 active workers — 2 each, in round-robin order
         for i, worker in enumerate(ctl.workers):
-            self.assertEqual(worker.send_pyobj.call_count, 2, f"worker {i} call count")
+            self.assertEqual(worker.send_pyobj.call_count, 2, f"worker {i} call count")  # 断言相等
 
+    # TestRoundRobinScheduler类的测试firstdispatchpicksworkerzero
     def test_first_dispatch_picks_worker_zero(self):
         ctl = _make_controller(dp_size=4)
         ctl.round_robin_scheduler(_req())
@@ -181,6 +198,7 @@ class TestRoundRobinScheduler(CustomTestCase):
         for i in (1, 2, 3):
             ctl.workers[i].send_pyobj.assert_not_called()
 
+    # TestRoundRobinScheduler类的测试skipsinactiveworkers
     def test_skips_inactive_workers(self):
         ctl = _make_controller(dp_size=4)
         ctl.status[1] = False
@@ -188,17 +206,18 @@ class TestRoundRobinScheduler(CustomTestCase):
         for _ in range(6):
             ctl.round_robin_scheduler(_req())
         # Only workers 0 and 2 are active — should split 6 reqs evenly
-        self.assertEqual(ctl.workers[0].send_pyobj.call_count, 3)
+        self.assertEqual(ctl.workers[0].send_pyobj.call_count, 3)  # 断言相等
         ctl.workers[1].send_pyobj.assert_not_called()
-        self.assertEqual(ctl.workers[2].send_pyobj.call_count, 3)
+        self.assertEqual(ctl.workers[2].send_pyobj.call_count, 3)  # 断言相等
         ctl.workers[3].send_pyobj.assert_not_called()
 
+    # TestRoundRobinScheduler类的测试routeddprankbypassescounter
     def test_routed_dp_rank_bypasses_counter(self):
         """External dp-rank routing must not advance the counter."""
         ctl = _make_controller(dp_size=4)
         ctl.round_robin_scheduler(_req(routed_dp_rank=2))
         ctl.workers[2].send_pyobj.assert_called_once()
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             ctl.round_robin_counter,
             0,
             "external routing must not advance the round-robin counter",
@@ -208,7 +227,10 @@ class TestRoundRobinScheduler(CustomTestCase):
         ctl.workers[0].send_pyobj.assert_called_once()
 
 
+# TestFollowBootstrapRoomScheduler类
 class TestFollowBootstrapRoomScheduler(CustomTestCase):
+
+    # TestFollowBootstrapRoomScheduler类的测试dispatchesbybootstraproommodulo
     def test_dispatches_by_bootstrap_room_modulo(self):
         ctl = _make_controller(dp_size=4)
         for room, expected_rank in [
@@ -222,11 +244,13 @@ class TestFollowBootstrapRoomScheduler(CustomTestCase):
             ctl.follow_bootstrap_room_scheduler(_req(bootstrap_room=room))
             ctl.workers[expected_rank].send_pyobj.assert_called()
 
+    # TestFollowBootstrapRoomScheduler类的测试requiresbootstraproom
     def test_requires_bootstrap_room(self):
         ctl = _make_controller(dp_size=4)
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(AssertionError):  # 断言抛出异常
             ctl.follow_bootstrap_room_scheduler(_req(bootstrap_room=None))
 
+    # TestFollowBootstrapRoomScheduler类的测试routeddprankbypassesbootstraproom
     def test_routed_dp_rank_bypasses_bootstrap_room(self):
         ctl = _make_controller(dp_size=4)
         ctl.follow_bootstrap_room_scheduler(_req(routed_dp_rank=3, bootstrap_room=1))
@@ -234,7 +258,10 @@ class TestFollowBootstrapRoomScheduler(CustomTestCase):
         ctl.workers[1].send_pyobj.assert_not_called()
 
 
+# TestTotalRequestsScheduler类
 class TestTotalRequestsScheduler(CustomTestCase):
+
+    # TestTotalRequestsScheduler类的测试dispatchestominrequestworker
     def test_dispatches_to_min_request_worker(self):
         ctl = _make_controller(dp_size=4)
         ctl.dp_budget.total_requests = [5, 3, 1, 4]
@@ -242,25 +269,27 @@ class TestTotalRequestsScheduler(CustomTestCase):
         ctl.workers[2].send_pyobj.assert_called_once()
         for i in (0, 1, 3):
             ctl.workers[i].send_pyobj.assert_not_called()
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             ctl.dp_budget.total_requests[2],
             2,
             "DPBudget must record the dispatch by incrementing the counter",
         )
 
+    # TestTotalRequestsScheduler类的测试routeddprankbypassesbudget
     def test_routed_dp_rank_bypasses_budget(self):
         ctl = _make_controller(dp_size=4)
         ctl.dp_budget.total_requests = [5, 3, 1, 4]
         ctl.total_requests_scheduler(_req(routed_dp_rank=0))
         ctl.workers[0].send_pyobj.assert_called_once()
         # DPBudget must not be touched when bypassed
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             ctl.dp_budget.total_requests,
             [5, 3, 1, 4],
             "external routing must not mutate DPBudget state",
         )
 
 
+# TestStatusAwarenessInconsistency类
 class TestStatusAwarenessInconsistency(CustomTestCase):
     """Document a divergence: ``round_robin_scheduler`` skips workers whose
     ``status`` is False, but ``total_requests_scheduler`` /
@@ -268,6 +297,7 @@ class TestStatusAwarenessInconsistency(CustomTestCase):
     consult ``self.status``. If a future change unifies this behaviour,
     this test will fail and force a reviewer to confirm intent."""
 
+    # TestStatusAwarenessInconsistency类的测试totalrequestsignoresstatus
     def test_total_requests_ignores_status(self):
         ctl = _make_controller(dp_size=4)
         # Worker 2 is the global minimum AND marked inactive.

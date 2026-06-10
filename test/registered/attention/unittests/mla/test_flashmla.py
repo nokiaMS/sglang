@@ -1,3 +1,4 @@
+# 文件名: test_flashmla.py - FlashMLA注意力测试
 import sys
 import unittest
 from pathlib import Path
@@ -229,6 +230,7 @@ class TestFlashMLAAttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试tinydeepseekmlaattentioncases
     def test_tiny_deepseek_mla_attention_cases(self):
         for case in self.CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -276,6 +278,7 @@ class TestFlashMLAAttentionBackendCorrectness(CustomTestCase):
         ),
     }
 
+    # 测试layoutrobustnesscases
     def test_layout_robustness_cases(self):
         for case in self.LAYOUT_ROBUSTNESS_CASES:
             for layout in ("interleaved_pages", "non_monotonic_extend"):
@@ -294,11 +297,13 @@ class TestFlashMLAAttentionBackendCorrectness(CustomTestCase):
                     )
 
     @unittest.skipIf(_DECODE_REQUIRES_SM90A, _DECODE_SKIP_REASON)
+    # 测试runnermodecudagraphdecodecases
     def test_runner_mode_cuda_graph_decode_cases(self):
         for case in self.CUDA_GRAPH_CASES:
             with self.subTest(case=case.name, backend=case.backend):
                 run_mla_cuda_graph_decode_case(self, case, **MLA_SHAPE_KWARGS)
 
+    # 测试runnermodesplitopextendcases
     def test_runner_mode_split_op_extend_cases(self):
         for case, static_num_tokens in self.SPLIT_OP_CASES:
             for breakable in (False, True):
@@ -317,6 +322,7 @@ class TestFlashMLAAttentionBackendCorrectness(CustomTestCase):
                     )
 
     @unittest.skipIf(_DECODE_REQUIRES_SM90A, _DECODE_SKIP_REASON)
+    # 测试runnermodeeagleverifycases
     def test_runner_mode_eagle_verify_cases(self):
         for case, topk in self.EAGLE_VERIFY_CASES:
             with self.subTest(case=case.name, backend=case.backend, topk=topk):
@@ -328,6 +334,7 @@ class TestFlashMLAAttentionBackendCorrectness(CustomTestCase):
                 )
 
     @unittest.skipIf(_DECODE_REQUIRES_SM90A, _DECODE_SKIP_REASON)
+    # 测试runnermodeeagleverifycudagraphcases
     def test_runner_mode_eagle_verify_cuda_graph_cases(self):
         for case, topk in self.EAGLE_VERIFY_CUDA_GRAPH_CASES:
             with self.subTest(case=case.name, backend=case.backend, topk=topk):
@@ -338,12 +345,14 @@ class TestFlashMLAAttentionBackendCorrectness(CustomTestCase):
                     **MLA_SHAPE_KWARGS,
                 )
 
+    # 测试runnermodeeagledraftextendcases
     def test_runner_mode_eagle_draft_extend_cases(self):
         for case in self.DRAFT_EXTEND_CASES:
             with self.subTest(case=case.name, backend=case.backend):
                 run_mla_eagle_draft_extend_case(self, case, **MLA_SHAPE_KWARGS)
 
     @unittest.skipIf(_DECODE_REQUIRES_SM90A, _DECODE_SKIP_REASON)
+    # 测试runnermodeeagledraftcudagraphrunnercases
     def test_runner_mode_eagle_draft_cuda_graph_runner_cases(self):
         for case, topk, num_draft_tokens in self.EAGLE_DRAFT_RUNNER_CASES:
             with self.subTest(case=case.name, backend=case.backend, topk=topk):
@@ -369,6 +378,7 @@ class TestFlashMLAAttentionBackendCorrectness(CustomTestCase):
     )
 
     @staticmethod
+    # 执行expectedblockkvlayout
     def _expected_block_kv_layout(
         prefix_lens: tuple[int, ...],
         num_draft_tokens: int,
@@ -380,6 +390,7 @@ class TestFlashMLAAttentionBackendCorrectness(CustomTestCase):
         per_row_valid = [triton.cdiv(s, FLASHMLA_PAGE_SIZE) for s in per_row_seq_lens]
         return bs, max_seqlen_pad, per_row_valid
 
+    # 执行buildtargetverifymetadatafixture
     def _build_target_verify_metadata_fixture(self, case):
         fixture = build_mla_attention_fixture(
             self,
@@ -395,6 +406,7 @@ class TestFlashMLAAttentionBackendCorrectness(CustomTestCase):
         )
         return fixture
 
+    # 测试eagertargetverifyblockkvindicesmetadata
     def test_eager_target_verify_block_kv_indices_metadata(self):
         case = self.METADATA_VERIFY_CASE
         num_draft_tokens = case.extend_lens[0]
@@ -403,7 +415,7 @@ class TestFlashMLAAttentionBackendCorrectness(CustomTestCase):
         )
 
         fixture = self._build_target_verify_metadata_fixture(case)
-        with torch.no_grad(), forward_context(
+        with torch.no_grad(), forward_context(  # 禁用梯度计算
             ForwardContext(attn_backend=fixture.backend)
         ):
             fixture.backend.init_forward_metadata(fixture.forward_batch)
@@ -418,7 +430,7 @@ class TestFlashMLAAttentionBackendCorrectness(CustomTestCase):
             "(M15) will produce a different shape with the configured "
             "page-boundary prefix lens.",
         )
-        valid_per_row = (block_kv_indices >= 0).sum(dim=1).cpu().tolist()
+        valid_per_row = (block_kv_indices >= 0).sum(dim=1).cpu().tolist()  # 转移到CPU
         self.assertEqual(
             valid_per_row,
             expected_valid_pages,
@@ -428,6 +440,7 @@ class TestFlashMLAAttentionBackendCorrectness(CustomTestCase):
             "even when the overall shape happens to coincide.",
         )
 
+    # 测试replaytargetverifyblockkvindicesmetadata
     def test_replay_target_verify_block_kv_indices_metadata(self):
         # Replay-only assertion: the `cuda_graph_kv_indices` buffer is
         # initialised to `1` (not `-1`), so we can only check the slice
@@ -440,7 +453,7 @@ class TestFlashMLAAttentionBackendCorrectness(CustomTestCase):
 
         fixture = self._build_target_verify_metadata_fixture(case)
         backend = fixture.backend
-        with torch.no_grad(), forward_context(ForwardContext(attn_backend=backend)):
+        with torch.no_grad(), forward_context(ForwardContext(attn_backend=backend)):  # 禁用梯度计算
             backend.init_cuda_graph_state(
                 max_bs=bs,
                 max_num_tokens=bs * num_draft_tokens,

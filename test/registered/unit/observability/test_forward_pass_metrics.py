@@ -1,3 +1,4 @@
+# 文件名: test_forward_pass_metrics.py - 前向传播指标
 from sglang.test.ci.ci_register import register_cpu_ci
 
 register_cpu_ci(est_time=5, suite="base-a-test-cpu")
@@ -14,6 +15,7 @@ from sglang.srt.managers.scheduler_components.metrics_reporter import (
 )
 
 
+# 内部方法_make_ps
 def _make_ps(**overrides) -> ParallelState:
     """Build a ParallelState with reasonable defaults for tests; override fields via kwargs."""
     defaults = dict(
@@ -39,7 +41,10 @@ def _make_ps(**overrides) -> ParallelState:
     return ParallelState(**defaults)
 
 
+# _FakeReq类
 class _FakeReq:
+
+    # _FakeReq类的初始化
     def __init__(
         self,
         prompt_len: int,
@@ -52,39 +57,54 @@ class _FakeReq:
         self.seqlen = prompt_len + output_len
 
 
+# _FakeForwardMode类
 class _FakeForwardMode:
+
+    # _FakeForwardMode类的初始化
     def __init__(self, *, is_mixed: bool = False, is_extend: bool = False):
         self._is_mixed = is_mixed
         self._is_extend = is_extend
 
+    # _FakeForwardMode类的is_mixed
     def is_mixed(self):
         return self._is_mixed
 
+    # _FakeForwardMode类的is_extend
     def is_extend(self, include_draft_extend_v2: bool = False):
         return self._is_extend
 
+    # _FakeForwardMode类的is_decode
     def is_decode(self):
         return not self._is_mixed and not self._is_extend
 
 
+# _CollectingPublisher类
 class _CollectingPublisher:
+
+    # _CollectingPublisher类的初始化
     def __init__(self):
         self.metrics = []
 
+    # _CollectingPublisher类的publish
     def publish(self, metrics):
         self.metrics.append(metrics)
 
 
+# _DummyPublisherThread类
 class _DummyPublisherThread:
+
+    # _DummyPublisherThread类的初始化
     def __init__(self, endpoint: str, worker_id: str, dp_rank: int, **_: object):
         self.endpoint = endpoint
         self.worker_id = worker_id
         self.dp_rank = dp_rank
 
+    # _DummyPublisherThread类的shutdown
     def shutdown(self):
         pass
 
 
+# 内部方法_make_reporter
 def _make_reporter(scheduler) -> SchedulerMetricsReporter:
     if not hasattr(scheduler, "server_args"):
         scheduler.server_args = types.SimpleNamespace(
@@ -125,7 +145,10 @@ def _make_reporter(scheduler) -> SchedulerMetricsReporter:
     )
 
 
+# TestForwardPassMetrics类
 class TestForwardPassMetrics(unittest.TestCase):
+
+    # TestForwardPassMetrics类的测试初始化设置
     def setUp(self):
         self.scheduler = types.SimpleNamespace()
         self.scheduler._fpm_worker_id = "worker-7"
@@ -138,6 +161,7 @@ class TestForwardPassMetrics(unittest.TestCase):
         self.reporter = _make_reporter(self.scheduler)
         self.scheduler.enable_fpm = True
 
+    # TestForwardPassMetrics类的内部方法_make_batch
     def _make_batch(self, **overrides):
         defaults = dict(
             forward_mode=_FakeForwardMode(),
@@ -150,6 +174,7 @@ class TestForwardPassMetrics(unittest.TestCase):
         defaults.update(overrides)
         return types.SimpleNamespace(**defaults)
 
+    # TestForwardPassMetrics类的测试emitmixedbatchseparatesprefillanddecode
     def test_emit_mixed_batch_separates_prefill_and_decode(self):
         self.scheduler._fpm_dp_rank = 3
         self.scheduler.waiting_queue = [_FakeReq(6), _FakeReq(4, output_len=2)]
@@ -177,21 +202,22 @@ class TestForwardPassMetrics(unittest.TestCase):
         ):
             self.reporter._emit_forward_pass_metrics(batch)
 
-        self.assertEqual(len(self.scheduler._fpm_publisher.metrics), 1)
+        self.assertEqual(len(self.scheduler._fpm_publisher.metrics), 1)  # 断言相等
         metrics = self.scheduler._fpm_publisher.metrics[0]
-        self.assertEqual(metrics.worker_id, "worker-7")
-        self.assertEqual(metrics.dp_rank, 3)
-        self.assertEqual(metrics.wall_time, 4.5)
-        self.assertEqual(metrics.scheduled_requests.num_prefill_requests, 2)
-        self.assertEqual(metrics.scheduled_requests.sum_prefill_tokens, 12)
-        self.assertEqual(metrics.scheduled_requests.sum_prefill_kv_tokens, 5)
-        self.assertEqual(metrics.scheduled_requests.num_decode_requests, 1)
-        self.assertEqual(
+        self.assertEqual(metrics.worker_id, "worker-7")  # 断言相等
+        self.assertEqual(metrics.dp_rank, 3)  # 断言相等
+        self.assertEqual(metrics.wall_time, 4.5)  # 断言相等
+        self.assertEqual(metrics.scheduled_requests.num_prefill_requests, 2)  # 断言相等
+        self.assertEqual(metrics.scheduled_requests.sum_prefill_tokens, 12)  # 断言相等
+        self.assertEqual(metrics.scheduled_requests.sum_prefill_kv_tokens, 5)  # 断言相等
+        self.assertEqual(metrics.scheduled_requests.num_decode_requests, 1)  # 断言相等
+        self.assertEqual(  # 断言相等
             metrics.scheduled_requests.sum_decode_kv_tokens, decode_req.seqlen
         )
-        self.assertEqual(metrics.queued_requests.num_prefill_requests, 1)
-        self.assertEqual(metrics.queued_requests.num_decode_requests, 1)
+        self.assertEqual(metrics.queued_requests.num_prefill_requests, 1)  # 断言相等
+        self.assertEqual(metrics.queued_requests.num_decode_requests, 1)  # 断言相等
 
+    # TestForwardPassMetrics类的测试emitusesdevicetimergputime
     def test_emit_uses_device_timer_gpu_time(self):
         self.scheduler._fpm_uses_device_timer = True
         self.scheduler._fpm_gpu_time_acc = 0.042
@@ -202,12 +228,13 @@ class TestForwardPassMetrics(unittest.TestCase):
 
         self.reporter._emit_forward_pass_metrics(batch)
 
-        self.assertEqual(len(self.scheduler._fpm_publisher.metrics), 1)
-        self.assertAlmostEqual(
+        self.assertEqual(len(self.scheduler._fpm_publisher.metrics), 1)  # 断言相等
+        self.assertAlmostEqual(  # 断言近似相等
             self.scheduler._fpm_publisher.metrics[0].wall_time, 0.042, places=4
         )
-        self.assertAlmostEqual(self.scheduler._fpm_gpu_time_acc, 0.0)
+        self.assertAlmostEqual(self.scheduler._fpm_gpu_time_acc, 0.0)  # 断言近似相等
 
+    # TestForwardPassMetrics类的测试emitskipswhendevicetimerzero
     def test_emit_skips_when_device_timer_zero(self):
         self.scheduler._fpm_uses_device_timer = True
         self.scheduler._fpm_gpu_time_acc = 0.0
@@ -218,8 +245,9 @@ class TestForwardPassMetrics(unittest.TestCase):
 
         self.reporter._emit_forward_pass_metrics(batch)
 
-        self.assertEqual(len(self.scheduler._fpm_publisher.metrics), 0)
+        self.assertEqual(len(self.scheduler._fpm_publisher.metrics), 0)  # 断言相等
 
+    # TestForwardPassMetrics类的测试emitusesmonotonicwithoutdevicetimer
     def test_emit_uses_monotonic_without_device_timer(self):
         batch = self._make_batch()
 
@@ -229,11 +257,12 @@ class TestForwardPassMetrics(unittest.TestCase):
         ):
             self.reporter._emit_forward_pass_metrics(batch, result=None)
 
-        self.assertEqual(len(self.scheduler._fpm_publisher.metrics), 1)
-        self.assertAlmostEqual(
+        self.assertEqual(len(self.scheduler._fpm_publisher.metrics), 1)  # 断言相等
+        self.assertAlmostEqual(  # 断言近似相等
             self.scheduler._fpm_publisher.metrics[0].wall_time, 0.035, places=4
         )
 
+    # TestForwardPassMetrics类的测试disaggprefillqueuedmetrics
     def test_disagg_prefill_queued_metrics(self):
         self.scheduler.disaggregation_mode = DisaggregationMode.PREFILL
         self.scheduler.disagg_prefill_bootstrap_queue = types.SimpleNamespace(
@@ -248,10 +277,11 @@ class TestForwardPassMetrics(unittest.TestCase):
             self.reporter._emit_forward_pass_metrics(batch)
 
         metrics = self.scheduler._fpm_publisher.metrics[0]
-        self.assertEqual(metrics.queued_requests.num_prefill_requests, 3)
-        self.assertEqual(metrics.queued_requests.sum_prefill_tokens, 350)
-        self.assertEqual(metrics.queued_requests.num_decode_requests, 0)
+        self.assertEqual(metrics.queued_requests.num_prefill_requests, 3)  # 断言相等
+        self.assertEqual(metrics.queued_requests.sum_prefill_tokens, 350)  # 断言相等
+        self.assertEqual(metrics.queued_requests.num_decode_requests, 0)  # 断言相等
 
+    # TestForwardPassMetrics类的测试disaggdecodequeuedmetrics
     def test_disagg_decode_queued_metrics(self):
         self.scheduler.disaggregation_mode = DisaggregationMode.DECODE
         self.scheduler.disagg_decode_prealloc_queue = types.SimpleNamespace(
@@ -269,10 +299,11 @@ class TestForwardPassMetrics(unittest.TestCase):
             self.reporter._emit_forward_pass_metrics(batch)
 
         metrics = self.scheduler._fpm_publisher.metrics[0]
-        self.assertEqual(metrics.queued_requests.num_prefill_requests, 0)
-        self.assertEqual(metrics.queued_requests.num_decode_requests, 3)
-        self.assertEqual(metrics.queued_requests.sum_decode_kv_tokens, 15 + 30 + 45)
+        self.assertEqual(metrics.queued_requests.num_prefill_requests, 0)  # 断言相等
+        self.assertEqual(metrics.queued_requests.num_decode_requests, 3)  # 断言相等
+        self.assertEqual(metrics.queued_requests.sum_decode_kv_tokens, 15 + 30 + 45)  # 断言相等
 
+    # TestForwardPassMetrics类的测试initmetricsusesserverworkerid
     def test_init_metrics_uses_server_worker_id(self):
         scheduler = types.SimpleNamespace()
         scheduler.server_args = types.SimpleNamespace(
@@ -293,14 +324,15 @@ class TestForwardPassMetrics(unittest.TestCase):
         ):
             reporter = _make_reporter(scheduler)
 
-        self.assertTrue(scheduler.enable_fpm)
-        self.assertEqual(scheduler._fpm_worker_id, "endpoint-42")
-        self.assertEqual(scheduler._fpm_dp_rank, 2)
-        self.assertEqual(scheduler._fpm_publisher.worker_id, "endpoint-42")
-        self.assertEqual(scheduler._fpm_publisher.dp_rank, 2)
-        self.assertTrue(scheduler._fpm_publisher.endpoint.startswith("ipc://"))
-        self.assertIsNotNone(scheduler.server_args.forward_pass_metrics_ipc_name)
+        self.assertTrue(scheduler.enable_fpm)  # 断言为真
+        self.assertEqual(scheduler._fpm_worker_id, "endpoint-42")  # 断言相等
+        self.assertEqual(scheduler._fpm_dp_rank, 2)  # 断言相等
+        self.assertEqual(scheduler._fpm_publisher.worker_id, "endpoint-42")  # 断言相等
+        self.assertEqual(scheduler._fpm_publisher.dp_rank, 2)  # 断言相等
+        self.assertTrue(scheduler._fpm_publisher.endpoint.startswith("ipc://"))  # 断言为真
+        self.assertIsNotNone(scheduler.server_args.forward_pass_metrics_ipc_name)  # 断言不为None
 
+    # TestForwardPassMetrics类的测试initfpmdisabledonnonlastpprank
     def test_init_fpm_disabled_on_non_last_pp_rank(self):
         scheduler = types.SimpleNamespace()
         scheduler.server_args = types.SimpleNamespace(
@@ -321,7 +353,7 @@ class TestForwardPassMetrics(unittest.TestCase):
         ):
             reporter = _make_reporter(scheduler)
 
-        self.assertFalse(scheduler.enable_fpm)
+        self.assertFalse(scheduler.enable_fpm)  # 断言为假
 
 
 if __name__ == "__main__":

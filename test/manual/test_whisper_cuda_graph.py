@@ -1,3 +1,4 @@
+# 文件名: test_whisper_cuda_graph.py - Whisper CUDA图测试 - 验证Whisper模型在CUDA图模式下的转录正确性和一致性
 """
 Test Whisper model with CUDA graph support.
 
@@ -33,6 +34,7 @@ TEST_AUDIO_URL = "https://huggingface.co/datasets/Narsil/asr_dummy/resolve/main/
 TEST_AUDIO_LOCAL = "/tmp/test_whisper_audio.flac"
 
 
+# 获取音频字节 - 下载或读取本地音频文件
 def get_audio_bytes():
     """Get audio bytes, downloading if necessary."""
     import os
@@ -51,6 +53,7 @@ class TestWhisperCudaGraph(CustomTestCase):
     """Test Whisper with CUDA graph enabled (default behavior)."""
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         cls.model = WHISPER_MODEL
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -65,9 +68,11 @@ class TestWhisperCudaGraph(CustomTestCase):
         )
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 发送转录请求 - 通过OpenAI兼容音频端点发送转录请求
     def _transcribe(self, language="en"):
         """Send a transcription request via OpenAI-compatible audio endpoint."""
         audio_bytes = get_audio_bytes()
@@ -82,6 +87,7 @@ class TestWhisperCudaGraph(CustomTestCase):
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
 
+    # 测试basic transcription
     def test_basic_transcription(self):
         """Test that basic transcription works with CUDA graph."""
         result = self._transcribe()
@@ -90,6 +96,7 @@ class TestWhisperCudaGraph(CustomTestCase):
         self.assertTrue(len(text) > 0, "Transcription should not be empty")
         print(f"Transcription: {text}")
 
+    # 测试multiple sequential requests
     def test_multiple_sequential_requests(self):
         """Test multiple sequential requests to verify CUDA graph replay consistency."""
         results = []
@@ -107,6 +114,7 @@ class TestWhisperCudaGraph(CustomTestCase):
                 f"Transcription {i+1} differs from first transcription",
             )
 
+    # 测试transcription quality
     def test_transcription_quality(self):
         """Test that transcription quality is reasonable (contains expected words)."""
         result = self._transcribe()
@@ -121,6 +129,7 @@ class TestWhisperNoCudaGraph(CustomTestCase):
     """Test Whisper with CUDA graph explicitly disabled for comparison."""
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         cls.model = WHISPER_MODEL
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -136,9 +145,11 @@ class TestWhisperNoCudaGraph(CustomTestCase):
         )
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试basic transcription no cuda graph
     def test_basic_transcription_no_cuda_graph(self):
         """Test that transcription works without CUDA graph (baseline)."""
         audio_bytes = get_audio_bytes()

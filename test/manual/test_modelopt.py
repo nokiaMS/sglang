@@ -1,3 +1,4 @@
+# 文件名: test_modelopt.py - ModelOpt测试 - 验证ModelOpt量化模型的推理功能
 import unittest
 from types import SimpleNamespace
 
@@ -17,6 +18,7 @@ from sglang.test.test_utils import (
 
 class TestEvalFP8ModelOptQuantAccuracy(CustomTestCase):
 
+    # 内部方法: run test
     def _run_test(self, model, other_args, expected_score):
         base_url = DEFAULT_URL_FOR_TEST
         other_args = other_args or []
@@ -46,6 +48,7 @@ class TestEvalFP8ModelOptQuantAccuracy(CustomTestCase):
     @unittest.skipIf(
         torch.version.hip is not None, "modelopt quantization unsupported on ROCm"
     )
+    # 测试mmlu offline only
     def test_mmlu_offline_only(self):
         """Test with offline quantization only."""
         self._run_test(

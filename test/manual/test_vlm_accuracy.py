@@ -1,3 +1,4 @@
+# 文件名: test_vlm_accuracy.py - 视觉语言模型精度测试 - 比较HF和SGLang的VLM嵌入输出一致性
 """ """
 
 import unittest
@@ -26,6 +27,7 @@ from sglang.test.test_utils import download_image_with_retry
 # Test the logits output between HF and SGLang
 class VisionLLMLogitsBase(unittest.IsolatedAsyncioTestCase):
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         cls.image_url = "https://github.com/sgl-project/sglang/blob/main/examples/assets/example_image.png?raw=true"
         cls.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -34,6 +36,7 @@ class VisionLLMLogitsBase(unittest.IsolatedAsyncioTestCase):
         cls.processor = ""
         cls.main_image = download_image_with_retry(cls.image_url)
 
+    # 比较输出 - 对比HF和SGLang的输出张量的统计差异
     def compare_outputs(self, sglang_output: torch.Tensor, hf_output: torch.Tensor):
         # Convert to float32 for numerical stability if needed
         hf = hf_output.float()
@@ -97,6 +100,7 @@ class VisionLLMLogitsBase(unittest.IsolatedAsyncioTestCase):
 
         np.testing.assert_allclose(hf_np, sg_np)
 
+    # 获取补全请求 - 构造ChatCompletionRequest测试请求
     def get_completion_request(self) -> ChatCompletionRequest:
         json_str = f"""
         {{
@@ -123,6 +127,7 @@ class VisionLLMLogitsBase(unittest.IsolatedAsyncioTestCase):
 
         return ChatCompletionRequest.model_validate_json(json_str)
 
+    # 获取处理器输出 - 使用HuggingFace处理器处理多模态输入
     def get_processor_output(self, req: Optional[ChatCompletionRequest] = None):
         if req is None:
             req = self.get_completion_request()
@@ -139,6 +144,7 @@ class VisionLLMLogitsBase(unittest.IsolatedAsyncioTestCase):
 
         return inputs
 
+    # 获取SGLang模型 - 创建ModelRunner并返回模型实例
     def get_sglang_model(self):
         self.model_runner = ModelRunner(
             model_config=ModelConfig(self.model_path, model_override_args="{}"),
@@ -159,6 +165,7 @@ class VisionLLMLogitsBase(unittest.IsolatedAsyncioTestCase):
 
 class TestMiniCPMV2_6Logits(VisionLLMLogitsBase):
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         super().setUpClass()
         cls.model_path = "openbmb/MiniCPM-V-2_6"
@@ -180,6 +187,7 @@ class TestMiniCPMV2_6Logits(VisionLLMLogitsBase):
         )
         init_mm_embedding_cache()
 
+    # 测试vlm embedding output
     async def test_vlm_embedding_output(self):
         """
         Compares the embedding output of vlm
@@ -265,6 +273,7 @@ class TestMiniCPMV2_6Logits(VisionLLMLogitsBase):
 
 class TestMiniCPMV4Logits(VisionLLMLogitsBase):
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         super().setUpClass()
         cls.model_path = "openbmb/MiniCPM-V-4"
@@ -286,6 +295,7 @@ class TestMiniCPMV4Logits(VisionLLMLogitsBase):
         )
         init_mm_embedding_cache()
 
+    # 测试vlm embedding output
     async def test_vlm_embedding_output(self):
         """
         Compares the embedding output of vlm

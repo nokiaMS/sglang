@@ -1,3 +1,4 @@
+# 文件名: test_mxfp4_sm90_cutlass.py - MXFP4 SM90 CUTLASS
 """Unit test for the SM90 cutlass MXFP4 path in :class:`Mxfp4MoEMethod`.
 
 Builds a single-layer GPT-OSS-style MoE with random MXFP4 weights, drives the
@@ -51,6 +52,7 @@ from flashinfer.fused_moe.core import ActivationType
 GROUP_SIZE = 32  # MXFP4 block size
 
 
+# _MockLayer类
 class _MockLayer:
     """Stand-in for ``FusedMoE`` carrying the attributes the SM90 helpers read.
 
@@ -60,11 +62,14 @@ class _MockLayer:
 
 
 class _MockTopKOutput:
+
+    # _MockTopKOutput类的初始化
     def __init__(self, weights, ids):
         self.topk_weights = weights
         self.topk_ids = ids
 
 
+# 内部方法_make_random_mxfp4
 def _make_random_mxfp4(num_experts, hidden, inter, seed=0):
     g = torch.Generator(device="cuda").manual_seed(seed)
     w13 = torch.randint(
@@ -116,6 +121,7 @@ def _make_random_mxfp4(num_experts, hidden, inter, seed=0):
     return w13, w2, w13_s, w2_s, w13_b, w2_b
 
 
+# 内部方法_make_topk
 def _make_topk(tokens, num_experts, top_k, seed=1):
     g = torch.Generator(device="cuda").manual_seed(seed)
     logits = torch.randn(
@@ -126,6 +132,7 @@ def _make_topk(tokens, num_experts, top_k, seed=1):
     return weights.to(torch.float32), ids.to(torch.int32)
 
 
+# 内部方法_build_mock_layer
 def _build_mock_layer(num_experts, hidden, inter, w13, w2, w13_s, w2_s, w13_b, w2_b):
     layer = _MockLayer()
     layer.w13_weight = torch.nn.Parameter(w13.clone(), requires_grad=False)
@@ -142,10 +149,12 @@ def _build_mock_layer(num_experts, hidden, inter, w13, w2, w13_s, w2_s, w13_b, w
     return layer
 
 
+# 内部方法_round_up
 def _round_up(x, base):
     return ((x + base - 1) // base) * base
 
 
+# 内部方法_build_method
 def _build_method(num_experts, hidden, inter):
     from sglang.srt.layers.quantization.mxfp4 import Mxfp4MoEMethod
 
@@ -164,6 +173,7 @@ def _build_method(num_experts, hidden, inter):
     return method
 
 
+# 内部方法_build_flashinfer_mxfp4_runner
 def _build_flashinfer_mxfp4_runner(num_experts, hidden, inter):
     """Construct a real MoeRunner bound to the flashinfer_mxfp4 fused func.
 
@@ -188,6 +198,7 @@ def _build_flashinfer_mxfp4_runner(num_experts, hidden, inter):
     return MoeRunner(MoeRunnerBackend.FLASHINFER_MXFP4, cfg)
 
 
+# 内部方法_expected_w13_processed
 def _expected_w13_processed(w13_un, w13_s_un, w13_b_un, N_pad, K_pad, group_size):
     """Replicate ``_process_weights_for_sm90_cutlass`` for w13: de-interleave
     HF's pair-wise ``[g_0, u_0, g_1, u_1, ...]`` layout into halved
@@ -198,6 +209,7 @@ def _expected_w13_processed(w13_un, w13_s_un, w13_b_un, N_pad, K_pad, group_size
     N_un = two_n_un // 2
     K_un = last_un_w * 2  # packed 4-bit -> *2 for raw K
 
+    # 内部方法_split_and_pad
     def _split_and_pad(unpadded, last_pad, last_un, dtype):
         gate = unpadded[:, 0::2, :]
         up = unpadded[:, 1::2, :]
@@ -226,11 +238,13 @@ def _expected_w13_processed(w13_un, w13_s_un, w13_b_un, N_pad, K_pad, group_size
     return w13_il, w13_s_il, w13_b_pad
 
 
+# 内部方法_expected_w2_processed
 def _expected_w2_processed(w2_un, w2_s_un, w2_b_un, N_pad, K_pad, group_size):
     """w2 needs padding only (no halving / no de-interleave)."""
     E, K_un, last_un_w = w2_un.shape
     N_un = last_un_w * 2
 
+    # 内部方法_pad
     def _pad(unpadded, last_pad, last_un):
         out = torch.zeros(
             E, K_pad, last_pad, dtype=unpadded.dtype, device=unpadded.device
@@ -263,6 +277,8 @@ def _expected_w2_processed(w2_un, w2_s_un, w2_b_un, N_pad, K_pad, group_size):
         (4, 2880, 2880),
     ],
 )
+
+# 测试processweightsmatchesdirectinterleave
 def test_process_weights_matches_direct_interleave(num_experts, hidden, inter):
     """``_process_weights_for_sm90_cutlass`` must produce the same bytes as
     a manual de-interleave + pad + halved-swap + interleave reference."""
@@ -316,6 +332,8 @@ def test_process_weights_matches_direct_interleave(num_experts, hidden, inter):
         (8, 4, 192, 192, 2),
     ],
 )
+
+# 测试applysm90cutlassmatchesflashinferdirect
 def test_apply_sm90_cutlass_matches_flashinfer_direct(
     tokens, num_experts, hidden, inter, top_k, monkeypatch
 ):
@@ -455,6 +473,8 @@ def _make_random_dsv4_mxfp4(num_experts, hidden, inter, seed=0):
         (256, 8, 1024, 1024, 4),
     ],
 )
+
+# 测试dsv4applymatchesflashinferdirect
 def test_dsv4_apply_matches_flashinfer_direct(
     tokens, num_experts, hidden, inter, top_k, monkeypatch
 ):
@@ -553,11 +573,13 @@ def test_dsv4_apply_matches_flashinfer_direct(
     )
 
 
+# _MockDispatchOutput类
 class _MockDispatchOutput:
     """Stand-in for StandardDispatchOutput. ``topk_output`` is a real
     ``StandardTopKOutput`` so ``TopKOutputChecker.format_is_standard``
     (an isinstance check) returns True without distributed init."""
 
+    # _MockDispatchOutput类的初始化
     def __init__(self, hidden_states, topk_weights, topk_ids):
         from sglang.srt.layers.moe.topk import StandardTopKOutput
 

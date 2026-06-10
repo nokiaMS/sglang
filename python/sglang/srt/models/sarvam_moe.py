@@ -1,99 +1,104 @@
+# Sarvam MoE 模型推理实现文件
+# 本文件实现了Sarvam MoE混合专家模型，支持MLA和MHA两种注意力模式
+# 包含SarvamMLAForCausalLM (105B) 和 SarvamMoEForCausalLM (30B) 两个模型
+# 支持张量并行、专家并行、FP8量化和双流并行计算
+
 """Inference-only Sarvam MoE models for SGLang.
 - SarvamMLAForCausalLM (105B)
 - SarvamMoEForCausalLM (30B)
 """
 
-import math
-from enum import IntEnum, auto
-from typing import Any, Dict, Iterable, Optional, Tuple
+import math  # 导入数学模块
+from enum import IntEnum, auto  # 导入枚举类型
+from typing import Any, Dict, Iterable, Optional, Tuple  # 导入类型提示
 
-import torch
-import torch.nn.functional as F
-from torch import nn
-from transformers import PretrainedConfig
+import torch  # 导入PyTorch
+import torch.nn.functional as F  # 导入函数式接口
+from torch import nn  # 导入神经网络模块
+from transformers import PretrainedConfig  # 导入预训练配置
 
-from sglang.srt.distributed import (
-    get_pp_group,
-    get_tensor_model_parallel_world_size,
-    tensor_model_parallel_all_reduce,
+from sglang.srt.distributed import (  # 导入分布式模块
+    get_pp_group,  # 获取PP组
+    get_tensor_model_parallel_world_size,  # 获取TP世界大小
+    tensor_model_parallel_all_reduce,  # TP全归约
 )
-from sglang.srt.eplb.expert_distribution import get_global_expert_distribution_recorder
-from sglang.srt.eplb.expert_location import ModelConfigForExpertLocation
-from sglang.srt.layers.activation import SiluAndMul
-from sglang.srt.layers.attention.utils import concat_and_cast_mha_k_triton
-from sglang.srt.layers.communicator import (
-    LayerCommunicator,
-    LayerScatterModes,
-    enable_moe_dense_fully_dp,
+from sglang.srt.eplb.expert_distribution import get_global_expert_distribution_recorder  # 专家分布记录器
+from sglang.srt.eplb.expert_location import ModelConfigForExpertLocation  # 专家位置配置
+from sglang.srt.layers.activation import SiluAndMul  # SiLU激活函数
+from sglang.srt.layers.attention.utils import concat_and_cast_mha_k_triton  # MHA K拼接和类型转换
+from sglang.srt.layers.communicator import (  # 层通信器
+    LayerCommunicator,  # 层通信器
+    LayerScatterModes,  # 层散射模式
+    enable_moe_dense_fully_dp,  # 启用MoE密集全DP
 )
-from sglang.srt.layers.dp_attention import (
-    get_attention_tp_rank,
-    get_attention_tp_size,
-    is_dp_attention_enabled,
+from sglang.srt.layers.dp_attention import (  # DP注意力
+    get_attention_tp_rank,  # 获取注意力TP秩
+    get_attention_tp_size,  # 获取注意力TP大小
+    is_dp_attention_enabled,  # 是否启用DP注意力
 )
-from sglang.srt.layers.layernorm import RMSNorm
-from sglang.srt.layers.linear import (
-    ColumnParallelLinear,
-    MergedColumnParallelLinear,
-    ReplicatedLinear,
-    RowParallelLinear,
+from sglang.srt.layers.layernorm import RMSNorm  # RMS归一化
+from sglang.srt.layers.linear import (  # 线性层
+    ColumnParallelLinear,  # 列并行线性层
+    MergedColumnParallelLinear,  # 合并列并行线性层
+    ReplicatedLinear,  # 复制线性层
+    RowParallelLinear,  # 行并行线性层
 )
-from sglang.srt.layers.logits_processor import LogitsProcessor, LogitsProcessorOutput
-from sglang.srt.layers.moe import should_skip_post_experts_all_reduce
-from sglang.srt.layers.moe.ep_moe.layer import get_moe_impl_class
-from sglang.srt.layers.moe.fused_moe_triton.layer import FusedMoE
-from sglang.srt.layers.moe.topk import TopK
-from sglang.srt.layers.moe.utils import RoutingMethodType
-from sglang.srt.layers.quantization.base_config import QuantizationConfig
-from sglang.srt.layers.radix_attention import RadixAttention
-from sglang.srt.layers.rotary_embedding import get_rope
-from sglang.srt.layers.utils import get_layer_id
-from sglang.srt.layers.vocab_parallel_embedding import (
-    ParallelLMHead,
-    VocabParallelEmbedding,
+from sglang.srt.layers.logits_processor import LogitsProcessor, LogitsProcessorOutput  # 逻辑处理器
+from sglang.srt.layers.moe import should_skip_post_experts_all_reduce  # MoE全归约跳过判断
+from sglang.srt.layers.moe.ep_moe.layer import get_moe_impl_class  # MoE实现类
+from sglang.srt.layers.moe.fused_moe_triton.layer import FusedMoE  # 融合MoE
+from sglang.srt.layers.moe.topk import TopK  # TopK路由
+from sglang.srt.layers.moe.utils import RoutingMethodType  # 路由方法类型
+from sglang.srt.layers.quantization.base_config import QuantizationConfig  # 量化配置
+from sglang.srt.layers.radix_attention import RadixAttention  # 基数注意力
+from sglang.srt.layers.rotary_embedding import get_rope  # 旋转位置编码
+from sglang.srt.layers.utils import get_layer_id  # 层ID获取
+from sglang.srt.layers.vocab_parallel_embedding import (  # 词表并行嵌入
+    ParallelLMHead,  # 并行语言模型头
+    VocabParallelEmbedding,  # 词表并行嵌入
 )
-from sglang.srt.model_executor.cuda_graph_runner import get_is_capture_mode
-from sglang.srt.model_executor.forward_batch_info import ForwardBatch, PPProxyTensors
-from sglang.srt.model_executor.forward_context import (
-    get_attn_backend,
-    get_token_to_kv_pool,
+from sglang.srt.model_executor.cuda_graph_runner import get_is_capture_mode  # CUDA图捕获模式
+from sglang.srt.model_executor.forward_batch_info import ForwardBatch, PPProxyTensors  # 前向批次
+from sglang.srt.model_executor.forward_context import (  # 前向上下文
+    get_attn_backend,  # 获取注意力后端
+    get_token_to_kv_pool,  # 获取KV池
 )
-from sglang.srt.model_loader.weight_utils import default_weight_loader
-from sglang.srt.models.bailing_moe import BailingMoEForCausalLM
+from sglang.srt.model_loader.weight_utils import default_weight_loader  # 默认权重加载器
+from sglang.srt.models.bailing_moe import BailingMoEForCausalLM  # 百灵MoE模型
 from sglang.srt.models.deepseek_common.attention_forward_methods.forward_mha import (
-    DeepseekMHAForwardMixin,
+    DeepseekMHAForwardMixin,  # DeepSeek MHA前向混入
 )
-from sglang.srt.server_args import get_global_server_args
-from sglang.srt.utils import (
-    BumpAllocator,
-    add_prefix,
-    bind_or_assign,
-    is_cuda,
-    is_nvidia_cublas_version_ge_12_9,
-    make_layers,
-    next_power_of_2,
+from sglang.srt.server_args import get_global_server_args  # 全局服务器参数
+from sglang.srt.utils import (  # 工具函数
+    BumpAllocator,  # 凸包分配器
+    add_prefix,  # 添加前缀
+    bind_or_assign,  # 绑定或赋值
+    is_cuda,  # 是否CUDA
+    is_nvidia_cublas_version_ge_12_9,  # cuBLAS版本判断
+    make_layers,  # 创建层
+    next_power_of_2,  # 下一个2的幂
 )
 
-_is_cuda = is_cuda()
-_is_cublas_ge_129 = is_nvidia_cublas_version_ge_12_9()
+_is_cuda = is_cuda()  # 是否CUDA
+_is_cublas_ge_129 = is_nvidia_cublas_version_ge_12_9()  # cuBLAS版本>=12.9
 
-if _is_cuda:
+if _is_cuda:  # CUDA平台导入
     try:
-        from sgl_kernel import bmm_fp8, merge_state_v2
+        from sgl_kernel import bmm_fp8, merge_state_v2  # sgl_kernel算子
 
-        from sglang.jit_kernel.concat_mla import concat_mla_k
-        from sglang.srt.layers.quantization.fp8_kernel import per_tensor_quant_mla_fp8
+        from sglang.jit_kernel.concat_mla import concat_mla_k  # MLA K拼接
+        from sglang.srt.layers.quantization.fp8_kernel import per_tensor_quant_mla_fp8  # FP8量化
 
-        _has_fp8_support = True
-        _has_concat_mla_k = True
+        _has_fp8_support = True  # 支持FP8
+        _has_concat_mla_k = True  # 支持MLA K拼接
     except ImportError:
-        _has_fp8_support = False
-        _has_concat_mla_k = False
+        _has_fp8_support = False  # 不支持FP8
+        _has_concat_mla_k = False  # 不支持MLA K拼接
         bmm_fp8 = None
         concat_mla_k = None
         merge_state_v2 = None
         per_tensor_quant_mla_fp8 = None
-else:
+else:  # 非CUDA平台
     _has_fp8_support = False
     _has_concat_mla_k = False
     bmm_fp8 = None
@@ -103,81 +108,92 @@ else:
 
 
 class AttnForwardMethod(IntEnum):
-    MLA_SEPARATE_ROPE = auto()
-    MLA_CONCAT_ROPE = auto()
-    MHA_PREFILL = auto()
+    """注意力前向方法枚举"""
+    MLA_SEPARATE_ROPE = auto()  # MLA分离RoPE模式
+    MLA_CONCAT_ROPE = auto()  # MLA拼接RoPE模式
+    MHA_PREFILL = auto()  # MHA预填充模式
 
 
 SEPARATE_ROPE_BACKENDS = frozenset(
     ["fa3", "flashinfer", "dsa", "nsa", "cutlass_mla", "trtllm_mla"]
     # "nsa" is a deprecated alias for "dsa"
-)
-CONCAT_ROPE_BACKENDS = frozenset(["flashmla", "triton"])
+)  # 支持分离RoPE的后端集合
+CONCAT_ROPE_BACKENDS = frozenset(["flashmla", "triton"])  # 支持拼接RoPE的后端集合
 
 
 class AttentionBackendRegistry:
+    """注意力后端注册表，管理不同后端的注意力前向方法"""
     _handlers = {}
 
     @classmethod
     def register(cls, backend_name: str, handler_func):
+        """注册注意力后端处理器"""
         cls._handlers[backend_name] = handler_func
 
     @classmethod
     def get_handler(cls, backend_name: str):
+        """获取指定后端的处理器"""
         return cls._handlers.get(backend_name, cls._default_handler)
 
     @classmethod
     def _default_handler(cls, attn, forward_batch) -> AttnForwardMethod:
+        """默认处理器，返回MLA拼接RoPE模式"""
         return AttnForwardMethod.MLA_CONCAT_ROPE
 
     @classmethod
     def get_forward_method(
         cls, backend_name: str, attn, forward_batch
     ) -> AttnForwardMethod:
+        """获取指定后端的注意力前向方法"""
         handler = cls.get_handler(backend_name)
         return handler(attn, forward_batch)
 
 
 def _handle_separate_rope_backend(attn, forward_batch) -> AttnForwardMethod:
+    """处理分离RoPE后端，返回MLA分离RoPE方法"""
     return AttnForwardMethod.MLA_SEPARATE_ROPE
 
 
 def _handle_concat_rope_backend(attn, forward_batch) -> AttnForwardMethod:
+    """处理拼接RoPE后端，返回MLA拼接RoPE方法"""
     return AttnForwardMethod.MLA_CONCAT_ROPE
 
 
 for backend in SEPARATE_ROPE_BACKENDS:
-    AttentionBackendRegistry.register(backend, _handle_separate_rope_backend)
+    AttentionBackendRegistry.register(backend, _handle_separate_rope_backend)  # 注册分离RoPE后端
 for backend in CONCAT_ROPE_BACKENDS:
-    AttentionBackendRegistry.register(backend, _handle_concat_rope_backend)
+    AttentionBackendRegistry.register(backend, _handle_concat_rope_backend)  # 注册拼接RoPE后端
 
 
 def get_attn_forward_method(server_args, forward_batch) -> AttnForwardMethod:
-    is_decode = forward_batch.forward_mode.is_decode_or_idle()
+    """根据服务器参数和前向批次获取注意力前向方法"""
+    is_decode = forward_batch.forward_mode.is_decode_or_idle()  # 是否解码或空闲
     if is_decode:
-        backend = server_args.decode_attention_backend or server_args.attention_backend
+        backend = server_args.decode_attention_backend or server_args.attention_backend  # 解码后端
     else:
-        backend = server_args.prefill_attention_backend or server_args.attention_backend
+        backend = server_args.prefill_attention_backend or server_args.attention_backend  # 预填充后端
         if (
             forward_batch.forward_mode.is_extend_without_speculative()
             and backend == "fa3"
         ):
-            return AttnForwardMethod.MHA_PREFILL
-    return AttentionBackendRegistry.get_forward_method(backend, None, forward_batch)
+            return AttnForwardMethod.MHA_PREFILL  # FA3扩展模式使用MHA预填充
+    return AttentionBackendRegistry.get_forward_method(backend, None, forward_batch)  # 从注册表获取
 
 
 class SarvamMoEMLP(nn.Module):
+    """Sarvam MoE的MLP模块"""
     def __init__(
         self,
-        hidden_size: int,
-        intermediate_size: int,
-        hidden_act: str,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
-        reduce_results: bool = True,
-        tp_rank: Optional[int] = None,
-        tp_size: Optional[int] = None,
+        hidden_size: int,  # 隐藏层大小
+        intermediate_size: int,  # 中间层大小
+        hidden_act: str,  # 激活函数
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
+        reduce_results: bool = True,  # 是否归约结果
+        tp_rank: Optional[int] = None,  # TP秩
+        tp_size: Optional[int] = None,  # TP大小
     ) -> None:
+        """初始化MLP，配置门控上投影和下投影"""
         super().__init__()
         self.gate_up_proj = MergedColumnParallelLinear(
             hidden_size,
@@ -202,43 +218,46 @@ class SarvamMoEMLP(nn.Module):
             raise ValueError(
                 f"Unsupported activation: {hidden_act}. Only silu is supported."
             )
-        self.act_fn = SiluAndMul()
+        self.act_fn = SiluAndMul()  # SiLU激活函数
 
     def forward(
         self,
         x,
-        forward_batch: ForwardBatch = None,
-        should_allreduce_fusion: bool = False,
-        use_reduce_scatter: bool = False,
+        forward_batch: ForwardBatch = None,  # 前向批次
+        should_allreduce_fusion: bool = False,  # 是否融合全归约
+        use_reduce_scatter: bool = False,  # 是否使用reduce-scatter
     ):
-        if x.shape[0] == 0:
+        """MLP前向传播：门控上投影、激活、下投影"""
+        if x.shape[0] == 0:  # 空输入
             return x
-        gate_up, _ = self.gate_up_proj(x)
-        x = self.act_fn(gate_up)
+        gate_up, _ = self.gate_up_proj(x)  # 门控上投影
+        x = self.act_fn(gate_up)  # 激活
         x, _ = self.down_proj(
             x, skip_all_reduce=should_allreduce_fusion or use_reduce_scatter
-        )
+        )  # 下投影
         return x
 
 
 class SarvamMoESparseMoeBlock(nn.Module):
+    """Sarvam MoE稀疏MoE块，支持共享专家和路由专家"""
     def __init__(
         self,
-        config: PretrainedConfig,
-        layer_id: int,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
-        alt_stream: Optional[torch.cuda.Stream] = None,
+        config: PretrainedConfig,  # 模型配置
+        layer_id: int,  # 层ID
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
+        alt_stream: Optional[torch.cuda.Stream] = None,  # 替代CUDA流
     ):
+        """初始化稀疏MoE块，配置路由、专家和共享专家"""
         super().__init__()
-        self.config = config
-        self.layer_id = layer_id
-        self.tp_size = get_tensor_model_parallel_world_size()
-        self.routed_scaling_factor = getattr(config, "routed_scaling_factor", 2.5)
-        self.score_function = getattr(config, "score_function", "sigmoid")
-        self.n_group = getattr(config, "n_group", None)
-        self.topk_group = getattr(config, "topk_group", None)
-        self.alt_stream = alt_stream
+        self.config = config  # 保存配置
+        self.layer_id = layer_id  # 层ID
+        self.tp_size = get_tensor_model_parallel_world_size()  # TP大小
+        self.routed_scaling_factor = getattr(config, "routed_scaling_factor", 2.5)  # 路由缩放因子
+        self.score_function = getattr(config, "score_function", "sigmoid")  # 评分函数
+        self.n_group = getattr(config, "n_group", None)  # 分组数
+        self.topk_group = getattr(config, "topk_group", None)  # 分组Top-K
+        self.alt_stream = alt_stream  # 替代流
 
         dtype_map = {
             "fp32": torch.float32,
@@ -246,9 +265,9 @@ class SarvamMoESparseMoeBlock(nn.Module):
             "bfloat16": torch.bfloat16,
         }
         router_dtype_cfg = getattr(config, "router_dtype", "fp32")
-        self.router_dtype = dtype_map.get(router_dtype_cfg, None)
+        self.router_dtype = dtype_map.get(router_dtype_cfg, None)  # 路由器数据类型
 
-        if self.tp_size > config.num_experts:
+        if self.tp_size > config.num_experts:  # TP不能超过专家数
             raise ValueError(
                 f"Tensor parallel size {self.tp_size} is greater than "
                 f"the number of experts {config.num_experts}."
@@ -257,7 +276,7 @@ class SarvamMoESparseMoeBlock(nn.Module):
         self.e_score_correction_bias = nn.Parameter(
             torch.zeros(config.num_experts, dtype=torch.float32),
             requires_grad=False,
-        )
+        )  # 评分修正偏置
 
         self.topk = TopK(
             top_k=config.num_experts_per_tok,
@@ -271,7 +290,7 @@ class SarvamMoESparseMoeBlock(nn.Module):
             correction_bias=self.e_score_correction_bias,
             quant_config=quant_config,
             layer_id=layer_id,
-        )
+        )  # TopK路由
 
         self.experts = get_moe_impl_class(quant_config)(
             num_experts=config.num_experts
@@ -283,7 +302,7 @@ class SarvamMoESparseMoeBlock(nn.Module):
             quant_config=quant_config,
             prefix=add_prefix("experts", prefix),
             routing_method_type=RoutingMethodType.Renormalize,
-        )
+        )  # 路由专家
 
         self.gate = ReplicatedLinear(
             config.hidden_size,
@@ -291,7 +310,7 @@ class SarvamMoESparseMoeBlock(nn.Module):
             bias=False,
             quant_config=None,
             prefix=add_prefix("gate", prefix),
-        )
+        )  # 门控线性层
 
         if (
             getattr(config, "num_shared_experts", None)
@@ -311,18 +330,19 @@ class SarvamMoESparseMoeBlock(nn.Module):
                 reduce_results=False,
                 tp_rank=shared_tp_rank,
                 tp_size=shared_tp_size,
-            )
+            )  # 共享专家
         else:
-            self.shared_experts = None
+            self.shared_experts = None  # 无共享专家
 
     def forward(
         self,
-        hidden_states: torch.Tensor,
-        forward_batch: Optional[ForwardBatch] = None,
-        should_allreduce_fusion: bool = False,
-        use_reduce_scatter: bool = False,
-        gemm_output_zero_allocator: Optional[BumpAllocator] = None,
+        hidden_states: torch.Tensor,  # 隐藏状态
+        forward_batch: Optional[ForwardBatch] = None,  # 前向批次
+        should_allreduce_fusion: bool = False,  # 是否融合全归约
+        use_reduce_scatter: bool = False,  # 是否使用reduce-scatter
+        gemm_output_zero_allocator: Optional[BumpAllocator] = None,  # GEMM输出零分配器
     ) -> torch.Tensor:
+        """MoE前向传播，根据条件选择双流或普通模式"""
         del gemm_output_zero_allocator
 
         if (
@@ -333,13 +353,14 @@ class SarvamMoESparseMoeBlock(nn.Module):
         ):
             return self.forward_normal_dual_stream(
                 hidden_states, should_allreduce_fusion, use_reduce_scatter
-            )
+            )  # 双流模式
         else:
             return self.forward_normal(
                 hidden_states, should_allreduce_fusion, use_reduce_scatter
-            )
+            )  # 普通模式
 
     def get_moe_weights(self):
+        """获取MoE专家权重"""
         return [
             x.data
             for name, x in self.experts.named_parameters()
@@ -347,9 +368,11 @@ class SarvamMoESparseMoeBlock(nn.Module):
         ]
 
     def _forward_shared_experts(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        """共享专家前向传播"""
         return self.shared_experts(hidden_states)
 
     def _forward_router_experts(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        """路由专家前向传播"""
         if self.router_dtype is not None:
             router_logits = F.linear(
                 hidden_states.to(self.router_dtype),
@@ -362,35 +385,37 @@ class SarvamMoESparseMoeBlock(nn.Module):
 
     def forward_normal_dual_stream(
         self,
-        hidden_states: torch.Tensor,
-        should_allreduce_fusion: bool = False,
-        use_reduce_scatter: bool = False,
+        hidden_states: torch.Tensor,  # 隐藏状态
+        should_allreduce_fusion: bool = False,  # 是否融合全归约
+        use_reduce_scatter: bool = False,  # 是否使用reduce-scatter
     ) -> torch.Tensor:
+        """双流MoE前向传播，共享专家和路由专家并行执行"""
         num_tokens, hidden_dim = hidden_states.shape
         current_stream = torch.cuda.current_stream()
         self.alt_stream.wait_stream(current_stream)
-        shared_out = self._forward_shared_experts(hidden_states)
+        shared_out = self._forward_shared_experts(hidden_states)  # 共享专家
         with torch.cuda.stream(self.alt_stream):
-            final_hidden_states = self._forward_router_experts(hidden_states)
+            final_hidden_states = self._forward_router_experts(hidden_states)  # 路由专家
             if self.routed_scaling_factor != 1.0:
                 final_hidden_states = final_hidden_states * self.routed_scaling_factor
         current_stream.wait_stream(self.alt_stream)
-        final_hidden_states = final_hidden_states + shared_out
+        final_hidden_states = final_hidden_states + shared_out  # 合并
         if self.tp_size > 1 and not should_skip_post_experts_all_reduce(
             is_tp_path=True,
             use_reduce_scatter=use_reduce_scatter,
             should_allreduce_fusion=should_allreduce_fusion,
         ):
-            final_hidden_states = tensor_model_parallel_all_reduce(final_hidden_states)
+            final_hidden_states = tensor_model_parallel_all_reduce(final_hidden_states)  # TP全归约
         return final_hidden_states.view(num_tokens, hidden_dim)
 
     def forward_normal(
         self,
-        hidden_states: torch.Tensor,
-        should_allreduce_fusion: bool = False,
-        use_reduce_scatter: bool = False,
+        hidden_states: torch.Tensor,  # 隐藏状态
+        should_allreduce_fusion: bool = False,  # 是否融合全归约
+        use_reduce_scatter: bool = False,  # 是否使用reduce-scatter
     ) -> torch.Tensor:
-        if hidden_states.shape[0] == 0:
+        """普通MoE前向传播"""
+        if hidden_states.shape[0] == 0:  # 空输入
             return hidden_states
 
         num_tokens, hidden_dim = hidden_states.shape
@@ -408,7 +433,7 @@ class SarvamMoESparseMoeBlock(nn.Module):
         topk_output = self.topk(hidden_states, router_logits)
         final_hidden_states = self.experts(hidden_states, topk_output)
 
-        if self.shared_experts is not None:
+        if self.shared_experts is not None:  # 有共享专家
             shared_out = self.shared_experts(identity)
             if self.routed_scaling_factor != 1.0:
                 shared_out.add_(final_hidden_states, alpha=self.routed_scaling_factor)
@@ -429,19 +454,21 @@ class SarvamMoESparseMoeBlock(nn.Module):
 
 
 class SarvamMoEMLAAttention(nn.Module):
+    """Sarvam MoE的MLA注意力模块，支持MLA和MHA两种模式"""
     def __init__(
         self,
-        config: PretrainedConfig,
-        hidden_size: int,
-        num_heads: int,
-        layer_id: int = 0,
-        rope_theta: float = 10000,
-        rope_scaling: Optional[Dict[str, Any]] = None,
-        max_position_embeddings: int = 8192,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
-        alt_stream: Optional[torch.cuda.Stream] = None,
+        config: PretrainedConfig,  # 模型配置
+        hidden_size: int,  # 隐藏层大小
+        num_heads: int,  # 头数
+        layer_id: int = 0,  # 层ID
+        rope_theta: float = 10000,  # RoPE基础频率
+        rope_scaling: Optional[Dict[str, Any]] = None,  # RoPE缩放
+        max_position_embeddings: int = 8192,  # 最大位置编码
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
+        alt_stream: Optional[torch.cuda.Stream] = None,  # 替代CUDA流
     ) -> None:
+        """初始化MLA注意力模块"""
         super().__init__()
         self.config = config
         self.hidden_size = hidden_size
@@ -452,12 +479,12 @@ class SarvamMoEMLAAttention(nn.Module):
         attn_tp_rank = get_attention_tp_rank()
         attn_tp_size = get_attention_tp_size()
 
-        self.qk_nope_head_dim = config.qk_nope_head_dim
-        self.qk_rope_head_dim = config.qk_rope_head_dim
-        self.qk_head_dim = config.qk_nope_head_dim + config.qk_rope_head_dim
-        self.v_head_dim = config.v_head_dim
-        self.q_lora_rank = getattr(config, "q_lora_rank", None)
-        self.kv_lora_rank = config.kv_lora_rank
+        self.qk_nope_head_dim = config.qk_nope_head_dim  # QK非RoPE维度
+        self.qk_rope_head_dim = config.qk_rope_head_dim  # QK RoPE维度
+        self.qk_head_dim = config.qk_nope_head_dim + config.qk_rope_head_dim  # QK总维度
+        self.v_head_dim = config.v_head_dim  # V维度
+        self.q_lora_rank = getattr(config, "q_lora_rank", None)  # Q LoRA秩
+        self.kv_lora_rank = config.kv_lora_rank  # KV LoRA秩
 
         self.num_heads = num_heads
         assert num_heads % attn_tp_size == 0
@@ -471,7 +498,7 @@ class SarvamMoEMLAAttention(nn.Module):
         self._server_args = None
         self.current_attention_backend = None
 
-        if self.q_lora_rank is None:
+        if self.q_lora_rank is None:  # 无LoRA秩时直接Q投影
             self.q_proj = ColumnParallelLinear(
                 self.hidden_size,
                 self.num_heads * self.qk_head_dim,
@@ -488,7 +515,7 @@ class SarvamMoEMLAAttention(nn.Module):
                 quant_config=quant_config,
                 prefix=add_prefix("kv_a_proj_with_mqa", prefix),
             )
-        else:
+        else:  # 有LoRA秩时使用Qa+Qb投影
             self.q_a_proj = ReplicatedLinear(
                 self.hidden_size,
                 self.q_lora_rank,
@@ -514,7 +541,7 @@ class SarvamMoEMLAAttention(nn.Module):
                 prefix=add_prefix("kv_a_proj_with_mqa", prefix),
             )
 
-        self.kv_a_layernorm = RMSNorm(self.kv_lora_rank, eps=config.rms_norm_eps)
+        self.kv_a_layernorm = RMSNorm(self.kv_lora_rank, eps=config.rms_norm_eps)  # KV归一化
         self.kv_b_proj = ColumnParallelLinear(
             self.kv_lora_rank,
             self.num_heads * (self.qk_nope_head_dim + self.v_head_dim),
@@ -559,7 +586,7 @@ class SarvamMoEMLAAttention(nn.Module):
             v_head_dim=self.kv_lora_rank,
             quant_config=quant_config,
             prefix=add_prefix("attn_mqa", prefix),
-        )
+        )  # MQA注意力
 
         self.attn_mha = RadixAttention(
             self.num_local_heads,
@@ -570,23 +597,25 @@ class SarvamMoEMLAAttention(nn.Module):
             v_head_dim=self.v_head_dim,
             quant_config=quant_config,
             prefix=add_prefix("attn_mha", prefix),
-        )
+        )  # MHA注意力
 
-        self.w_kc = None
-        self.w_vc = None
-        self.w_scale = None
+        self.w_kc = None  # K吸收权重
+        self.w_vc = None  # V吸收权重
+        self.w_scale = None  # 权重缩放
 
     def yarn_get_mscale(self, scale: float = 1, mscale: float = 1) -> float:
+        """计算YaRN缩放的mscale值"""
         if scale <= 1:
             return 1.0
         return 0.1 * mscale * math.log(scale) + 1.0
 
     def _concat_and_cast_mha_k(
         self,
-        k_nope: torch.Tensor,
-        k_pe: torch.Tensor,
-        forward_batch: ForwardBatch,
+        k_nope: torch.Tensor,  # K非RoPE部分
+        k_pe: torch.Tensor,  # K RoPE部分
+        forward_batch: ForwardBatch,  # 前向批次
     ) -> torch.Tensor:
+        """拼接和类型转换MHA的K张量"""
         k_shape = (k_nope.shape[0], self.num_local_heads, self.qk_head_dim)
 
         if (
@@ -595,7 +624,7 @@ class SarvamMoEMLAAttention(nn.Module):
             and (self.num_local_heads == 128)
             and (self.qk_nope_head_dim == 128)
             and (self.qk_rope_head_dim == 64)
-        ):
+        ):  # 使用专用拼接内核
             k = k_nope.new_empty(*k_shape)
             concat_mla_k(k=k, k_nope=k_nope, k_rope=k_pe)
             return k
@@ -605,7 +634,7 @@ class SarvamMoEMLAAttention(nn.Module):
             and next_power_of_2(self.num_local_heads) == self.num_local_heads
             and next_power_of_2(self.qk_nope_head_dim) == self.qk_nope_head_dim
             and next_power_of_2(self.qk_rope_head_dim) == self.qk_rope_head_dim
-        ):
+        ):  # 使用Triton拼接内核
             if (
                 self.current_attention_backend == "fa3"
                 and self.kv_cache_dtype != "auto"
@@ -617,12 +646,13 @@ class SarvamMoEMLAAttention(nn.Module):
             concat_and_cast_mha_k_triton(k, k_nope, k_pe)
             return k
 
-        k = k_nope.new_empty(*k_shape)
+        k = k_nope.new_empty(*k_shape)  # 朴素拼接
         k[..., : self.qk_nope_head_dim] = k_nope
         k[..., self.qk_nope_head_dim :] = k_pe
         return k
 
     def _set_current_attention_backend(self, forward_batch: ForwardBatch) -> None:
+        """设置当前注意力后端"""
         if self._server_args is None:
             self._server_args = get_global_server_args()
         if forward_batch.forward_mode.is_decode_or_idle():
@@ -638,15 +668,16 @@ class SarvamMoEMLAAttention(nn.Module):
 
     def _maybe_fp8_bmm(
         self,
-        x_bmk: torch.Tensor,
-        w_bkn: torch.Tensor,
-        zero_allocator: Optional[BumpAllocator] = None,
+        x_bmk: torch.Tensor,  # 输入
+        w_bkn: torch.Tensor,  # 权重
+        zero_allocator: Optional[BumpAllocator] = None,  # 零分配器
     ) -> torch.Tensor:
+        """可选的FP8批量矩阵乘法"""
         if (
             _has_fp8_support
             and w_bkn is not None
             and w_bkn.dtype == torch.float8_e4m3fn
-        ):
+        ):  # FP8路径
             x_val, x_scale = per_tensor_quant_mla_fp8(
                 x_bmk,
                 (
@@ -662,18 +693,19 @@ class SarvamMoEMLAAttention(nn.Module):
             w_scale = self.w_scale if self.w_scale is not None else 1.0
             return bmm_fp8(x_val, w_bkn, x_scale, w_scale, torch.bfloat16)
 
-        return torch.bmm(x_bmk, w_bkn)
+        return torch.bmm(x_bmk, w_bkn)  # 普通批量矩阵乘法
 
     def _run_mha_prefill(
         self,
-        positions: torch.Tensor,
-        q: torch.Tensor,
-        q_pe: torch.Tensor,
-        k_nope: torch.Tensor,
-        k_pe: torch.Tensor,
-        forward_batch: ForwardBatch,
+        positions: torch.Tensor,  # 位置
+        q: torch.Tensor,  # 查询
+        q_pe: torch.Tensor,  # 查询RoPE
+        k_nope: torch.Tensor,  # K非RoPE
+        k_pe: torch.Tensor,  # K RoPE
+        forward_batch: ForwardBatch,  # 前向批次
     ) -> torch.Tensor:
-        q_pe, k_pe = self.rotary_emb(positions, q_pe, k_pe)
+        """运行MHA预填充模式"""
+        q_pe, k_pe = self.rotary_emb(positions, q_pe, k_pe)  # 应用RoPE
         q[..., self.qk_nope_head_dim :] = q_pe
 
         get_token_to_kv_pool().set_mla_kv_buffer(
@@ -681,17 +713,17 @@ class SarvamMoEMLAAttention(nn.Module):
             forward_batch.out_cache_loc,
             k_nope,
             k_pe,
-        )
+        )  # 设置MLA KV缓冲区
 
         kv_a = k_nope.squeeze(1)
-        kv_expanded, _ = self.kv_b_proj(kv_a)
+        kv_expanded, _ = self.kv_b_proj(kv_a)  # KV扩展投影
         kv_expanded = kv_expanded.view(
             -1, self.num_local_heads, self.qk_nope_head_dim + self.v_head_dim
         )
         k_nope_expanded = kv_expanded[..., : self.qk_nope_head_dim]
         v = kv_expanded[..., self.qk_nope_head_dim :]
 
-        k = self._concat_and_cast_mha_k(k_nope_expanded, k_pe, forward_batch)
+        k = self._concat_and_cast_mha_k(k_nope_expanded, k_pe, forward_batch)  # 拼接K
 
         has_extend_prefix = forward_batch.extend_prefix_lens_cpu is not None and any(
             forward_batch.extend_prefix_lens_cpu
@@ -701,7 +733,7 @@ class SarvamMoEMLAAttention(nn.Module):
         can_use_prefix_cache = not self._server_args.disable_radix_cache
         do_prefix_merge = has_extend_prefix and can_use_prefix_cache
 
-        if do_prefix_merge and forward_batch.num_prefix_chunks is None:
+        if do_prefix_merge and forward_batch.num_prefix_chunks is None:  # 准备分块前缀缓存
             if hasattr(forward_batch, "prepare_chunked_prefix_cache_info"):
                 forward_batch.prepare_chunked_prefix_cache_info(q.device)
             else:
@@ -711,9 +743,9 @@ class SarvamMoEMLAAttention(nn.Module):
 
         forward_batch.set_attn_attend_prefix_cache(False)
         forward_batch.mha_return_lse = do_prefix_merge
-        attn_output = self.attn_mha(q, k, v, forward_batch, save_kv_cache=False)
+        attn_output = self.attn_mha(q, k, v, forward_batch, save_kv_cache=False)  # MHA注意力
 
-        if do_prefix_merge and merge_state_v2 is not None:
+        if do_prefix_merge and merge_state_v2 is not None:  # 合并前缀缓存
             attn_output, lse = attn_output
             forward_batch.set_attn_attend_prefix_cache(True)
             attn_output = self._chunked_prefix_attn_mha(
@@ -726,48 +758,51 @@ class SarvamMoEMLAAttention(nn.Module):
         forward_batch.set_attn_attend_prefix_cache(None)
 
         attn_output = attn_output.reshape(-1, self.num_local_heads * self.v_head_dim)
-        output, _ = self.o_proj(attn_output)
+        output, _ = self.o_proj(attn_output)  # 输出投影
         return output
 
     def _chunked_prefix_attn_mha(
         self,
-        q: torch.Tensor,
-        accum_output: torch.Tensor,
-        accum_lse: torch.Tensor,
-        forward_batch: ForwardBatch,
+        q: torch.Tensor,  # 查询
+        accum_output: torch.Tensor,  # 累积输出
+        accum_lse: torch.Tensor,  # 累积LSE
+        forward_batch: ForwardBatch,  # 前向批次
     ) -> torch.Tensor:
+        """分块前缀注意力MHA合并"""
         return DeepseekMHAForwardMixin._chunked_prefix_attn_mha(
             self, q, accum_output, accum_lse, forward_batch
         )
 
     def _get_mla_kv_buffer(
         self,
-        kv_indices: torch.Tensor,
-        dst_dtype: torch.dtype,
-        forward_batch: ForwardBatch,
+        kv_indices: torch.Tensor,  # KV索引
+        dst_dtype: torch.dtype,  # 目标数据类型
+        forward_batch: ForwardBatch,  # 前向批次
     ):
+        """获取MLA KV缓冲区"""
         return DeepseekMHAForwardMixin._get_mla_kv_buffer(
             self, kv_indices, dst_dtype, forward_batch
         )
 
     def forward(
         self,
-        positions: torch.Tensor,
-        hidden_states: torch.Tensor,
-        forward_batch: ForwardBatch,
-        zero_allocator: Optional[BumpAllocator] = None,
-        llama_4_scaling: Optional[torch.Tensor] = None,
+        positions: torch.Tensor,  # 位置
+        hidden_states: torch.Tensor,  # 隐藏状态
+        forward_batch: ForwardBatch,  # 前向批次
+        zero_allocator: Optional[BumpAllocator] = None,  # 零分配器
+        llama_4_scaling: Optional[torch.Tensor] = None,  # Llama4缩放
     ) -> torch.Tensor:
+        """MLA注意力前向传播"""
         del llama_4_scaling
         if hidden_states.shape[0] == 0:
             return hidden_states
 
-        if self.q_lora_rank is None:
+        if self.q_lora_rank is None:  # 无LoRA秩
             q, _ = self.q_proj(hidden_states)
             latent_cache, _ = self.kv_a_proj_with_mqa(hidden_states)
             k_nope = latent_cache[..., : self.kv_lora_rank]
             k_nope = self.kv_a_layernorm(k_nope).unsqueeze(1)
-        else:
+        else:  # 有LoRA秩
             q_a, _ = self.q_a_proj(hidden_states)
             q_a = self.q_a_layernorm(q_a)
             q, _ = self.q_b_proj(q_a)
@@ -795,20 +830,20 @@ class SarvamMoEMLAAttention(nn.Module):
                 forward_batch=forward_batch,
             )
 
-        if self.alt_stream is not None and get_is_capture_mode():
+        if self.alt_stream is not None and get_is_capture_mode():  # 双流并行
             current_stream = torch.cuda.current_stream()
             self.alt_stream.wait_stream(current_stream)
 
             with torch.cuda.stream(self.alt_stream):
-                q_pe, k_pe = self.rotary_emb(positions, q_pe, k_pe)
+                q_pe, k_pe = self.rotary_emb(positions, q_pe, k_pe)  # RoPE在替代流
 
             q_nope_out = self._maybe_fp8_bmm(
                 q_nope.transpose(0, 1), self.w_kc, zero_allocator
-            )
+            )  # 吸收在主流
             q_nope_out = q_nope_out.transpose(0, 1)
 
             current_stream.wait_stream(self.alt_stream)
-        else:
+        else:  # 单流
             q_nope_out = self._maybe_fp8_bmm(
                 q_nope.transpose(0, 1), self.w_kc, zero_allocator
             )
@@ -816,7 +851,7 @@ class SarvamMoEMLAAttention(nn.Module):
 
             q_pe, k_pe = self.rotary_emb(positions, q_pe, k_pe)
 
-        if forward_method == AttnForwardMethod.MLA_SEPARATE_ROPE:
+        if forward_method == AttnForwardMethod.MLA_SEPARATE_ROPE:  # 分离RoPE
             attn_output = self.attn_mqa(
                 q_nope_out,
                 k_nope,
@@ -825,7 +860,7 @@ class SarvamMoEMLAAttention(nn.Module):
                 q_rope=q_pe,
                 k_rope=k_pe,
             )
-        elif forward_method == AttnForwardMethod.MLA_CONCAT_ROPE:
+        elif forward_method == AttnForwardMethod.MLA_CONCAT_ROPE:  # 拼接RoPE
             q = torch.cat([q_nope_out, q_pe], dim=-1)
             k = torch.cat([k_nope, k_pe], dim=-1)
             attn_output = self.attn_mqa(
@@ -840,7 +875,7 @@ class SarvamMoEMLAAttention(nn.Module):
 
         attn_bmm_output = self._maybe_fp8_bmm(
             attn_output.transpose(0, 1), self.w_vc, zero_allocator
-        )
+        )  # V吸收
         attn_bmm_output = attn_bmm_output.transpose(0, 1).flatten(1, 2)
 
         output, _ = self.o_proj(attn_bmm_output)
@@ -848,12 +883,13 @@ class SarvamMoEMLAAttention(nn.Module):
 
     def forward_prepare(
         self,
-        positions: torch.Tensor,
-        hidden_states: torch.Tensor,
-        forward_batch: ForwardBatch,
-        zero_allocator: Optional[BumpAllocator] = None,
-        llama_4_scaling: Optional[torch.Tensor] = None,
+        positions: torch.Tensor,  # 位置
+        hidden_states: torch.Tensor,  # 隐藏状态
+        forward_batch: ForwardBatch,  # 前向批次
+        zero_allocator: Optional[BumpAllocator] = None,  # 零分配器
+        llama_4_scaling: Optional[torch.Tensor] = None,  # Llama4缩放
     ) -> Tuple[Optional[torch.Tensor], ForwardBatch, Optional[Tuple]]:
+        """注意力准备阶段，分离QKV计算和注意力核心"""
         del llama_4_scaling
         if hidden_states.shape[0] == 0:
             return hidden_states, forward_batch, None
@@ -944,6 +980,7 @@ class SarvamMoEMLAAttention(nn.Module):
             Optional[torch.Tensor], ForwardBatch, Optional[Tuple]
         ],
     ) -> torch.Tensor:
+        """注意力核心计算阶段"""
         hidden_states, forward_batch, inner_state = intermediate_state
 
         if inner_state is None:
@@ -988,26 +1025,29 @@ class SarvamMoEMLAAttention(nn.Module):
     def prepare_qkv_latent(
         self, hidden_states: torch.Tensor, forward_batch: ForwardBatch
     ) -> torch.Tensor:
+        """准备QKV潜在缓存"""
         del forward_batch
         latent_cache, _ = self.kv_a_proj_with_mqa(hidden_states)
         return latent_cache
 
 
 class SarvamMoEMLADecoderLayer(nn.Module):
+    """Sarvam MoE MLA解码器层"""
     def __init__(
         self,
-        config: PretrainedConfig,
-        layer_id: int = 0,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
-        alt_stream: Optional[torch.cuda.Stream] = None,
+        config: PretrainedConfig,  # 模型配置
+        layer_id: int = 0,  # 层ID
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
+        alt_stream: Optional[torch.cuda.Stream] = None,  # 替代CUDA流
     ) -> None:
+        """初始化解码器层，配置注意力和MoE/MLP"""
         super().__init__()
         self.hidden_size = config.hidden_size
         self.config = config
         self.layer_id = layer_id
 
-        if hasattr(config, "rope_parameters"):
+        if hasattr(config, "rope_parameters"):  # RoPE参数
             rope_theta = config.rope_parameters.get("rope_theta")
             rope_type = config.rope_parameters.get("rope_type")
             rope_scaling = config.rope_parameters if rope_type != "default" else None
@@ -1029,9 +1069,9 @@ class SarvamMoEMLADecoderLayer(nn.Module):
             alt_stream=alt_stream,
         )
 
-        first_k_dense = getattr(config, "first_k_dense_replace", 1)
-        moe_layer_freq = getattr(config, "moe_layer_freq", 1)
-        has_moe = getattr(config, "num_experts", None) is not None
+        first_k_dense = getattr(config, "first_k_dense_replace", 1)  # 前K层使用密集层
+        moe_layer_freq = getattr(config, "moe_layer_freq", 1)  # MoE层频率
+        has_moe = getattr(config, "num_experts", None) is not None  # 是否有MoE
         self.is_layer_sparse = (
             has_moe
             and layer_id >= first_k_dense
@@ -1098,11 +1138,12 @@ class SarvamMoEMLADecoderLayer(nn.Module):
 
     def forward(
         self,
-        positions: torch.Tensor,
-        hidden_states: torch.Tensor,
-        forward_batch: ForwardBatch,
-        residual: Optional[torch.Tensor],
+        positions: torch.Tensor,  # 位置
+        hidden_states: torch.Tensor,  # 隐藏状态
+        forward_batch: ForwardBatch,  # 前向批次
+        residual: Optional[torch.Tensor],  # 残差
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """解码器层前向传播"""
         hidden_states, residual = self.layer_communicator.prepare_attn(
             hidden_states, residual, forward_batch
         )
@@ -1143,12 +1184,14 @@ class SarvamMoEMLADecoderLayer(nn.Module):
 
 
 class SarvamMLAModel(nn.Module):
+    """Sarvam MLA模型"""
     def __init__(
         self,
-        config: PretrainedConfig,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        config: PretrainedConfig,  # 模型配置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
     ) -> None:
+        """初始化Sarvam MLA模型"""
         super().__init__()
         self.config = config
         self.padding_idx = config.pad_token_id
@@ -1188,12 +1231,13 @@ class SarvamMLAModel(nn.Module):
 
     def forward(
         self,
-        input_ids: torch.Tensor,
-        positions: torch.Tensor,
-        forward_batch: ForwardBatch,
-        input_embeds: torch.Tensor = None,
-        pp_proxy_tensors: Optional[PPProxyTensors] = None,
+        input_ids: torch.Tensor,  # 输入ID
+        positions: torch.Tensor,  # 位置
+        forward_batch: ForwardBatch,  # 前向批次
+        input_embeds: torch.Tensor = None,  # 输入嵌入
+        pp_proxy_tensors: Optional[PPProxyTensors] = None,  # PP代理张量
     ) -> torch.Tensor:
+        """Sarvam MLA模型前向传播"""
         if self.pp_group.is_first_rank:
             if input_embeds is None:
                 hidden_states = self.embed_tokens(input_ids)
@@ -1226,12 +1270,14 @@ class SarvamMLAModel(nn.Module):
 
 
 class SarvamMLAForCausalLM(nn.Module):
+    """Sarvam MLA因果语言模型"""
     def __init__(
         self,
-        config: PretrainedConfig,
-        quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
+        config: PretrainedConfig,  # 模型配置
+        quant_config: Optional[QuantizationConfig] = None,  # 量化配置
+        prefix: str = "",  # 前缀
     ) -> None:
+        """初始化Sarvam MLA因果语言模型"""
         super().__init__()
         self._remap_config(config)
         self.pp_group = get_pp_group()
@@ -1249,6 +1295,7 @@ class SarvamMLAForCausalLM(nn.Module):
 
     @staticmethod
     def _remap_config(config: PretrainedConfig) -> None:
+        """重新映射配置，设置默认值"""
         defaults = {
             "first_k_dense_replace": 1,
             "moe_layer_freq": 1,
@@ -1268,24 +1315,28 @@ class SarvamMLAForCausalLM(nn.Module):
 
     @property
     def start_layer(self):
+        """起始层"""
         return self.model.start_layer
 
     @property
     def end_layer(self):
+        """结束层"""
         return self.model.end_layer
 
     def get_input_embeddings(self) -> nn.Embedding:
+        """获取输入嵌入"""
         return self.model.embed_tokens
 
     @torch.no_grad()
     def forward(
         self,
-        input_ids: torch.Tensor,
-        positions: torch.Tensor,
-        forward_batch: ForwardBatch,
-        input_embeds: torch.Tensor = None,
-        pp_proxy_tensors: Optional[PPProxyTensors] = None,
+        input_ids: torch.Tensor,  # 输入ID
+        positions: torch.Tensor,  # 位置
+        forward_batch: ForwardBatch,  # 前向批次
+        input_embeds: torch.Tensor = None,  # 输入嵌入
+        pp_proxy_tensors: Optional[PPProxyTensors] = None,  # PP代理张量
     ) -> LogitsProcessorOutput:
+        """Sarvam MLA因果语言模型前向传播"""
         hidden_states = self.model(
             input_ids, positions, forward_batch, input_embeds, pp_proxy_tensors
         )
@@ -1298,12 +1349,13 @@ class SarvamMLAForCausalLM(nn.Module):
     @torch.no_grad()
     def forward_split_prefill(
         self,
-        input_ids: torch.Tensor,
-        positions: torch.Tensor,
-        forward_batch: ForwardBatch,
-        split_interval: Tuple[int, int],
-        input_embeds: torch.Tensor = None,
+        input_ids: torch.Tensor,  # 输入ID
+        positions: torch.Tensor,  # 位置
+        forward_batch: ForwardBatch,  # 前向批次
+        split_interval: Tuple[int, int],  # 分割区间
+        input_embeds: torch.Tensor = None,  # 输入嵌入
     ) -> Optional[LogitsProcessorOutput]:
+        """分块预填充前向传播"""
         start, end = split_interval
         if start == 0:
             if input_embeds is None:
@@ -1337,6 +1389,7 @@ class SarvamMLAForCausalLM(nn.Module):
 
     @classmethod
     def get_model_config_for_expert_location(cls, config):
+        """获取专家位置配置"""
         return ModelConfigForExpertLocation(
             num_layers=config.num_hidden_layers,
             num_logical_experts=config.num_experts,
@@ -1348,6 +1401,7 @@ class SarvamMLAForCausalLM(nn.Module):
         weights: Iterable[Tuple[str, torch.Tensor]],
         is_nextn: bool = False,
     ) -> None:
+        """加载模型权重"""
         del is_nextn
         stacked_params_mapping = [
             (".gate_up_proj", ".gate_proj", 0),
@@ -1422,7 +1476,7 @@ class SarvamMLAForCausalLM(nn.Module):
             weight_loader = getattr(param, "weight_loader", default_weight_loader)
             weight_loader(param, loaded_weight)
 
-        self._set_mla_wkc_wvc()
+        self._set_mla_wkc_wvc()  # 设置MLA吸收权重
         if not hasattr(self, "routed_experts_weights_of_layer"):
             self.routed_experts_weights_of_layer = {
                 layer_id: self.model.layers[layer_id].mlp.get_moe_weights()
@@ -1431,6 +1485,7 @@ class SarvamMLAForCausalLM(nn.Module):
             }
 
     def _set_mla_wkc_wvc(self) -> None:
+        """设置MLA的K吸收和V吸收权重"""
         for layer_id in range(self.start_layer, self.end_layer):
             layer = self.model.layers[layer_id]
             self_attn = layer.self_attn
@@ -1439,7 +1494,7 @@ class SarvamMLAForCausalLM(nn.Module):
 
             w = self_attn.kv_b_proj.weight.data
             weight_scale = None
-            if w.dtype in (torch.float8_e4m3fn, torch.float8_e4m3fnuz):
+            if w.dtype in (torch.float8_e4m3fn, torch.float8_e4m3fnuz):  # FP8权重
                 if (
                     hasattr(self_attn.kv_b_proj, "weight_scale")
                     and self_attn.kv_b_proj.weight_scale is not None
@@ -1462,30 +1517,32 @@ class SarvamMLAForCausalLM(nn.Module):
                     self_attn.num_local_heads,
                     self_attn.qk_nope_head_dim + self_attn.v_head_dim,
                 ),
-            )
+            )  # 重塑权重
             w_kc, w_vc = w_reshaped.split(
                 [self_attn.qk_nope_head_dim, self_attn.v_head_dim], dim=1
-            )
+            )  # 分离K和V吸收权重
             self_attn.w_kc = bind_or_assign(
                 self_attn.w_kc, w_kc.transpose(1, 2).contiguous().transpose(1, 2)
-            )
+            )  # 设置K吸收权重
             self_attn.w_vc = bind_or_assign(
                 self_attn.w_vc, w_vc.contiguous().transpose(1, 2)
-            )
+            )  # 设置V吸收权重
             if weight_scale is not None:
-                self_attn.w_scale = weight_scale
+                self_attn.w_scale = weight_scale  # 设置权重缩放
 
 
 class SarvamMoEForCausalLM(BailingMoEForCausalLM):
+    """Sarvam MoE因果语言模型，继承自百灵MoE"""
     @torch.no_grad()
     def forward_split_prefill(
         self,
-        input_ids: torch.Tensor,
-        positions: torch.Tensor,
-        forward_batch: ForwardBatch,
-        split_interval: Tuple[int, int],
-        input_embeds: torch.Tensor = None,
+        input_ids: torch.Tensor,  # 输入ID
+        positions: torch.Tensor,  # 位置
+        forward_batch: ForwardBatch,  # 前向批次
+        split_interval: Tuple[int, int],  # 分割区间
+        input_embeds: torch.Tensor = None,  # 输入嵌入
     ) -> Optional[LogitsProcessorOutput]:
+        """分块预填充前向传播"""
         start, end = split_interval
 
         if start == 0:
@@ -1521,4 +1578,4 @@ class SarvamMoEForCausalLM(BailingMoEForCausalLM):
         return None
 
 
-EntryClass = [SarvamMLAForCausalLM, SarvamMoEForCausalLM]
+EntryClass = [SarvamMLAForCausalLM, SarvamMoEForCausalLM]  # 模型注册入口类列表

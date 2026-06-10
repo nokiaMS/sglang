@@ -1,3 +1,5 @@
+# 池化层实现：从隐藏状态中提取特定信息（如最后一个token、CLS token），
+# 支持嵌入池化和交叉编码池化，包含归一化和维度截断功能
 # adapted from
 # https://github.com/vllm-project/vllm/blob/82a1b1a82b1fbb454c82a9ef95730b929c9b270c/vllm/model_executor/layers/pooler.py
 
@@ -17,6 +19,7 @@ if TYPE_CHECKING:
     from sglang.srt.model_executor.forward_batch_info import ForwardBatch
 
 
+# 池化类型枚举：LAST取最后一个token，CLS取第一个token
 class PoolingType(IntEnum):
     LAST = 0
     CLS = 1
@@ -37,12 +40,15 @@ class EmbeddingPoolerOutput:
             (standard path) or list of tensors (MIS path, one per delimiter).
     """
 
+    # 池化器可以返回张量列表而非单个张量，当批次中各张量的维度因
+    # 不同请求的matryoshka维度截断而不同时
     # Pooler can return list[tensor] instead of tensor if the dimension of each tensor in the batch is different
     # due to different per-request matryoshka dim truncation
     embeddings: torch.Tensor | list[torch.Tensor]
     pooled_hidden_states: Optional[torch.Tensor | list[torch.Tensor]] = None
 
 
+# 根据池化类型对隐藏状态进行池化操作
 def pool_hidden_states(
     pooling_type: PoolingType,
     hidden_states: torch.Tensor,
@@ -54,9 +60,11 @@ def pool_hidden_states(
     Returns shape (batch_size, hidden_size).
     """
     if pooling_type == PoolingType.LAST:
+        # 计算每个序列最后一个token的索引
         last_token_indices = torch.cumsum(forward_batch.extend_seq_lens, dim=0) - 1
         return hidden_states[last_token_indices]
     elif pooling_type == PoolingType.CLS:
+        # 计算每个序列第一个token的索引（CLS token）
         prompt_lens = forward_batch.extend_seq_lens
         first_token_flat_indices = torch.zeros_like(prompt_lens)
         first_token_flat_indices[1:] += torch.cumsum(prompt_lens, dim=0)[:-1]
@@ -65,6 +73,7 @@ def pool_hidden_states(
         raise ValueError(f"Unsupported pooling type: {pooling_type}")
 
 
+# 在MIS（多项目评分）分隔符位置之前进行池化
 def pool_at_delimiter_positions(
     data: torch.Tensor,
     forward_batch: ForwardBatch,
@@ -87,10 +96,14 @@ def pool_at_delimiter_positions(
     all_index_tensors: List[torch.Tensor] = []
     delim_counts: List[int] = []
     offset = 0
+    # 遍历每个请求，收集分隔符索引
     for req_idx, req_seq_len in enumerate(forward_batch.extend_seq_lens_cpu):
         indices_tensor = forward_batch.multi_item_delimiter_indices[req_idx]
         n = len(indices_tensor)
         if n > 0:
+            # 注意：如果第一个分隔符在位置0（空查询），
+            # 索引-1会回绕到-1。这无害——第一个分隔符条目
+            # 总是被_process_multi_item_scoring_results丢弃。
             # Note: if the first delimiter is at position 0 (empty query),
             # indices - 1 wraps to -1. This is harmless — the first delimiter
             # entry is always discarded by _process_multi_item_scoring_results.
@@ -99,12 +112,15 @@ def pool_at_delimiter_positions(
         offset += req_seq_len
 
     if all_index_tensors:
+        # 将所有索引拼接并异步传输到GPU
         index_tensor = torch.cat(all_index_tensors).to(device, non_blocking=True)
     else:
         index_tensor = torch.tensor([], dtype=torch.long, device=device)
+    # 按请求分隔索引并返回
     return list(data[index_tensor].split(delim_counts))
 
 
+# 应用分类/评分头并池化，支持MIS和池化隐藏状态
 def score_and_pool(
     score_head: nn.Module,
     pooler: "Pooler",
@@ -127,6 +143,10 @@ def score_and_pool(
         forward_batch.multi_item_delimiter_indices is not None
         and forward_batch.is_prefill_only
     ):
+        # MIS路径：在分隔符前位置池化隐藏状态，仅对这些位置评分——
+        # 避免浪费计算在不会贡献输出的token上。
+        # pool_at_delimiter_positions返回每个请求一个张量；我们拼接后
+        # 调用score_head一次，然后再按请求拆分。
         # Pool hidden states at pre-delimiter positions, score only those —
         # avoids wasting compute on tokens that never contribute to the output.
         # pool_at_delimiter_positions returns one tensor per request; we concat
@@ -145,6 +165,7 @@ def score_and_pool(
             ),
         )
 
+    # 标准分类路径：先池化隐藏状态，再评分。
     # Standard classification path: pool hidden states, then score.
     pooled_hs = pool_hidden_states(pooler.pooling_type, hidden_states, forward_batch)
     scores = score_head(pooled_hs)
@@ -156,6 +177,7 @@ def score_and_pool(
     )
 
 
+# 池化器模块：从隐藏状态中提取特定信息并可选归一化
 class Pooler(nn.Module):
     """A layer that pools specific information from hidden states.
     This layer does the following:
@@ -172,6 +194,7 @@ class Pooler(nn.Module):
         self.pooling_type = pooling_type
         self.normalize = normalize
 
+    # 前向传播：池化隐藏状态，可选维度截断和L2归一化
     def forward(
         self, hidden_states: torch.Tensor, forward_batch: ForwardBatch
     ) -> EmbeddingPoolerOutput:
@@ -179,6 +202,7 @@ class Pooler(nn.Module):
             self.pooling_type, hidden_states, forward_batch
         )
 
+        # Matryoshka维度截断：如果请求指定了不同维度，截断嵌入
         if forward_batch.dimensions is not None:
             all_same_dimensions = len(set(forward_batch.dimensions)) == 1
             if all_same_dimensions:
@@ -189,6 +213,7 @@ class Pooler(nn.Module):
                     for tensor, dim in zip(pooled_data, forward_batch.dimensions)
                 ]
 
+        # L2归一化
         if self.normalize:
             if isinstance(pooled_data, list):
                 pooled_data = [
@@ -201,6 +226,7 @@ class Pooler(nn.Module):
         return EmbeddingPoolerOutput(embeddings=pooled_data)
 
 
+# 交叉编码池化器：用于句子对评分的池化层
 class CrossEncodingPooler(nn.Module):
     """A layer that pools specific information from hidden states.
 
@@ -219,8 +245,10 @@ class CrossEncodingPooler(nn.Module):
         super().__init__()
         self.classifier = classifier
         self.pooler = pooler
+        # 获取交叉编码器的默认激活函数
         self.default_activation_function = get_cross_encoder_activation_function(config)
 
+    # 前向传播：从隐藏状态中提取句子对评分
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -232,6 +260,7 @@ class CrossEncodingPooler(nn.Module):
 
         offset = 0
         pooled_data_lst = []
+        # 逐请求处理，提取每个提示的隐藏状态
         for prompt_len in prompt_lens:
             pooled_data_i = hidden_states[offset : offset + prompt_len]
 
@@ -243,12 +272,15 @@ class CrossEncodingPooler(nn.Module):
             pooled_data_lst.append(final_shape_tensor)
             offset += prompt_len
 
+        # 堆叠所有请求的输出
         pooled_output = torch.stack(pooled_data_lst)
 
         if self.pooler is not None:
+            # 如果可能，在完整批次上应用分类器
             # apply classifier once on the full batch if possible
             pooled_output = self.classifier(pooled_output)
 
+        # 应用激活函数并去掉最后一维
         scores = self.default_activation_function(pooled_output).squeeze(-1)
 
         return EmbeddingPoolerOutput(embeddings=scores)

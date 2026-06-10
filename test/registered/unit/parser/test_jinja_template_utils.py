@@ -1,3 +1,4 @@
+# 文件名: test_jinja_template_utils.py - Jinja模板工具
 """Unit tests for srt/parser/jinja_template_utils.py"""
 
 import unittest
@@ -13,6 +14,7 @@ register_cpu_ci(est_time=7, suite="base-a-test-cpu")
 register_cpu_ci(est_time=7, suite="base-b-test-cpu")
 
 
+# TestTemplateContentFormatDetection类
 class TestTemplateContentFormatDetection(CustomTestCase):
     """Test template content format detection functionality."""
 
@@ -35,8 +37,9 @@ class TestTemplateContentFormatDetection(CustomTestCase):
         """
 
         result = detect_jinja_template_content_format(llama4_pattern)
-        self.assertEqual(result, "openai")
+        self.assertEqual(result, "openai")  # 断言相等
 
+    # TestTemplateContentFormatDetection类的测试detectdeepseekstringformat
     def test_detect_deepseek_string_format(self):
         """Test detection of deepseek-style template (should be 'string' format)."""
         deepseek_pattern = """
@@ -48,20 +51,23 @@ class TestTemplateContentFormatDetection(CustomTestCase):
         """
 
         result = detect_jinja_template_content_format(deepseek_pattern)
-        self.assertEqual(result, "string")
+        self.assertEqual(result, "string")  # 断言相等
 
+    # TestTemplateContentFormatDetection类的测试detectinvalidtemplate
     def test_detect_invalid_template(self):
         """Test handling of invalid template (should default to 'string')."""
         invalid_pattern = "{{{{ invalid jinja syntax }}}}"
 
         result = detect_jinja_template_content_format(invalid_pattern)
-        self.assertEqual(result, "string")
+        self.assertEqual(result, "string")  # 断言相等
 
+    # TestTemplateContentFormatDetection类的测试detectemptytemplate
     def test_detect_empty_template(self):
         """Test handling of empty template (should default to 'string')."""
         result = detect_jinja_template_content_format("")
-        self.assertEqual(result, "string")
+        self.assertEqual(result, "string")  # 断言相等
 
+    # TestTemplateContentFormatDetection类的测试detectmsgcontentpattern
     def test_detect_msg_content_pattern(self):
         """Test detection of template with msg.content pattern (should be 'openai' format)."""
         msg_content_pattern = """
@@ -100,8 +106,9 @@ class TestTemplateContentFormatDetection(CustomTestCase):
         """
 
         result = detect_jinja_template_content_format(msg_content_pattern)
-        self.assertEqual(result, "openai")
+        self.assertEqual(result, "openai")  # 断言相等
 
+    # TestTemplateContentFormatDetection类的测试detectmcontentpattern
     def test_detect_m_content_pattern(self):
         """Test detection of template with m.content pattern (should be 'openai' format)."""
         msg_content_pattern = """
@@ -140,8 +147,9 @@ class TestTemplateContentFormatDetection(CustomTestCase):
         """
 
         result = detect_jinja_template_content_format(msg_content_pattern)
-        self.assertEqual(result, "openai")
+        self.assertEqual(result, "openai")  # 断言相等
 
+    # TestTemplateContentFormatDetection类的测试processcontentopenaiformat
     def test_process_content_openai_format(self):
         """Test content processing for openai format."""
         msg_dict = {
@@ -166,8 +174,8 @@ class TestTemplateContentFormatDetection(CustomTestCase):
         )
 
         # Check that image_data was extracted
-        self.assertEqual(len(image_data), 1)
-        self.assertEqual(image_data[0].url, "http://example.com/image.jpg")
+        self.assertEqual(len(image_data), 1)  # 断言相等
+        self.assertEqual(image_data[0].url, "http://example.com/image.jpg")  # 断言相等
 
         # Check that content was normalized
         expected_content = [
@@ -175,9 +183,10 @@ class TestTemplateContentFormatDetection(CustomTestCase):
             {"type": "image"},  # normalized from image_url
             {"type": "text", "text": "What do you see?"},
         ]
-        self.assertEqual(result["content"], expected_content)
-        self.assertEqual(result["role"], "user")
+        self.assertEqual(result["content"], expected_content)  # 断言相等
+        self.assertEqual(result["role"], "user")  # 断言相等
 
+    # TestTemplateContentFormatDetection类的测试processcontentstringformat
     def test_process_content_string_format(self):
         """Test content processing for string format."""
         msg_dict = {
@@ -202,12 +211,13 @@ class TestTemplateContentFormatDetection(CustomTestCase):
         )
 
         # For string format, should flatten to text only
-        self.assertEqual(result["content"], "Hello world")
-        self.assertEqual(result["role"], "user")
+        self.assertEqual(result["content"], "Hello world")  # 断言相等
+        self.assertEqual(result["role"], "user")  # 断言相等
 
         # Image data should not be extracted for string format
-        self.assertEqual(len(image_data), 0)
+        self.assertEqual(len(image_data), 0)  # 断言相等
 
+    # TestTemplateContentFormatDetection类的测试processcontentwithaudio
     def test_process_content_with_audio(self):
         """Test content processing with audio content."""
         msg_dict = {
@@ -231,16 +241,17 @@ class TestTemplateContentFormatDetection(CustomTestCase):
         )
 
         # Check that audio_data was extracted
-        self.assertEqual(len(audio_data), 1)
-        self.assertEqual(audio_data[0], "http://example.com/audio.mp3")
+        self.assertEqual(len(audio_data), 1)  # 断言相等
+        self.assertEqual(audio_data[0], "http://example.com/audio.mp3")  # 断言相等
 
         # Check that content was normalized
         expected_content = [
             {"type": "text", "text": "Listen to this:"},
             {"type": "audio"},  # normalized from audio_url
         ]
-        self.assertEqual(result["content"], expected_content)
+        self.assertEqual(result["content"], expected_content)  # 断言相等
 
+    # TestTemplateContentFormatDetection类的测试processcontentalreadystring
     def test_process_content_already_string(self):
         """Test processing content that's already a string."""
         msg_dict = {"role": "user", "content": "Hello world"}
@@ -255,10 +266,11 @@ class TestTemplateContentFormatDetection(CustomTestCase):
         )
 
         # Should pass through unchanged
-        self.assertEqual(result["content"], "Hello world")
-        self.assertEqual(result["role"], "user")
-        self.assertEqual(len(image_data), 0)
+        self.assertEqual(result["content"], "Hello world")  # 断言相等
+        self.assertEqual(result["role"], "user")  # 断言相等
+        self.assertEqual(len(image_data), 0)  # 断言相等
 
+    # TestTemplateContentFormatDetection类的测试processcontentwithmodalities
     def test_process_content_with_modalities(self):
         """Test content processing with modalities field."""
         msg_dict = {
@@ -282,9 +294,10 @@ class TestTemplateContentFormatDetection(CustomTestCase):
         )
 
         # Check that modalities was extracted
-        self.assertEqual(len(modalities), 1)
-        self.assertEqual(modalities[0], ["vision"])
+        self.assertEqual(len(modalities), 1)  # 断言相等
+        self.assertEqual(modalities[0], ["vision"])  # 断言相等
 
+    # TestTemplateContentFormatDetection类的测试processcontentfilternonevalues
     def test_process_content_filter_none_values(self):
         """Test that None values are filtered out of processed messages."""
         msg_dict = {
@@ -305,8 +318,9 @@ class TestTemplateContentFormatDetection(CustomTestCase):
 
         # None values should be filtered out
         expected_keys = {"role", "content"}
-        self.assertEqual(set(result.keys()), expected_keys)
+        self.assertEqual(set(result.keys()), expected_keys)  # 断言相等
 
+    # TestTemplateContentFormatDetection类的测试processcontentwithvideo
     def test_process_content_with_video(self):
         """Test content processing with video_url content."""
         msg_dict = {
@@ -323,10 +337,11 @@ class TestTemplateContentFormatDetection(CustomTestCase):
         result = process_content_for_template_format(
             msg_dict, "openai", image_data, video_data, audio_data, modalities
         )
-        self.assertEqual(len(video_data), 1)
-        self.assertEqual(video_data[0], "http://example.com/v.mp4")
-        self.assertEqual(result["content"][1], {"type": "video"})
+        self.assertEqual(len(video_data), 1)  # 断言相等
+        self.assertEqual(video_data[0], "http://example.com/v.mp4")  # 断言相等
+        self.assertEqual(result["content"][1], {"type": "video"})  # 断言相等
 
+    # TestTemplateContentFormatDetection类的测试processcontentvideowithmaxdynamicpatch
     def test_process_content_video_with_max_dynamic_patch(self):
         """Test video_url with max_dynamic_patch stores structured dict."""
         msg_dict = {
@@ -348,10 +363,11 @@ class TestTemplateContentFormatDetection(CustomTestCase):
         result = process_content_for_template_format(
             msg_dict, "openai", image_data, video_data, audio_data, modalities
         )
-        self.assertEqual(len(video_data), 1)
+        self.assertEqual(len(video_data), 1)  # 断言相等
         self.assertIsInstance(video_data[0], dict)
-        self.assertEqual(video_data[0]["max_dynamic_patch"], 4)
+        self.assertEqual(video_data[0]["max_dynamic_patch"], 4)  # 断言相等
 
+    # TestTemplateContentFormatDetection类的测试processcontentv32encoding
     def test_process_content_v32_encoding(self):
         """Test v32 encoding mode flattens text and ignores structured content parts."""
         msg_dict = {
@@ -379,21 +395,23 @@ class TestTemplateContentFormatDetection(CustomTestCase):
             use_dpsk_v32_encoding=True,
         )
         # v32 encoding: content is joined text, not list
-        self.assertEqual(result["content"], "Hello World")
+        self.assertEqual(result["content"], "Hello World")  # 断言相等
         # Image data is still extracted
-        self.assertEqual(len(image_data), 1)
+        self.assertEqual(len(image_data), 1)  # 断言相等
 
+    # TestTemplateContentFormatDetection类的测试processcontentinvalidformatraises
     def test_process_content_invalid_format_raises(self):
         """Test that invalid content_format raises ValueError."""
         msg_dict = {
             "role": "user",
             "content": [{"type": "text", "text": "Hi"}],
         }
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError):  # 断言抛出异常
             process_content_for_template_format(
                 msg_dict, "invalid_format", [], [], [], []
             )
 
+    # TestTemplateContentFormatDetection类的测试processcontentvideowithmodalities
     def test_process_content_video_with_modalities(self):
         """Test that video content with modalities field is extracted."""
         msg_dict = {
@@ -413,9 +431,10 @@ class TestTemplateContentFormatDetection(CustomTestCase):
         result = process_content_for_template_format(
             msg_dict, "openai", image_data, video_data, audio_data, modalities
         )
-        self.assertEqual(len(modalities), 1)
-        self.assertEqual(modalities[0], ["video"])
+        self.assertEqual(len(modalities), 1)  # 断言相等
+        self.assertEqual(modalities[0], ["video"])  # 断言相等
 
+    # TestTemplateContentFormatDetection类的测试detecttemplatewithfilter
     def test_detect_template_with_filter(self):
         """Test that content access through a Jinja filter is detected as openai."""
         # Template with | trim filter on content iteration
@@ -427,8 +446,9 @@ class TestTemplateContentFormatDetection(CustomTestCase):
 {%- endfor %}
         """
         result = detect_jinja_template_content_format(template)
-        self.assertEqual(result, "openai")
+        self.assertEqual(result, "openai")  # 断言相等
 
+    # TestTemplateContentFormatDetection类的测试detecttemplatewithistest
     def test_detect_template_with_is_test(self):
         """Test that 'is string' test on content triggers openai detection."""
         # Template with 'is string' test that also iterates content
@@ -444,8 +464,9 @@ class TestTemplateContentFormatDetection(CustomTestCase):
 {%- endfor %}
         """
         result = detect_jinja_template_content_format(template)
-        self.assertEqual(result, "openai")
+        self.assertEqual(result, "openai")  # 断言相等
 
+    # TestTemplateContentFormatDetection类的测试detecttemplatewithslice
     def test_detect_template_with_slice(self):
         """Test that content access through slice is detected as openai."""
         template = """
@@ -456,8 +477,9 @@ class TestTemplateContentFormatDetection(CustomTestCase):
 {%- endfor %}
         """
         result = detect_jinja_template_content_format(template)
-        self.assertEqual(result, "openai")
+        self.assertEqual(result, "openai")  # 断言相等
 
+    # TestTemplateContentFormatDetection类的测试detecttemplatenocontentloopisstring
     def test_detect_template_no_content_loop_is_string(self):
         """Test that template without content iteration returns string format."""
         template = """
@@ -467,8 +489,9 @@ class TestTemplateContentFormatDetection(CustomTestCase):
         """
         # No "image"/"audio"/"video" keyword, no content loop → string
         result = detect_jinja_template_content_format(template)
-        self.assertEqual(result, "string")
+        self.assertEqual(result, "string")  # 断言相等
 
+    # TestTemplateContentFormatDetection类的测试detectmsgcontentwithoutmultimodalkeywords
     def test_detect_msg_content_without_multimodal_keywords(self):
         """Test AST detection of 'for item in msg.content' without keyword shortcut.
         Templates that contain 'image'/'video'/'audio'/'vision' take a shortcut.
@@ -485,7 +508,7 @@ class TestTemplateContentFormatDetection(CustomTestCase):
 {%- endfor %}
         """
         result = detect_jinja_template_content_format(template)
-        self.assertEqual(result, "openai")
+        self.assertEqual(result, "openai")  # 断言相等
 
 
 if __name__ == "__main__":

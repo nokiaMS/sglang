@@ -1,3 +1,4 @@
+# 文件名: test_block_fp8_deep_gemm_blackwell.py - DeepGEMM Blackwell FP8测试 - 验证DeepGEMM Blackwell平台上块级FP8量化的GEMM正确性
 import itertools
 import unittest
 from typing import List, Tuple
@@ -15,10 +16,12 @@ def ceil_div(x: int, y: int) -> int:
     return (x + y - 1) // y
 
 
+# 对齐 - 将x对齐到y的倍数
 def align(x: int, y: int) -> int:
     return ceil_div(x, y) * y
 
 
+# per-token-group FP8量化 - 按token组进行FP8量化
 def per_token_group_quant_fp8(x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     assert x.dim() == 2 and x.size(1) % 128 == 0
     m, n = x.shape
@@ -28,6 +31,7 @@ def per_token_group_quant_fp8(x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tens
     return (x_view * (1.0 / sf.unsqueeze(2))).to(torch.float8_e4m3fn).view(m, n), sf
 
 
+# per-block FP8量化 - 按128x128块进行FP8量化
 def per_block_quant_fp8(x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     assert x.dim() == 2
     m, n = x.shape
@@ -44,11 +48,13 @@ def per_block_quant_fp8(x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     )
 
 
+# 转换为UE8M0格式 - 将缩放因子向上取整到2的幂次
 def ceil_to_ue8m0(x: torch.Tensor):
     assert x.view(-1).amax().item() > 0
     return torch.pow(2.0, torch.ceil(torch.log2(x.abs())))
 
 
+# per-token-group MXFP8量化 - 按token组进行MXFP8量化
 def per_token_group_quant_mxfp8(x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     assert x.dim() == 2 and x.size(1) % 128 == 0
     m, n = x.shape
@@ -58,6 +64,7 @@ def per_token_group_quant_mxfp8(x: torch.Tensor) -> Tuple[torch.Tensor, torch.Te
     return (x_view * (1.0 / sf.unsqueeze(2))).to(torch.float8_e4m3fn).view(m, n), sf
 
 
+# per-block MXFP8量化 - 按块进行MXFP8量化
 def per_block_quant_mxfp8(x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     assert x.dim() == 2
     m, n = x.shape
@@ -130,6 +137,7 @@ def native_w8a8_block_fp8_matmul(A, B, As, Bs, block_size, output_dtype=torch.fl
     return C
 
 
+# 块级量化反量化 - 将块级量化的张量还原为未量化形式
 def block_quant_dequant(
     x_q_block: torch.Tensor,
     x_s: torch.Tensor,
@@ -198,11 +206,13 @@ class TestDeepGemmBlackwell(CustomTestCase):
         SEEDS = [0]
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         if not torch.cuda.is_available():
             raise unittest.SkipTest("CUDA is not available")
         torch.set_default_device("cuda")
 
+    # 测试DeepGEMM Blackwell - 验证Blackwell平台上DeepGEMM的FP8 GEMM正确性
     def _test_deep_gemm_blackwell(self, M, NK, block_size, out_dtype, seed):
         N, K = NK
         torch.manual_seed(seed)
@@ -229,6 +239,7 @@ class TestDeepGemmBlackwell(CustomTestCase):
 
         torch.testing.assert_close(out, ref_out, atol=1e-1, rtol=1e-2)
 
+    # 测试deep gemm blackwell
     def test_deep_gemm_blackwell(self):
         for params in itertools.product(
             self.M,

@@ -1,3 +1,4 @@
+# 文件名: test_nvidia_nemotron_3_nano_archived.py - 归档：NVIDIA Nemotron-3-Nano模型测试（含FlashInfer Mamba后端）
 """Archived test classes split out of test/registered/models_e2e/test_nvidia_nemotron_3_nano.py.
 
 Originally registered with `register_cuda_ci(...)`. Moved here as part of

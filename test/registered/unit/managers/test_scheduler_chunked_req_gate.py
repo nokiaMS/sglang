@@ -1,3 +1,4 @@
+# 文件名: test_scheduler_chunked_req_gate.py - 调度器分块请求门控
 """Regression tests for the SWA chunked-req stash gate (#24252)."""
 
 import unittest
@@ -19,6 +20,7 @@ from sglang.srt.mem_cache.chunk_cache import ChunkCache
 register_cpu_ci(est_time=6, suite="base-a-test-cpu")
 
 
+# 内部方法_make_req
 def _make_req(
     *,
     req_pool_idx: int,
@@ -50,6 +52,7 @@ def _make_req(
     return req
 
 
+# 内部方法_make_req_to_token_pool
 def _make_req_to_token_pool(num_slots: int, max_context: int) -> SimpleNamespace:
     # Slot s contains a recognizable fingerprint [s*1000, s*1000+1, ...]
     # so we can tell a corrupted prefix_indices from a healthy one by content.
@@ -61,6 +64,7 @@ def _make_req_to_token_pool(num_slots: int, max_context: int) -> SimpleNamespace
     return pool
 
 
+# 内部方法_make_chunk_cache
 def _make_chunk_cache(req_to_token_pool) -> ChunkCache:
     return ChunkCache(
         SimpleNamespace(
@@ -71,6 +75,7 @@ def _make_chunk_cache(req_to_token_pool) -> ChunkCache:
     )
 
 
+# 内部方法_scheduler_for_get_next_batch
 def _scheduler_for_get_next_batch(*, tree_cache, chunked_req) -> Scheduler:
     s = Scheduler.__new__(Scheduler)
     s._abort_on_waiting_timeout = MagicMock()
@@ -100,6 +105,7 @@ def _scheduler_for_get_next_batch(*, tree_cache, chunked_req) -> Scheduler:
     return s
 
 
+# TestStashGatePreservesPrefixIndices类
 class TestStashGatePreservesPrefixIndices(CustomTestCase):
     """Consumer side: real ChunkCache.cache_unfinished_req mutates
     req.prefix_indices iff stash actually runs, so prefix_indices content
@@ -111,6 +117,7 @@ class TestStashGatePreservesPrefixIndices(CustomTestCase):
     NUM_SLOTS = 8
     MAX_CONTEXT = 64
 
+    # TestStashGatePreservesPrefixIndices类的内部方法_build
     def _build(self, flag: bool):
         pool = _make_req_to_token_pool(self.NUM_SLOTS, self.MAX_CONTEXT)
         cache = _make_chunk_cache(pool)
@@ -127,6 +134,7 @@ class TestStashGatePreservesPrefixIndices(CustomTestCase):
         s._chunked_req_scheduled_last_iter = flag
         return s, req, initial_prefix, pool
 
+    # TestStashGatePreservesPrefixIndices类的测试deferredchunkedreqkeepsrealprefixindices
     def test_deferred_chunked_req_keeps_real_prefix_indices(self):
         # The bug case: a spurious stash on a deferred chunked_req
         # would extend prefix_indices to len(fill_ids).
@@ -134,9 +142,10 @@ class TestStashGatePreservesPrefixIndices(CustomTestCase):
 
         Scheduler.get_next_batch_to_run(s)
 
-        self.assertEqual(req.prefix_indices.shape[0], self.INITIAL_PREFIX_LEN)
-        self.assertTrue(torch.equal(req.prefix_indices, initial_prefix))
+        self.assertEqual(req.prefix_indices.shape[0], self.INITIAL_PREFIX_LEN)  # 断言相等
+        self.assertTrue(torch.equal(req.prefix_indices, initial_prefix))  # 断言为真
 
+    # TestStashGatePreservesPrefixIndices类的测试scheduledchunkedreqadvancesprefixindicesviarealstash
     def test_scheduled_chunked_req_advances_prefix_indices_via_real_stash(self):
         # Symmetric guard against over-gating: when the chunked_req was
         # actually scheduled, stash must run and advance prefix_indices.
@@ -147,9 +156,10 @@ class TestStashGatePreservesPrefixIndices(CustomTestCase):
         expected = pool.req_to_token[self.POOL_IDX, : self.POST_RESET_FILL_LEN].to(
             dtype=torch.int64
         )
-        self.assertEqual(req.prefix_indices.shape[0], self.POST_RESET_FILL_LEN)
-        self.assertTrue(torch.equal(req.prefix_indices, expected))
+        self.assertEqual(req.prefix_indices.shape[0], self.POST_RESET_FILL_LEN)  # 断言相等
+        self.assertTrue(torch.equal(req.prefix_indices, expected))  # 断言为真
 
+    # TestStashGatePreservesPrefixIndices类的测试nochunkedreqnevermutatesstateevenwithstaleflag
     def test_no_chunked_req_never_mutates_state_even_with_stale_flag(self):
         # Retract path clears chunked_req without resetting the flag;
         # the outer `if chunked_req is not None` guard must hold.
@@ -159,7 +169,7 @@ class TestStashGatePreservesPrefixIndices(CustomTestCase):
         s._chunked_req_scheduled_last_iter = True
 
         Scheduler.get_next_batch_to_run(s)
-        self.assertIsNone(s.chunked_req)
+        self.assertIsNone(s.chunked_req)  # 断言为None
 
 
 if __name__ == "__main__":

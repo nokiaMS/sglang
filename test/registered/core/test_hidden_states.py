@@ -1,3 +1,4 @@
+# 文件名: test_hidden_states.py - 隐藏状态测试
 import unittest
 
 import torch
@@ -15,11 +16,12 @@ _is_hip = is_hip()
 if _is_hip:
     import os
 
-    os.environ["SGLANG_USE_AITER"] = "0"
+    os.environ["SGLANG_USE_AITER"] = "0"  # 访问环境变量
 
 
 class TestHiddenState(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model_path = DEFAULT_SMALL_MODEL_NAME_FOR_TEST
         cls.tokenizer = AutoTokenizer.from_pretrained(cls.model_path)
@@ -37,15 +39,18 @@ class TestHiddenState(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         cls.engine.shutdown()
 
+    # 初始化设置
     def setUp(self):
         # Tests share one Engine; flush radix cache so each test sees a
         # cold prefill (test_return_hidden_states asserts on the prefill
         # hidden-state shape, which collapses to 0 on a full cache hit).
         self.engine.flush_cache()
 
+    # 测试returnhiddenstates
     def test_return_hidden_states(self):
         outputs = self.engine.generate(
             input_ids=self.input_ids,
@@ -103,6 +108,7 @@ class TestHiddenState(CustomTestCase):
                 )
             )
 
+    # 测试repeatedlychangeshiddenstates
     def test_repeatedly_changes_hidden_states(self):
         outputs_completion_first_round = self.engine.generate(
             input_ids=self.input_ids,

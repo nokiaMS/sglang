@@ -1,3 +1,4 @@
+# 文件名: test_shared_expert.py - 共享专家测试
 import itertools
 import math
 import unittest
@@ -35,6 +36,7 @@ class TestSharedExpert(CustomTestCase):
     N_fp8 = [512]
     K_fp8 = [256]
 
+    # 执行bf16sharedexpert
     def _bf16_shared_expert(self, m, n, k, routed_scaling_factor, apply_scaling_factor):
         dtype = torch.bfloat16
 
@@ -76,6 +78,7 @@ class TestSharedExpert(CustomTestCase):
         atol = rtol = precision[ref.dtype]
         torch.testing.assert_close(ref, out, atol=atol, rtol=rtol)
 
+    # 测试bf16sharedexpert
     def test_bf16_shared_expert(self):
         for params in itertools.product(
             self.M,
@@ -93,6 +96,7 @@ class TestSharedExpert(CustomTestCase):
             ):
                 self._bf16_shared_expert(*params)
 
+    # 执行int8sharedexpert
     def _int8_shared_expert(self, m, n, k, routed_scaling_factor, apply_scaling_factor):
         dtype = torch.bfloat16
 
@@ -136,6 +140,7 @@ class TestSharedExpert(CustomTestCase):
         atol = rtol = precision[ref.dtype]
         torch.testing.assert_close(ref, out, atol=atol, rtol=rtol)
 
+    # 测试int8sharedexpert
     def test_int8_shared_expert(self):
         for params in itertools.product(
             self.M,
@@ -153,6 +158,7 @@ class TestSharedExpert(CustomTestCase):
             ):
                 self._int8_shared_expert(*params)
 
+    # 执行fp8sharedexpert
     def _fp8_shared_expert(self, m, n, k, routed_scaling_factor, apply_scaling_factor):
         dtype = torch.bfloat16
 
@@ -213,6 +219,7 @@ class TestSharedExpert(CustomTestCase):
         atol = rtol = precision[ref.dtype]
         torch.testing.assert_close(ref, out, atol=atol, rtol=rtol)
 
+    # 测试fp8sharedexpert
     def test_fp8_shared_expert(self):
         for params in itertools.product(
             self.M_fp8,

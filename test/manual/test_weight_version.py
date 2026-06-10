@@ -1,3 +1,4 @@
+# 文件名: test_weight_version.py - 权重版本测试 - 验证权重版本查询、更新和持久化功能
 """
 Test weight version functionality.
 
@@ -23,6 +24,7 @@ from sglang.test.test_utils import (
 
 class TestWeightVersion(CustomTestCase):
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         """Start server once for all tests with custom weight version."""
         cls.model = DEFAULT_SMALL_MODEL_NAME_FOR_TEST
@@ -40,11 +42,13 @@ class TestWeightVersion(CustomTestCase):
         )
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         """Terminate server after all tests complete."""
         if cls.process:
             cls.process.terminate()
 
+    # 测试weight version comprehensive
     def test_weight_version_comprehensive(self):
         """Comprehensive test for all weight_version functionality."""
 
@@ -188,6 +192,7 @@ class TestWeightVersion(CustomTestCase):
 
         print("All weight_version functionality tests passed!")
 
+    # 测试update weight version with weight updates
     def test_update_weight_version_with_weight_updates(self):
         """Test that weight_version can be updated along with weight updates using real model data."""
         print("Testing weight_version update with real weight operations...")

@@ -1,3 +1,4 @@
+# 推测解码信息模块，定义推测解码算法枚举、输入类型和基础抽象类
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -25,6 +26,7 @@ if TYPE_CHECKING:
     from sglang.srt.speculative.ngram_worker import NGRAMWorker
 
 
+# 推测解码算法枚举，定义所有内置的推测解码算法类型
 class SpeculativeAlgorithm(Enum):
     """Builtin speculative decoding algorithms. Plugin-registered ones are
     ``CustomSpecAlgo`` instances; ``from_string`` returns either type, and
@@ -237,6 +239,7 @@ class SpeculativeAlgorithm(Enum):
         raise ValueError("Unreachable code path in create_worker.")
 
 
+# 推测输入类型枚举，区分不同算法的草稿和验证阶段输入
 class SpecInputType(IntEnum):
     # NOTE: introduce this to distinguish the SpecInput types of multiple algorithms when asserting in attention backends.
     # If all algorithms can share the same datastrucutre of draft_input and verify_input, consider simplify it
@@ -251,6 +254,7 @@ class SpecInputType(IntEnum):
     NGRAM_VERIFY = auto()
 
 
+# 推测输入抽象基类，定义草稿/验证阶段的通用接口
 class SpecInput(ABC):
     def __init__(self, spec_input_type: SpecInputType):
         self.spec_input_type = spec_input_type

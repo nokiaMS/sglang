@@ -1,3 +1,4 @@
+# 文件名: test_expert_distribution.py - 专家分布测试 - 验证MoE专家路由分布的统计功能
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,6 +17,7 @@ from sglang.test.test_utils import (
 
 
 class TestExpertDistribution(CustomTestCase):
+    # 测试expert distribution record
     def test_expert_distribution_record(self):
         # TODO: Add tests for DeepEP gatherer (currently our CI cannot run that)
         for info in [
@@ -28,6 +30,7 @@ class TestExpertDistribution(CustomTestCase):
             with self.subTest(info=info):
                 self._execute_core(**info)
 
+    # 内部方法: execute core
     def _execute_core(self, model_path: str, mode: str = "stat", tp_size: int = 1):
         """Test expert distribution record endpoints"""
         with tempfile.TemporaryDirectory() as tmp_dir:

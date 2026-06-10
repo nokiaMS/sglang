@@ -1,3 +1,11 @@
+# DSV4 (d_qk=512) 的融合 Gather+反量化+注意力内核模块
+# 本模块实现了融合内核，组合了以下操作：
+# 1. Gather: 从稀疏索引加载 KV
+# 2. Dequant: FP8 到 BF16 反量化
+# 3. Attention: 计算注意力分数和输出
+# 无额外作用域工作负载的优势：消除中间缓冲区、减少内核启动开销、更好的缓存利用率
+# 优化版本：通过使用辅助函数处理 KV 块减少双作用域内核的代码重复
+
 """
 Fused Gather+Dequant+Attention Kernel for DSV4 (d_qk=512)
 
@@ -28,7 +36,7 @@ import triton.language as tl
 from .triton_mla_kernels_decode_common import _bucket_total_tokens
 
 # ============================================================================
-# Constants for DSV4 layout
+# Constants for DSV4 layout  # DSV4 布局的常量定义
 # ============================================================================
 DSV4_D_QK = 512
 DSV4_D_NOPE = 448
@@ -41,18 +49,19 @@ DSV4_BYTES_PER_TOKEN_SCALE = 8  # 7 scales + 1 padding
 
 
 # ============================================================================
-# Helper: Process KV block and compute QK scores + accumulator update
-# This is the core computation shared by both single and dual scope kernels
+# Helper: Process KV block and compute QK scores + accumulator update  # 辅助函数：处理 KV 块并计算 QK 分数和累加器更新
+# This is the core computation shared by both single and dual scope kernels  # 这是单作用域和双作用域内核共享的核心计算
 # ============================================================================
 @triton.jit
+# 批量加载处理一个 KV 块并计算 QK 分数和累加器更新
 def _process_kv_block_aggressive(
-    # KV cache parameters
+    # KV cache parameters  # KV 缓存参数
     kv_block_base,
     nope_rope_offset,
     scale_base_offset,
     valid,
     valid_2d,
-    # Query tiles
+    # Query tiles  # 查询 tile
     q_0,
     q_1,
     q_2,
@@ -61,7 +70,7 @@ def _process_kv_block_aggressive(
     q_5,
     q_6,
     q_7,
-    # Accumulators (passed by reference via return)
+    # Accumulators (passed by reference via return)  # 累加器（通过返回值传递引用）
     acc_0,
     acc_1,
     acc_2,
@@ -70,13 +79,13 @@ def _process_kv_block_aggressive(
     acc_5,
     acc_6,
     acc_7,
-    # Softmax state
+    # Softmax state  # Softmax 状态
     m_i,
     l_i,
-    # Other parameters
+    # Other parameters  # 其他参数
     offs_tile,
     sm_scale,
-    # Constants
+    # Constants  # 编译时常量
     TILE_SIZE: tl.constexpr,
     D_NOPE: tl.constexpr,
     LOG2E: tl.constexpr,
@@ -100,7 +109,7 @@ def _process_kv_block_aggressive(
 
     tile_base = kv_block_base[:, None] + nope_rope_offset[:, None]
 
-    # Batch load all tiles
+    # Batch load all tiles  # 批量加载所有 tile
     nope_uint8_0 = tl.load(tile_base + offs_tile[None, :], mask=valid_2d, other=0)
     nope_uint8_1 = tl.load(
         tile_base + TILE_SIZE + offs_tile[None, :], mask=valid_2d, other=0
@@ -196,7 +205,7 @@ def _process_kv_block_aggressive(
 
 
 # ============================================================================
-# DSV4 Fused Gather+Dequant+Attention Kernel (Single Scope)
+# DSV4 Fused Gather+Dequant+Attention Kernel (Single Scope)  # DSV4 融合 Gather+反量化+注意力内核（单作用域）
 # ============================================================================
 @triton.autotune(
     configs=[
@@ -216,6 +225,7 @@ def _process_kv_block_aggressive(
     key=["total_tokens_bucket", "h_q", "topk"],
 )
 @triton.jit
+# DSV4 单作用域融合 gather+反量化+注意力内核
 def _fused_gather_attn_dsv4_kernel(
     Q,
     KV_Cache,
@@ -256,7 +266,7 @@ def _fused_gather_attn_dsv4_kernel(
     BYTES_PER_TOKEN_DATA: tl.constexpr = 576
     BYTES_PER_TOKEN_SCALE: tl.constexpr = 8
 
-    # OPTIMIZED: Swapped grid - pid_h first for better cache locality
+    # OPTIMIZED: Swapped grid - pid_h first for better cache locality  # 优化：交换网格 - pid_h 优先以获得更好的缓存局部性
     pid_h = tl.program_id(0)
     pid_t = tl.program_id(1)
     pid_t_64 = pid_t.to(tl.int64)
@@ -339,12 +349,12 @@ def _fused_gather_attn_dsv4_kernel(
         other=0.0,
     ).to(tl.bfloat16)
 
-    # Early-exit: pre-load topk_len and skip invalid blocks
+    # Early-exit: pre-load topk_len and skip invalid blocks  # 提前退出：预加载 topk_len 并跳过无效块
     if HAS_TOPK_LENGTH:
         topk_len = tl.load(TopkLength + batch_idx)
 
     for n_start in range(0, topk, BLOCK_N):
-        # Skip entire block if beyond valid topk range
+        # Skip entire block if beyond valid topk range  # 如果超出有效 topk 范围则跳过整个块
         should_compute = not HAS_TOPK_LENGTH or n_start < topk_len
         if should_compute:
             offs_n = n_start + tl.arange(0, BLOCK_N)
@@ -376,7 +386,7 @@ def _fused_gather_attn_dsv4_kernel(
 
             valid_2d = valid[:, None]
 
-            # Use helper function for KV processing
+            # Use helper function for KV processing  # 使用辅助函数处理 KV
             acc_0, acc_1, acc_2, acc_3, acc_4, acc_5, acc_6, acc_7, m_i, l_i = (
                 _process_kv_block_aggressive(
                     kv_block_base,
@@ -412,7 +422,7 @@ def _fused_gather_attn_dsv4_kernel(
                 )
             )
 
-    # Finalize
+    # Finalize  # 收尾
     lse = m_i + tl.math.log2(tl.where(l_i == 0.0, 1.0, l_i)) / LOG2E
     is_lonely_q = l_i == 0.0
 
@@ -438,8 +448,8 @@ def _fused_gather_attn_dsv4_kernel(
     stride_o_t_64 = tl.cast(stride_o_t, tl.int64)
     o_base = Output + pid_t_64 * stride_o_t_64
 
-    # Optimized output stores with pre-computed row base pointers
-    # Convert to bfloat16 first (batch conversion)
+    # Optimized output stores with pre-computed row base pointers  # 带预计算行基地址指针的优化输出存储
+    # Convert to bfloat16 first (batch conversion)  # 先批量转换为 bfloat16
     o_0 = acc_0.to(tl.bfloat16)
     o_1 = acc_1.to(tl.bfloat16)
     o_2 = acc_2.to(tl.bfloat16)
@@ -449,10 +459,10 @@ def _fused_gather_attn_dsv4_kernel(
     o_6 = acc_6.to(tl.bfloat16)
     o_7 = acc_7.to(tl.bfloat16)
 
-    # Pre-compute row base pointers (shared across all 8 stores)
+    # Pre-compute row base pointers (shared across all 8 stores)  # 预计算行基地址指针（8次存储共享）
     row_ptrs = o_base + offs_h[:, None] * stride_o_h
 
-    # Store all 8 tiles with optimized pointer arithmetic
+    # Store all 8 tiles with optimized pointer arithmetic  # 用优化的指针算术存储所有 8 个 tile
     tl.store(row_ptrs + offs_tile[None, :] * stride_o_d, o_0, mask=mask_h[:, None])
     tl.store(
         row_ptrs + (TILE_SIZE + offs_tile[None, :]) * stride_o_d,
@@ -494,12 +504,13 @@ def _fused_gather_attn_dsv4_kernel(
     tl.store(lse_ptrs, lse, mask=mask_h)
 
 
-# Threshold for disabling AMD buffer_ops optimization
-# When KV cache size exceeds INT32_MAX, buffer_ops can cause int32 overflow
+# Threshold for disabling AMD buffer_ops optimization  # 禁用 AMD buffer_ops 优化的阈值
+# When KV cache size exceeds INT32_MAX, buffer_ops can cause int32 overflow  # 当 KV 缓存大小超过 INT32_MAX 时，buffer_ops 可能导致 int32 溢出
 # INT32_MAX = 2^31 - 1 = 2,147,483,647 bytes (~2GB)
 BUFFER_OPS_DISABLE_THRESHOLD = 2 * 1024 * 1024 * 1024  # 2GB
 
 
+# DSV4 单作用域融合 gather+反量化+注意力解码入口函数
 def fused_gather_attn_decode_dsv4(
     q: torch.Tensor,
     kv_cache: torch.Tensor,
@@ -547,7 +558,7 @@ def fused_gather_attn_decode_dsv4(
     kv_cache_size = stride_kv_block * num_blocks
     disable_buffer_ops = kv_cache_size > BUFFER_OPS_DISABLE_THRESHOLD
 
-    # Use Split-K for large topk
+    # Use Split-K for large topk  # 大 topk 使用 Split-K
     if topk >= SPLITK_TOPK_THRESHOLD:
         split_k = _select_split_k(topk, h_q, total_tokens)
         topk_per_split = (topk + split_k - 1) // split_k
@@ -566,7 +577,7 @@ def fused_gather_attn_decode_dsv4(
         topk_length_tensor = topk_length if topk_length is not None else lse[:1, 0]
         attn_sink_tensor = attn_sink if attn_sink is not None else lse[0, :]
 
-        # Use autotuned grid
+        # Use autotuned grid  # 使用自动调优网格
         grid_splitk = lambda meta: (
             triton.cdiv(h_q, meta["BLOCK_H"]),
             total_tokens,
@@ -613,9 +624,9 @@ def fused_gather_attn_decode_dsv4(
         else:
             run_splitk_kernel()
 
-        # Use autotuned combine kernel for split_k=8
+        # Use autotuned combine kernel for split_k=8  # split_k=8 使用自动调优合并内核
         if split_k == 8:
-            # Autotuned kernel - grid is determined by autotune
+            # Autotuned kernel - grid is determined by autotune  # 自动调优内核 - 网格由自动调优决定
             grid_combine = lambda meta: (
                 total_tokens,
                 triton.cdiv(h_q, meta["BLOCK_H"]),
@@ -688,7 +699,7 @@ def fused_gather_attn_decode_dsv4(
 
         return output, lse
 
-    # Use original kernel for smaller topk
+    # Use original kernel for smaller topk  # 小 topk 使用原始内核
     output = torch.empty(total_tokens, h_q, d_v, dtype=torch.bfloat16, device=device)
     lse = torch.empty(total_tokens, h_q, dtype=torch.float32, device=device)
 
@@ -743,6 +754,7 @@ def fused_gather_attn_decode_dsv4(
 # ============================================================================
 
 
+# 裁剪双作用域内核中 BLOCK_H > h_q 的配置
 def _prune_dual_scope_configs(configs, named_args, **kwargs):
     """Prune configs where BLOCK_H > h_q for the dual-scope kernel.
 
@@ -784,6 +796,7 @@ def _prune_dual_scope_configs(configs, named_args, **kwargs):
     prune_configs_by={"early_config_prune": _prune_dual_scope_configs},
 )
 @triton.jit
+# DSV4 双作用域融合 gather+反量化+注意力内核（优化版，使用辅助函数消除约200行重复代码）
 def _fused_gather_attn_dsv4_dual_scope_kernel(
     Q,
     KV_Cache_Main,
@@ -846,7 +859,7 @@ def _fused_gather_attn_dsv4_dual_scope_kernel(
     BYTES_PER_TOKEN_DATA: tl.constexpr = 576
     BYTES_PER_TOKEN_SCALE: tl.constexpr = 8
 
-    # OPTIMIZED: Swapped grid - pid_h first for better cache locality
+    # OPTIMIZED: Swapped grid - pid_h first for better cache locality  # 优化：交换网格 - pid_h 优先以获得更好的缓存局部性
     pid_h = tl.program_id(0)
     pid_t = tl.program_id(1)
     pid_t_64 = pid_t.to(tl.int64)
@@ -856,7 +869,7 @@ def _fused_gather_attn_dsv4_dual_scope_kernel(
     offs_h = pid_h * BLOCK_H + tl.arange(0, BLOCK_H)
     mask_h = offs_h < h_q
 
-    # Initialize accumulators
+    # Initialize accumulators  # 初始化累加器
     m_i = tl.full([BLOCK_H], NEG_INF, dtype=tl.float32)
     l_i = tl.zeros([BLOCK_H], dtype=tl.float32)
 
@@ -875,7 +888,7 @@ def _fused_gather_attn_dsv4_dual_scope_kernel(
     batch_idx = pid_t // s_q
     offs_tile = tl.arange(0, TILE_SIZE)
 
-    # Load Q tiles (shared by both scopes)
+    # Load Q tiles (shared by both scopes)  # 加载查询 tile（两个作用域共享）
     q_0 = tl.load(
         q_base + offs_h[:, None] * stride_q_h + offs_tile[None, :] * stride_q_d,
         mask=mask_h[:, None],
@@ -932,14 +945,14 @@ def _fused_gather_attn_dsv4_dual_scope_kernel(
     ).to(tl.bfloat16)
 
     # ========================================================================
-    # Process MAIN scope
+    # Process MAIN scope  # 处理主作用域
     # ========================================================================
-    # Early-exit: pre-load topk_len and skip invalid blocks
+    # Early-exit: pre-load topk_len and skip invalid blocks  # 提前退出：预加载 topk_len 并跳过无效块
     if HAS_TOPK_LENGTH_MAIN:
         topk_len = tl.load(TopkLength_Main + batch_idx)
 
     for n_start in range(0, topk_main, BLOCK_N):
-        # Skip entire block if beyond valid topk range
+        # Skip entire block if beyond valid topk range  # 如果超出有效 topk 范围则跳过整个块
         should_compute = not HAS_TOPK_LENGTH_MAIN or n_start < topk_len
         if should_compute:
             offs_n = n_start + tl.arange(0, BLOCK_N)
@@ -973,7 +986,7 @@ def _fused_gather_attn_dsv4_dual_scope_kernel(
 
             valid_2d = valid[:, None]
 
-            # Use helper function for KV processing
+            # Use helper function for KV processing  # 使用辅助函数处理 KV
             acc_0, acc_1, acc_2, acc_3, acc_4, acc_5, acc_6, acc_7, m_i, l_i = (
                 _process_kv_block_aggressive(
                     kv_block_base,
@@ -1010,14 +1023,14 @@ def _fused_gather_attn_dsv4_dual_scope_kernel(
             )
 
     # ========================================================================
-    # Process EXTRA scope
+    # Process EXTRA scope  # 处理额外作用域
     # ========================================================================
-    # Early-exit: pre-load topk_len and skip invalid blocks
+    # Early-exit: pre-load topk_len and skip invalid blocks  # 提前退出：预加载 topk_len 并跳过无效块
     if HAS_TOPK_LENGTH_EXTRA:
         topk_len = tl.load(TopkLength_Extra + batch_idx)
 
     for n_start in range(0, topk_extra, BLOCK_N):
-        # Skip entire block if beyond valid topk range
+        # Skip entire block if beyond valid topk range  # 如果超出有效 topk 范围则跳过整个块
         should_compute = not HAS_TOPK_LENGTH_EXTRA or n_start < topk_len
         if should_compute:
             offs_n = n_start + tl.arange(0, BLOCK_N)
@@ -1051,7 +1064,7 @@ def _fused_gather_attn_dsv4_dual_scope_kernel(
 
             valid_2d = valid[:, None]
 
-            # Use helper function for KV processing
+            # Use helper function for KV processing  # 使用辅助函数处理 KV
             acc_0, acc_1, acc_2, acc_3, acc_4, acc_5, acc_6, acc_7, m_i, l_i = (
                 _process_kv_block_aggressive(
                     kv_block_base,
@@ -1088,12 +1101,12 @@ def _fused_gather_attn_dsv4_dual_scope_kernel(
             )
 
     # ========================================================================
-    # Finalize: compute LSE and output
+    # Finalize: compute LSE and output  # 收尾：计算 LSE 和输出
     # ========================================================================
     lse = m_i + tl.math.log2(tl.where(l_i == 0.0, 1.0, l_i)) / LOG2E
     is_lonely_q = l_i == 0.0
 
-    # Compute output scale
+    # Compute output scale  # 计算输出缩放
     if HAS_ATTN_SINK:
         attn_sink_vals = tl.load(AttnSink + offs_h, mask=mask_h, other=0.0)
         exp_attn_sink_minus_m = tl.math.exp2((attn_sink_vals - m_i) * LOG2E)
@@ -1103,7 +1116,7 @@ def _fused_gather_attn_dsv4_dual_scope_kernel(
     else:
         output_scale = tl.where(l_i == 0.0, 0.0, 1.0 / l_i)
 
-    # Apply output scaling and handle lonely queries
+    # Apply output scaling and handle lonely queries  # 应用输出缩放并处理孤立查询
     acc_0 = tl.where(is_lonely_q[:, None], 0.0, acc_0 * output_scale[:, None])
     acc_1 = tl.where(is_lonely_q[:, None], 0.0, acc_1 * output_scale[:, None])
     acc_2 = tl.where(is_lonely_q[:, None], 0.0, acc_2 * output_scale[:, None])
@@ -1117,8 +1130,8 @@ def _fused_gather_attn_dsv4_dual_scope_kernel(
     stride_o_t_64 = tl.cast(stride_o_t, tl.int64)
     o_base = Output + pid_t_64 * stride_o_t_64
 
-    # Optimized output stores with pre-computed row base pointers
-    # Convert to bfloat16 first (batch conversion)
+    # Optimized output stores with pre-computed row base pointers  # 带预计算行基地址指针的优化输出存储
+    # Convert to bfloat16 first (batch conversion)  # 先批量转换为 bfloat16
     o_0 = acc_0.to(tl.bfloat16)
     o_1 = acc_1.to(tl.bfloat16)
     o_2 = acc_2.to(tl.bfloat16)
@@ -1128,10 +1141,10 @@ def _fused_gather_attn_dsv4_dual_scope_kernel(
     o_6 = acc_6.to(tl.bfloat16)
     o_7 = acc_7.to(tl.bfloat16)
 
-    # Pre-compute row base pointers (shared across all 8 stores)
+    # Pre-compute row base pointers (shared across all 8 stores)  # 预计算行基地址指针（8次存储共享）
     row_ptrs = o_base + offs_h[:, None] * stride_o_h
 
-    # Store all 8 tiles with optimized pointer arithmetic
+    # Store all 8 tiles with optimized pointer arithmetic  # 用优化的指针算术存储所有 8 个 tile
     tl.store(row_ptrs + offs_tile[None, :] * stride_o_d, o_0, mask=mask_h[:, None])
     tl.store(
         row_ptrs + (TILE_SIZE + offs_tile[None, :]) * stride_o_d,
@@ -1173,6 +1186,7 @@ def _fused_gather_attn_dsv4_dual_scope_kernel(
     tl.store(lse_ptrs, lse, mask=mask_h)
 
 
+# 裁剪大批量的 BLOCK_H=16 配置以避免 CU 过度订阅
 def _prune_splitk_configs(configs, named_args, **kwargs):
     """Prune BLOCK_H=16 configs for large batch sizes to avoid CU oversubscription.
 
@@ -1193,7 +1207,7 @@ def _prune_splitk_configs(configs, named_args, **kwargs):
 
 
 # ============================================================================
-# Split-K Kernel for Dual Scope
+# Split-K Kernel for Dual Scope  # 双作用域的 Split-K 内核
 # ============================================================================
 @triton.autotune(
     configs=[
@@ -1216,6 +1230,7 @@ def _prune_splitk_configs(configs, named_args, **kwargs):
     prune_configs_by={"early_config_prune": _prune_splitk_configs},
 )
 @triton.jit
+# DSV4 双作用域 Split-K 融合 gather+反量化+注意力内核
 def _fused_gather_attn_dsv4_dual_scope_splitk_kernel(
     Q,
     KV_Cache_Main,
@@ -1286,7 +1301,7 @@ def _fused_gather_attn_dsv4_dual_scope_splitk_kernel(
     k_start = pid_k * topk_per_split
     k_end = tl.minimum(k_start + topk_per_split, total_topk)
 
-    # Initialize accumulators
+    # Initialize accumulators  # 初始化累加器
     m_i = tl.full([BLOCK_H], NEG_INF, dtype=tl.float32)
     l_i = tl.zeros([BLOCK_H], dtype=tl.float32)
 
@@ -1305,7 +1320,7 @@ def _fused_gather_attn_dsv4_dual_scope_splitk_kernel(
     batch_idx = pid_t // s_q
     offs_tile = tl.arange(0, TILE_SIZE)
 
-    # Load Q tiles (shared by both scopes)
+    # Load Q tiles (shared by both scopes)  # 加载查询 tile（两个作用域共享）
     q_row_base = q_base + offs_h[:, None] * stride_q_h
     q_0 = tl.load(
         q_row_base + offs_tile[None, :] * stride_q_d, mask=mask_h[:, None], other=0.0
@@ -1349,17 +1364,17 @@ def _fused_gather_attn_dsv4_dual_scope_splitk_kernel(
     stride_kv_block_main_64 = tl.cast(stride_kv_block_main, tl.int64)
     stride_kv_block_extra_64 = tl.cast(stride_kv_block_extra, tl.int64)
 
-    # Process the combined range [k_start, k_end)
+    # Process the combined range [k_start, k_end)  # 处理组合范围
     # First, process MAIN scope portion (indices 0 to topk_main-1)
     main_start = k_start
     main_end = tl.minimum(k_end, topk_main)
 
-    # Early-exit: pre-load topk_len and skip invalid blocks
+    # Early-exit: pre-load topk_len and skip invalid blocks  # 提前退出：预加载 topk_len 并跳过无效块
     if HAS_TOPK_LENGTH_MAIN:
         topk_len = tl.load(TopkLength_Main + batch_idx)
 
     for n_start in range(main_start, main_end, BLOCK_N):
-        # Skip entire block if beyond valid topk range
+        # Skip entire block if beyond valid topk range  # 如果超出有效 topk 范围则跳过整个块
         should_compute = not HAS_TOPK_LENGTH_MAIN or n_start < topk_len
         if should_compute:
             offs_n = n_start + tl.arange(0, BLOCK_N)
@@ -1427,16 +1442,16 @@ def _fused_gather_attn_dsv4_dual_scope_splitk_kernel(
                 )
             )
 
-    # Process EXTRA scope portion (indices topk_main to topk_main+topk_extra-1)
+    # Process EXTRA scope portion (indices topk_main to topk_main+topk_extra-1)  # 处理额外作用域
     extra_global_start = tl.maximum(k_start, topk_main)
     extra_global_end = k_end
 
-    # Early-exit: pre-load topk_len and skip invalid blocks
+    # Early-exit: pre-load topk_len and skip invalid blocks  # 提前退出：预加载 topk_len 并跳过无效块
     if HAS_TOPK_LENGTH_EXTRA:
         topk_len = tl.load(TopkLength_Extra + batch_idx)
 
     for n_global in range(extra_global_start, extra_global_end, BLOCK_N):
-        # Skip entire block if beyond valid topk range
+        # Skip entire block if beyond valid topk range  # 如果超出有效 topk 范围则跳过整个块
         should_compute = not HAS_TOPK_LENGTH_EXTRA or (n_global - topk_main) < topk_len
         if should_compute:
             offs_n_local = (n_global - topk_main) + tl.arange(0, BLOCK_N)
@@ -1507,7 +1522,7 @@ def _fused_gather_attn_dsv4_dual_scope_splitk_kernel(
                 )
             )
 
-    # Finalize: compute partial LSE and store partial output
+    # Finalize: compute partial LSE and store partial output  # 收尾：计算部分 LSE 并存储部分输出
     lse = m_i + tl.math.log2(tl.where(l_i == 0.0, 1.0, l_i)) / LOG2E
     is_lonely_q = l_i == 0.0
 
@@ -1528,7 +1543,7 @@ def _fused_gather_attn_dsv4_dual_scope_splitk_kernel(
     stride_po_t_64 = tl.cast(stride_po_t, tl.int64)
     po_base = PartialOutput + pid_k * stride_po_s_64 + pid_t_64 * stride_po_t_64
 
-    # Store partial output as float32 for better precision in combine kernel
+    # Store partial output as float32 for better precision in combine kernel  # 以 float32 存储部分输出以在合并内核中获得更好精度
     row_ptrs = po_base + offs_h[:, None] * stride_po_h
 
     tl.store(row_ptrs + offs_tile[None, :] * stride_po_d, acc_0, mask=mask_h[:, None])
@@ -1568,7 +1583,7 @@ def _fused_gather_attn_dsv4_dual_scope_splitk_kernel(
         mask=mask_h[:, None],
     )
 
-    # Store partial LSE
+    # Store partial LSE  # 存储部分 LSE
     stride_plse_s_64 = tl.cast(stride_plse_s, tl.int64)
     stride_plse_t_64 = tl.cast(stride_plse_t, tl.int64)
     lse_ptrs = (
@@ -1580,6 +1595,7 @@ def _fused_gather_attn_dsv4_dual_scope_splitk_kernel(
     tl.store(lse_ptrs, lse, mask=mask_h)
 
 
+# DSV4 单作用域融合 gather+反量化+注意力解码入口函数
 def fused_gather_attn_decode_dsv4_dual_scope(
     q: torch.Tensor,
     kv_cache_main: torch.Tensor,
@@ -1627,13 +1643,13 @@ def fused_gather_attn_decode_dsv4_dual_scope(
     d_v = DSV4_D_V
     device = q.device
 
-    # Prepare main KV cache
+    # Prepare main KV cache  # 准备主 KV 缓存
     kv_uint8_main = kv_cache_main.view(torch.uint8)
     num_blocks_main = kv_cache_main.shape[0]
     stride_kv_block_main = kv_uint8_main.stride(0)
     kv_flat_main = kv_uint8_main.reshape(num_blocks_main, -1)
 
-    # Prepare extra KV cache
+    # Prepare extra KV cache  # 准备额外 KV 缓存
     kv_uint8_extra = kv_cache_extra.view(torch.uint8)
     num_blocks_extra = kv_cache_extra.shape[0]
     stride_kv_block_extra = kv_uint8_extra.stride(0)
@@ -1654,18 +1670,18 @@ def fused_gather_attn_decode_dsv4_dual_scope(
         or kv_cache_size_extra > BUFFER_OPS_DISABLE_THRESHOLD
     )
 
-    # When force_no_splitk is set, skip the split-K decision and fall
-    # through to the non-splitk kernel path below.
+    # When force_no_splitk is set, skip the split-K decision and fall  # 当设置 force_no_splitk 时，跳过 Split-K 决策
+    # through to the non-splitk kernel path below.  # 直接走下方的非 splitk 内核路径。
     use_splitk = not force_no_splitk
 
-    # Use Split-K for dual scope in these cases:
+    # Use Split-K for dual scope in these cases:  # 以下情况双作用域使用 Split-K：
     # 1. Small batch sizes with h_q=128 or large topk to increase GPU parallelism
     # 2. Large topk (>= 2048) with medium/large batch sizes
     # 3. NEW: h_q=64 + large topk (>=1024) + medium batch sizes (~21% improvement)
     SPLITK_DUAL_SCOPE_TOPK_THRESHOLD = 2048
-    # For small bs, only use splitk when h_q=128 or total_topk >= 1024
+    # For small bs, only use splitk when h_q=128 or total_topk >= 1024  # 小批量仅在 h_q=128 或 total_topk >= 1024 时使用 splitk
     use_splitk_for_small_bs = total_tokens <= 8 and (h_q >= 128 or total_topk >= 1024)
-    # NEW: For h_q=64 with large topk, splitk is beneficial for medium batch sizes
+    # NEW: For h_q=64 with large topk, splitk is beneficial for medium batch sizes  # h_q=64 大 topk 时，splitk 对中等批量有益
     # Only for tokens <= 128 based on benchmarking (bs=64 shows 13% improvement)
     use_splitk_for_h64_large_topk = (
         h_q <= 64 and total_topk >= 1024 and total_tokens > 8 and total_tokens <= 128
@@ -1673,8 +1689,8 @@ def fused_gather_attn_decode_dsv4_dual_scope(
     use_splitk_for_large_topk = (
         total_tokens > 64 and total_topk >= SPLITK_DUAL_SCOPE_TOPK_THRESHOLD
     )
-    # For h_q > 64 (e.g. h_q=128), the non-splitk grid has very few blocks
-    # in the H dimension, leading to low GPU utilization at medium batch sizes.
+    # For h_q > 64 (e.g. h_q=128), the non-splitk grid has very few blocks  # h_q > 64 时，非 splitk 网格的块数很少
+    # in the H dimension, leading to low GPU utilization at medium batch sizes.  # 导致中等批量下 GPU 利用率低。
     use_splitk_for_large_hq = h_q > 64 and total_tokens > 8 and total_topk >= 256
     if use_splitk and (
         use_splitk_for_small_bs
@@ -1682,7 +1698,7 @@ def fused_gather_attn_decode_dsv4_dual_scope(
         or use_splitk_for_large_topk
         or use_splitk_for_large_hq
     ):
-        # Select split_k based on workload and total_topk.
+        # Select split_k based on workload and total_topk.  # 根据工作负载和 total_topk 选择 split_k。
         # CUDA graph replay benchmarks show optimal split_k depends on both:
         #   - High topk (>=512, c4 layers): more splits needed to parallelize
         #   - Low topk (<512, c128 layers): fewer splits, less combine overhead
@@ -1783,7 +1799,7 @@ def fused_gather_attn_decode_dsv4_dual_scope(
         else:
             run_splitk_kernel()
 
-        # Use appropriate combine kernel based on split_k
+        # Use appropriate combine kernel based on split_k  # 根据 split_k 使用适当的合并内核
         if split_k == 8:
             grid_combine = lambda meta: (
                 total_tokens,
@@ -1856,7 +1872,7 @@ def fused_gather_attn_decode_dsv4_dual_scope(
 
         return output, lse
 
-    # Use original kernel for smaller total_topk
+    # Use original kernel for smaller total_topk  # 小 total_topk 使用原始内核
     output = torch.empty(total_tokens, h_q, d_v, dtype=torch.bfloat16, device=device)
     lse = torch.empty(total_tokens, h_q, dtype=torch.float32, device=device)
 
@@ -1923,7 +1939,7 @@ def fused_gather_attn_decode_dsv4_dual_scope(
 
 
 # ============================================================================
-# Split-K Optimization for Large TopK (>= 8192)
+# Split-K Optimization for Large TopK (>= 8192)  # 大 TopK (>= 8192) 的 Split-K 优化
 # ============================================================================
 SPLITK_TOPK_THRESHOLD = 8192
 SPLITK_DEFAULT = 4
@@ -1945,6 +1961,7 @@ SPLITK_DEFAULT = 4
     key=["total_tokens_bucket", "h_q", "topk_per_split"],
 )
 @triton.jit
+# DSV4 Split-K 融合 gather+反量化+注意力内核（大 topk >= 8192）
 def _fused_gather_attn_dsv4_splitk_kernel(
     Q,
     KV_Cache,
@@ -2058,12 +2075,12 @@ def _fused_gather_attn_dsv4_splitk_kernel(
 
     stride_kv_block_64 = tl.cast(stride_kv_block, tl.int64)
 
-    # Early-exit: pre-load topk_len and skip invalid blocks
+    # Early-exit: pre-load topk_len and skip invalid blocks  # 提前退出：预加载 topk_len 并跳过无效块
     if HAS_TOPK_LENGTH:
         topk_len = tl.load(TopkLength + batch_idx)
 
     for n_start in range(k_start, k_end, BLOCK_N):
-        # Skip entire block if beyond valid topk range
+        # Skip entire block if beyond valid topk range  # 如果超出有效 topk 范围则跳过整个块
         should_compute = not HAS_TOPK_LENGTH or n_start < topk_len
         if should_compute:
             offs_n = n_start + tl.arange(0, BLOCK_N)
@@ -2094,7 +2111,7 @@ def _fused_gather_attn_dsv4_splitk_kernel(
 
             valid_2d = valid[:, None]
 
-            # Use helper function for KV processing
+            # Use helper function for KV processing  # 使用辅助函数处理 KV
             acc_0, acc_1, acc_2, acc_3, acc_4, acc_5, acc_6, acc_7, m_i, l_i = (
                 _process_kv_block_aggressive(
                     kv_block_base,
@@ -2149,7 +2166,7 @@ def _fused_gather_attn_dsv4_splitk_kernel(
     po_base = PartialOutput + pid_k * stride_po_s_64 + pid_t_64 * stride_po_t_64
     row_ptrs = po_base + offs_h[:, None] * stride_po_h
 
-    # Store partial output as float32 for better precision in combine kernel
+    # Store partial output as float32 for better precision in combine kernel  # 以 float32 存储部分输出以在合并内核中获得更好精度
     tl.store(row_ptrs + offs_tile[None, :] * stride_po_d, acc_0, mask=mask_h[:, None])
     tl.store(
         row_ptrs + (TILE_SIZE + offs_tile[None, :]) * stride_po_d,
@@ -2199,6 +2216,7 @@ def _fused_gather_attn_dsv4_splitk_kernel(
 
 
 @triton.jit
+# 合并 split-K 部分结果内核（SPLIT_K=4）
 def _combine_splitk_kernel(
     PartialOutput,
     PartialLSE,
@@ -2402,6 +2420,7 @@ def _combine_splitk_kernel(
     key=["total_tokens_bucket", "h_q", "d_v"],
 )
 @triton.jit
+# 合并 split-K 部分结果内核（SPLIT_K=4）
 def _combine_splitk_kernel_8_optimized(
     PartialOutput,
     PartialLSE,
@@ -2445,7 +2464,7 @@ def _combine_splitk_kernel_8_optimized(
     stride_plse_s_64 = tl.cast(stride_plse_s, tl.int64)
     stride_plse_t_64 = tl.cast(stride_plse_t, tl.int64)
 
-    # Load all 8 LSE values
+    # Load all 8 LSE values  # 加载所有 8 个 LSE 值
     lse_base = PartialLSE + pid_t_64 * stride_plse_t_64 + offs_h * stride_plse_h
     lse_0 = tl.load(lse_base + 0 * stride_plse_s_64, mask=mask_h, other=POS_INF)
     lse_1 = tl.load(lse_base + 1 * stride_plse_s_64, mask=mask_h, other=POS_INF)
@@ -2554,7 +2573,7 @@ def _combine_splitk_kernel_8_optimized(
     stride_o_t_64 = tl.cast(stride_o_t, tl.int64)
     o_base = Output + pid_t_64 * stride_o_t_64 + offs_h[:, None] * stride_o_h
 
-    # Loop over D dimension with BLOCK_D chunks
+    # Loop over D dimension with BLOCK_D chunks  # 以 BLOCK_D 块循环 D 维度
     num_d_iters: tl.constexpr = (512 + BLOCK_D - 1) // BLOCK_D
     for d_idx in tl.static_range(num_d_iters):
         d_offs = d_idx * BLOCK_D + offs_d[None, :]
@@ -2588,6 +2607,7 @@ def _combine_splitk_kernel_8_optimized(
 
 
 @triton.jit
+# 合并 split-K 部分结果内核（SPLIT_K=4）
 def _combine_splitk_kernel_2(
     PartialOutput,
     PartialLSE,
@@ -2724,6 +2744,7 @@ def _combine_splitk_kernel_2(
     tl.store(lse_ptrs, combined_lse, mask=mask_h)
 
 
+# 根据 topk、h_q 和 total_tokens 选择最优 split_k
 def _select_split_k(topk: int, h_q: int, total_tokens: int = 64) -> int:
     """Select optimal split_k based on topk, h_q, and total_tokens.
 
@@ -2743,8 +2764,9 @@ def _select_split_k(topk: int, h_q: int, total_tokens: int = 64) -> int:
 
 
 # ============================================================================
-# Low-overhead buffer pool for splitk operations
+# Low-overhead buffer pool for splitk operations  # splitk 操作的低开销缓冲池
 # ============================================================================
+# Split-K 中间张量的预分配缓冲池，缓存 partial_output 和 partial_lse 避免重复分配
 class SplitKBufferPool:
     """
     Pre-allocated buffer pool for split-K intermediate tensors.
@@ -2788,6 +2810,7 @@ class SplitKBufferPool:
         cls._device = None
 
 
+# DSV4 单作用域融合 gather+反量化+注意力解码入口函数
 def fused_gather_attn_decode_dsv4_dual_scope_low_overhead(
     q: torch.Tensor,
     kv_cache_main: torch.Tensor,
@@ -2818,13 +2841,13 @@ def fused_gather_attn_decode_dsv4_dual_scope_low_overhead(
     d_v = DSV4_D_V
     device = q.device
 
-    # Prepare main KV cache
+    # Prepare main KV cache  # 准备主 KV 缓存
     kv_uint8_main = kv_cache_main.view(torch.uint8)
     num_blocks_main = kv_cache_main.shape[0]
     stride_kv_block_main = kv_uint8_main.stride(0)
     kv_flat_main = kv_uint8_main.reshape(num_blocks_main, -1)
 
-    # Prepare extra KV cache
+    # Prepare extra KV cache  # 准备额外 KV 缓存
     kv_uint8_extra = kv_cache_extra.view(torch.uint8)
     num_blocks_extra = kv_cache_extra.shape[0]
     stride_kv_block_extra = kv_uint8_extra.stride(0)
@@ -2838,7 +2861,7 @@ def fused_gather_attn_decode_dsv4_dual_scope_low_overhead(
     if not indices_extra.is_contiguous():
         indices_extra = indices_extra.contiguous()
 
-    # Determine split_k
+    # Determine split_k  # 确定 split_k
     SPLITK_DUAL_SCOPE_TOPK_THRESHOLD = 2048
     use_splitk_for_small_bs = total_tokens <= 8 and (h_q >= 128 or total_topk >= 1024)
     use_splitk_for_h64_large_topk = (
@@ -2847,9 +2870,9 @@ def fused_gather_attn_decode_dsv4_dual_scope_low_overhead(
     use_splitk_for_large_topk = (
         total_tokens > 64 and total_topk >= SPLITK_DUAL_SCOPE_TOPK_THRESHOLD
     )
-    # For h_q > 64 (e.g. h_q=128), the non-splitk grid has very few blocks
+    # For h_q > 64 (e.g. h_q=128), the non-splitk grid has very few blocks  # h_q > 64 时，非 splitk 网格的块数很少
     # in the H dimension (cdiv(128,64)=2), leading to low GPU utilization
-    # at medium batch sizes.  Split-K doubles the parallelism.
+    # at medium batch sizes.  Split-K doubles the parallelism.  # Split-K 使并行度翻倍。
     use_splitk_for_large_hq = h_q > 64 and total_tokens > 8 and total_topk >= 256
 
     if not (
@@ -2858,7 +2881,7 @@ def fused_gather_attn_decode_dsv4_dual_scope_low_overhead(
         or use_splitk_for_large_topk
         or use_splitk_for_large_hq
     ):
-        # Fall back to non-splitk version
+        # Fall back to non-splitk version  # 回退到非 splitk 版本
         return fused_gather_attn_decode_dsv4_dual_scope(
             q,
             kv_cache_main,
@@ -2874,7 +2897,7 @@ def fused_gather_attn_decode_dsv4_dual_scope_low_overhead(
             s_q,
         )
 
-    # Select split_k based on workload and total_topk.
+    # Select split_k based on workload and total_topk.  # 根据工作负载和 total_topk 选择 split_k。
     # CUDA graph replay benchmarks show optimal split_k depends on both:
     #   - High topk (>=512, c4 layers): more splits needed to parallelize
     #   - Low topk (<512, c128 layers): fewer splits, less combine overhead
@@ -2900,7 +2923,7 @@ def fused_gather_attn_decode_dsv4_dual_scope_low_overhead(
 
     topk_per_split = (total_topk + split_k - 1) // split_k
 
-    # Get pre-allocated intermediate buffers
+    # Get pre-allocated intermediate buffers  # 获取预分配的中间缓冲区
     buffers = SplitKBufferPool.get_buffers(split_k, total_tokens, h_q, d_v, device)
     partial_output = buffers["partial_output"]
     partial_lse = buffers["partial_lse"]
@@ -2912,7 +2935,7 @@ def fused_gather_attn_decode_dsv4_dual_scope_low_overhead(
     output = torch.empty(total_tokens, h_q, d_v, dtype=torch.bfloat16, device=device)
     lse = torch.empty(total_tokens, h_q, dtype=torch.float32, device=device)
 
-    # Prepare dummy tensors for optional parameters
+    # Prepare dummy tensors for optional parameters  # 为可选参数准备占位张量
     topk_length_main_tensor = (
         topk_length_main if topk_length_main is not None else lse[:1, 0]
     )
@@ -2921,12 +2944,12 @@ def fused_gather_attn_decode_dsv4_dual_scope_low_overhead(
     )
     attn_sink_tensor = attn_sink if attn_sink is not None else lse[0, :]
 
-    # Pre-compute strides
+    # Pre-compute strides  # 预计算步长
     stride_q = q.stride()
     stride_o = output.stride()
     stride_lse = lse.stride()
 
-    # Check if buffer ops should be disabled
+    # Check if buffer ops should be disabled  # 检查是否应禁用 buffer ops
     kv_cache_size_main = stride_kv_block_main * num_blocks_main
     kv_cache_size_extra = stride_kv_block_extra * num_blocks_extra
     disable_buffer_ops = (
@@ -2934,14 +2957,14 @@ def fused_gather_attn_decode_dsv4_dual_scope_low_overhead(
         or kv_cache_size_extra > BUFFER_OPS_DISABLE_THRESHOLD
     )
 
-    # Grid for splitk kernel
+    # Grid for splitk kernel  # splitk 内核的网格
     grid_splitk = lambda meta: (
         triton.cdiv(h_q, meta["BLOCK_H"]),
         total_tokens,
         split_k,
     )
 
-    # Run splitk kernel
+    # Run splitk kernel  # 运行 splitk 内核
     if disable_buffer_ops:
         with triton.knobs.amd.scope():
             triton.knobs.amd.use_buffer_ops = False
@@ -3029,7 +3052,7 @@ def fused_gather_attn_decode_dsv4_dual_scope_low_overhead(
             HAS_TOPK_LENGTH_EXTRA=topk_length_extra is not None,
         )
 
-    # Run combine kernel
+    # Run combine kernel  # 运行合并内核
     if split_k == 8:
         grid_combine = lambda meta: (total_tokens, triton.cdiv(h_q, meta["BLOCK_H"]))
         _combine_splitk_kernel_8_optimized[grid_combine](

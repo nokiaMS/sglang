@@ -11,10 +11,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+# 推测解码Triton算子包的初始化模块。
+# 导出FusedKVMaterializeHelper用于融合KV缓存物化操作。
 """Triton kernels for speculative decoding."""
 
-from sglang.srt.speculative.triton_ops.fused_kv_materialize import (
+from sglang.srt.speculative.triton_ops.fused_kv_materialize import (  # 导入融合KV物化辅助类
     FusedKVMaterializeHelper,
 )
 
-__all__ = ["FusedKVMaterializeHelper"]
+__all__ = ["FusedKVMaterializeHelper"]  # 模块公开接口列表

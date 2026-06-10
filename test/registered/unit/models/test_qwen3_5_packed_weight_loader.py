@@ -1,3 +1,4 @@
+# 文件名: test_qwen3_5_packed_weight_loader.py - Qwen3.5打包权重加载器
 """
 Unit tests for Qwen3_5GatedDeltaNet._make_packed_weight_loader.
 
@@ -22,11 +23,13 @@ from sglang.srt.layers.parameter import PerTensorScaleParameter
 from sglang.srt.models.qwen3_5 import Qwen3_5GatedDeltaNet
 
 
+# 内部方法_make_mock_module
 def _make_mock_module(output_sizes):
     """Create a lightweight mock module with the attributes needed by the loader."""
     return SimpleNamespace(output_sizes=output_sizes)
 
 
+# 内部方法_make_per_tensor_scale_param
 def _make_per_tensor_scale_param(num_shards):
     """Create a PerTensorScaleParameter pre-allocated for `num_shards` scales.
 
@@ -39,6 +42,7 @@ def _make_per_tensor_scale_param(num_shards):
     )
 
 
+# TestMakePackedWeightLoader类
 class TestMakePackedWeightLoader(unittest.TestCase):
     """Tests for _make_packed_weight_loader broadcast / split logic."""
 
@@ -53,6 +57,7 @@ class TestMakePackedWeightLoader(unittest.TestCase):
 
         calls = []
 
+        # original_loader
         def original_loader(p, chunk, shard_id):
             calls.append((shard_id, chunk.clone()))
 
@@ -63,11 +68,12 @@ class TestMakePackedWeightLoader(unittest.TestCase):
         scalar = torch.tensor(0.5)  # shape=[]
         loader(param, scalar, loaded_shard_id=(0, 1, 2))
 
-        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(calls), 3)  # 断言相等
         for shard_id, chunk in calls:
-            self.assertEqual(chunk.shape, torch.Size([1]))
-            self.assertAlmostEqual(chunk.item(), 0.5, places=5)
+            self.assertEqual(chunk.shape, torch.Size([1]))  # 断言相等
+            self.assertAlmostEqual(chunk.item(), 0.5, places=5)  # 断言近似相等
 
+    # TestMakePackedWeightLoader类的测试singleelementtensorbroadcast
     def test_single_element_tensor_broadcast(self):
         """A [1]-shaped tensor (e.g. per-tensor weight_scale) should be
         broadcast to every logical shard."""
@@ -76,6 +82,7 @@ class TestMakePackedWeightLoader(unittest.TestCase):
 
         calls = []
 
+        # original_loader
         def original_loader(p, chunk, shard_id):
             calls.append((shard_id, chunk.clone()))
 
@@ -86,12 +93,13 @@ class TestMakePackedWeightLoader(unittest.TestCase):
         scale = torch.tensor([0.25])  # shape=[1]
         loader(param, scale, loaded_shard_id=(0, 1, 2))
 
-        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(calls), 3)  # 断言相等
         for idx, (shard_id, chunk) in enumerate(calls):
-            self.assertEqual(shard_id, idx)
-            self.assertEqual(chunk.shape, torch.Size([1]))
-            self.assertAlmostEqual(chunk.item(), 0.25, places=5)
+            self.assertEqual(shard_id, idx)  # 断言相等
+            self.assertEqual(chunk.shape, torch.Size([1]))  # 断言相等
+            self.assertAlmostEqual(chunk.item(), 0.25, places=5)  # 断言近似相等
 
+    # TestMakePackedWeightLoader类的测试broadcastwithtwoshards
     def test_broadcast_with_two_shards(self):
         """Broadcast for in_proj_ba style (2 shards: b, a)."""
         module = _make_mock_module(output_sizes=[16, 16])
@@ -99,6 +107,7 @@ class TestMakePackedWeightLoader(unittest.TestCase):
 
         calls = []
 
+        # original_loader
         def original_loader(p, chunk, shard_id):
             calls.append((shard_id, chunk.clone()))
 
@@ -109,10 +118,10 @@ class TestMakePackedWeightLoader(unittest.TestCase):
         scale = torch.tensor([0.1])
         loader(param, scale, loaded_shard_id=(0, 1))
 
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(calls), 2)  # 断言相等
         for shard_id, chunk in calls:
-            self.assertEqual(chunk.shape, torch.Size([1]))
-            self.assertAlmostEqual(chunk.item(), 0.1, places=5)
+            self.assertEqual(chunk.shape, torch.Size([1]))  # 断言相等
+            self.assertAlmostEqual(chunk.item(), 0.1, places=5)  # 断言近似相等
 
     # ------------------------------------------------------------------ #
     #  Normal weight split                                                #
@@ -126,6 +135,7 @@ class TestMakePackedWeightLoader(unittest.TestCase):
 
         calls = []
 
+        # original_loader
         def original_loader(p, chunk, shard_id):
             calls.append((shard_id, chunk.clone()))
 
@@ -137,10 +147,10 @@ class TestMakePackedWeightLoader(unittest.TestCase):
         weight = torch.randn(128 + 128 + 64, 256)
         loader(param, weight, loaded_shard_id=(0, 1, 2))
 
-        self.assertEqual(len(calls), 3)
-        self.assertEqual(calls[0][1].shape[0], 128)
-        self.assertEqual(calls[1][1].shape[0], 128)
-        self.assertEqual(calls[2][1].shape[0], 64)
+        self.assertEqual(len(calls), 3)  # 断言相等
+        self.assertEqual(calls[0][1].shape[0], 128)  # 断言相等
+        self.assertEqual(calls[1][1].shape[0], 128)  # 断言相等
+        self.assertEqual(calls[2][1].shape[0], 64)  # 断言相等
 
     # ------------------------------------------------------------------ #
     #  Passthrough for non-tuple shard_id                                 #
@@ -152,6 +162,7 @@ class TestMakePackedWeightLoader(unittest.TestCase):
 
         calls = []
 
+        # original_loader
         def original_loader(p, loaded_weight, shard_id):
             calls.append(("original", shard_id))
 
@@ -162,15 +173,17 @@ class TestMakePackedWeightLoader(unittest.TestCase):
         weight = torch.randn(128, 256)
         loader(MagicMock(), weight, loaded_shard_id=2)
 
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0], ("original", 2))
+        self.assertEqual(len(calls), 1)  # 断言相等
+        self.assertEqual(calls[0], ("original", 2))  # 断言相等
 
+    # TestMakePackedWeightLoader类的测试noneshardidpassthrough
     def test_none_shard_id_passthrough(self):
         """None shard_id should pass through to the original loader."""
         module = _make_mock_module(output_sizes=[128])
 
         calls = []
 
+        # original_loader
         def original_loader(p, loaded_weight, shard_id):
             calls.append(("original", shard_id))
 
@@ -181,8 +194,8 @@ class TestMakePackedWeightLoader(unittest.TestCase):
         weight = torch.randn(128, 256)
         loader(MagicMock(), weight, loaded_shard_id=None)
 
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0], ("original", None))
+        self.assertEqual(len(calls), 1)  # 断言相等
+        self.assertEqual(calls[0], ("original", None))  # 断言相等
 
     # ------------------------------------------------------------------ #
     #  Edge case: nested single-element tensors                           #
@@ -195,6 +208,7 @@ class TestMakePackedWeightLoader(unittest.TestCase):
 
         calls = []
 
+        # original_loader
         def original_loader(p, chunk, shard_id):
             calls.append((shard_id, chunk.clone()))
 
@@ -205,11 +219,11 @@ class TestMakePackedWeightLoader(unittest.TestCase):
         scale = torch.tensor([[0.75]])  # shape=[1,1], numel==1
         loader(param, scale, loaded_shard_id=(0, 1, 2))
 
-        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(calls), 3)  # 断言相等
         for shard_id, chunk in calls:
             # .view(-1) should flatten to [1]
-            self.assertEqual(chunk.shape, torch.Size([1]))
-            self.assertAlmostEqual(chunk.item(), 0.75, places=5)
+            self.assertEqual(chunk.shape, torch.Size([1]))  # 断言相等
+            self.assertAlmostEqual(chunk.item(), 0.75, places=5)  # 断言近似相等
 
 
 if __name__ == "__main__":

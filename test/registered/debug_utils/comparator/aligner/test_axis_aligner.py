@@ -1,3 +1,4 @@
+# 文件名: test_axis_aligner.py - 轴对齐器测试
 import sys
 from typing import Optional
 
@@ -22,17 +23,20 @@ register_cpu_ci(est_time=1, suite="base-b-test-cpu")
 
 
 class TestComputeAxisAlignerPlan:
+    # 测试nodimsreturnsnone
     def test_no_dims_returns_none(self) -> None:
         assert compute_axis_aligner_plan(Pair(x=None, y=None)) is None
         assert compute_axis_aligner_plan(Pair(x="t h d", y=None)) is None
         assert compute_axis_aligner_plan(Pair(x=None, y="t h d")) is None
 
+    # 测试sameorderreturnsnone
     def test_same_order_returns_none(self) -> None:
         result: Optional[AxisAlignerPlan] = compute_axis_aligner_plan(
             Pair(x="t h d", y="t h d")
         )
         assert result is None
 
+    # 测试differentorder
     def test_different_order(self) -> None:
         result: Optional[AxisAlignerPlan] = compute_axis_aligner_plan(
             Pair(x="t h d", y="t d h")
@@ -41,6 +45,7 @@ class TestComputeAxisAlignerPlan:
         assert result.pattern.x == "t h d -> t d h"
         assert result.pattern.y is None
 
+    # 测试namemismatchreturnsnonewithwarning
     def test_name_mismatch_returns_none_with_warning(self) -> None:
         with log_sink.context() as warnings:
             result: Optional[AxisAlignerPlan] = compute_axis_aligner_plan(
@@ -52,6 +57,7 @@ class TestComputeAxisAlignerPlan:
         assert warnings[0].category == "axis_aligner_dim_mismatch"
         assert "dim name sets differ" in warnings[0].message
 
+    # 测试modifiersignoredfornameextraction
     def test_modifiers_ignored_for_name_extraction(self) -> None:
         result: Optional[AxisAlignerPlan] = compute_axis_aligner_plan(
             Pair(x="t h[tp] d", y="t d h[tp]")
@@ -59,6 +65,7 @@ class TestComputeAxisAlignerPlan:
         assert result is not None
         assert result.pattern.x == "t h d -> t d h"
 
+    # 测试squeezeonlynoswap
     def test_squeeze_only_no_swap(self) -> None:
         result: Optional[AxisAlignerPlan] = compute_axis_aligner_plan(
             Pair(x="t 1 h", y="t h")
@@ -67,6 +74,7 @@ class TestComputeAxisAlignerPlan:
         assert result.pattern.x == "t 1 h -> t h"
         assert result.pattern.y is None
 
+    # 测试squeezebothsides
     def test_squeeze_both_sides(self) -> None:
         result: Optional[AxisAlignerPlan] = compute_axis_aligner_plan(
             Pair(x="t 1 h", y="1 t h")
@@ -75,6 +83,7 @@ class TestComputeAxisAlignerPlan:
         assert result.pattern.x == "t 1 h -> t h"
         assert result.pattern.y == "1 t h -> t h"
 
+    # 测试squeezeplusswap
     def test_squeeze_plus_swap(self) -> None:
         result: Optional[AxisAlignerPlan] = compute_axis_aligner_plan(
             Pair(x="t 1 h d", y="t d h")
@@ -83,6 +92,7 @@ class TestComputeAxisAlignerPlan:
         assert result.pattern.x == "t 1 h d -> t d h"
         assert result.pattern.y is None
 
+    # 测试squeezeyonly
     def test_squeeze_y_only(self) -> None:
         result: Optional[AxisAlignerPlan] = compute_axis_aligner_plan(
             Pair(x="t h", y="t 1 h")
@@ -91,6 +101,7 @@ class TestComputeAxisAlignerPlan:
         assert result.pattern.x is None
         assert result.pattern.y == "t 1 h -> t h"
 
+    # 测试multiplesqueezeoneside
     def test_multiple_squeeze_one_side(self) -> None:
         """Two squeeze dims on x, none on y."""
         result: Optional[AxisAlignerPlan] = compute_axis_aligner_plan(
@@ -100,6 +111,7 @@ class TestComputeAxisAlignerPlan:
         assert result.pattern.x == "1 t 1 h -> t h"
         assert result.pattern.y is None
 
+    # 测试multiplesqueezeasymmetric
     def test_multiple_squeeze_asymmetric(self) -> None:
         """Different numbers of squeeze dims on each side."""
         result: Optional[AxisAlignerPlan] = compute_axis_aligner_plan(
@@ -109,6 +121,7 @@ class TestComputeAxisAlignerPlan:
         assert result.pattern.x == "1 t 1 h -> t h"
         assert result.pattern.y == "1 t h -> t h"
 
+    # 测试fourdimfullreversal
     def test_four_dim_full_reversal(self) -> None:
         """4-dim permutation: full reversal."""
         result: Optional[AxisAlignerPlan] = compute_axis_aligner_plan(
@@ -120,6 +133,7 @@ class TestComputeAxisAlignerPlan:
 
 
 class TestComputeAxisAlignerPlanFused:
+    # 测试fusedvsseparate
     def test_fused_vs_separate(self) -> None:
         """x=fused 2D, y=separate 3D: y flattens to match x's fused form."""
         result: Optional[AxisAlignerPlan] = compute_axis_aligner_plan(
@@ -129,6 +143,7 @@ class TestComputeAxisAlignerPlanFused:
         assert result.pattern.x is None
         assert result.pattern.y == "t num_heads head_dim -> t (num_heads head_dim)"
 
+    # 测试separatevsfused
     def test_separate_vs_fused(self) -> None:
         """x=separate 3D, y=fused 2D: x flattens to match y's fused form."""
         result: Optional[AxisAlignerPlan] = compute_axis_aligner_plan(
@@ -138,6 +153,7 @@ class TestComputeAxisAlignerPlanFused:
         assert result.pattern.x == "t num_heads head_dim -> t (num_heads head_dim)"
         assert result.pattern.y is None
 
+    # 测试bothfusedsamenoplan
     def test_both_fused_same_no_plan(self) -> None:
         """Both sides fused, same order → None (no-op)."""
         result: Optional[AxisAlignerPlan] = compute_axis_aligner_plan(
@@ -145,6 +161,7 @@ class TestComputeAxisAlignerPlanFused:
         )
         assert result is None
 
+    # 测试fusednamemismatchreturnsnone
     def test_fused_name_mismatch_returns_none(self) -> None:
         """Fused vs separate with mismatched names → None."""
         with log_sink.context() as warnings:
@@ -154,6 +171,7 @@ class TestComputeAxisAlignerPlanFused:
         assert result is None
         assert len(warnings) == 1
 
+    # 测试partialfusedandregular
     def test_partial_fused_and_regular(self) -> None:
         """x has "(a*b) c", y has "a b c": y flattens a,b to match x's fused form."""
         result: Optional[AxisAlignerPlan] = compute_axis_aligner_plan(
@@ -163,6 +181,7 @@ class TestComputeAxisAlignerPlanFused:
         assert result.pattern.x is None
         assert result.pattern.y == "a b c -> (a b) c"
 
+    # 测试fusedvsreorderedseparate
     def test_fused_vs_reordered_separate(self) -> None:
         """x=fused "(a*b) c", y=reordered separate "b a c": y flattens+reorders."""
         result: Optional[AxisAlignerPlan] = compute_axis_aligner_plan(
@@ -172,6 +191,7 @@ class TestComputeAxisAlignerPlanFused:
         assert result.pattern.x is None
         assert result.pattern.y == "b a c -> (a b) c"
 
+    # 测试fusedreorderbothsides
     def test_fused_reorder_both_sides(self) -> None:
         """x=fused "c (a*b)", y=separate "a b c": x reorders fused, y flattens."""
         result: Optional[AxisAlignerPlan] = compute_axis_aligner_plan(
@@ -181,6 +201,7 @@ class TestComputeAxisAlignerPlanFused:
         assert result.pattern.x == "c a___b -> a___b c"
         assert result.pattern.y == "a b c -> (a b) c"
 
+    # 测试fusedwithsqueeze
     def test_fused_with_squeeze(self) -> None:
         """Fused + squeeze on one side, separate on other."""
         result: Optional[AxisAlignerPlan] = compute_axis_aligner_plan(
@@ -190,6 +211,7 @@ class TestComputeAxisAlignerPlanFused:
         assert result.pattern.x == "t 1 a___b -> t a___b"
         assert result.pattern.y == "t a b -> t (a b)"
 
+    # 测试threewayfusedvsseparate
     def test_three_way_fused_vs_separate(self) -> None:
         """3-way fused on x, separate on y."""
         result: Optional[AxisAlignerPlan] = compute_axis_aligner_plan(
@@ -199,6 +221,7 @@ class TestComputeAxisAlignerPlanFused:
         assert result.pattern.x is None
         assert result.pattern.y == "t a b c -> t (a b c)"
 
+    # 测试separatevsthreewayfused
     def test_separate_vs_three_way_fused(self) -> None:
         """Separate on x, 3-way fused on y."""
         result: Optional[AxisAlignerPlan] = compute_axis_aligner_plan(
@@ -208,6 +231,7 @@ class TestComputeAxisAlignerPlanFused:
         assert result.pattern.x == "t a b c -> t (a b c)"
         assert result.pattern.y is None
 
+    # 测试bothfuseddifferentorder
     def test_both_fused_different_order(self) -> None:
         """Both sides fused same group but dims in different order."""
         result: Optional[AxisAlignerPlan] = compute_axis_aligner_plan(
@@ -217,6 +241,7 @@ class TestComputeAxisAlignerPlanFused:
         assert result.pattern.x == "c a___b -> a___b c"
         assert result.pattern.y is None
 
+    # 测试overlappingfusedgroupsreturnsnone
     def test_overlapping_fused_groups_returns_none(self) -> None:
         """x fuses (a*b), y fuses (b*c): incompatible overlap → None with warning."""
         with log_sink.context() as warnings:
@@ -230,6 +255,7 @@ class TestComputeAxisAlignerPlanFused:
 
 
 class TestExecuteAxisAlignerPlan:
+    # 测试rearrange
     def test_rearrange(self) -> None:
         torch.manual_seed(42)
         tensor: torch.Tensor = apply_dim_names(torch.randn(4, 8, 16), ["t", "h", "d"])
@@ -243,6 +269,7 @@ class TestExecuteAxisAlignerPlan:
         for i in range(4):
             assert torch.equal(result[i], without_dim_names(tensor)[i].T)
 
+    # 测试executesqueeze
     def test_execute_squeeze(self) -> None:
         torch.manual_seed(42)
         tensor: torch.Tensor = apply_dim_names(
@@ -256,6 +283,7 @@ class TestExecuteAxisAlignerPlan:
 
         assert result.shape == (4, 8)
 
+    # 测试executesqueezethenswap
     def test_execute_squeeze_then_swap(self) -> None:
         torch.manual_seed(42)
         tensor: torch.Tensor = apply_dim_names(
@@ -269,6 +297,7 @@ class TestExecuteAxisAlignerPlan:
 
         assert result.shape == (4, 16, 8)
 
+    # 测试executeyside
     def test_execute_y_side(self) -> None:
         torch.manual_seed(42)
         tensor: torch.Tensor = apply_dim_names(
@@ -282,6 +311,7 @@ class TestExecuteAxisAlignerPlan:
 
         assert result.shape == (4, 8)
 
+    # 测试noopside
     def test_noop_side(self) -> None:
         torch.manual_seed(42)
         tensor: torch.Tensor = apply_dim_names(torch.randn(4, 8, 16), ["t", "h", "d"])
@@ -293,6 +323,7 @@ class TestExecuteAxisAlignerPlan:
 
         assert result.shape == (4, 8, 16)
 
+    # 测试invalidsideraises
     def test_invalid_side_raises(self) -> None:
         """Invalid side value should raise ValueError."""
         torch.manual_seed(42)
@@ -304,6 +335,7 @@ class TestExecuteAxisAlignerPlan:
 
 
 class TestExecuteAxisAlignerPlanFlatten:
+    # 测试flattenseparatetomatchfused
     def test_flatten_separate_to_match_fused(self) -> None:
         """3D (t=4, nh=8, hd=16) → 2D (t=4, nh*hd=128) via einops flatten."""
         torch.manual_seed(42)
@@ -319,6 +351,7 @@ class TestExecuteAxisAlignerPlanFlatten:
         assert result.shape == (4, 128)
         assert torch.equal(result, tensor_3d.reshape(4, 128))
 
+    # 测试flattenpreservesdata
     def test_flatten_preserves_data(self) -> None:
         """Flatten should be equivalent to reshape — verify element equality."""
         torch.manual_seed(42)
@@ -334,6 +367,7 @@ class TestExecuteAxisAlignerPlanFlatten:
         assert result.shape == (2, 12, 5)
         assert torch.equal(result, tensor.reshape(2, 12, 5))
 
+    # 测试flattenthenrearrange
     def test_flatten_then_rearrange(self) -> None:
         """Flatten + reorder in a single einops pattern."""
         torch.manual_seed(42)
@@ -350,6 +384,7 @@ class TestExecuteAxisAlignerPlanFlatten:
 
 
 class TestEndToEndFusedAlignment:
+    # 测试fusedvsseparatefullpipeline
     def test_fused_vs_separate_full_pipeline(self) -> None:
         """Full pipeline: x=fused 2D "t nh*hd", y=separate 3D "t nh hd"."""
         torch.manual_seed(42)
@@ -371,6 +406,7 @@ class TestEndToEndFusedAlignment:
         assert y_aligned.shape == x_tensor.shape
         assert torch.equal(y_aligned, x_tensor)
 
+    # 测试separatevsfusedfullpipeline
     def test_separate_vs_fused_full_pipeline(self) -> None:
         """Full pipeline: x=separate 3D "t nh hd", y=fused 2D "t nh*hd"."""
         torch.manual_seed(42)
@@ -392,6 +428,7 @@ class TestEndToEndFusedAlignment:
         assert x_aligned.shape == y_tensor.shape
         assert torch.equal(x_aligned, y_tensor)
 
+    # 测试fusedwithreorder
     def test_fused_with_reorder(self) -> None:
         """Fused x + reordered separate y: both need alignment."""
         torch.manual_seed(42)
@@ -420,6 +457,7 @@ class TestEndToEndFusedAlignment:
 
 
 class TestEndToEndThreeWayFused:
+    # 测试threewayfusedvsseparate
     def test_three_way_fused_vs_separate(self) -> None:
         """Full pipeline: x=3-way fused "t (a*b*c)", y=separate "t a b c"."""
         torch.manual_seed(42)
@@ -444,6 +482,7 @@ class TestEndToEndThreeWayFused:
 class TestSeqTokenEquivalencePlan:
     """Tests for s≡t dimension name equivalence in compute_axis_aligner_plan."""
 
+    # 测试stequivalencesqueeze
     def test_s_t_equivalence_squeeze(self) -> None:
         """sglang 't h' vs megatron 's 1 h': plan squeezes y-side singleton, x-side no-op."""
         result: Optional[AxisAlignerPlan] = compute_axis_aligner_plan(
@@ -453,6 +492,7 @@ class TestSeqTokenEquivalencePlan:
         assert result.pattern.x is None
         assert result.pattern.y == "s 1 h -> s h"
 
+    # 测试stequivalencesameshape
     def test_s_t_equivalence_same_shape(self) -> None:
         """'t h d' vs 's h d': same order after normalization → no plan needed."""
         result: Optional[AxisAlignerPlan] = compute_axis_aligner_plan(
@@ -460,6 +500,7 @@ class TestSeqTokenEquivalencePlan:
         )
         assert result is None
 
+    # 测试stequivalencewithswap
     def test_s_t_equivalence_with_swap(self) -> None:
         """'t d h' vs 's h d': plan not None, x-pattern reorders."""
         result: Optional[AxisAlignerPlan] = compute_axis_aligner_plan(
@@ -468,6 +509,7 @@ class TestSeqTokenEquivalencePlan:
         assert result is not None
         assert result.pattern.x is not None
 
+    # 测试stequivalencewithfused
     def test_s_t_equivalence_with_fused(self) -> None:
         """'t (a*b)' vs 's a b': plan not None, y-pattern flattens."""
         result: Optional[AxisAlignerPlan] = compute_axis_aligner_plan(
@@ -476,6 +518,7 @@ class TestSeqTokenEquivalencePlan:
         assert result is not None
         assert result.pattern.y is not None
 
+    # 测试stequivalencewithsqueezeandfused
     def test_s_t_equivalence_with_squeeze_and_fused(self) -> None:
         """'t (num_heads*head_dim)' vs 's 1 num_heads head_dim': plan squeezes + flattens."""
         result: Optional[AxisAlignerPlan] = compute_axis_aligner_plan(
@@ -487,6 +530,7 @@ class TestSeqTokenEquivalencePlan:
 class TestSeqTokenEquivalenceExecute:
     """Tests for s≡t dimension name equivalence in execute_axis_aligner_plan."""
 
+    # 测试executestsqueeze
     def test_execute_s_t_squeeze(self) -> None:
         """Tensor [4,1,8] with pattern 's 1 h -> s h' → shape [4,8]."""
         torch.manual_seed(42)
@@ -504,6 +548,7 @@ class TestSeqTokenEquivalenceExecute:
 class TestEndToEndSeqTokenEquivalence:
     """End-to-end tests for s≡t equivalence through compute + execute pipeline."""
 
+    # 测试stsqueezefullpipeline
     def test_s_t_squeeze_full_pipeline(self) -> None:
         """x=tensor(4,8) dims='t h', y=tensor(4,1,8) dims='s 1 h' → both aligned to (4,8)."""
         torch.manual_seed(42)
@@ -526,6 +571,7 @@ class TestEndToEndSeqTokenEquivalence:
         assert x_aligned.shape == y_aligned.shape == (4, 8)
         assert torch.equal(x_aligned, y_aligned)
 
+    # 测试stfusedfullpipeline
     def test_s_t_fused_full_pipeline(self) -> None:
         """x=tensor(4,128) dims='t (nh*hd)', y=tensor(4,1,8,16) dims='s 1 nh hd' → both (4,128)."""
         torch.manual_seed(42)

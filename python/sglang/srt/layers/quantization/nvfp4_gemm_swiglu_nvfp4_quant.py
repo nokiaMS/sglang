@@ -1,35 +1,38 @@
-# Copyright (c) 2026 LightSeek Foundation
+# 文件说明：SM100 Blackwell架构NVFP4 GEMM融合SwiGLU与NVFP4输出量化的内核实现
+# 本模块实现了NVIDIA Blackwell SM100架构上的持久化分块缩放GEMM内核，
+# 支持NVFP4/MXFP4输入、SwiGLU激活融合、NVFP4输出量化，
+# 包含TMA加载/存储、warp特化、持久化分块调度和块缩放布局管理。
+
+# Copyright (c) 2026 LightSeek Foundation  # 版权声明：LightSeek基金会
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
+# of this software and associated documentation files (the "Software"), to deal  # 特此免费授予任何获取副本的人许可
 # in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell  # 使用本软件及关联文档文件（"软件"），不受限制地使用
 # copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
+# furnished to do so, subject to the following conditions:  # 在以下条件下这样做：
 # The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
+# all copies or substantial portions of the Software.  # 上述版权声明和本许可声明应包含在软件的所有副本或大部分内容中
 #
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR  # 软件按"原样"提供，不提供任何明示或暗示的担保
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 # FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 # AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
-from typing import Optional, Tuple, Type, Union
+# SOFTWARE.  # 源于或与本软件或本软件的使用或其他交易有关
+from typing import Optional, Tuple, Type, Union  # 导入类型提示
 
-import cuda.bindings.driver as cuda
-import cutlass
-import cutlass.cute as cute
-import cutlass.pipeline as pipeline
-import cutlass.utils as utils
-import cutlass.utils.blackwell_helpers as sm100_utils
-import cutlass.utils.blockscaled_layout as blockscaled_utils
-from cutlass._mlir.dialects import math
-from cutlass.cute.nvgpu import cpasync, tcgen05
-from flashinfer.fused_moe.cute_dsl.blackwell.utils import fmin, silu_f32
-
+import cuda.bindings.driver as cuda  # 导入CUDA驱动绑定
+import cutlass  # 导入CUTLASS框架
+import cutlass.cute as cute  # 导入CUTE DSL
+import cutlass.pipeline as pipeline  # 导入流水线模块
+import cutlass.utils as utils  # 导入CUTLASS工具
+import cutlass.utils.blackwell_helpers as sm100_utils  # 导入SM100架构辅助工具
+import cutlass.utils.blockscaled_layout as blockscaled_utils  # 导入块缩放布局工具
+from cutlass._mlir.dialects import math  # 导入MLIR数学方言
+from cutlass.cute.nvgpu import cpasync, tcgen05  # 导入异步拷贝和tcgen05指令
+from flashinfer.fused_moe.cute_dsl.blackwell.utils import fmin, silu_f32  # 导入fmin和SiLU函数
 """
 This example provides an experimental implementation of the SM100 batched dense blockscaled
 GEMM kernel, please note that the APIs and implementation details related to this kernel
@@ -111,6 +114,7 @@ Constraints:
 """
 
 
+# SM100块缩放持久化密集GEMM内核类，支持SwiGLU融合和可选量化
 class Sm100BlockScaledPersistentDenseGemmKernel:
     """This class implements batched matrix multiplication (C = A x SFA x B x SFB) with support for various data types
     and architectural features specific to Blackwell GPUs with persistent tile scheduling and warp specialization.
@@ -156,6 +160,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         >>> gemm(a_tensor, b_tensor, sfa_tensor, sfb_tensor, c_tensor, max_active_clusters, stream)
     """
 
+    # 初始化GEMM内核配置，设置MMA指令、集群形状和SwiGLU融合参数
     def __init__(
         self,
         sf_vec_size: int,
@@ -196,29 +201,29 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         :type vectorized_f32: bool
         """
 
-        self.acc_dtype = cutlass.Float32
-        self.sf_vec_size = sf_vec_size
-        self.use_2cta_instrs = mma_tiler_mn[0] == 256
-        self.cluster_shape_mn = cluster_shape_mn
+        self.acc_dtype = cutlass.Float32  # 累加器数据类型设为Float32
+        self.sf_vec_size = sf_vec_size  # 保存缩放因子向量大小
+        self.use_2cta_instrs = mma_tiler_mn[0] == 256  # 判断是否使用2-CTA指令（MMA平铺M为256时）
+        self.cluster_shape_mn = cluster_shape_mn  # 保存集群形状
         # K dimension is deferred in _setup_attributes
-        self.mma_tiler = (*mma_tiler_mn, 1)
+        self.mma_tiler = (*mma_tiler_mn, 1)  # K维度在_setup_attributes中延迟设置
 
-        self.cta_group = (
+        self.cta_group = (  # 根据是否使用2-CTA指令选择CTA分组
             tcgen05.CtaGroup.TWO if self.use_2cta_instrs else tcgen05.CtaGroup.ONE
         )
 
-        self.occupancy = 1
-        # Set specialized warp ids
+        self.occupancy = 1  # 占用率设为1
+        # Set specialized warp ids  # 设置特化warp ID
         self.epilog_warp_id = (
             0,
             1,
             2,
             3,
         )
-        self.mma_warp_id = 4
-        self.tma_warp_id = 5
-        self.threads_per_cta = 32 * len(
-            (self.mma_warp_id, self.tma_warp_id, *self.epilog_warp_id)
+        self.mma_warp_id = 4  # MMA warp ID设为4
+        self.tma_warp_id = 5  # TMA warp ID设为5
+        self.threads_per_cta = 32 * len(  # 计算每个CTA的线程数
+            (self.mma_warp_id, self.tma_warp_id, *self.epilog_warp_id)  # 根据warp数量计算
         )
         # Set barrier id for cta sync, epilogue sync and tmem ptr sync
         self.cta_sync_barrier = pipeline.NamedBarrier(
@@ -234,13 +239,14 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
             num_threads=32 * len((self.mma_warp_id, *self.epilog_warp_id)),
         )
         self.smem_capacity = utils.get_smem_capacity_in_bytes("sm_100")
-        SM100_TMEM_CAPACITY_COLUMNS = 512
-        self.num_tmem_alloc_cols = SM100_TMEM_CAPACITY_COLUMNS
+        SM100_TMEM_CAPACITY_COLUMNS = 512  # 获取SM100的共享内存容量（字节）
+        self.num_tmem_alloc_cols = SM100_TMEM_CAPACITY_COLUMNS  # SM100 TMEM容量列数
 
         self.use_prefetch = use_prefetch
-        self.prefetch_dist = prefetch_dist
-        self.vectorized_f32 = vectorized_f32
-
+        self.prefetch_dist = prefetch_dist  # 保存预取配置
+        self.vectorized_f32 = vectorized_f32  # 保存预取距离
+# 保存向量化f32配置
+    # 设置依赖GEMM输入的配置属性（MMA、集群、平铺形状、级数等）
     def _setup_attributes(self):
         """Set up configurations that are dependent on GEMM inputs
 
@@ -254,7 +260,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         - Setting up A/B/SFA/SFB/C stage counts in shared memory
         - Computing A/B/SFA/SFB/C shared memory layout
         """
-        # Compute mma instruction shapes
+        # Compute mma instruction shapes  # 计算MMA指令形状
         # (MMA_Tile_Shape_M, MMA_Tile_Shape_N, MMA_Inst_Shape_K)
         self.mma_inst_shape_mn = (
             self.mma_tiler[0],
@@ -267,7 +273,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
             cute.round_up(self.mma_inst_shape_mn[1], 128),
         )
 
-        tiled_mma = sm100_utils.make_blockscaled_trivial_tiled_mma(
+        tiled_mma = sm100_utils.make_blockscaled_trivial_tiled_mma(  # 创建分块缩放MMA对象
             self.a_dtype,
             self.a_major_mode,
             self.b_major_mode,
@@ -277,17 +283,16 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
             self.mma_inst_shape_mn,
         )
 
-        tiled_mma_sfb = sm100_utils.make_blockscaled_trivial_tiled_mma(
+        tiled_mma_sfb = sm100_utils.make_blockscaled_trivial_tiled_mma(  # 创建SFB的分块缩放MMA对象
             self.a_dtype,
             self.a_major_mode,
-            self.b_major_mode,
             self.sf_dtype,
             self.sf_vec_size,
             cute.nvgpu.tcgen05.CtaGroup.ONE,
             self.mma_inst_shape_mn_sfb,
         )
 
-        # Compute mma/cluster/tile shapes
+        # Compute mma/cluster/tile shapes  # 计算MMA/集群/平铺形状
         mma_inst_shape_k = cute.size(tiled_mma.shape_mnk, mode=[2])
         mma_inst_tile_k = 4
         self.mma_tiler = (
@@ -307,7 +312,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         )
 
         # Output tile shape for C (N dimension is halved due to SwiGLU fusion)
-        self.mma_tiler_c = (
+        self.mma_tiler_c = (  # C的输出平铺形状（由于SwiGLU融合，N维度减半）
             self.mma_inst_shape_mn[0],
             self.mma_inst_shape_mn[1] // 2,
             mma_inst_shape_k * mma_inst_tile_k,
@@ -319,7 +324,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         )
 
         # Compute cluster layout
-        self.cluster_layout_vmnk = cute.tiled_divide(
+        self.cluster_layout_vmnk = cute.tiled_divide(  # 计算集群布局
             cute.make_layout((*self.cluster_shape_mn, 1)),
             (tiled_mma.thr_id.shape,),
         )
@@ -329,28 +334,28 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         )
 
         # Compute number of multicast CTAs for A/B
-        self.num_mcast_ctas_a = cute.size(self.cluster_layout_vmnk.shape[2])
+        self.num_mcast_ctas_a = cute.size(self.cluster_layout_vmnk.shape[2])  # 计算A/B的组播CTA数量
         self.num_mcast_ctas_b = cute.size(self.cluster_layout_vmnk.shape[1])
         self.num_mcast_ctas_sfb = cute.size(self.cluster_layout_sfb_vmnk.shape[1])
         self.is_a_mcast = self.num_mcast_ctas_a > 1
         self.is_b_mcast = self.num_mcast_ctas_b > 1
         self.is_sfb_mcast = self.num_mcast_ctas_sfb > 1
 
-        # Compute epilogue subtile
-        # self.epi_tile = sm100_utils.compute_epilogue_tile_shape(
+        # Compute epilogue subtile  # 计算尾声子平铺
+        # self.epi_tile = sm100_utils.compute_epilogue_tile_shape(  # 计算尾声子平铺
         #     self.cta_tile_shape_mnk,
         #     self.use_2cta_instrs,
         #     self.c_layout,
         #     self.c_dtype,
         # )
-        self.epi_tile = (128, 64)
+        self.epi_tile = (128, 64)  # 手动设置尾声子平铺大小
         # Compute epilogue tile count for SFC quantization (use output tile shape)
         self.epi_tile_cnt = (
             self.cta_tile_shape_mnk_c[0] // self.epi_tile[0],
             self.cta_tile_shape_mnk_c[1] // self.epi_tile[1],
         )
 
-        # Setup A/B/C stage count in shared memory and ACC stage count in tensor memory
+        # Setup A/B/C stage count in shared memory and ACC stage count in tensor memory  # 设置共享内存中A/B/C的级数和张量内存中ACC的级数
         self.num_acc_stage, self.num_ab_stage, self.num_c_stage = self._compute_stages(
             tiled_mma,
             self.mma_tiler,
@@ -366,10 +371,10 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         )
 
         # Overlap and double buffer accumulator when num_acc_stage == 1 for cta_tile_n = 256 case
-        self.overlapping_accum = self.num_acc_stage == 1
+        self.overlapping_accum = self.num_acc_stage == 1  # 当num_acc_stage==1时重叠和双缓冲累加器（用于cta_tile_n=256的情况）
 
         # Compute number of TMEM columns for SFA/SFB/Accumulator
-        sf_atom_mn = 32
+        sf_atom_mn = 32  # 计算SFA/SFB/累加器的TMEM列数
         mma_inst_tile_k = 4
         self.num_sfa_tmem_cols = (
             self.cta_tile_shape_mnk[0] // sf_atom_mn
@@ -391,7 +396,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         )
 
         # Compute A/B/SFA/SFB/C shared memory layout
-        self.a_smem_layout_staged = sm100_utils.make_smem_layout_a(
+        self.a_smem_layout_staged = sm100_utils.make_smem_layout_a(  # 计算A/B/SFA/SFB/C的共享内存布局
             tiled_mma,
             self.mma_tiler,
             self.a_dtype,
@@ -423,7 +428,9 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         )
 
     @cute.jit
+    # JIT编译装饰器
     def __call__(
+    # 调用方法：执行带SwiGLU融合和可选量化的GEMM操作
         self,
         a_tensor: cute.Tensor,
         b_tensor: cute.Tensor,
@@ -479,7 +486,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         :raises TypeError: If input data types are incompatible with the MMA instruction.
         """
         # Setup static attributes before smem/grid/tma computation
-        self.a_dtype: Type[cutlass.Numeric] = a_tensor.element_type
+        self.a_dtype: Type[cutlass.Numeric] = a_tensor.element_type  # 在smem/grid/tma计算之前设置静态属性
         self.b_dtype: Type[cutlass.Numeric] = b_tensor.element_type
         self.sf_dtype: Type[cutlass.Numeric] = sfa_tensor.element_type
         self.c_dtype: Type[cutlass.Numeric] = c_tensor.element_type
@@ -489,10 +496,10 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
 
         # Check if input data types are compatible with MMA instruction
         if cutlass.const_expr(self.a_dtype != self.b_dtype):
-            raise TypeError(f"Type must match: {self.a_dtype} != {self.b_dtype}")
+            raise TypeError(f"Type must match: {self.a_dtype} != {self.b_dtype}")  # 检查输入数据类型是否与MMA指令兼容
 
         # Setup attributes that dependent on gemm inputs
-        self._setup_attributes()
+        self._setup_attributes()  # 设置依赖GEMM输入的属性
 
         # Setup sfa/sfb tensor by filling A/B tensor to scale factor atom layout
         # ((Atom_M, Rest_M),(Atom_K, Rest_K),RestL)
@@ -508,7 +515,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         sfb_tensor = cute.make_tensor(sfb_tensor.iterator, sfb_layout)
 
         # Determine if we need to generate scale factor C for quantization
-        self.generate_sfc = sfc_tensor is not None and norm_const_tensor is not None
+        self.generate_sfc = sfc_tensor is not None and norm_const_tensor is not None  # 确定是否需要为量化生成缩放因子C
         if cutlass.const_expr(self.generate_sfc):
             sfc_layout = blockscaled_utils.tile_atom_to_shape_SF(
                 c_tensor.shape, self.sf_vec_size
@@ -717,6 +724,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         return
 
     # GPU device kernel
+    # GPU设备内核：执行持久化批量GEMM计算
     @cute.kernel
     def kernel(
         self,
@@ -751,11 +759,11 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         """
         GPU device kernel performing the Persistent batched GEMM computation.
         """
-        warp_idx = cute.arch.warp_idx()
+        warp_idx = cute.arch.warp_idx()  # GPU设备内核，执行持久化批量GEMM计算
         warp_idx = cute.arch.make_warp_uniform(warp_idx)
 
         #
-        # Prefetch tma desc
+        # Prefetch tma desc  # 预取TMA描述符
         #
         if warp_idx == self.tma_warp_id:
             cpasync.prefetch_descriptor(tma_atom_a)
@@ -765,7 +773,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
             cpasync.prefetch_descriptor(tma_atom_c)
 
         use_2cta_instrs = cute.size(tiled_mma.thr_id.shape) == 2
-
+# 设置CTA/线程坐标
         #
         # Setup cta/thread coordinates
         #
@@ -787,7 +795,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
 
         #
         # Alloc and init: a+b full/empty, accumulator full/empty, tensor memory dealloc barrier
-        #
+        #  # 分配和初始化屏障
         smem = utils.SmemAllocator()
         storage = smem.allocate(self.shared_storage)
 
@@ -837,7 +845,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
 
         #
         # Setup smem tensor A/B/SFA/SFB/C
-        #
+        #  # 设置共享内存张量A/B/SFA/SFB/C
         # (EPI_TILE_M, EPI_TILE_N, STAGE)
         sC = storage.sC.get_tensor(
             c_smem_layout_staged.outer, swizzle=c_smem_layout_staged.inner
@@ -857,7 +865,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
 
         #
         # Compute multicast mask for A/B/SFA/SFB buffer full
-        #
+        #  # 计算A/B/SFA/SFB缓冲区满的组播掩码
         a_full_mcast_mask = None
         b_full_mcast_mask = None
         sfa_full_mcast_mask = None
@@ -879,7 +887,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         #
         # Local_tile partition global tensors
         #
-        # (bM, bK, RestM, RestK, RestL)
+        # (bM, bK, RestM, RestK, RestL)  # 使用local_tile分区全局张量
         gA_mkl = cute.local_tile(
             mA_mkl, cute.slice_(self.mma_tiler, (None, 0, None)), (None, None, None)
         )
@@ -905,7 +913,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
 
         #
         # Partition global tensor for TiledMMA_A/B/C
-        #
+        #  # 为分块MMA分区全局张量
         thr_mma = tiled_mma.get_slice(mma_tile_coord_v)
         thr_mma_sfb = tiled_mma_sfb.get_slice(mma_tile_coord_v)
         # (MMA, MMA_M, MMA_K, RestM, RestK, RestL)
@@ -921,7 +929,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
 
         #
         # Partition global/shared tensor for TMA load A/B
-        #
+        #  # 为TMA加载A/B分区全局/共享张量
         # TMA load A partition_S/D
         a_cta_layout = cute.make_layout(
             cute.slice_(cluster_layout_vmnk, (0, 0, None, 0)).shape
@@ -981,7 +989,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
 
         #
         # Partition shared/tensor memory tensor for TiledMMA_A/B/C
-        #
+        #  # 为分块MMA分区共享/张量内存张量
         # (MMA, MMA_M, MMA_K, STAGE)
         tCrA = tiled_mma.make_fragment_A(sA)
         # (MMA, MMA_N, MMA_K, STAGE)
@@ -1015,7 +1023,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         #
         # Cluster wait before tensor memory alloc
         #
-        if cute.size(self.cluster_shape_mn) > 1:
+        if cute.size(self.cluster_shape_mn) > 1:  # 张量内存分配前集群等待
             cute.arch.cluster_wait()
         else:
             self.cta_sync_barrier.arrive_and_wait()
@@ -1023,13 +1031,13 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         #
         # Specialized TMA load warp
         #
-        if warp_idx == self.tma_warp_id:
+        if warp_idx == self.tma_warp_id:  # 特化TMA加载warp
             if cutlass.const_expr(use_pdl):
                 cute.arch.griddepcontrol_wait()
             #
             # Persistent tile scheduling loop
             #
-            tile_sched = utils.StaticPersistentTileScheduler.create(
+            tile_sched = utils.StaticPersistentTileScheduler.create(  # 持久化分块调度循环
                 tile_sched_params, cute.arch.block_idx(), cute.arch.grid_dim()
             )
             work_tile = tile_sched.initial_work_tile_info()
@@ -1096,7 +1104,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
                         )
 
                 # Peek (try_wait) AB buffer empty for k_tile = prefetch_k_tile_cnt
-                ab_producer_state.reset_count()
+                ab_producer_state.reset_count()  # TMA加载循环
                 peek_ab_empty_status = cutlass.Boolean(1)
                 if ab_producer_state.count < k_tile_cnt:
                     peek_ab_empty_status = ab_pipeline.producer_try_acquire(
@@ -1185,7 +1193,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
                 work_tile = tile_sched.get_current_work()
 
             #
-            # Wait A/B buffer empty
+            # Wait A/B buffer empty  # 前进到下一个分块
             #
             ab_pipeline.producer_tail(ab_producer_state)
 
@@ -1193,7 +1201,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         # Specialized MMA warp
         #
         if warp_idx == self.mma_warp_id:
-            #
+            #  # 特化MMA warp
             # Bar sync for retrieve tensor memory ptr from shared mem
             #
             tmem.wait_for_alloc()
@@ -1251,7 +1259,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
 
             #
             # Persistent tile scheduling loop
-            #
+            #  # 持久化分块调度循环
             tile_sched = utils.StaticPersistentTileScheduler.create(
                 tile_sched_params, cute.arch.block_idx(), cute.arch.grid_dim()
             )
@@ -1316,7 +1324,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
                 tiled_mma.set(tcgen05.Field.ACCUMULATE, False)
 
                 #
-                # Mma mainloop
+                # Mma mainloop  # MMA主循环
                 #
                 for k_tile in range(k_tile_cnt):
                     if is_leader_cta:
@@ -1391,7 +1399,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
                             )
 
                 #
-                # Async arrive accumulator buffer full
+                # Async arrive accumulator buffer full  # 异步通知累加器缓冲区满
                 #
                 if is_leader_cta:
                     acc_pipeline.producer_commit(acc_producer_state)
@@ -1405,17 +1413,17 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
 
             #
             # Wait for accumulator buffer empty
-            #
+            #  # 等待累加器缓冲区空
             acc_pipeline.producer_tail(acc_producer_state)
         #
         # Specialized epilogue warps
-        #
+        #  # 特化尾声warps
         if warp_idx < self.mma_warp_id:
             #
             # Alloc tensor memory buffer
             #
             tmem.allocate(self.num_tmem_alloc_cols)
-
+# 分配张量内存缓冲区
             #
             # Bar sync for retrieve tensor memory ptr from shared memory
             #
@@ -1424,14 +1432,14 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
             #
             # Retrieving tensor memory ptr and make accumulator tensor
             #
-            acc_tmem_ptr = tmem.retrieve_ptr(self.acc_dtype)
+            acc_tmem_ptr = tmem.retrieve_ptr(self.acc_dtype)  # 获取张量内存指针并创建累加器张量
             # (MMA, MMA_M, MMA_N, STAGE)
             tCtAcc_base = cute.make_tensor(acc_tmem_ptr, tCtAcc_fake.layout)
 
             #
             # Partition for epilogue
             #
-            epi_tidx = tidx
+            epi_tidx = tidx  # 为尾声分区
             (
                 tiled_copy_t2r,
                 tTR_tAcc_base,
@@ -1471,7 +1479,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
 
             #
             # Persistent tile scheduling loop
-            #
+            #  # 持久化分块调度循环
             tile_sched = utils.StaticPersistentTileScheduler.create(
                 tile_sched_params, cute.arch.block_idx(), cute.arch.grid_dim()
             )
@@ -1558,7 +1566,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
 
                 #
                 # Process accumulator subtiles with SwiGLU fusion and store to global memory
-                # Each iteration processes a pair of subtiles (up, gate) and computes
+                # Each iteration processes a pair of subtiles (up, gate) and computes  # 使用SwiGLU融合处理累加器子平铺并存储到全局内存
                 # up * silu(gate)
                 #
                 subtile_cnt = cute.size(tTR_tAcc.shape, mode=[3])
@@ -1576,7 +1584,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
                     #
                     # Load accumulator from tensor memory buffer to register
                     # Load both up and gate subtiles
-                    #
+                    #  # 从张量内存缓冲区加载累加器到寄存器
                     tTR_tAcc_mn_up = tTR_tAcc[(None, None, None, real_subtile_idx * 2)]
                     tTR_tAcc_mn_gate = tTR_tAcc[
                         (None, None, None, real_subtile_idx * 2 + 1)
@@ -1601,7 +1609,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
 
                     #
                     # SwiGLU activation: output = up * silu(gate)
-                    # where silu(x) = x * sigmoid(x)
+                    # where silu(x) = x * sigmoid(x)  # SwiGLU激活：output = up * silu(gate)
                     # up and gate are extracted from interleaved accumulator subtiles
                     #
                     tCompute = cute.make_rmem_tensor(acc_vec_gate.shape, self.acc_dtype)
@@ -1670,7 +1678,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
                             )
 
                     if cutlass.const_expr(self.generate_sfc):
-                        #
+                        #  # Float4E2M1FN输出的量化路径
                         # Quantization path for Float4E2M1FN output:
                         # 1. Compute per-vector absolute max from SwiGLU result
                         # 2. Generate scale factor C (SFC) based on max values
@@ -1700,7 +1708,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
 
                         #
                         # Get absolute max across a vector and Compute SFC
-                        #
+                        #  # 获取向量绝对值最大值并计算SFC
                         tTR_rAcc_frg = cute.logical_divide(
                             tCompute, cute.make_layout(self.sf_vec_size)
                         )
@@ -1755,14 +1763,14 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
 
                         #
                         # Store SFC to global memory (guarded for M boundary)
-                        #
+                        #  # 存储SFC到全局内存（M边界保护）
                         if m_tile_in_bounds:
                             cute.autovec_copy(tCrSFC, tCgSFC)
 
                         #
                         # Compute quantized output values and convert to C type
                         #
-                        tCrSFC_qpvscale_up = tCrSFC.load().to(cutlass.Float32)
+                        tCrSFC_qpvscale_up = tCrSFC.load().to(cutlass.Float32)  # 计算量化输出值并转换为C类型
                         fp32_max = cutlass.Float32(3.40282346638528859812e38)
                         if cutlass.const_expr(self.vectorized_f32):
                             for vi in cutlass.range_constexpr(0, cute.size(tCrSFC), 2):
@@ -1801,14 +1809,14 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
                     else:
                         #
                         # Convert to C type (non-quantization path)
-                        #
+                        #  # 转换为C类型（非量化路径）
                         acc_vec = tiled_copy_r2s.retile(tCompute).load()
                         acc_vec = epilogue_op(acc_vec.to(self.c_dtype))
                         tRS_rC.store(acc_vec)
 
                     #
                     # Store C to shared memory
-                    #
+                    #  # 存储C到共享内存
                     num_prev_subtiles = num_prev_subtiles + 1
                     c_buffer = num_prev_subtiles % self.num_c_stage
 
@@ -1824,7 +1832,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
                     #
                     # TMA store C to global memory
                     #
-                    if warp_idx == self.epilog_warp_id[0]:
+                    if warp_idx == self.epilog_warp_id[0]:  # TMA存储C到全局内存
                         cute.copy(
                             tma_atom_c,
                             bSG_sC[(None, c_buffer)],
@@ -1837,7 +1845,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
 
                 #
                 # Async arrive accumulator buffer empty
-                #
+                #  # 异步通知累加器缓冲区空
                 if cutlass.const_expr(not self.overlapping_accum):
                     with cute.arch.elect_one():
                         acc_pipeline.consumer_release(acc_consumer_state)
@@ -1845,7 +1853,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
 
                 #
                 # Advance to next tile
-                #
+                #  # 前进到下一个分块
                 tile_sched.advance_to_next_work()
 
                 work_tile = tile_sched.get_current_work()
@@ -1855,19 +1863,20 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
                     current_alpha_scale = alpha_scale[work_tile.tile_idx[2]]
 
             #
-            # Dealloc the tensor memory buffer
+            # Dealloc the tensor memory buffer  # 释放张量内存缓冲区
             #
             tmem.relinquish_alloc_permit()
             self.epilog_sync_barrier.arrive_and_wait()
             tmem.free(acc_tmem_ptr)
             #
             # Wait for C store complete
-            #
+            #  # 等待C存储完成
             c_pipeline.producer_tail()
             if cutlass.const_expr(use_pdl):
                 if warp_idx == self.epilog_warp_id[0]:
                     cute.arch.griddepcontrol_launch_dependents()
 
+    # 主循环共享到TMEM拷贝和分区方法
     def mainloop_s2t_copy_and_partition(
         self,
         sSF: cute.Tensor,
@@ -1912,6 +1921,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
 
         return tiled_copy_s2t, tCsSF_compact_s2t, tCtSF_compact_s2t
 
+    # 尾声TMEM拷贝和分区方法，为SwiGLU融合创建up/gate寄存器张量
     def epilog_tmem_copy_and_partition(
         self,
         tidx: cutlass.Int32,
@@ -1984,6 +1994,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
 
         return tiled_copy_t2r, tTR_tAcc, tTR_rAcc_up, tTR_rAcc_gate, tTR_gC
 
+    # 尾声共享内存拷贝和分区方法
     def epilog_smem_copy_and_partition(
         self,
         tiled_copy_t2r: cute.TiledCopy,
@@ -2022,6 +2033,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         tRS_rC = tiled_copy_r2s.retile(tTR_rC)
         return tiled_copy_r2s, tRS_rC, tRS_sC
 
+    # 尾声全局内存拷贝和分区方法
     def epilog_gmem_copy_and_partition(
         self,
         tidx: cutlass.Int32,
@@ -2069,6 +2081,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         )
         return tma_atom_c, bSG_sC, bSG_gC
 
+    # 获取数据类型最大可表示值的倒数，用于量化缩放因子计算
     @staticmethod
     def get_dtype_rcp_limits(dtype: Type[cutlass.Numeric]) -> float:
         """
@@ -2092,6 +2105,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
             return 1.0
 
     @staticmethod
+    # 计算A/B/C操作数的级数，基于共享内存容量和占用率启发式
     def _compute_stages(
         tiled_mma: cute.TiledMma,
         mma_tiler_mnk: Tuple[int, int, int],
@@ -2203,6 +2217,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         return num_acc_stage, num_ab_stage, num_c_stage
 
     @staticmethod
+    # 使用持久化分块调度器计算网格大小
     def _compute_grid(
         c: cute.Tensor,
         cta_tile_shape_mnk: Tuple[int, int, int],
@@ -2240,6 +2255,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         return tile_sched_params, grid
 
     @staticmethod
+    # 检查数据类型和缩放因子向量大小是否为有效组合
     def is_valid_dtypes_and_scale_factor_vec_size(
         ab_dtype: Type[cutlass.Numeric],
         sf_dtype: Type[cutlass.Numeric],
@@ -2299,6 +2315,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         return is_valid
 
     @staticmethod
+    # 检查布局和数据类型是否为有效组合
     def is_valid_layouts(
         ab_dtype: Type[cutlass.Numeric],
         c_dtype: Type[cutlass.Numeric],
@@ -2334,6 +2351,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         return is_valid
 
     @staticmethod
+    # 检查MMA平铺和集群形状是否有效
     def is_valid_mma_tiler_and_cluster_shape(
         mma_tiler_mn: Tuple[int, int],
         cluster_shape_mn: Tuple[int, int],
@@ -2379,6 +2397,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         return is_valid
 
     @staticmethod
+    # 检查张量对齐是否有效
     def is_valid_tensor_alignment(
         m: int,
         n: int,
@@ -2432,6 +2451,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         return is_valid
 
     @staticmethod
+    # 检查GEMM是否可以被实现
     def can_implement(
         ab_dtype: Type[cutlass.Numeric],
         sf_dtype: Type[cutlass.Numeric],
@@ -2515,6 +2535,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         return can_implement
 
     @cute.jit
+    # 包装函数：从原始指针创建CUTE张量并调用内核
     def wrapper(
         self,
         a_ptr: cute.Pointer,
@@ -2648,6 +2669,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
 
 
 @cute.jit
+# 将缩放因子张量从MKL布局转换为MMA规范的M(32x4xrest_m)xK(4xrest_k)xL布局
 def cvt_sf_MKL_to_M32x4xrm_K4xrk_L(
     sf_ref_tensor: cute.Tensor,
     sf_mma_tensor: cute.Tensor,
@@ -2663,6 +2685,7 @@ def cvt_sf_MKL_to_M32x4xrm_K4xrk_L(
 
 
 @cute.jit
+# 将缩放因子张量从MMA规范布局转换为MKL布局
 def cvt_sf_M32x4xrm_K4xrk_L_to_MKL(
     sf_mma_tensor: cute.Tensor,
     sf_ref_tensor: cute.Tensor,
@@ -2680,20 +2703,24 @@ def cvt_sf_M32x4xrm_K4xrk_L_to_MKL(
 # ---------------------------------------------------------------------------
 # SGLang-side wrapper, helpers, and per-shape compile cache.
 # ---------------------------------------------------------------------------
+# SGLang侧包装器、辅助函数和按形状编译缓存。
+# ---------------------------------------------------------------------------
 
-import torch  # noqa: E402
-from flashinfer.cute_dsl.utils import (  # noqa: E402
+import torch  # noqa: E402  # 导入PyTorch（延迟导入）
+from flashinfer.cute_dsl.utils import (  # noqa: E402  # 导入FlashInfer CUTE DSL工具函数
     get_cutlass_dtype,
     get_max_active_clusters,
     make_ptr,
 )
-from flashinfer.utils import get_compute_capability  # noqa: E402
+from flashinfer.utils import get_compute_capability  # noqa: E402  # 导入FlashInfer计算能力查询函数
 
 
+# 向上取整到指定倍数
 def _round_up(value: int, multiple: int) -> int:
     return (value + multiple - 1) // multiple * multiple
 
 
+# 将[linear all][gate all]重写为[linear chunk][gate chunk]交错格式，匹配FC1 GEMM+SwiGLU布局
 def interleave_linear_and_gate(
     tensor: torch.Tensor,
     group_size: int = 64,
@@ -2730,6 +2757,7 @@ def interleave_linear_and_gate(
     )
 
 
+# 标准CUTLASS块缩放2D混洗：填充到(128,4)平铺后重排为FP4 GEMM内核读取的布局
 def swizzle_blockscale_2d(scales: torch.Tensor) -> torch.Tensor:
     """Standard CUTLASS block-scale 2D swizzle: pad to (128, 4) tiles then
     permute into the layout the FP4 GEMM kernel reads."""
@@ -2744,9 +2772,10 @@ def swizzle_blockscale_2d(scales: torch.Tensor) -> torch.Tensor:
     return padded.contiguous().reshape(M_padded, K_padded)
 
 
-_compiled_kernel_cache: dict[tuple, object] = {}
+_compiled_kernel_cache: dict[tuple, object] = {}  # 编译内核缓存字典
 
 
+# 获取带缓存的编译内核，按形状和配置参数缓存
 def _get_compiled(
     *,
     a_ptr,
@@ -2822,6 +2851,7 @@ def _get_compiled(
     return compiled
 
 
+# NVFP4 GEMM融合SwiGLU和NVFP4输出量化，返回FP4输出和缩放因子
 def nvfp4_gemm_swiglu_nvfp4_quant(
     a: torch.Tensor,
     a_scale: torch.Tensor,
@@ -2857,16 +2887,16 @@ def nvfp4_gemm_swiglu_nvfp4_quant(
     Returns:
         ``(out_fp4, out_scale)`` directly consumable by the NVFP4 ``down_proj``.
     """
-    if ab_dtype != "float4_e2m1fn" or c_dtype != "float4_e2m1fn":
+    if ab_dtype != "float4_e2m1fn" or c_dtype != "float4_e2m1fn":  # 仅支持NVFP4输入和输出
         raise ValueError(
             "nvfp4_gemm_swiglu_nvfp4_quant currently supports NVFP4 input "
             "and output only"
         )
-    if a.device.type != "cuda" or b.device.type != "cuda":
+    if a.device.type != "cuda" or b.device.type != "cuda":  # 需要CUDA张量
         raise ValueError("nvfp4_gemm_swiglu_nvfp4_quant requires CUDA tensors")
 
     major, minor = get_compute_capability(a.device)
-    if major != 10:
+    if major != 10:  # 需要SM100架构
         raise ValueError(
             f"nvfp4_gemm_swiglu_nvfp4_quant requires SM100, got SM{major}{minor}"
         )
@@ -2894,7 +2924,7 @@ def nvfp4_gemm_swiglu_nvfp4_quant(
     c_dtype_cutlass = get_cutlass_dtype(c_dtype)
 
     if m <= 128:
-        mma_tiler_mn, cluster_shape_mn = (128, 128), (1, 2)
+        mma_tiler_mn, cluster_shape_mn = (128, 128), (1, 2)  # 根据M大小选择MMA平铺和集群形状
     else:
         mma_tiler_mn, cluster_shape_mn = (256, 128), (2, 1)
 
@@ -2920,9 +2950,9 @@ def nvfp4_gemm_swiglu_nvfp4_quant(
         )
 
     if out is None:
-        out = torch.empty((m, n_out // 2), dtype=torch.uint8, device=a.device)
+        out = torch.empty((m, n_out // 2), dtype=torch.uint8, device=a.device)  # 创建输出FP4张量
     if out_scale is None:
-        out_scale = torch.empty(
+        out_scale = torch.empty(  # 创建输出缩放因子张量
             (padded_m, padded_scale_n),
             dtype=torch.float8_e4m3fn,
             device=a.device,
@@ -2958,8 +2988,8 @@ def nvfp4_gemm_swiglu_nvfp4_quant(
         cute.AddressSpace.gmem,
     )
 
-    stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
-    max_active_clusters = get_max_active_clusters(
+    stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)  # 获取CUDA流
+    max_active_clusters = get_max_active_clusters(  # 获取最大活跃集群数
         cluster_shape_mn[0] * cluster_shape_mn[1]
     )
 
@@ -3008,7 +3038,7 @@ def nvfp4_gemm_swiglu_nvfp4_quant(
     return out, out_scale
 
 
-__all__ = [
+__all__ = [  # 模块公开接口
     "interleave_linear_and_gate",
     "nvfp4_gemm_swiglu_nvfp4_quant",
     "swizzle_blockscale_2d",

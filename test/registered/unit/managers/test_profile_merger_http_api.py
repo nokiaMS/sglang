@@ -1,3 +1,4 @@
+# 文件名: test_profile_merger_http_api.py - 性能分析合并HTTP API
 import json
 import unittest
 
@@ -13,7 +14,10 @@ register_amd_ci(est_time=9, suite="stage-b-test-1-gpu-small-amd")
 register_cpu_ci(est_time=8, suite="base-b-test-cpu")
 
 
+# TestProfileMergerHTTPAPI类
 class TestProfileMergerHTTPAPI(unittest.TestCase):
+
+    # TestProfileMergerHTTPAPI类的测试profilereqinputmergeprofilesjsonserialization
     def test_profile_req_input_merge_profiles_json_serialization(self):
         # Test with merge_profiles=True
         req_input = ProfileReqInput(
@@ -37,12 +41,13 @@ class TestProfileMergerHTTPAPI(unittest.TestCase):
         json_str = json.dumps(req_dict)
         parsed_data = json.loads(json_str)
 
-        self.assertTrue(parsed_data["merge_profiles"])
-        self.assertEqual(parsed_data["output_dir"], "/tmp/test")
-        self.assertEqual(parsed_data["num_steps"], 5)
-        self.assertEqual(parsed_data["activities"], ["CPU", "GPU"])
-        self.assertTrue(parsed_data["profile_by_stage"])
+        self.assertTrue(parsed_data["merge_profiles"])  # 断言为真
+        self.assertEqual(parsed_data["output_dir"], "/tmp/test")  # 断言相等
+        self.assertEqual(parsed_data["num_steps"], 5)  # 断言相等
+        self.assertEqual(parsed_data["activities"], ["CPU", "GPU"])  # 断言相等
+        self.assertTrue(parsed_data["profile_by_stage"])  # 断言为真
 
+    # TestProfileMergerHTTPAPI类的测试profilereqinputmergeprofilesjsondeserialization
     def test_profile_req_input_merge_profiles_json_deserialization(self):
         # Test JSON data as would come from HTTP request
         json_data = {
@@ -56,25 +61,28 @@ class TestProfileMergerHTTPAPI(unittest.TestCase):
         # Create ProfileReqInput from dict (as HTTP server would do)
         req_input = ProfileReqInput(**json_data)
 
-        self.assertTrue(req_input.merge_profiles)
-        self.assertEqual(req_input.output_dir, "/tmp/test")
-        self.assertEqual(req_input.num_steps, 10)
-        self.assertEqual(req_input.activities, ["CPU", "GPU", "MEM"])
-        self.assertFalse(req_input.profile_by_stage)
+        self.assertTrue(req_input.merge_profiles)  # 断言为真
+        self.assertEqual(req_input.output_dir, "/tmp/test")  # 断言相等
+        self.assertEqual(req_input.num_steps, 10)  # 断言相等
+        self.assertEqual(req_input.activities, ["CPU", "GPU", "MEM"])  # 断言相等
+        self.assertFalse(req_input.profile_by_stage)  # 断言为假
 
+    # TestProfileMergerHTTPAPI类的测试profilereqinputmergeprofilesdefaultvalue
     def test_profile_req_input_merge_profiles_default_value(self):
         # Test with minimal data
         json_data = {"output_dir": "/tmp/test"}
 
         req_input = ProfileReqInput(**json_data)
-        self.assertFalse(req_input.merge_profiles)
+        self.assertFalse(req_input.merge_profiles)  # 断言为假
 
+    # TestProfileMergerHTTPAPI类的测试profilereqinputmergeprofilesexplicitfalse
     def test_profile_req_input_merge_profiles_explicit_false(self):
         json_data = {"output_dir": "/tmp/test", "merge_profiles": False}
 
         req_input = ProfileReqInput(**json_data)
-        self.assertFalse(req_input.merge_profiles)
+        self.assertFalse(req_input.merge_profiles)  # 断言为假
 
+    # TestProfileMergerHTTPAPI类的测试httpapiparameterflow
     def test_http_api_parameter_flow(self):
         # Simulate HTTP request data
         request_data = {
@@ -89,33 +97,35 @@ class TestProfileMergerHTTPAPI(unittest.TestCase):
         obj = ProfileReqInput(**request_data)
 
         # Verify the parameter is set correctly
-        self.assertTrue(obj.merge_profiles)
-        self.assertEqual(obj.output_dir, "/tmp/test")
-        self.assertEqual(obj.num_steps, 5)
-        self.assertEqual(obj.activities, ["CPU", "GPU"])
-        self.assertTrue(obj.profile_by_stage)
+        self.assertTrue(obj.merge_profiles)  # 断言为真
+        self.assertEqual(obj.output_dir, "/tmp/test")  # 断言相等
+        self.assertEqual(obj.num_steps, 5)  # 断言相等
+        self.assertEqual(obj.activities, ["CPU", "GPU"])  # 断言相等
+        self.assertTrue(obj.profile_by_stage)  # 断言为真
 
+    # TestProfileMergerHTTPAPI类的测试httpapiparametervalidation
     def test_http_api_parameter_validation(self):
         # Test with True
         json_data = {"merge_profiles": True}
         req_input = ProfileReqInput(**json_data)
-        self.assertTrue(req_input.merge_profiles)
+        self.assertTrue(req_input.merge_profiles)  # 断言为真
 
         # Test with False
         json_data = {"merge_profiles": False}
         req_input = ProfileReqInput(**json_data)
-        self.assertFalse(req_input.merge_profiles)
+        self.assertFalse(req_input.merge_profiles)  # 断言为假
 
         # Test with string "true" (should be converted by JSON parser)
         json_data = {"merge_profiles": "true"}
         req_input = ProfileReqInput(**json_data)
-        self.assertEqual(req_input.merge_profiles, "true")  # String, not boolean
+        self.assertEqual(req_input.merge_profiles, "true")  # String, not boolean  # 断言相等
 
+    # TestProfileMergerHTTPAPI类的测试httpapibackwardcompatibility
     def test_http_api_backward_compatibility(self):
         # Test minimal request (no merge_profiles)
         json_data = {}
         req_input = ProfileReqInput(**json_data)
-        self.assertFalse(req_input.merge_profiles)  # Should default to False
+        self.assertFalse(req_input.merge_profiles)  # Should default to False  # 断言为假
 
         # Test with other parameters but no merge_profiles
         json_data = {
@@ -124,8 +134,9 @@ class TestProfileMergerHTTPAPI(unittest.TestCase):
             "activities": ["CPU", "GPU"],
         }
         req_input = ProfileReqInput(**json_data)
-        self.assertFalse(req_input.merge_profiles)  # Should default to False
+        self.assertFalse(req_input.merge_profiles)  # Should default to False  # 断言为假
 
+    # TestProfileMergerHTTPAPI类的测试httpapiparametercombinations
     def test_http_api_parameter_combinations(self):
         test_cases = [
             {
@@ -164,7 +175,7 @@ class TestProfileMergerHTTPAPI(unittest.TestCase):
         for test_case in test_cases:
             with self.subTest(test_case["name"]):
                 req_input = ProfileReqInput(**test_case["data"])
-                self.assertEqual(req_input.merge_profiles, test_case["expected_merge"])
+                self.assertEqual(req_input.merge_profiles, test_case["expected_merge"])  # 断言相等
 
 
 if __name__ == "__main__":

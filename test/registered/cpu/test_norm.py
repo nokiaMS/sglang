@@ -1,3 +1,4 @@
+# 文件名: test_norm.py - 归一化算子测试
 import itertools
 import unittest
 from typing import Optional, Tuple, Union
@@ -15,6 +16,7 @@ torch.manual_seed(1234)
 
 class TestNorm(CustomTestCase):
 
+    # 执行forwardnative
     def _forward_native(
         self,
         x: torch.Tensor,
@@ -36,16 +38,19 @@ class TestNorm(CustomTestCase):
         else:
             return x, residual
 
+    # 执行norm
     def _norm(self, x, eps):
         return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + eps)
 
+    # 执行gemma3rmsnormnative
     def _gemma3_rmsnorm_native(
         self, x: torch.Tensor, weight: torch.Tensor, variance_epsilon: float = 1e-6
     ):
-        output = self._norm(x.float(), variance_epsilon)
-        output = output * (1.0 + weight.float())
+        output = self._norm(x.float(), variance_epsilon)  # 转换为单精度
+        output = output * (1.0 + weight.float())  # 转换为单精度
         return output.type_as(x)
 
+    # 执行gemmarmsnormnative
     def _gemma_rmsnorm_native(
         self,
         x: torch.Tensor,
@@ -58,10 +63,10 @@ class TestNorm(CustomTestCase):
             x = x + residual
             residual = x
 
-        x = x.float()
+        x = x.float()  # 转换为单精度
         variance = x.pow(2).mean(dim=-1, keepdim=True)
         x = x * torch.rsqrt(variance + variance_epsilon)
-        x = x * (1.0 + weight.float())
+        x = x * (1.0 + weight.float())  # 转换为单精度
         x = x.to(orig_dtype)
         return x if residual is None else (x, residual)
 
@@ -70,6 +75,7 @@ class TestNorm(CustomTestCase):
         n=[4096, 4109],
         dtype=[torch.float16, torch.bfloat16],
     )
+    # 测试norm
     def test_norm(self, m, n, dtype):
 
         x = torch.randn([m, n], dtype=dtype)
@@ -105,6 +111,7 @@ class TestNorm(CustomTestCase):
         n=[4096, 4109],
         dtype=[torch.float16, torch.bfloat16],
     )
+    # 测试norm3d
     def test_norm_3d(self, l, m, n, dtype):
 
         x = torch.randn([l, m, n], dtype=dtype)
@@ -139,6 +146,7 @@ class TestNorm(CustomTestCase):
         n=[4096, 4109],
         dtype=[torch.float16, torch.bfloat16],
     )
+    # 测试l2norm
     def test_l2norm(self, m, n, dtype):
 
         x = torch.randn([m, n], dtype=dtype)
@@ -157,6 +165,7 @@ class TestNorm(CustomTestCase):
         n=[4096, 4109],
         dtype=[torch.float16, torch.bfloat16],
     )
+    # 测试gemmarmsnorm
     def test_gemma_rmsnorm(self, m, n, dtype):
 
         x = torch.randn([m, n], dtype=dtype)
@@ -191,6 +200,7 @@ class TestNorm(CustomTestCase):
         n=[4096, 4109],
         dtype=[torch.float16, torch.bfloat16],
     )
+    # 测试gemma3rmsnorm
     def test_gemma3_rmsnorm(self, m, n, dtype):
         x_list = [
             torch.randn([m, n], dtype=dtype),
@@ -207,6 +217,7 @@ class TestNorm(CustomTestCase):
             atol = rtol = precision[ref_out.dtype]
             torch.testing.assert_close(ref_out, out, atol=atol, rtol=rtol)
 
+    # 执行gemma4rmsnormnative
     def _gemma4_rmsnorm_native(
         self,
         x: torch.Tensor,
@@ -215,9 +226,9 @@ class TestNorm(CustomTestCase):
         scale_shift: float = 0.0,
         with_scale: bool = True,
     ):
-        output = self._norm(x.float(), variance_epsilon)
+        output = self._norm(x.float(), variance_epsilon)  # 转换为单精度
         if with_scale:
-            output = output * (weight.float() + scale_shift)
+            output = output * (weight.float() + scale_shift)  # 转换为单精度
         return output.type_as(x)
 
     @parametrize(
@@ -225,6 +236,7 @@ class TestNorm(CustomTestCase):
         n=[4096, 4109],
         dtype=[torch.float16, torch.bfloat16],
     )
+    # 测试gemma4rmsnorm
     def test_gemma4_rmsnorm(self, m, n, dtype):
         for scale_shift, with_scale in [
             (0.0, True),
@@ -262,6 +274,7 @@ class TestFusedRMSNormGated(CustomTestCase):
     N = [4096, 4096 + 13]
     dtype = [torch.float16, torch.bfloat16]
 
+    # 执行forwardnative
     def _forward_native(
         self,
         hidden_states: torch.Tensor,
@@ -279,6 +292,7 @@ class TestFusedRMSNormGated(CustomTestCase):
 
         return hidden_states.to(input_dtype)
 
+    # 执行normtest
     def _norm_test(self, m, n, dtype):
 
         x = torch.randn([m, n], dtype=dtype)
@@ -297,6 +311,7 @@ class TestFusedRMSNormGated(CustomTestCase):
         atol = rtol = precision[ref_out.dtype] * 2
         torch.testing.assert_close(ref_out, out, atol=atol, rtol=rtol)
 
+    # 测试norm
     def test_norm(self):
         for params in itertools.product(self.M, self.N, self.dtype):
             with self.subTest(m=params[0], n=params[1], dtype=params[2]):
@@ -305,6 +320,7 @@ class TestFusedRMSNormGated(CustomTestCase):
 
 class TestLayerNorm(CustomTestCase):
 
+    # 执行forwardnative
     def _forward_native(
         self,
         x: torch.Tensor,
@@ -332,6 +348,7 @@ class TestLayerNorm(CustomTestCase):
         n=[4096, 4109],
         dtype=[torch.float16, torch.bfloat16],
     )
+    # 测试norminput2d
     def test_norm_input_2d(self, m: int, n: int, dtype: torch.dtype) -> None:
         x = torch.randn([m, n], dtype=dtype)
         x = make_non_contiguous(x)
@@ -384,6 +401,7 @@ class TestLayerNorm(CustomTestCase):
         n=[4096, 4109, 2304],
         dtype=[torch.float16, torch.bfloat16],
     )
+    # 测试norminput3d
     def test_norm_input_3d(self, l: int, m: int, n: int, dtype: torch.dtype) -> None:
         x = torch.randn([l, m, n], dtype=dtype)
         x = make_non_contiguous(x)

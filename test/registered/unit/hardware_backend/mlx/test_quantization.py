@@ -1,3 +1,4 @@
+# 文件名: test_quantization.py - 量化
 """Unit tests for MLX backend on-the-fly quantization.
 
 Covers:
@@ -40,12 +41,16 @@ _TEST_MODEL_PREQUANT = "mlx-community/Qwen3-0.6B-4bit"
 
 
 @unittest.skipUnless(_IS_APPLE_SILICON and _HAS_MLX, _SKIP_REASON)
+
+# TestMlxQuantization类
 class TestMlxQuantization(unittest.TestCase):
     """Smoke tests for --quantization mlx_q4 / mlx_q8 in MlxModelRunner."""
 
     # ---------- helpers ----------
 
     @staticmethod
+
+    # TestMlxQuantization类的内部方法_module_counts
     def _module_counts(model) -> tuple[int, int]:
         n_quant, n_linear = 0, 0
         for _, m in model.named_modules():
@@ -57,12 +62,15 @@ class TestMlxQuantization(unittest.TestCase):
         return n_quant, n_linear
 
     @staticmethod
+
+    # TestMlxQuantization类的内部方法_reset_mlx_memory
     def _reset_mlx_memory() -> None:
         import mlx.core as mx
 
         gc.collect()
         mx.clear_cache()
 
+    # TestMlxQuantization类的内部方法_build_runner
     def _build_runner(self, model_path: str, quantization: str | None):
         from sglang.srt.hardware_backend.mlx.model_runner import MlxModelRunner
 
@@ -80,10 +88,10 @@ class TestMlxQuantization(unittest.TestCase):
         runner = self._build_runner(_TEST_MODEL, "mlx_q4")
         try:
             n_quant, n_linear = self._module_counts(runner.model)
-            self.assertGreater(
+            self.assertGreater(  # 断言大于
                 n_quant, 0, "expected at least one QuantizedLinear module"
             )
-            self.assertEqual(
+            self.assertEqual(  # 断言相等
                 n_linear,
                 0,
                 f"all Linear modules should have been quantized, got {n_linear} remaining",
@@ -92,6 +100,7 @@ class TestMlxQuantization(unittest.TestCase):
             del runner
             self._reset_mlx_memory()
 
+    # TestMlxQuantization类的测试mlxq4reducesmemoryvsfp16
     def test_mlx_q4_reduces_memory_vs_fp16(self):
         """mlx_q4 should use meaningfully less memory than the fp16 baseline."""
         import mlx.core as mx
@@ -112,25 +121,27 @@ class TestMlxQuantization(unittest.TestCase):
         # Conservative: expect at least 40% reduction. On Qwen3-0.6B we measured ~72%;
         # 40% leaves headroom for different mlx_lm versions, model shapes, etc.
         reduction = 1 - (mem_q4 / max(mem_fp, 1))
-        self.assertGreater(
+        self.assertGreater(  # 断言大于
             reduction,
             0.40,
             f"expected >40% memory reduction with mlx_q4, got {reduction*100:.1f}% "
             f"(fp16={mem_fp/1024**3:.2f} GB, q4={mem_q4/1024**3:.2f} GB)",
         )
 
+    # TestMlxQuantization类的测试mlxq8createsquantizedlinearmodules
     def test_mlx_q8_creates_quantized_linear_modules(self):
         """Same check for the 8-bit variant."""
         self._reset_mlx_memory()
         runner = self._build_runner(_TEST_MODEL, "mlx_q8")
         try:
             n_quant, n_linear = self._module_counts(runner.model)
-            self.assertGreater(n_quant, 0)
-            self.assertEqual(n_linear, 0)
+            self.assertGreater(n_quant, 0)  # 断言大于
+            self.assertEqual(n_linear, 0)  # 断言相等
         finally:
             del runner
             self._reset_mlx_memory()
 
+    # TestMlxQuantization类的测试mlxq4generatestext
     def test_mlx_q4_generates_text(self):
         """After on-the-fly quantization the model must still generate non-empty text."""
         from mlx_lm import generate
@@ -148,13 +159,14 @@ class TestMlxQuantization(unittest.TestCase):
                 verbose=False,
             )
             self.assertIsInstance(output, str)
-            self.assertGreater(
+            self.assertGreater(  # 断言大于
                 len(output.strip()), 0, "generation returned empty string"
             )
         finally:
             del runner
             self._reset_mlx_memory()
 
+    # TestMlxQuantization类的测试prequantizedhfrepopassthrough
     def test_pre_quantized_hf_repo_passthrough(self):
         """Loading mlx-community/<model>-4bit must still work (mlx_lm passthrough,
         regression guard for the no-quantization-flag path).
@@ -163,7 +175,7 @@ class TestMlxQuantization(unittest.TestCase):
         runner = self._build_runner(_TEST_MODEL_PREQUANT, quantization=None)
         try:
             n_quant, n_linear = self._module_counts(runner.model)
-            self.assertGreater(
+            self.assertGreater(  # 断言大于
                 n_quant,
                 0,
                 "pre-quantized HF repo should load as QuantizedLinear without --quantization",
@@ -172,6 +184,7 @@ class TestMlxQuantization(unittest.TestCase):
             del runner
             self._reset_mlx_memory()
 
+    # TestMlxQuantization类的测试quantizeflagonalreadyquantizedmodelisnoop
     def test_quantize_flag_on_already_quantized_model_is_noop(self):
         """Passing --quantization mlx_q4 on a pre-quantized repo should NOT double-quantize."""
         self._reset_mlx_memory()
@@ -180,13 +193,14 @@ class TestMlxQuantization(unittest.TestCase):
         runner = self._build_runner(_TEST_MODEL_PREQUANT, "mlx_q4")
         try:
             n_quant, n_linear = self._module_counts(runner.model)
-            self.assertGreater(n_quant, 0)
-            self.assertEqual(n_linear, 0)
+            self.assertGreater(n_quant, 0)  # 断言大于
+            self.assertEqual(n_linear, 0)  # 断言相等
         finally:
             del runner
             self._reset_mlx_memory()
 
 
+# TestMlxQuantizationOverride类
 class TestMlxQuantizationOverride(unittest.TestCase):
     """Pure-logic tests for ``MlxQuantizationConfig.override_quantization_method``.
 
@@ -199,75 +213,79 @@ class TestMlxQuantizationOverride(unittest.TestCase):
         result = MlxQuantizationConfig.override_quantization_method(
             {"group_size": 64, "bits": 4}, None
         )
-        self.assertEqual(result, "mlx_q4")
+        self.assertEqual(result, "mlx_q4")  # 断言相等
 
+    # TestMlxQuantizationOverride类的测试mlxq8dictconfigautodetect
     def test_mlx_q8_dict_config_autodetect(self):
         """Bare {group_size, bits=8} dict maps to mlx_q8."""
         result = MlxQuantizationConfig.override_quantization_method(
             {"group_size": 32, "bits": 8}, None
         )
-        self.assertEqual(result, "mlx_q8")
+        self.assertEqual(result, "mlx_q8")  # 断言相等
 
+    # TestMlxQuantizationOverride类的测试nonmlxdictnotmatched
     def test_non_mlx_dict_not_matched(self):
         """Dicts with an explicit quant_method belong to that method, not ours."""
         # modelopt-style: explicit quant_method takes priority.
-        self.assertIsNone(
+        self.assertIsNone(  # 断言为None
             MlxQuantizationConfig.override_quantization_method(
                 {"quant_method": "modelopt", "bits": 4, "group_size": 64}, None
             )
         )
         # gptq-style: same.
-        self.assertIsNone(
+        self.assertIsNone(  # 断言为None
             MlxQuantizationConfig.override_quantization_method(
                 {"quant_method": "gptq", "bits": 4, "group_size": 128}, None
             )
         )
 
+    # TestMlxQuantizationOverride类的测试nondictnotmatched
     def test_non_dict_not_matched(self):
         """Non-dict inputs and malformed dicts return None."""
         # None / string inputs.
-        self.assertIsNone(
+        self.assertIsNone(  # 断言为None
             MlxQuantizationConfig.override_quantization_method(None, None)
         )
-        self.assertIsNone(
+        self.assertIsNone(  # 断言为None
             MlxQuantizationConfig.override_quantization_method("mlx_q4", None)
         )
         # Missing keys.
-        self.assertIsNone(
+        self.assertIsNone(  # 断言为None
             MlxQuantizationConfig.override_quantization_method({"bits": 4}, None)
         )
-        self.assertIsNone(
+        self.assertIsNone(  # 断言为None
             MlxQuantizationConfig.override_quantization_method({"group_size": 64}, None)
         )
         # Non-integer values.
-        self.assertIsNone(
+        self.assertIsNone(  # 断言为None
             MlxQuantizationConfig.override_quantization_method(
                 {"bits": "4", "group_size": 64}, None
             )
         )
         # Unsupported bit-width.
-        self.assertIsNone(
+        self.assertIsNone(  # 断言为None
             MlxQuantizationConfig.override_quantization_method(
                 {"bits": 2, "group_size": 64}, None
             )
         )
 
+    # TestMlxQuantizationOverride类的测试userquantexplicitdeferstouser
     def test_user_quant_explicit_defers_to_user(self):
         """When the user passes --quantization explicitly, defer to that choice."""
         # User chose mlx_q8 explicitly, even though config dict shape suggests q4
-        self.assertIsNone(
+        self.assertIsNone(  # 断言为None
             MlxQuantizationConfig.override_quantization_method(
                 {"group_size": 64, "bits": 4}, "mlx_q8"
             )
         )
         # User chose mlx_q4 explicitly with matching config
-        self.assertIsNone(
+        self.assertIsNone(  # 断言为None
             MlxQuantizationConfig.override_quantization_method(
                 {"group_size": 64, "bits": 4}, "mlx_q4"
             )
         )
         # User chose something completely different
-        self.assertIsNone(
+        self.assertIsNone(  # 断言为None
             MlxQuantizationConfig.override_quantization_method(
                 {"group_size": 64, "bits": 4}, "fp8"
             )

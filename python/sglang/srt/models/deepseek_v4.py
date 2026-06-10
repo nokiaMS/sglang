@@ -1,3 +1,11 @@
+# DeepSeek V4 模型实现
+# 本文件实现了 DeepSeek V4（又名 DeepSeek-R2）大语言模型的完整推理逻辑，
+# 包括 MQA（Multi-Query Attention）注意力层、MHC（Multi-Head Collaboration）
+# 混合协作机制、MoE（Mixture of Experts）专家混合层、以及模型的权重加载与
+# 前向推理流程。该模型采用 MLA（Multi-head Latent Attention）压缩架构，
+# 支持 DP Attention、Context Parallelism、Pipeline Parallelism 等分布式策略，
+# 并针对 CUDA 和 ROCm（AMD）平台提供了融合算子优化路径。
+
 from __future__ import annotations
 
 import concurrent.futures
@@ -116,13 +124,14 @@ from sglang.srt.utils.hf_transformers_utils import get_rope_config
 
 logger = logging.getLogger(__name__)
 
-_FP8_WO_A_GEMM = envs.SGLANG_OPT_FP8_WO_A_GEMM.get()
-_MHC_POST_MULT_VALUE = 2.0
+_FP8_WO_A_GEMM = envs.SGLANG_OPT_FP8_WO_A_GEMM.get()  # 是否启用 FP8 wo_a GEMM 优化
+_MHC_POST_MULT_VALUE = 2.0  # MHC 后处理乘数常量
 
 
 def _is_fused_mhc_post_pre_enabled() -> bool:
     # The fused path directly reuses TileLang mhc_post/mhc_pre kernels and their
     # tensor layout assumptions, so keep it disabled when either dependency is off.
+    # 判断是否启用融合的 MHC post/pre 路径，需要同时开启三个相关环境变量
     return (
         envs.SGLANG_OPT_FUSE_MHC_POST_PRE.get()
         and envs.SGLANG_OPT_USE_TILELANG_MHC_PRE.get()
@@ -130,15 +139,17 @@ def _is_fused_mhc_post_pre_enabled() -> bool:
     )
 
 
-_use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
-_is_gfx95_supported = is_gfx95_supported()
+_use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip  # 是否在 ROCm 平台启用 aiter 算子库
+_is_gfx95_supported = is_gfx95_supported()  # 是否支持 AMD gfx95 架构
 
 if _use_aiter:
     if _is_gfx95_supported:
+        # 在 AMD gfx95 平台上导入 aiter 的融合 RMSNorm + FP8 量化算子
         from aiter.ops.triton.fused_fp8_quant import fused_rms_fp8_group_quant
 
 
 def _fused_rmsnorm_fp8_quant(hidden_states, weight, eps):
+    # 融合 RMSNorm 与 FP8 量化：对隐藏状态做 RMS 归一化并量化为 FP8，同时返回 bf16 结果
     x_quant, x_bf16, _, _ = fused_rms_fp8_group_quant(
         hidden_states,
         weight,
@@ -156,7 +167,7 @@ def _fused_rmsnorm_fp8_quant(hidden_states, weight, eps):
 
 _FREQS_CIS_TO_COS_SIN: dict[
     Tuple[int, torch.dtype, torch.device], Tuple[torch.Tensor, torch.Tensor]
-] = {}
+] = {}  # 频率复数到 cos/sin 的缓存字典，避免重复计算
 
 
 def _freqs_cis_to_cos_sin(
@@ -165,6 +176,7 @@ def _freqs_cis_to_cos_sin(
     """Derive (cos, sin) bf16 contiguous tables from a complex64 `freqs_cis`,
     cached by `(id(freqs_cis), dtype, device)` so that all layers sharing the
     same `freqs_cis` (via `precompute_freqs_cis`'s lru_cache) reuse one pair."""
+    # 从预计算的复数频率表中提取 cos 和 sin 缓存表，按 key 缓存以供所有层复用
     key = (id(freqs_cis), dtype, device)
     cached = _FREQS_CIS_TO_COS_SIN.get(key)
     if cached is not None:
@@ -198,21 +210,22 @@ def _rms_normalize_kernel(
     BLOCK_SIZE: tl.constexpr,
     HAS_WEIGHT: tl.constexpr,
 ):
-    pid = tl.program_id(0)
+    # Triton RMS 归一化核函数：对输入做 RMSNorm，可选地乘以权重
+    pid = tl.program_id(0)  # 当前处理的行号
 
     offs = tl.arange(0, BLOCK_SIZE)
     mask = offs < dim
 
     base = pid * stride_row
-    x = tl.load(x_ptr + base + offs, mask=mask, other=0.0).to(tl.float32)
+    x = tl.load(x_ptr + base + offs, mask=mask, other=0.0).to(tl.float32)  # 加载当前行数据
 
-    mean_sq = tl.sum(x * x, axis=0) / dim
-    rms_inv = tl.rsqrt(mean_sq + eps)
-    out = x * rms_inv
+    mean_sq = tl.sum(x * x, axis=0) / dim  # 计算均方值
+    rms_inv = tl.rsqrt(mean_sq + eps)  # 计算 RMS 逆平方根
+    out = x * rms_inv  # 归一化
 
     if HAS_WEIGHT:
         weight = tl.load(weight_ptr + offs, mask=mask, other=0.0)
-        out = out * weight
+        out = out * weight  # 乘以可学习权重
 
     tl.store(x_ptr + base + offs, out, mask=mask)
 
@@ -220,6 +233,7 @@ def _rms_normalize_kernel(
 def rms_normalize_triton(
     x: torch.Tensor, eps: float, weight: torch.Tensor = None
 ) -> torch.Tensor:
+    # 使用 Triton 核函数执行 RMS 归一化，支持可选的权重参数
     dim = x.shape[-1]
     x_flat = x.view(-1, dim)
     num_rows = x_flat.shape[0]
@@ -240,6 +254,9 @@ def rms_normalize_triton(
 
 
 class MQALayer(nn.Module):
+    # MQA（Multi-Query Attention）层：DeepSeek V4 的注意力层实现
+    # 使用单 KV 头的多查询注意力机制，支持 MLA 压缩、RoPE 旋转位置编码、
+    # 以及 Compressor/Indexer 等滑动窗口注意力（SWA）压缩组件
     def __init__(
         self,
         config: DeepSeekV4Config,
@@ -250,33 +267,34 @@ class MQALayer(nn.Module):
         compress_ratio_override: Optional[int] = None,
     ) -> None:
         super().__init__()
-        self.tp_rank = attn_tp_rank = get_attention_tp_rank()
-        self.tp_size = attn_tp_size = get_attention_tp_size()
-        self.dsa_enable_prefill_cp = is_dsa_enable_prefill_cp()
+        self.tp_rank = attn_tp_rank = get_attention_tp_rank()  # 注意力张量并行秩
+        self.tp_size = attn_tp_size = get_attention_tp_size()  # 注意力张量并行大小
+        self.dsa_enable_prefill_cp = is_dsa_enable_prefill_cp()  # 是否启用 DSA prefill 上下文并行
         if self.dsa_enable_prefill_cp:
-            self.cp_size = get_attention_cp_size()
+            self.cp_size = get_attention_cp_size()  # 上下文并行大小
+            # CP 模式下每个 rank 独占全部 Q 头，因此 TP rank/size 设为 0/1
             self.tp_rank = attn_tp_rank = 0
             self.tp_size = attn_tp_size = 1
         self.layer_id = layer_id
         self.dim = config.hidden_size
-        self.qk_rope_head_dim = config.qk_rope_head_dim
-        self.qk_nope_head_dim = config.head_dim - config.qk_rope_head_dim
-        self.head_dim = self.qk_rope_head_dim + self.qk_nope_head_dim
-        self.n_heads = config.num_attention_heads
-        self.n_local_heads = self.n_heads // attn_tp_size
-        self.n_groups = config.o_groups
-        self.n_local_groups = self.n_groups // attn_tp_size
+        self.qk_rope_head_dim = config.qk_rope_head_dim  # Q/K 中应用 RoPE 的维度
+        self.qk_nope_head_dim = config.head_dim - config.qk_rope_head_dim  # Q/K 中不应用 RoPE 的维度
+        self.head_dim = self.qk_rope_head_dim + self.qk_nope_head_dim  # 每个头的总维度
+        self.n_heads = config.num_attention_heads  # 总注意力头数
+        self.n_local_heads = self.n_heads // attn_tp_size  # 当前 TP rank 拥有的头数
+        self.n_groups = config.o_groups  # 输出投影的分组数
+        self.n_local_groups = self.n_groups // attn_tp_size  # 当前 TP rank 拥有的输出分组数
         self.rope_head_dim = config.qk_rope_head_dim
-        self.softmax_scale = self.head_dim**-0.5
+        self.softmax_scale = self.head_dim**-0.5  # 注意力缩放因子
         self.hidden_size = config.hidden_size
-        self.q_lora_rank = config.q_lora_rank
-        self.o_lora_rank = config.o_lora_rank
+        self.q_lora_rank = config.q_lora_rank  # Q 的 LoRA 降维秩
+        self.o_lora_rank = config.o_lora_rank  # 输出投影的 LoRA 降维秩
         self.eps = config.rms_norm_eps
         compress_ratio = (
             compress_ratio_override
             if compress_ratio_override is not None
             else config.compress_ratios[layer_id]
-        )
+        )  # 压缩比率：0=不压缩，4=C4压缩，128=C128压缩
         assert compress_ratio in [0, 4, 128]
         self.compress_ratio: Literal[0, 4, 128] = compress_ratio
 
@@ -287,7 +305,7 @@ class MQALayer(nn.Module):
         if rope_scaling:
             rope_scaling["rope_type"] = "deepseek_yarn"
 
-        rope_base = config.compress_rope_theta if self.compress_ratio else rope_theta
+        rope_base = config.compress_rope_theta if self.compress_ratio else rope_theta  # 压缩层使用不同的 RoPE 基础频率
 
         self.rotary_emb = get_rope_wrapper(
             head_size=self.rope_head_dim,
@@ -307,7 +325,7 @@ class MQALayer(nn.Module):
         else:
             original_seq_len = 0
 
-        freqs_cis = precompute_freqs_cis(
+        freqs_cis = precompute_freqs_cis(  # 预计算 RoPE 旋转位置编码的复数频率表
             dim=self.qk_rope_head_dim,
             seqlen=config.max_position_embeddings,
             original_seq_len=original_seq_len,
@@ -316,16 +334,18 @@ class MQALayer(nn.Module):
             beta_fast=rope_scaling["beta_fast"],
             beta_slow=rope_scaling["beta_slow"],
         )
-        self.register_buffer("freqs_cis", freqs_cis, persistent=False)
+        self.register_buffer("freqs_cis", freqs_cis, persistent=False)  # 注册为 buffer，不随模型保存
         self.freqs_cis: torch.Tensor
 
         if _is_hip:
+            # ROCm 平台：预计算 cos/sin 缓存用于融合 QK norm + RoPE + store 算子
             cos_cache = freqs_cis.real.to(torch.bfloat16).unsqueeze(-2).unsqueeze(-2)
             sin_cache = freqs_cis.imag.to(torch.bfloat16).unsqueeze(-2).unsqueeze(-2)
             self.register_buffer("cos_cache", cos_cache, persistent=False)
             self.register_buffer("sin_cache", sin_cache, persistent=False)
 
         if envs.SGLANG_OPT_USE_MULTI_STREAM_OVERLAP.get() and alt_streams is not None:
+            # 多流并行配置：为 KV 计算、Compressor、Indexer 分配独立的 CUDA 流
             self.alt_streams = alt_streams[:3]
             self.alt_streams_indexer = alt_streams[-2:]
         else:
@@ -334,10 +354,10 @@ class MQALayer(nn.Module):
 
         from sglang.srt.utils import is_blackwell_supported
 
-        self._multi_stream_bs_limit = 128 if is_blackwell_supported() else 64
+        self._multi_stream_bs_limit = 128 if is_blackwell_supported() else 64  # 多流并行的 batch size 上限
 
-        self.compressor = None
-        self.indexer = None
+        self.compressor = None  # 滑动窗口注意力压缩器
+        self.indexer = None  # C4 索引器
         if self.compress_ratio:
             self.compressor = Compressor(
                 config,
@@ -361,10 +381,10 @@ class MQALayer(nn.Module):
                     rotary_emb=getattr(self, "rotary_emb", None),
                 )
 
-        self.attn_sink = nn.Parameter(torch.empty(self.n_heads, dtype=torch.float32))
-        self.fuse_wqa_wkv = envs.SGLANG_OPT_FUSE_WQA_WKV.get()
+        self.attn_sink = nn.Parameter(torch.empty(self.n_heads, dtype=torch.float32))  # 注意力汇聚（sink）参数
+        self.fuse_wqa_wkv = envs.SGLANG_OPT_FUSE_WQA_WKV.get()  # 是否融合 wq_a 和 wkv 为单一线性层
         if self.fuse_wqa_wkv:
-            self.wqkv_a = ReplicatedLinear(
+            self.wqkv_a = ReplicatedLinear(  # 融合的 Q LoRA + KV 投影层
                 self.hidden_size,
                 self.q_lora_rank + self.head_dim,
                 bias=False,
@@ -386,8 +406,8 @@ class MQALayer(nn.Module):
                 quant_config=quant_config,
                 prefix=add_prefix("wkv", prefix),
             )
-        self.q_norm = RMSNorm(self.q_lora_rank, eps=self.eps)
-        self.wq_b = ColumnParallelLinear(
+        self.q_norm = RMSNorm(self.q_lora_rank, eps=self.eps)  # Q 的 RMS 归一化
+        self.wq_b = ColumnParallelLinear(  # Q 的 LoRA 升维投影（列并行）
             self.q_lora_rank,
             self.n_heads * self.head_dim,
             bias=False,
@@ -396,8 +416,8 @@ class MQALayer(nn.Module):
             tp_rank=attn_tp_rank,
             tp_size=attn_tp_size,
         )
-        self.kv_norm = RMSNorm(self.head_dim, eps=self.eps)
-        self.wo_a = ColumnParallelLinear(
+        self.kv_norm = RMSNorm(self.head_dim, eps=self.eps)  # KV 的 RMS 归一化
+        self.wo_a = ColumnParallelLinear(  # 输出投影的 LoRA 降维（列并行）
             self.n_heads * self.head_dim // self.n_groups,
             self.n_groups * self.o_lora_rank,
             bias=False,
@@ -408,11 +428,12 @@ class MQALayer(nn.Module):
             **({} if _FP8_WO_A_GEMM else {"params_dtype": torch.bfloat16}),
         )
         if _FP8_WO_A_GEMM:
+            # FP8 模式下需要 weight_scale_inv 属性，并将其格式设为 UE8M0
             assert hasattr(
                 self.wo_a, "weight_scale_inv"
             ), "FP8 quant_config must create weight_scale_inv"
             self.wo_a.weight_scale_inv.format_ue8m0 = True
-        self.wo_b = RowParallelLinear(
+        self.wo_b = RowParallelLinear(  # 输出投影的 LoRA 升维（行并行）
             self.n_groups * self.o_lora_rank,
             self.hidden_size,
             bias=False,
@@ -423,7 +444,7 @@ class MQALayer(nn.Module):
             tp_size=attn_tp_size,
         )
 
-        self.attn_mqa = RadixAttention(
+        self.attn_mqa = RadixAttention(  # 多查询注意力（单 KV 头）的 Radix 注意力实现
             self.n_local_heads,
             self.head_dim,
             self.softmax_scale,
@@ -433,7 +454,7 @@ class MQALayer(nn.Module):
             prefix=add_prefix("attn_mqa", prefix),
         )
 
-        self.use_fused_qk_norm_rope = (
+        self.use_fused_qk_norm_rope = (  # 是否使用融合的 QK norm + RoPE 算子（仅 ROCm 平台）
             _is_hip and envs.SGLANG_OPT_USE_FUSED_QK_NORM_ROPE.get()
         )
 
@@ -446,8 +467,9 @@ class MQALayer(nn.Module):
         x: torch.Tensor,
         qkv_a: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
+        # 计算 Q 的 LoRA 降维部分（wq_a 投影 + q_norm 归一化）
         if qkv_a is not None:
-            q = qkv_a[..., : self.q_lora_rank]
+            q = qkv_a[..., : self.q_lora_rank]  # 从融合的 qkv_a 中切出 q 部分
         else:
             q, _ = self.wq_a(x)
         return self.q_norm(q)
@@ -458,7 +480,8 @@ class MQALayer(nn.Module):
         positions: torch.Tensor,
         q_out: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        q, _ = self.wq_b(q)
+        # 计算 Q 的 LoRA 升维部分（wq_b 投影 + 融合 norm + RoPE）
+        q, _ = self.wq_b(q)  # LoRA 升维投影
         q = q.view(-1, self.n_local_heads, self.head_dim)
         if q_out is None:
             q_out = torch.empty_like(q)
@@ -478,8 +501,10 @@ class MQALayer(nn.Module):
         Replaces the bf16-kv-intermediate path. Used everywhere except the DSA
         prefill-CP case (which needs bf16 kv for the cross-rank all-gather).
         """
+        # 融合路径：KV 的 RMSNorm + RoPE + 直接写入 FlashMLA 分页缓存
+        # 不产生 bf16 中间结果，除 DSA prefill-CP 场景外均使用此路径
         if qkv_a is not None:
-            kv = qkv_a[..., self.q_lora_rank :]
+            kv = qkv_a[..., self.q_lora_rank :]  # 从融合的 qkv_a 中切出 kv 部分
         else:
             kv, _ = self.wkv(x)
         token_to_kv_pool = get_token_to_kv_pool()
@@ -502,8 +527,9 @@ class MQALayer(nn.Module):
         qkv_a: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Bf16-kv path used by the DSA prefill-CP case (needs all-gather)."""
+        # bf16 KV 路径：用于 DSA prefill-CP 场景，保留 bf16 结果供跨 rank all-gather
         if qkv_a is not None:
-            kv = qkv_a[..., self.q_lora_rank :]
+            kv = qkv_a[..., self.q_lora_rank :]  # 从融合的 qkv_a 中切出 kv 部分
         else:
             kv, _ = self.wkv(x)
         kv = kv.contiguous()
@@ -525,27 +551,29 @@ class MQALayer(nn.Module):
         q_out: Optional[torch.Tensor] = None,
         x_quant=None,
     ) -> torch.Tensor:
+        # CUDA 多流并行前向准备：在独立 CUDA 流上并行执行 KV 缓存写入、
+        # Compressor 和 Indexer，以重叠计算延迟
         assert self.alt_streams is not None
         assert len(self.alt_streams) >= 3
 
         current_stream = torch.cuda.current_stream()
-        stream_kv = self.alt_streams[0]
-        stream_compressor = self.alt_streams[1]
-        stream_indexer = self.alt_streams[2]
+        stream_kv = self.alt_streams[0]  # KV 缓存写入流
+        stream_compressor = self.alt_streams[1]  # Compressor 流
+        stream_indexer = self.alt_streams[2]  # Indexer 流
 
         stream_kv.wait_stream(current_stream)
         stream_compressor.wait_stream(current_stream)
         stream_indexer.wait_stream(current_stream)
 
-        x_linear = x_quant if x_quant is not None else x
+        x_linear = x_quant if x_quant is not None else x  # 优先使用量化后的输入
         qkv_a: Optional[torch.Tensor] = None
         qkv_a_ready: Optional[torch.cuda.Event] = None
         if self.fuse_wqa_wkv:
-            qkv_a, _ = self.wqkv_a(x_linear)
-            qkv_a_ready = current_stream.record_event()
+            qkv_a, _ = self.wqkv_a(x_linear)  # 融合投影得到 Q LoRA + KV
+            qkv_a_ready = current_stream.record_event()  # 记录事件用于流同步
 
-        q_lora = self._compute_q_a(x_linear, qkv_a=qkv_a)
-        q_lora_ready = current_stream.record_event()
+        q_lora = self._compute_q_a(x_linear, qkv_a=qkv_a)  # 计算 Q LoRA
+        q_lora_ready = current_stream.record_event()  # Q LoRA 就绪事件
 
         if self.indexer is not None:
             with torch.cuda.stream(stream_indexer):
@@ -589,12 +617,14 @@ class MQALayer(nn.Module):
         x_quant=None,
     ) -> torch.Tensor:
         """ATOM-style ROCm path: overlap compressors, keep Q/KV on main stream."""
+        # AMD ROCm 平台的多流并行路径：Compressor/Indexer 在副流上运行，
+        # Q 和 KV 计算保持在主流上，以匹配 ATOM 架构特性
         assert self.alt_streams is not None
         assert len(self.alt_streams) >= 1
 
         current_stream = torch.cuda.current_stream()
-        stream_compressor = self.alt_streams[0]
-        stream_indexer_compressor = (
+        stream_compressor = self.alt_streams[0]  # Compressor 副流
+        stream_indexer_compressor = (  # Indexer+Compressor 副流（如有）
             self.alt_streams[1] if len(self.alt_streams) > 1 else None
         )
 
@@ -624,7 +654,9 @@ class MQALayer(nn.Module):
             qkv_a = None
 
         if self.use_fused_qk_norm_rope:
+            # 融合 QK norm + RoPE + SWA cache store 路径（ROCm 专用）
             if _is_gfx95_supported:
+                # gfx95 平台：先做 RMSNorm+FP8量化，再用 FP8 输入做 wq_b GEMM
                 q_for_wqb, q_lora = _fused_rmsnorm_fp8_quant(
                     q_lora,
                     self.q_norm.weight,
@@ -646,13 +678,13 @@ class MQALayer(nn.Module):
             )
 
             token_to_kv_pool = get_token_to_kv_pool()
-            swa_loc = token_to_kv_pool.get_cached_swa_loc(
+            swa_loc = token_to_kv_pool.get_cached_swa_loc(  # 获取 SWA 缓存位置
                 forward_batch.out_cache_loc, self.layer_id
             )
-            swa_cache = token_to_kv_pool.swa_kv_pool.kv_buffer[self.layer_id]
-            swa_page_size = token_to_kv_pool.swa_kv_pool.page_size
+            swa_cache = token_to_kv_pool.swa_kv_pool.kv_buffer[self.layer_id]  # SWA KV 缓存缓冲区
+            swa_page_size = token_to_kv_pool.swa_kv_pool.page_size  # SWA 页大小
 
-            q = fused_qk_norm_rope_swa_store(
+            q = fused_qk_norm_rope_swa_store(  # 融合算子：Q norm + RoPE + KV norm + RoPE + SWA cache 写入
                 q=q,
                 kv=kv,
                 q_norm_weight=None,
@@ -677,7 +709,7 @@ class MQALayer(nn.Module):
         del qkv_a
 
         if self.indexer is not None:
-            current_stream.wait_stream(stream_compressor)
+            current_stream.wait_stream(stream_compressor)  # 等待 Compressor 完成后再执行 Indexer
             if stream_indexer_compressor is not None:
                 current_stream.wait_stream(stream_indexer_compressor)
             self.indexer(
@@ -701,6 +733,7 @@ class MQALayer(nn.Module):
         q_out: Optional[torch.Tensor] = None,
         x_quant=None,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        # 非多流模式的前向准备：顺序计算 Q、KV、Indexer 和 Compressor
         x_linear = x_quant if x_quant is not None else x
         if self.fuse_wqa_wkv:
             qkv_a, _ = self.wqkv_a(x_linear)
@@ -709,12 +742,14 @@ class MQALayer(nn.Module):
             q_lora, _ = self.wq_a(x_linear)
             qkv_a = None
 
-        use_cp = self.dsa_enable_prefill_cp and dsa_use_prefill_cp(forward_batch)
+        use_cp = self.dsa_enable_prefill_cp and dsa_use_prefill_cp(forward_batch)  # 是否使用上下文并行
         kv: Optional[torch.Tensor]
 
         if self.use_fused_qk_norm_rope:
+            # 融合 QK norm + RoPE + SWA cache store 路径
 
             if _is_gfx95_supported:
+                # gfx95 平台：先 RMSNorm+FP8 量化，再 FP8 GEMM
                 q_for_wqb, q_lora = _fused_rmsnorm_fp8_quant(
                     q_lora,
                     self.q_norm.weight,
@@ -742,7 +777,7 @@ class MQALayer(nn.Module):
             swa_cache = token_to_kv_pool.swa_kv_pool.kv_buffer[self.layer_id]
             swa_page_size = token_to_kv_pool.swa_kv_pool.page_size
 
-            q = fused_qk_norm_rope_swa_store(
+            q = fused_qk_norm_rope_swa_store(  # 融合算子：Q norm + RoPE + KV norm + RoPE + SWA cache 写入
                 q=q,
                 kv=kv,
                 q_norm_weight=None,
@@ -763,19 +798,22 @@ class MQALayer(nn.Module):
             if use_cp:
                 # DSA CP: keep bf16 kv around for the cross-rank all-gather, then
                 # write to the FlashMLA cache after gather.
+                # DSA 上下文并行：保留 bf16 KV 用于跨 rank all-gather
                 kv = self._compute_kv_bf16(x, positions, qkv_a=qkv_a)
-                kv = cp_all_gather_rerange_output(
+                kv = cp_all_gather_rerange_output(  # CP all-gather 并重排输出
                     kv.contiguous(),
                     self.cp_size,
                     forward_batch,
                     torch.cuda.current_stream(),
                 )
         else:
+            # 非融合路径：分别计算 Q 和 KV
             q_lora = self.q_norm(q_lora)
             q = self._compute_q_b(q_lora, positions, q_out)
             if use_cp:
                 # NSA CP: keep bf16 kv around for the cross-rank all-gather, then
                 # write to the FlashMLA cache after gather.
+                # NSA 上下文并行：保留 bf16 KV 用于跨 rank all-gather
                 kv = self._compute_kv_bf16(x_linear, positions, qkv_a=qkv_a)
                 kv = cp_all_gather_rerange_output(
                     kv.contiguous(),
@@ -783,7 +821,7 @@ class MQALayer(nn.Module):
                     forward_batch,
                     torch.cuda.current_stream(),
                 )
-                attn_backend.store_cache(
+                attn_backend.store_cache(  # 将 all-gather 后的 KV 写入 FlashMLA 缓存
                     layer_id=self.layer_id,
                     swa_k=kv,
                     forward_batch=forward_batch,
@@ -820,7 +858,9 @@ class MQALayer(nn.Module):
         forward_batch: ForwardBatch,
         x_quant=None,
     ) -> torch.Tensor:
+        # MQALayer 前向传播：计算 Q/KV/注意力/输出投影
         if not get_attn_tp_context().input_scattered and x.shape[0] == 0:
+            # 空 token 输入时直接返回，跳过计算
             assert (
                 not self.wo_b.reduce_results
             ), "short-circuiting allreduce will lead to hangs"
@@ -833,17 +873,18 @@ class MQALayer(nn.Module):
                 (DeepseekV4AttnBackend, DeepseekV4HipRadixBackend),
             )
 
-        enable_multi_stream = (
+        enable_multi_stream = (  # 判断是否启用多流并行重叠
             envs.SGLANG_OPT_USE_MULTI_STREAM_OVERLAP.get()
             and self.alt_streams is not None
-            and get_is_capture_mode()
-            and x.shape[0] <= self._multi_stream_bs_limit
-            and not (self.dsa_enable_prefill_cp and dsa_use_prefill_cp(forward_batch))
-            and not (_is_hip and self.compressor is None)
+            and get_is_capture_mode()  # 仅在 CUDA Graph 捕获模式下启用
+            and x.shape[0] <= self._multi_stream_bs_limit  # batch size 不超过上限
+            and not (self.dsa_enable_prefill_cp and dsa_use_prefill_cp(forward_batch))  # CP 模式不使用多流
+            and not (_is_hip and self.compressor is None)  # ROCm 无 Compressor 时不使用
         )
 
         tp_slice, q_padded, q_out = slice(None), None, None
         if self.tp_size > 1:
+            # TP 模式：预分配完整的 Q 张量，仅填充本 rank 对应的头切片
             q_padded = x.new_empty(x.shape[0], self.n_heads, self.head_dim)
             rank = self.tp_rank
             tp_slice = slice(rank * self.n_local_heads, (rank + 1) * self.n_local_heads)
@@ -885,19 +926,20 @@ class MQALayer(nn.Module):
         # tell the backend to skip its own store_cache. When `kv is None`
         # (no DSA-CP), pass `q` as a sentinel for the `k is v` assert; the
         # attention path doesn't read it once `save_kv_cache=False`.
-        attn_k = kv if kv is not None else q
-        o = attn_backend.forward(
+        # 缓存写入已由 _forward_prepare* 完成，此处传 save_kv_cache=False 跳过
+        attn_k = kv if kv is not None else q  # 无 CP 时用 q 作为占位符
+        o = attn_backend.forward(  # 执行注意力计算
             q=q_padded if q_padded is not None else q,
             k=attn_k,
-            v=attn_k,
+            v=attn_k,  # K=V（单 KV 头共享）
             layer=self.attn_mqa,
             forward_batch=forward_batch,
             compress_ratio=self.compress_ratio,
             attn_sink=self.attn_sink,
             save_kv_cache=False,
         )
-        o = o[:, tp_slice, :]
-        fused_rope_inplace(
+        o = o[:, tp_slice, :]  # 选取本 rank 对应的注意力输出头
+        fused_rope_inplace(  # 对输出中 RoPE 维度做逆旋转，恢复无旋转位置编码的表示
             o[..., -self.qk_rope_head_dim :],
             None,
             self.freqs_cis,
@@ -905,20 +947,21 @@ class MQALayer(nn.Module):
             inverse=True,
         )
 
-        o = o.view(o.shape[0], self.n_local_groups, -1)
+        o = o.view(o.shape[0], self.n_local_groups, -1)  # 重塑为 [tokens, groups, dim]
 
         if _FP8_WO_A_GEMM:
+            # FP8 wo_a GEMM 路径：使用 DeepGEMM 进行 FP8 矩阵乘法
             import deep_gemm
 
             T, G, D = o.shape
             R = self.o_lora_rank
-            o_fp8, o_s = sglang_per_token_group_quant_fp8(
+            o_fp8, o_s = sglang_per_token_group_quant_fp8(  # 分组 FP8 量化
                 o.reshape(T * G, D).contiguous(),
                 group_size=128,
             )
-            o_s = deep_gemm.ceil_to_ue8m0(o_s)
+            o_s = deep_gemm.ceil_to_ue8m0(o_s)  # 将缩放因子转换为 UE8M0 格式
             output = torch.empty(T, G, R, device=o.device, dtype=torch.bfloat16)
-            deep_gemm.fp8_einsum(
+            deep_gemm.fp8_einsum(  # FP8 矩阵乘法：o @ wo_a.weight^T
                 "bhr,hdr->bhd",
                 (o_fp8.view(T, G, D), o_s.view(T, G, -1)),
                 (self.wo_a.weight.view(G, R, D), self.wo_a.weight_scale_inv.data),
@@ -928,14 +971,17 @@ class MQALayer(nn.Module):
             o = output
         else:
             wo_a = self.wo_a.weight.view(self.n_local_groups, self.o_lora_rank, -1)
-            o = torch.einsum("tgd,grd->tgr", o, wo_a)
+            o = torch.einsum("tgd,grd->tgr", o, wo_a)  # bf16 路径：使用 einsum 做 wo_a 投影
 
-        o, _ = self.wo_b(o.flatten(1))
+        o, _ = self.wo_b(o.flatten(1))  # wo_b 行并行投影，带回 all-reduce
 
         return o
 
 
 class DeepseekV4DecoderLayer(nn.Module):
+    # DeepSeek V4 解码器层：包含 MQA 注意力、MoE FFN 和 MHC 混合协作机制
+    # MHC（Multi-Head Collaboration）允许注意力输出和 FFN 输出通过
+    # Sinkhorn 归一化的混合系数进行加权组合
     def __init__(
         self,
         config: DeepSeekV4Config,
@@ -967,7 +1013,7 @@ class DeepseekV4DecoderLayer(nn.Module):
             )
             else None
         )
-        self.mlp = deepseek_v2.DeepseekV2MoE(
+        self.mlp = deepseek_v2.DeepseekV2MoE(  # MoE（专家混合）FFN 层
             config=config,
             quant_config=moe_quant_config_override or quant_config,
             prefix=add_prefix("mlp", prefix),
@@ -982,25 +1028,26 @@ class DeepseekV4DecoderLayer(nn.Module):
             config.hidden_size, eps=config.rms_norm_eps
         )
 
-        self.hc_mult = hc_mult = config.hc_mult
-        self.hc_sinkhorn_iters = config.hc_sinkhorn_iters
-        self.hc_eps = config.hc_eps
-        mix_hc = (2 + hc_mult) * hc_mult
-        hc_dim = hc_mult * config.hidden_size
-        self.hc_attn_fn = nn.Parameter(torch.empty(mix_hc, hc_dim, dtype=torch.float32))
-        self.hc_ffn_fn = nn.Parameter(torch.empty(mix_hc, hc_dim, dtype=torch.float32))
-        self.hc_attn_base = nn.Parameter(torch.empty(mix_hc, dtype=torch.float32))
-        self.hc_ffn_base = nn.Parameter(torch.empty(mix_hc, dtype=torch.float32))
-        self.hc_attn_scale = nn.Parameter(torch.empty(3, dtype=torch.float32))
-        self.hc_ffn_scale = nn.Parameter(torch.empty(3, dtype=torch.float32))
+        self.hc_mult = hc_mult = config.hc_mult  # MHC 混合头数
+        self.hc_sinkhorn_iters = config.hc_sinkhorn_iters  # Sinkhorn 迭代次数
+        self.hc_eps = config.hc_eps  # Sinkhorn 数值稳定 epsilon
+        mix_hc = (2 + hc_mult) * hc_mult  # 混合函数的总维度
+        hc_dim = hc_mult * config.hidden_size  # MHC 的特征维度
+        self.hc_attn_fn = nn.Parameter(torch.empty(mix_hc, hc_dim, dtype=torch.float32))  # 注意力路径的 MHC 混合函数
+        self.hc_ffn_fn = nn.Parameter(torch.empty(mix_hc, hc_dim, dtype=torch.float32))  # FFN 路径的 MHC 混合函数
+        self.hc_attn_base = nn.Parameter(torch.empty(mix_hc, dtype=torch.float32))  # 注意力路径的 MHC 偏置基
+        self.hc_ffn_base = nn.Parameter(torch.empty(mix_hc, dtype=torch.float32))  # FFN 路径的 MHC 偏置基
+        self.hc_attn_scale = nn.Parameter(torch.empty(3, dtype=torch.float32))  # 注意力路径的 MHC 缩放参数
+        self.hc_ffn_scale = nn.Parameter(torch.empty(3, dtype=torch.float32))  # FFN 路径的 MHC 缩放参数
         self.rms_norm_eps = config.rms_norm_eps
         self.dsa_enable_prefill_cp = is_dsa_enable_prefill_cp()
         self.use_fused_mhc_post_pre = _is_fused_mhc_post_pre_enabled()
-        self._input_layernorm_weight_bf16 = None
-        self._post_attention_layernorm_weight_bf16 = None
+        self._input_layernorm_weight_bf16 = None  # 输入层归一化权重的 bf16 缓存
+        self._post_attention_layernorm_weight_bf16 = None  # 注意力后层归一化权重的 bf16 缓存
 
     def refresh_mhc_norm_weight_cache(self):
         # Cache bf16 norm weights so the fused path does not allocate/cast per forward.
+        # 刷新 MHC 归一化权重的 bf16 缓存，避免每次前向时重新转换
         self._input_layernorm_weight_bf16 = (
             self.input_layernorm.weight.data.bfloat16().contiguous()
         )
@@ -1011,6 +1058,7 @@ class DeepseekV4DecoderLayer(nn.Module):
     def prewarm_mhc_token_counts(
         self, token_counts: Tuple[int, ...], device: torch.device
     ) -> None:
+        # 预热 MHC 算子：用不同 token 数量运行 hc_pre 和融合路径，触发 JIT 编译和 CUDA Graph 捕获
         paths = (
             (
                 "attn",
@@ -1107,6 +1155,7 @@ class DeepseekV4DecoderLayer(nn.Module):
     def prewarm_mhc_token_count_buckets(
         self, max_num_tokens: int, device: torch.device
     ) -> Tuple[int, ...]:
+        # 根据 max_num_tokens 生成代表性 token 数量桶，并预热对应的 MHC 算子
         from sglang.srt.layers.mhc import get_mhc_pre_token_count_representatives
 
         token_counts = get_mhc_pre_token_count_representatives(
@@ -1133,9 +1182,12 @@ class DeepseekV4DecoderLayer(nn.Module):
     ):
         """If *norm* is given and the TileLang path is active, the returned
         hidden_states are already post-norm (the norm is fused into the kernel)."""
+        # MHC 前向预处理：计算混合系数（Sinkhorn 分裂 + sigmoid）并生成加权的残差
+        # 支持 TileLang/aiter/DeepGEMM 等多种融合后端，也可回退到纯 PyTorch 实现
 
         @compile_in_capture_mode
         def hc_pre_torch_impl(x, hc_fn):
+            # PyTorch 回退实现：RMS 归一化 + 线性混合
             x_flat = x.flatten(1).float()
             rsqrt = torch.rsqrt(
                 x_flat.square().mean(-1, keepdim=True) + self.rms_norm_eps
@@ -1146,6 +1198,7 @@ class DeepseekV4DecoderLayer(nn.Module):
         shape, dtype = x.size(), x.dtype
 
         if x.shape[0] == 0:
+            # 空 token 时返回零张量
             y = torch.empty((0, shape[-1]), dtype=dtype, device=x.device)
             post = torch.empty((0, self.hc_mult), dtype=torch.float32, device=x.device)
             comb = torch.empty(
@@ -1154,10 +1207,12 @@ class DeepseekV4DecoderLayer(nn.Module):
             return y, post, comb, False
 
         if envs.SGLANG_OPT_USE_TILELANG_MHC_PRE.get():
+            # TileLang 融合 MHC pre 路径
             from sglang.srt.layers.mhc import mhc_pre
 
             norm_kwargs = {}
             if norm is not None:
+                # 如果提供了归一化模块，将权重融合进 TileLang 核函数
                 norm_kwargs["norm_weight"] = norm.weight.data
                 norm_kwargs["norm_eps"] = norm.variance_epsilon
 
@@ -1173,9 +1228,10 @@ class DeepseekV4DecoderLayer(nn.Module):
                 sinkhorn_repeat=self.hc_sinkhorn_iters,
                 **norm_kwargs,
             )
-            return y, post.squeeze(-1), comb, norm is not None
+            return y, post.squeeze(-1), comb, norm is not None  # norm_fused 标记归一化是否已融合
 
         if _is_hip and envs.SGLANG_OPT_USE_AITER_MHC_PRE.get():
+            # AMD aiter 融合 MHC pre 路径
             from aiter.ops.mhc import mhc_pre
 
             post, comb, y = mhc_pre(
@@ -1192,6 +1248,7 @@ class DeepseekV4DecoderLayer(nn.Module):
             return y, post.squeeze(-1), comb, False
 
         if envs.SGLANG_OPT_DEEPGEMM_HC_PRENORM.get():
+            # DeepGEMM TF32 融合 HC prenorm 路径
             from sglang.srt.layers.deep_gemm_wrapper.entrypoint import (
                 tf32_hc_prenorm_gemm,
             )
@@ -1212,7 +1269,7 @@ class DeepseekV4DecoderLayer(nn.Module):
 
         from sglang.srt.layers.mhc import hc_split_sinkhorn
 
-        pre, post, comb = hc_split_sinkhorn(
+        pre, post, comb = hc_split_sinkhorn(  # Sinkhorn 分裂：将混合系数分解为 pre/post/comb 三部分
             mixes,
             hc_scale,
             hc_base,
@@ -1220,7 +1277,7 @@ class DeepseekV4DecoderLayer(nn.Module):
             self.hc_sinkhorn_iters,
             self.hc_eps,
         )
-        y = (pre.squeeze(1).unsqueeze(-1) * x_flat.view(shape)).sum(dim=1)
+        y = (pre.squeeze(1).unsqueeze(-1) * x_flat.view(shape)).sum(dim=1)  # 用 pre 系数对残差加权求和
         return y.to(dtype), post.squeeze(1), comb.squeeze(1), False
 
     def hc_post(
@@ -1230,6 +1287,8 @@ class DeepseekV4DecoderLayer(nn.Module):
         post: torch.Tensor,
         comb: torch.Tensor,
     ):
+        # MHC 后向处理：用 post 和 comb 系数将子层的输出与残差混合
+        # 支持 TileLang/aiter 融合路径和 PyTorch 回退实现
 
         if x.shape[0] == 0:
             return torch.empty(
@@ -1237,11 +1296,13 @@ class DeepseekV4DecoderLayer(nn.Module):
             )
 
         if envs.SGLANG_OPT_USE_TILELANG_MHC_POST.get():
+            # TileLang 融合 MHC post 路径
             from sglang.srt.layers.mhc import mhc_post
 
             return mhc_post(x, residual, post, comb)
 
         elif _is_hip and envs.SGLANG_OPT_USE_AITER_MHC_POST.get():
+            # AMD aiter 融合 MHC post 路径
             from aiter.ops.mhc import mhc_post
 
             result = torch.empty_like(residual)
@@ -1254,6 +1315,7 @@ class DeepseekV4DecoderLayer(nn.Module):
 
         @compile_in_capture_mode
         def hc_post_torch_impl(x, residual, post, comb):
+            # PyTorch 回退实现：post * x + sum(comb * residual)
             return (
                 post.unsqueeze(-1) * x.unsqueeze(1)
                 + (comb.unsqueeze(-1) * residual.unsqueeze(2)).sum(dim=1)
@@ -1277,9 +1339,12 @@ class DeepseekV4DecoderLayer(nn.Module):
         Optional[torch.Tensor],
         Optional[torch.Tensor],
     ]:
+        # 解码器层前向传播：MHC_pre -> Attention -> MHC_post -> MHC_pre -> MoE -> MHC_post
+        # 融合模式下，FFN 的 MHC_post 延迟到下一层或模型末尾执行
         use_fused = self.use_fused_mhc_post_pre
 
         if prev_residual is not None and use_fused:
+            # 融合路径：上一层的 MHC_post 与当前层的 MHC_pre + input_layernorm 融合执行
             residual, post, comb, hidden_states = mhc_fused_post_pre(
                 hidden_states,
                 prev_residual,
@@ -1302,6 +1367,7 @@ class DeepseekV4DecoderLayer(nn.Module):
             )
             x_quant = None
         else:
+            # 非融合路径：分别执行 MHC_pre 和 input_layernorm
             residual = hidden_states
             hidden_states, post, comb, norm_fused = self.hc_pre(
                 hidden_states,
@@ -1312,6 +1378,7 @@ class DeepseekV4DecoderLayer(nn.Module):
             )
             if not norm_fused:
                 if _use_aiter and _is_gfx95_supported:
+                    # AMD gfx95 平台：融合 RMSNorm + FP8 量化
                     x_quant, hidden_states = _fused_rmsnorm_fp8_quant(
                         hidden_states,
                         self.input_layernorm.weight,
@@ -1323,7 +1390,7 @@ class DeepseekV4DecoderLayer(nn.Module):
             else:
                 x_quant = None
 
-        hidden_states = self.self_attn(
+        hidden_states = self.self_attn(  # 执行 MQA 注意力
             x=hidden_states,
             positions=positions,
             forward_batch=forward_batch,
@@ -1331,6 +1398,7 @@ class DeepseekV4DecoderLayer(nn.Module):
         )
 
         if use_fused:
+            # 融合路径：尝试 AMD 专用融合，回退到通用融合 mhc_fused_post_pre
             fused_mhc = try_fused_hc_post_pre(
                 hidden_states,
                 residual,
@@ -1349,6 +1417,7 @@ class DeepseekV4DecoderLayer(nn.Module):
             if fused_mhc is not None:
                 residual, hidden_states, post, comb, norm_fused = fused_mhc
             else:
+                # 通用融合路径：注意力 MHC_post + FFN MHC_pre + post_attention_layernorm
                 residual, post, comb, hidden_states = mhc_fused_post_pre(
                     hidden_states,
                     residual,
@@ -1371,9 +1440,9 @@ class DeepseekV4DecoderLayer(nn.Module):
                 )
                 norm_fused = True
         else:
-            hidden_states = self.hc_post(hidden_states, residual, post, comb)
+            hidden_states = self.hc_post(hidden_states, residual, post, comb)  # 注意力输出的 MHC 后处理
             residual = hidden_states
-            hidden_states, post, comb, norm_fused = self.hc_pre(
+            hidden_states, post, comb, norm_fused = self.hc_pre(  # FFN 的 MHC 预处理
                 hidden_states,
                 self.hc_ffn_fn,
                 self.hc_ffn_scale,
@@ -1383,27 +1452,29 @@ class DeepseekV4DecoderLayer(nn.Module):
             if not norm_fused:
                 hidden_states = self.post_attention_layernorm(hidden_states)
 
-        _use_cp = self.dsa_enable_prefill_cp and dsa_use_prefill_cp(forward_batch)
-        _use_tp_moe_gather = (
+        _use_cp = self.dsa_enable_prefill_cp and dsa_use_prefill_cp(forward_batch)  # 是否使用 DSA 上下文并行
+        _use_tp_moe_gather = (  # 是否使用 TP MoE gather（DP > 1 且非 DeepEP）
             not _use_cp
             and get_attention_dp_size() > 1
             and get_moe_a2a_backend().is_none()
         )
-        _use_tp_attn_a2a_scatter = (
+        _use_tp_attn_a2a_scatter = (  # 是否使用 TP 注意力 all-to-all scatter
             not _use_cp
             and envs.SGLANG_DSV4_FIX_TP_ATTN_A2A_SCATTER.get()
             and get_attention_tp_size() > 1
             and not get_moe_a2a_backend().is_none()
         )
         if _use_cp:
+            # CP 模式：收集或验证分布策略
             if get_moe_a2a_backend().is_none():
-                hidden_states = dsa_cp_gather_hidden_states(hidden_states)
+                hidden_states = dsa_cp_gather_hidden_states(hidden_states)  # CP all-gather 隐藏状态
             else:
                 assert get_moe_a2a_backend().is_deepep(), (
                     "CP requires DeepEP (moe_a2a_backend == deepep). "
                     "Only DeepEP is tested with CP's per-rank token split."
                 )
         elif _use_tp_moe_gather:
+            # TP MoE gather：将局部隐藏状态聚合到全局缓冲区
             hidden_states, local_hidden_states = (
                 get_global_dp_buffer(get_tp_group()),
                 hidden_states,
@@ -1411,12 +1482,13 @@ class DeepseekV4DecoderLayer(nn.Module):
             dp_gather_partial(hidden_states, local_hidden_states, forward_batch)
         _a2a_scatter_chunks: Optional[List[torch.Tensor]] = None
         if _use_tp_attn_a2a_scatter:
+            # TP 注意力 all-to-all scatter：按 TP rank 分片隐藏状态和输入 ID
             s, r = get_attention_tp_size(), get_attention_tp_rank()
             _a2a_scatter_chunks = list(hidden_states.tensor_split(s))
             hidden_states = _a2a_scatter_chunks[r].contiguous()
             input_ids = input_ids.tensor_split(s)[r].contiguous()
             input_ids_global = input_ids_global.tensor_split(s)[r].contiguous()
-        hidden_states = self.mlp(
+        hidden_states = self.mlp(  # 执行 MoE FFN
             hidden_states,
             forward_batch,
             input_ids=input_ids,
@@ -1424,29 +1496,34 @@ class DeepseekV4DecoderLayer(nn.Module):
             use_reduce_scatter=_use_cp,
         )
         if _use_cp and get_moe_a2a_backend().is_none():
-            hidden_states = dsa_cp_reduce_scatter_hidden_states(hidden_states)
+            hidden_states = dsa_cp_reduce_scatter_hidden_states(hidden_states)  # CP reduce-scatter 隐藏状态
         elif _use_tp_moe_gather:
+            # TP MoE scatter：将全局缓冲区散布回局部
             hidden_states, global_hidden_states = (
                 get_local_dp_buffer(get_tp_group()),
                 hidden_states,
             )
             dp_scatter(hidden_states, global_hidden_states, forward_batch)
         if _use_tp_attn_a2a_scatter:
+            # TP 注意力 all-to-all gather：收集各 rank 的输出并拼接
             assert _a2a_scatter_chunks is not None
             gathered = [torch.empty_like(t) for t in _a2a_scatter_chunks]
             attn_tp_all_gather(gathered, hidden_states.contiguous())
             hidden_states = torch.cat(gathered)
 
         if not use_fused:
-            hidden_states = self.hc_post(hidden_states, residual, post, comb)
+            hidden_states = self.hc_post(hidden_states, residual, post, comb)  # FFN 输出的 MHC 后处理
             return hidden_states, None, None, None
 
         # Return the deferred FFN hc_post state; the next layer consumes it with
         # cross-layer fusion, and the final layer is completed in DeepseekV4Model.
+        # 返回延迟的 FFN MHC_post 状态，供下一层跨层融合消费
         return hidden_states, residual, post, comb
 
 
 class DeepseekV4Model(nn.Module):
+    # DeepSeek V4 模型主体：由嵌入层、多层解码器、MHC head 和最终归一化组成
+    # 支持 Pipeline Parallelism，中间 rank 通过 PPProxyTensors 传递隐藏状态
     fall_back_to_pt_during_load = False
 
     def __init__(
@@ -1459,28 +1536,28 @@ class DeepseekV4Model(nn.Module):
         self.pp_group = get_pp_group()
         self.hidden_size = config.hidden_size
         if self.pp_group.is_first_rank:
-            self.embed_tokens = VocabParallelEmbedding(
+            self.embed_tokens = VocabParallelEmbedding(  # 词嵌入层（仅首 PP rank）
                 config.vocab_size,
                 config.hidden_size,
                 enable_tp=not is_dp_attention_enabled(),
             )
         else:
-            self.embed_tokens = PPMissingLayer()
+            self.embed_tokens = PPMissingLayer()  # 非首 PP rank 不需要嵌入层
         self.rms_norm_eps = config.rms_norm_eps
-        use_stream_pool = _is_cuda or (
+        use_stream_pool = _is_cuda or (  # 是否使用 CUDA 流池用于多流重叠
             _is_hip
             and (
                 envs.SGLANG_ROCM_USE_MULTI_STREAM.get()
                 or envs.SGLANG_OPT_USE_MULTI_STREAM_OVERLAP.get()
             )
         )
-        num_alt_streams = 5 if _is_cuda else 2
+        num_alt_streams = 5 if _is_cuda else 2  # CUDA 需 5 个副流，ROCm 需 2 个
         self.alt_streams = (
             [torch.cuda.Stream() for _ in range(num_alt_streams)]
             if use_stream_pool
             else None
         )
-        self.layers, self.start_layer, self.end_layer = make_layers(
+        self.layers, self.start_layer, self.end_layer = make_layers(  # 构建解码器层列表
             config.num_hidden_layers,
             lambda idx, prefix: DeepseekV4DecoderLayer(
                 config=config,
@@ -1494,7 +1571,7 @@ class DeepseekV4Model(nn.Module):
             prefix=add_prefix("layers", prefix),
         )
         if self.pp_group.is_last_rank:
-            self.norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+            self.norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)  # 最终 RMS 归一化（仅末 PP rank）
         else:
             self.norm = PPMissingLayer()
         self.gemm_output_zero_allocator_size = 0
@@ -1503,11 +1580,11 @@ class DeepseekV4Model(nn.Module):
         self.norm_eps = config.rms_norm_eps
         if self.pp_group.is_last_rank:
             hc_dim = hc_mult * config.hidden_size
-            self.hc_head_fn = nn.Parameter(
+            self.hc_head_fn = nn.Parameter(  # MHC head 的混合函数参数
                 torch.empty(hc_mult, hc_dim, dtype=torch.float32)
             )
-            self.hc_head_base = nn.Parameter(torch.empty(hc_mult, dtype=torch.float32))
-            self.hc_head_scale = nn.Parameter(torch.empty(1, dtype=torch.float32))
+            self.hc_head_base = nn.Parameter(torch.empty(hc_mult, dtype=torch.float32))  # MHC head 的偏置基
+            self.hc_head_scale = nn.Parameter(torch.empty(1, dtype=torch.float32))  # MHC head 的缩放参数
 
         self.dsa_enable_prefill_cp = is_dsa_enable_prefill_cp()
         self.use_fused_mhc_post_pre = _is_fused_mhc_post_pre_enabled()
@@ -1521,6 +1598,7 @@ class DeepseekV4Model(nn.Module):
         hc_scale: torch.Tensor,
         hc_base: torch.Tensor,
     ):
+        # MHC head：对最终隐藏状态做多头协作混合，将 hc_mult 个副本压缩为单个表示
         if x.numel() > 0:
             from sglang.srt.layers.mhc_head import fused_hc_head
 
@@ -1534,10 +1612,10 @@ class DeepseekV4Model(nn.Module):
             )
         shape, dtype = x.size(), x.dtype
         x = x.flatten(1).float()
-        rsqrt = torch.rsqrt(x.square().mean(-1, keepdim=True) + self.norm_eps)
-        mixes = F.linear(x, hc_fn) * rsqrt
-        pre = torch.sigmoid(mixes * hc_scale + hc_base) + self.hc_eps
-        y = torch.sum(pre.unsqueeze(-1) * x.view(shape), dim=1)
+        rsqrt = torch.rsqrt(x.square().mean(-1, keepdim=True) + self.norm_eps)  # RMS 归一化
+        mixes = F.linear(x, hc_fn) * rsqrt  # 混合线性变换
+        pre = torch.sigmoid(mixes * hc_scale + hc_base) + self.hc_eps  # sigmoid 激活 + epsilon 偏移
+        y = torch.sum(pre.unsqueeze(-1) * x.view(shape), dim=1)  # 加权求和得到最终输出
         return y.to(dtype)
 
     def forward(
@@ -1548,19 +1626,22 @@ class DeepseekV4Model(nn.Module):
         input_embeds: Optional[torch.Tensor],
         pp_proxy_tensors: Optional[PPProxyTensors] = None,
     ) -> Union[torch.Tensor, PPProxyTensors]:
+        # DeepSeek V4 模型前向传播：嵌入 -> 解码器层循环 -> MHC head -> 归一化
         if self.pp_group.is_first_rank:
-            hidden_states = self.embed_tokens(input_ids)
-            hidden_states = hidden_states.unsqueeze(1).repeat(1, self.hc_mult, 1)
+            hidden_states = self.embed_tokens(input_ids)  # 词嵌入查找
+            hidden_states = hidden_states.unsqueeze(1).repeat(1, self.hc_mult, 1)  # 复制为 hc_mult 个副本
         else:
             assert pp_proxy_tensors is not None
             hidden_states = pp_proxy_tensors["hidden_states"]
             # Unflatten 2D PP IPC tensor back to 3D mHC shape.
+            # 将 2D PP IPC 张量还原为 3D mHC 形状
             if hidden_states.ndim == 2:
                 hidden_states = hidden_states.view(
                     hidden_states.shape[0], self.hc_mult, self.hidden_size
                 )
 
         if get_attention_dp_size() > 1 and get_moe_a2a_backend().is_none():
+            # DP Attention 且非 DeepEP 时：收集全局 input_ids
             input_ids_global = torch.empty(
                 (_DpGatheredBufferWrapper._global_dp_buffer_len, 1),
                 dtype=input_ids.dtype,
@@ -1572,6 +1653,7 @@ class DeepseekV4Model(nn.Module):
             input_ids_global = input_ids
 
         if dsa_use_prefill_cp(forward_batch):
+            # DSA 上下文并行：切分隐藏状态和位置编码
             if self.pp_group.is_first_rank:
                 hidden_states = cp_split_and_rebuild_data(forward_batch, hidden_states)
             positions = cp_split_and_rebuild_position(forward_batch, positions)
@@ -1579,20 +1661,22 @@ class DeepseekV4Model(nn.Module):
             input_ids_global = input_ids
 
         # Reset Compressor's per-step freqs_cis cache from any previous step.
+        # 重置 Compressor 每步的 freqs_cis 缓存
         for _attr in ("freqs_cis_c4", "freqs_cis_c128"):
             if hasattr(forward_batch, _attr):
                 delattr(forward_batch, _attr)
         # Upgrade lazy raw metadata on the main stream once before any layer
         # forks alt-streams; later per-layer calls become no-ops.
+        # 在任何层分支副流之前，在主流上升级惰性原始元数据
         get_attn_backend()._maybe_upgrade_forward_metadata()
 
         use_fused = self.use_fused_mhc_post_pre
-        prev_residual, prev_post, prev_comb = None, None, None
+        prev_residual, prev_post, prev_comb = None, None, None  # 上一层的 MHC 后处理状态
         last_layer = None
         for i in range(self.start_layer, self.end_layer):
             layer = self.layers[i]
             last_layer = layer
-            ctx = (
+            ctx = (  # 条件上下文：用于 MoE 专家分布记录
                 nullcontext()
                 if not get_global_server_args().disable_piecewise_cuda_graph
                 else get_global_expert_distribution_recorder().with_current_layer(i)
@@ -1609,13 +1693,15 @@ class DeepseekV4Model(nn.Module):
                     prev_comb=prev_comb,
                 )
         if use_fused and last_layer is not None:
+            # 融合模式下，最后一层的 FFN MHC_post 在此处完成
             hidden_states = last_layer.hc_post(
                 hidden_states, prev_residual, prev_post, prev_comb
             )
 
         # CP all-gather only on the last PP rank; PP IPC carries CP-split tensors.
+        # CP all-gather 仅在最后一个 PP rank 上执行
         if self.pp_group.is_last_rank and dsa_use_prefill_cp(forward_batch):
-            hidden_states = cp_all_gather_rerange_output(
+            hidden_states = cp_all_gather_rerange_output(  # CP all-gather 并重排
                 hidden_states,
                 self.cp_size,
                 forward_batch,
@@ -1624,19 +1710,22 @@ class DeepseekV4Model(nn.Module):
 
         if not self.pp_group.is_last_rank:
             # Flatten 3D mHC tensor for PP IPC.
+            # 将 3D mHC 张量展平为 2D 用于 PP 进程间通信
             return PPProxyTensors({"hidden_states": hidden_states.flatten(1)})
 
-        pre_hc_head = hidden_states.flatten(1)
+        pre_hc_head = hidden_states.flatten(1)  # MHC head 之前的隐藏状态（用于辅助损失等）
 
-        hidden_states = self.hc_head(
+        hidden_states = self.hc_head(  # MHC head：将 hc_mult 个副本混合为单个表示
             hidden_states, self.hc_head_fn, self.hc_head_scale, self.hc_head_base
         )
-        hidden_states = self.norm(hidden_states)
+        hidden_states = self.norm(hidden_states)  # 最终 RMS 归一化
 
         return hidden_states, pre_hc_head
 
 
 class DeepseekV4ForCausalLM(nn.Module):
+    # DeepSeek V4 因果语言模型：完整的推理模型，包含模型主体和语言模型头
+    # 负责权重加载、前向推理、分布式策略配置等
     def __init__(
         self,
         config: DeepSeekV4Config,
@@ -1647,16 +1736,16 @@ class DeepseekV4ForCausalLM(nn.Module):
         self.config = config
         self.tp_size = get_tensor_model_parallel_world_size()
         self.quant_config = quant_config
-        self.determine_num_fused_shared_experts()
+        self.determine_num_fused_shared_experts()  # 确定融合共享专家的数量
         self.model = DeepseekV4Model(
             config, quant_config, prefix=add_prefix("model", prefix)
         )
         self.pp_group = get_pp_group()
         if self.pp_group.is_last_rank:
             if self.pp_group.world_size == 1 and config.tie_word_embeddings:
-                self.lm_head = self.model.embed_tokens
+                self.lm_head = self.model.embed_tokens  # 权重共享：lm_head 复用嵌入权重
             else:
-                self.lm_head = ParallelLMHead(
+                self.lm_head = ParallelLMHead(  # 独立的语言模型头
                     config.vocab_size,
                     config.hidden_size,
                     quant_config=quant_config,
@@ -1664,12 +1753,12 @@ class DeepseekV4ForCausalLM(nn.Module):
                     use_attn_tp_group=get_global_server_args().enable_dp_lm_head,
                 )
         else:
-            self.lm_head = PPMissingLayer()
-        self.logits_processor = LogitsProcessor(config)
-        self.capture_aux_hidden_states = False
-        get_attn_tp_context().init_context(config.q_lora_rank, is_dsa=True)
+            self.lm_head = PPMissingLayer()  # 非末 PP rank 不需要语言模型头
+        self.logits_processor = LogitsProcessor(config)  # logits 处理器
+        self.capture_aux_hidden_states = False  # 是否捕获辅助隐藏状态
+        get_attn_tp_context().init_context(config.q_lora_rank, is_dsa=True)  # 初始化注意力 TP 上下文
 
-        self._routed_experts_weights_of_layer = LazyValue(
+        self._routed_experts_weights_of_layer = LazyValue(  # 惰性加载每层的路由专家权重
             lambda: {
                 layer_id: self.model.layers[layer_id].mlp.get_moe_weights()
                 for layer_id in range(self.model.start_layer, self.model.end_layer)
@@ -1680,6 +1769,7 @@ class DeepseekV4ForCausalLM(nn.Module):
         )
 
         # Expose start_layer/end_layer for model_runner PP support
+        # 暴露 start_layer/end_layer 供 model_runner 的 PP 支持
         self.start_layer = self.model.start_layer
         self.end_layer = self.model.end_layer
 
@@ -1690,15 +1780,20 @@ class DeepseekV4ForCausalLM(nn.Module):
 
     @property
     def routed_experts_weights_of_layer(self):
+        # 获取每层路由专家的权重（惰性求值）
         return self._routed_experts_weights_of_layer.value
 
     def determine_num_fused_shared_experts(self):
+        # 确定融合共享专家的数量：DeepSeek V4 对共享专家和路由专家
+        # 使用不同的 clamping 策略，因此通常禁用共享专家融合，
+        # 除非启用了 DeepEP Waterfill（需要融合以重新分配负载）
         self.num_fused_shared_experts = 0
         if get_global_server_args().disable_shared_experts_fusion:
             return
 
         # Waterfill needs shared-experts fusion so it can dispatch shared
         # expert tokens to least-loaded EP ranks.
+        # Waterfill 需要共享专家融合，以便将共享专家 token 分派到负载最低的 EP rank
         if get_global_server_args().enable_deepep_waterfill:
             if self.config.n_shared_experts != 1:
                 raise ValueError(
@@ -1713,7 +1808,7 @@ class DeepseekV4ForCausalLM(nn.Module):
             )
             return
 
-        get_global_server_args().disable_shared_experts_fusion = True
+        get_global_server_args().disable_shared_experts_fusion = True  # 禁用共享专家融合
         log_info_on_rank0(
             logger,
             "DeepSeek V4 requires different clamping for shared and routed experts. "
@@ -1729,9 +1824,10 @@ class DeepseekV4ForCausalLM(nn.Module):
         input_embeds: Optional[torch.Tensor] = None,
         pp_proxy_tensors: Optional[PPProxyTensors] = None,
     ) -> torch.Tensor:
+        # 因果语言模型前向传播：准备 CP 元数据 -> 模型前向 -> logits 处理
         if self.dsa_enable_prefill_cp:
-            if can_dsa_cp_split(len(input_ids), self.cp_size, True, forward_batch):
-                forward_batch.attn_cp_metadata = prepare_context_parallel_metadata(
+            if can_dsa_cp_split(len(input_ids), self.cp_size, True, forward_batch):  # 判断是否可以做 CP 切分
+                forward_batch.attn_cp_metadata = prepare_context_parallel_metadata(  # 准备上下文并行元数据
                     len(input_ids),
                     self.cp_rank,
                     self.cp_size,
@@ -1739,6 +1835,7 @@ class DeepseekV4ForCausalLM(nn.Module):
                     extend_seqs_len=forward_batch.extend_seq_lens_cpu,
                 )
                 if is_dsa_prefill_cp_round_robin_split():
+                    # Round-robin CP 分片模式：重新索引注意力元数据
                     attn_backend = get_attn_backend()
                     metadata = attn_backend.forward_metadata
                     core_meta = metadata.core_attn_metadata
@@ -1749,7 +1846,7 @@ class DeepseekV4ForCausalLM(nn.Module):
                             attn_backend.init_forward_metadata_indexer(core_meta)
                         )
 
-        with get_attn_tp_context().maybe_input_scattered(forward_batch):
+        with get_attn_tp_context().maybe_input_scattered(forward_batch):  # 可能的输入 scatter 上下文
             hidden_states = self.model.forward(
                 input_ids, positions, forward_batch, input_embeds, pp_proxy_tensors
             )
@@ -1758,9 +1855,9 @@ class DeepseekV4ForCausalLM(nn.Module):
 
         aux_hidden_states = None
         if self.capture_aux_hidden_states:
-            hidden_states, aux_hidden_states = hidden_states
-        hidden_states, pre_hc_head = hidden_states
-        return self.logits_processor(
+            hidden_states, aux_hidden_states = hidden_states  # 解包辅助隐藏状态
+        hidden_states, pre_hc_head = hidden_states  # 解包主隐藏状态和 MHC head 前状态
+        return self.logits_processor(  # 计算 logits
             input_ids,
             hidden_states,
             self.lm_head,
@@ -1770,6 +1867,7 @@ class DeepseekV4ForCausalLM(nn.Module):
         )
 
     def _setup_fp8_wo_a_scales(self, is_nextn: bool) -> None:
+        # 设置 FP8 wo_a 缩放因子的布局，使用 DeepGEMM 的 transform_sf_into_required_layout
         from deep_gemm import transform_sf_into_required_layout
 
         if is_nextn:
@@ -1796,6 +1894,7 @@ class DeepseekV4ForCausalLM(nn.Module):
             )
 
     def post_load_weights(self, is_nextn=False, weight_names=None):
+        # 权重加载后的后处理：设置 FP8 缩放、应用 APE 热修复、缓存 bf16 归一化权重
         if _FP8_WO_A_GEMM:
             self._setup_fp8_wo_a_scales(is_nextn)
 
@@ -1805,18 +1904,20 @@ class DeepseekV4ForCausalLM(nn.Module):
             layer = self.model.layers[layer_id]
             self_attn = layer.self_attn
             if self_attn.compress_ratio != 0 and not self_attn.compressor.ape_converted:
-                self_attn.compressor.apply_ape_hotfix()
+                self_attn.compressor.apply_ape_hotfix()  # 对 Compressor 应用 APE 热修复
             if (
                 self_attn.compress_ratio == 4
                 and not self_attn.indexer.compressor.ape_converted
             ):
-                self_attn.indexer.compressor.apply_ape_hotfix()
-            layer.refresh_mhc_norm_weight_cache()
+                self_attn.indexer.compressor.apply_ape_hotfix()  # 对 Indexer 的 Compressor 应用 APE 热修复
+            layer.refresh_mhc_norm_weight_cache()  # 刷新该层的 MHC 归一化权重缓存
 
     @staticmethod
     def remap_weight_name_to_dpsk_hf_format(
         name: str, is_nextn: bool = False, num_hidden_layers: Optional[int] = None
     ) -> str:
+        # 将内部权重名称映射为 DeepSeek HuggingFace 格式的权重名称
+        # 处理嵌入层、语言模型头、归一化层、注意力层、FFN 层等的名称转换
         if name == "embed.weight":
             return "model.embed_tokens.weight"
         if name == "head.weight":
@@ -1875,6 +1976,8 @@ class DeepseekV4ForCausalLM(nn.Module):
         return name
 
     def load_weights(self, weights: Iterable[Tuple[str, torch.Tensor]], is_nextn=False):
+        # 加载模型权重：处理权重名称映射、融合投影、Compressor 拼接、
+        # FP8 反量化、专家参数映射等复杂逻辑，支持多线程异步加载
         params_dict = dict(self.named_parameters())
         loaded_params: Set[str] = set()
 
@@ -1895,16 +1998,16 @@ class DeepseekV4ForCausalLM(nn.Module):
             exists_wo_a_scale = any(n.endswith(".wo_a.scale") for n, t in weights)
             if exists_wo_a_scale:
                 logger.info("Execute dequant fp8 wo_a")
-                weights = _dequant_fp8_wo_a(weights)
+                weights = _dequant_fp8_wo_a(weights)  # 反量化 FP8 wo_a 权重
             else:
                 logger.info("Skip dequant fp8 wo_a")
 
-        stacked_params_mapping = [
+        stacked_params_mapping = [  # 堆叠参数映射：gate_proj 和 up_proj 合并为 gate_up_proj
             ("gate_up_proj", "gate_proj", 0),
             ("gate_up_proj", "up_proj", 1),
         ]
 
-        expert_params_mapping = FusedMoE.make_expert_params_mapping(
+        expert_params_mapping = FusedMoE.make_expert_params_mapping(  # 专家参数映射
             ckpt_gate_proj_name="gate_proj",
             ckpt_down_proj_name="down_proj",
             ckpt_up_proj_name="up_proj",
@@ -1912,17 +2015,18 @@ class DeepseekV4ForCausalLM(nn.Module):
         )
 
         if self.quant_config and self.quant_config.get_name() == "w4afp8":
-            expert_params_mapping += FusedMoE.make_expert_input_scale_params_mapping(
+            expert_params_mapping += FusedMoE.make_expert_input_scale_params_mapping(  # W4A FP8 量化的输入缩放映射
                 num_experts=self.config.n_routed_experts
             )
 
-        cache_compressor_weight = {}
+        cache_compressor_weight = {}  # Compressor 权重缓存：等待 wkv 和 wgate 拼接
         COMPRESSOR_PART = ".compressor.w"
 
         fuse_wqa_wkv = envs.SGLANG_OPT_FUSE_WQA_WKV.get()
-        cache_wqkv_a_weight: dict[str, dict[str, torch.Tensor]] = {}
+        cache_wqkv_a_weight: dict[str, dict[str, torch.Tensor]] = {}  # 融合 wq_a + wkv 的权重缓存
 
         def auto_weight_loader(module):
+            # 自动获取模块的 weight_loader，若无则使用默认加载器
             return getattr(module, "weight_loader", default_weight_loader)
 
         if is_nextn:
@@ -1944,7 +2048,7 @@ class DeepseekV4ForCausalLM(nn.Module):
             assert self.num_fused_shared_experts == 1
             log_info_on_rank0(logger, "Shared experts fusion optimization enabled.")
 
-        with concurrent.futures.ThreadPoolExecutor() as executor:
+        with concurrent.futures.ThreadPoolExecutor() as executor:  # 多线程异步加载权重
             futures = []
             weight_names = []
             for name, loaded_weight in weights:
@@ -1957,7 +2061,7 @@ class DeepseekV4ForCausalLM(nn.Module):
                         num_hidden_layers=self.config.num_hidden_layers,
                     )
 
-                    layer_id = get_layer_id(name)
+                    layer_id = get_layer_id(name)  # 从权重名称中提取层号
                     if (
                         layer_id is not None
                         and hasattr(self.model, "start_layer")
@@ -1971,6 +2075,7 @@ class DeepseekV4ForCausalLM(nn.Module):
                         self.num_fused_shared_experts > 0
                         and "mlp.shared_experts" in name
                     ):
+                        # 将共享专家重映射到最后一个专家槽位
                         name = name.replace(
                             "mlp.shared_experts",
                             f"mlp.experts.{self.config.n_routed_experts}",
@@ -2082,6 +2187,7 @@ class DeepseekV4ForCausalLM(nn.Module):
                             ) and not self.pp_group.is_last_rank:
                                 continue
                             elif COMPRESSOR_PART in name:
+                                # Compressor 权重拼接：将 wkv 和 wgate 融合为 wkv_gate
                                 is_kv = name.endswith(".wkv.weight")
                                 is_wgate = name.endswith(".wgate.weight")
                                 assert is_kv != is_wgate
@@ -2100,7 +2206,7 @@ class DeepseekV4ForCausalLM(nn.Module):
                                     assert cached_is_kv != is_kv
                                     kv = loaded_weight if is_kv else cached_weight
                                     wgate = loaded_weight if is_wgate else cached_weight
-                                    fused_weight = torch.cat([kv, wgate], dim=0)
+                                    fused_weight = torch.cat([kv, wgate], dim=0)  # 拼接 wkv 和 wgate 权重
                                     param_name = key + ".wkv_gate.weight"
                                     param = params_dict[param_name]
                                     weight_loader = auto_weight_loader(param)
@@ -2114,6 +2220,7 @@ class DeepseekV4ForCausalLM(nn.Module):
                                     loaded_params.add(param_name)
                                     cache_compressor_weight.pop(key)
                             elif fuse_wqa_wkv and (
+                                # 融合 wq_a 和 wkv 权重
                                 name.endswith(".wq_a.weight")
                                 or name.endswith(".wq_a.weight_scale_inv")
                                 or name.endswith(".wkv.weight")
@@ -2130,7 +2237,7 @@ class DeepseekV4ForCausalLM(nn.Module):
                                 ), f"duplicate shard {shard_key} for {param_name}"
                                 bucket[shard_key] = loaded_weight
                                 if len(bucket) == 2:
-                                    fused_weight = torch.cat(
+                                    fused_weight = torch.cat(  # 拼接 q 和 kv 权重
                                         [bucket["q"], bucket["kv"]], dim=0
                                     )
                                     param = params_dict[param_name]
@@ -2148,6 +2255,7 @@ class DeepseekV4ForCausalLM(nn.Module):
                                 if (
                                     "k_scale" in name or "v_scale" in name
                                 ) and name not in params_dict:
+                                    # KV 缩放因子重映射到 attn_mqa
                                     for scale in ["k_scale", "v_scale"]:
                                         if scale in name:
                                             name = name.replace(
@@ -2175,11 +2283,11 @@ class DeepseekV4ForCausalLM(nn.Module):
                     e.add_note(f"{name=} {loaded_weight.shape=}")
                     raise
 
-            for future in concurrent.futures.as_completed(futures):
+            for future in concurrent.futures.as_completed(futures):  # 等待所有异步加载完成
                 future.result()
 
-        assert len(cache_compressor_weight) == 0
-        assert len(cache_wqkv_a_weight) == 0, cache_wqkv_a_weight.keys()
+        assert len(cache_compressor_weight) == 0  # 确保所有 Compressor 权重已拼接
+        assert len(cache_wqkv_a_weight) == 0, cache_wqkv_a_weight.keys()  # 确保所有 wq_a/wkv 权重已拼接
         unloaded_params = params_dict.keys() - loaded_params
 
         skipped_checking_patterns = ["attn_mqa.k_scale", "attn_mqa.v_scale"]
@@ -2206,9 +2314,11 @@ class DeepseekV4ForCausalLM(nn.Module):
         self.post_load_weights(is_nextn=is_nextn, weight_names=weight_names)
 
     def get_embed_and_head(self):
+        # 获取嵌入层和语言模型头的权重
         return self.model.embed_tokens.weight, self.lm_head.weight
 
     def set_embed_and_head(self, embed, head):
+        # 设置嵌入层和语言模型头的权重（用于权重共享等场景）
         del self.model.embed_tokens.weight
         del self.lm_head.weight
         self.model.embed_tokens.weight = embed
@@ -2218,6 +2328,7 @@ class DeepseekV4ForCausalLM(nn.Module):
 
     @classmethod
     def get_model_config_for_expert_location(cls, config):
+        # 获取专家位置配置：层数、逻辑专家数等
         return ModelConfigForExpertLocation(
             num_layers=config.num_hidden_layers,
             num_logical_experts=config.n_routed_experts,
@@ -2225,10 +2336,11 @@ class DeepseekV4ForCausalLM(nn.Module):
         )
 
 
-EntryClass = [DeepseekV4ForCausalLM]
+EntryClass = [DeepseekV4ForCausalLM]  # 模型入口类列表，供框架自动发现
 
 
 def _dequant_fp8(weight: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
+    # FP8 反量化：将 FP8 权重乘以缩放因子恢复为 bf16
     from einops import rearrange
 
     assert (
@@ -2239,11 +2351,11 @@ def _dequant_fp8(weight: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
         torch.float32,
     ), f"expected fp8_e8m0fnu or float32, got {scale.dtype}"
 
-    weight_f32 = rearrange(
+    weight_f32 = rearrange(  # 按 128x128 分块处理
         weight.float(), "(sn bn) (sk bk) -> sn bn sk bk", bn=128, bk=128
     )
     result = rearrange(
-        weight_f32 * scale.float()[:, None, :, None], "sn bn sk bk -> (sn bn) (sk bk)"
+        weight_f32 * scale.float()[:, None, :, None], "sn bn sk bk -> (sn bn) (sk bk)"  # 乘以缩放因子
     )
 
     return result.to(torch.bfloat16)
@@ -2252,6 +2364,7 @@ def _dequant_fp8(weight: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
 def _dequant_fp8_wo_a(
     weights: Iterable[Tuple[str, torch.Tensor]],
 ) -> Iterable[Tuple[str, torch.Tensor]]:
+    # 批量反量化 FP8 wo_a 权重：找到所有 wo_a.weight 和对应的 scale，反量化后替换
     weights_dict = dict(weights)
 
     for name in list(weights_dict.keys()):
@@ -2261,8 +2374,8 @@ def _dequant_fp8_wo_a(
             continue
         scale_name = name.replace(".wo_a.weight", ".wo_a.scale")
         assert scale_name in weights_dict
-        weight = weights_dict.pop(name)
-        scale = weights_dict.pop(scale_name)
-        yield name, _dequant_fp8(weight, scale)
+        weight = weights_dict.pop(name)  # 移除 FP8 权重
+        scale = weights_dict.pop(scale_name)  # 移除缩放因子
+        yield name, _dequant_fp8(weight, scale)  # 返回反量化后的权重
 
-    yield from weights_dict.items()
+    yield from weights_dict.items()  # 返回其余未处理的权重

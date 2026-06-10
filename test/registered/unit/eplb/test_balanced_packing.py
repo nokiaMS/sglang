@@ -1,3 +1,4 @@
+# 文件名: test_balanced_packing.py - 均衡打包
 """Unit tests for balanced_packing — no server, no model loading."""
 
 from sglang.test.ci.ci_register import register_cpu_ci
@@ -12,6 +13,7 @@ from sglang.srt.eplb.eplb_algorithms.deepseek import balanced_packing
 from sglang.test.test_utils import CustomTestCase
 
 
+# TestBalancedPacking类
 class TestBalancedPacking(CustomTestCase):
     """Tests for balanced_packing(weight, num_packs).
 
@@ -27,32 +29,36 @@ class TestBalancedPacking(CustomTestCase):
     # ------------------------------------------------------------------ helpers
 
     def _check_shapes(self, weight, pack_index, rank_in_pack):
-        self.assertEqual(pack_index.shape, weight.shape)
-        self.assertEqual(rank_in_pack.shape, weight.shape)
+        self.assertEqual(pack_index.shape, weight.shape)  # 断言相等
+        self.assertEqual(rank_in_pack.shape, weight.shape)  # 断言相等
 
+    # TestBalancedPacking类的内部方法_check_pack_index_range
     def _check_pack_index_range(self, pack_index, num_packs):
-        self.assertTrue(torch.all(pack_index >= 0))
-        self.assertTrue(torch.all(pack_index < num_packs))
+        self.assertTrue(torch.all(pack_index >= 0))  # 断言为真
+        self.assertTrue(torch.all(pack_index < num_packs))  # 断言为真
 
+    # TestBalancedPacking类的内部方法_check_items_per_pack
     def _check_items_per_pack(self, pack_index, num_packs, groups_per_pack):
         """Every pack must hold exactly groups_per_pack items in every layer."""
         for layer in range(pack_index.shape[0]):
             counts = torch.bincount(pack_index[layer], minlength=num_packs)
-            self.assertTrue(
+            self.assertTrue(  # 断言为真
                 torch.all(counts == groups_per_pack),
                 f"layer {layer}: pack counts {counts.tolist()} != {groups_per_pack}",
             )
 
+    # TestBalancedPacking类的内部方法_check_rank_in_pack_range
     def _check_rank_in_pack_range(self, rank_in_pack, groups_per_pack):
-        self.assertTrue(torch.all(rank_in_pack >= 0))
-        self.assertTrue(torch.all(rank_in_pack < groups_per_pack))
+        self.assertTrue(torch.all(rank_in_pack >= 0))  # 断言为真
+        self.assertTrue(torch.all(rank_in_pack < groups_per_pack))  # 断言为真
 
+    # TestBalancedPacking类的内部方法_check_unique_slots
     def _check_unique_slots(self, pack_index, rank_in_pack, num_packs, groups_per_pack):
         """Each (pack, rank) slot is occupied exactly once per layer."""
         num_layers = pack_index.shape[0]
         for layer in range(num_layers):
             slots = set(zip(pack_index[layer].tolist(), rank_in_pack[layer].tolist()))
-            self.assertEqual(len(slots), num_packs * groups_per_pack)
+            self.assertEqual(len(slots), num_packs * groups_per_pack)  # 断言相等
 
     # ------------------------------------------------------------------ tests
 
@@ -62,12 +68,14 @@ class TestBalancedPacking(CustomTestCase):
         pack_index, rank_in_pack = balanced_packing(weight, num_packs=4)
         self._check_shapes(weight, pack_index, rank_in_pack)
 
+    # TestBalancedPacking类的测试packindexrange
     def test_pack_index_range(self):
         """All pack indices are in [0, num_packs)."""
         weight = torch.rand(2, 6)
         pack_index, _ = balanced_packing(weight, num_packs=3)
         self._check_pack_index_range(pack_index, num_packs=3)
 
+    # TestBalancedPacking类的测试eachpackreceivesequalitems
     def test_each_pack_receives_equal_items(self):
         """Each pack receives exactly n // num_packs items per layer."""
         weight = torch.rand(4, 8)
@@ -75,6 +83,7 @@ class TestBalancedPacking(CustomTestCase):
         pack_index, _ = balanced_packing(weight, num_packs=num_packs)
         self._check_items_per_pack(pack_index, num_packs, groups_per_pack=2)
 
+    # TestBalancedPacking类的测试rankinpackrange
     def test_rank_in_pack_range(self):
         """rank_in_pack values are in [0, groups_per_pack)."""
         weight = torch.rand(2, 8)
@@ -83,6 +92,7 @@ class TestBalancedPacking(CustomTestCase):
         _, rank_in_pack = balanced_packing(weight, num_packs=num_packs)
         self._check_rank_in_pack_range(rank_in_pack, groups_per_pack)
 
+    # TestBalancedPacking类的测试uniquepackrankslots
     def test_unique_pack_rank_slots(self):
         """Each (pack, rank) slot is used exactly once per layer."""
         weight = torch.rand(3, 8)
@@ -90,6 +100,7 @@ class TestBalancedPacking(CustomTestCase):
         pack_index, rank_in_pack = balanced_packing(weight, num_packs=num_packs)
         self._check_unique_slots(pack_index, rank_in_pack, num_packs, groups_per_pack=2)
 
+    # TestBalancedPacking类的测试groupsperpackonespecialcase
     def test_groups_per_pack_one_special_case(self):
         """When groups_per_pack == 1 (num_packs == n), each item gets its own pack."""
         n = 6
@@ -97,10 +108,11 @@ class TestBalancedPacking(CustomTestCase):
         pack_index, rank_in_pack = balanced_packing(weight, num_packs=n)
         # pack_index[layer] should be a permutation of [0, n)
         for layer in range(weight.shape[0]):
-            self.assertEqual(sorted(pack_index[layer].tolist()), list(range(n)))
+            self.assertEqual(sorted(pack_index[layer].tolist()), list(range(n)))  # 断言相等
         # rank_in_pack is all zeros
-        self.assertTrue(torch.all(rank_in_pack == 0))
+        self.assertTrue(torch.all(rank_in_pack == 0))  # 断言为真
 
+    # TestBalancedPacking类的测试singlelayer
     def test_single_layer(self):
         """Works correctly with a single layer."""
         weight = torch.tensor([[3.0, 1.0, 4.0, 1.0]])
@@ -108,6 +120,7 @@ class TestBalancedPacking(CustomTestCase):
         self._check_shapes(weight, pack_index, rank_in_pack)
         self._check_items_per_pack(pack_index, num_packs=2, groups_per_pack=2)
 
+    # TestBalancedPacking类的测试uniformweightsallinvariants
     def test_uniform_weights_all_invariants(self):
         """Uniform weights: all invariants hold regardless of assignment."""
         weight = torch.ones(3, 8)
@@ -119,6 +132,7 @@ class TestBalancedPacking(CustomTestCase):
         self._check_rank_in_pack_range(rank_in_pack, groups_per_pack=2)
         self._check_unique_slots(pack_index, rank_in_pack, num_packs, groups_per_pack=2)
 
+    # TestBalancedPacking类的测试balanceproperty
     def test_balance_property(self):
         """Heavier items are spread across packs to minimize max pack weight."""
         # Weights: [9, 1, 1, 1] with 2 packs → optimal: {9,1} and {1,1}, not {9,1,1} and {1}
@@ -128,16 +142,18 @@ class TestBalancedPacking(CustomTestCase):
         for i, p in enumerate(pack_index[0].tolist()):
             pack_weights[p] += weight[0, i]
         # Max pack weight should be 10 (9+1), not 11 (9+1+1)
-        self.assertEqual(pack_weights.max().item(), 10.0)
+        self.assertEqual(pack_weights.max().item(), 10.0)  # 断言相等
 
+    # TestBalancedPacking类的测试deterministic
     def test_deterministic(self):
         """Same input always produces the same output."""
         weight = torch.rand(3, 8)
         result1 = balanced_packing(weight.clone(), num_packs=4)
         result2 = balanced_packing(weight.clone(), num_packs=4)
-        self.assertTrue(torch.equal(result1[0], result2[0]))
-        self.assertTrue(torch.equal(result1[1], result2[1]))
+        self.assertTrue(torch.equal(result1[0], result2[0]))  # 断言为真
+        self.assertTrue(torch.equal(result1[1], result2[1]))  # 断言为真
 
+    # TestBalancedPacking类的测试manylayers
     def test_many_layers(self):
         """All invariants hold across many layers."""
         weight = torch.rand(16, 8)

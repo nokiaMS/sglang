@@ -1,3 +1,12 @@
+# DeepSeek V2/V3 模型权重加载器
+# 本文件实现了 DeepSeek V2/V3 系列模型的权重加载逻辑，包括：
+# - 支持多种量化格式（FP8、INT8、AWQ、MXFP4 等）的权重处理
+# - MoE（混合专家）专家权重的映射与加载
+# - q_a_proj 和 kv_a_proj_with_mqa 的融合加载
+# - kv_b_proj 权重的后处理（拆分为 w_kc 和 w_vc、重量化等）
+# - NextN 投机解码权重的加载
+# - NVFP4 检查点的 FP8 UE8M0 量化转换
+
 # Copyright 2026 SGLang Team
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -67,32 +76,39 @@ if _use_aiter_gfx95:
 logger = logging.getLogger(__name__)
 
 # Optional quantization for DeepSeek nvfp4 checkpoint
+# NVFP4 检查点中需要 FP8 量化的注意力模块名
 NVFP4_CKPT_FP8_ATTN_QUANT_MODULES = ["q_b_proj"]
 
 
+# 如果张量来自 RunAI Streamer，则克隆并分离，避免流式加载的副作用
 def _clone_if_runai_streamed_tensor(tensor: torch.Tensor) -> torch.Tensor:
     if getattr(tensor, RUNAI_STREAMER_TENSOR_ATTR, False):
         return tensor.clone().detach()
     return tensor
 
 
+# NextN 投机解码启用时的配置数据类
 @dataclass(frozen=True)
 class NextNEnabledConfig:
-    num_nextn_layers: int
-    nextn_layer_id: int
-    nextn_layer_prefix: str
-    nextn_spec_weight_names: List[str]
+    num_nextn_layers: int  # NextN 层数量
+    nextn_layer_id: int  # NextN 层 ID
+    nextn_layer_prefix: str  # NextN 层权重名称前缀
+    nextn_spec_weight_names: List[str]  # NextN 特有的权重名称列表
 
 
+# NextN 投机解码禁用时的配置数据类
 @dataclass(frozen=True)
 class NextNDisabledConfig:
     pass
 
 
 """Union type for NextN configuration, including enabled and disabled configurations."""
+# NextN 配置联合类型，包含启用和禁用两种配置
 NextNConfig = NextNEnabledConfig | NextNDisabledConfig
 
 
+# DeepSeek V2/V3 权重加载混入类
+# 提供权重加载、后处理和量化转换等功能，可被模型类继承使用
 class DeepseekV2WeightLoaderMixin:
     """Mixin for loading weights in DeepSeek V2/V3 models."""
 
@@ -102,6 +118,10 @@ class DeepseekV2WeightLoaderMixin:
     pp_group: GroupCoordinator
     num_fused_shared_experts: int
 
+    # 加载模型权重
+    # 遍历检查点中的权重，根据名称映射规则将权重加载到对应参数中，
+    # 支持 stacked params（gate_up_proj）、expert params、
+    # q_a_proj/kv_a_proj_with_mqa 融合等特殊处理
     def do_load_weights(
         self,
         weights: Iterable[Tuple[str, torch.Tensor]],
@@ -113,12 +133,15 @@ class DeepseekV2WeightLoaderMixin:
             weights: Iterable of (weight_name, weight_tensor) pairs
             is_nextn: Whether loading NextN speculative decoding weights
         """
+        # 初始化 NextN 配置
         nextn_conf = self._initialize_nextn_conf(is_nextn)
 
+        # 对 NVFP4 检查点中的指定模块进行 FP8 UE8M0 量化
         weights = self._maybe_quant_weights_to_fp8_ue8m0(
             weights, NVFP4_CKPT_FP8_ATTN_QUANT_MODULES, nextn_conf
         )
 
+        # 门控投影和上投影的堆叠映射（gate_proj + up_proj -> gate_up_proj）
         stacked_params_mapping = [
             # (param_name, shard_name, shard_id)
             ("gate_up_proj", "gate_proj", 0),
@@ -127,6 +150,7 @@ class DeepseekV2WeightLoaderMixin:
 
         # Params for weights, fp8 weight scales, fp8 activation scales
         # (param_name, weight_name, expert_id, shard_id)
+        # 专家参数映射，包含权重、FP8 缩放因子等
         expert_params_mapping = FusedMoE.make_expert_params_mapping(
             ckpt_gate_proj_name="gate_proj",
             ckpt_down_proj_name="down_proj",
@@ -136,21 +160,25 @@ class DeepseekV2WeightLoaderMixin:
         # Params for special naming rules in mixed-precision models, for example:
         # model.layers.xx.mlp.experts.xx.w1.input_scale. For details,
         # see https://huggingface.co/Barrrrry/DeepSeek-R1-W4AFP8/blob/main.
+        # 混合精度模型的特殊命名规则
         if self.quant_config and self.quant_config.get_name() == "w4afp8":
             expert_params_mapping += FusedMoE.make_expert_input_scale_params_mapping(
                 num_experts=self.config.n_routed_experts
             )
 
         # Fuse q_a_proj and kv_a_proj_with_mqa along output dimension when q_lora_rank is not None
+        # 当 q_lora_rank 不为 None 时，沿输出维度融合 q_a_proj 和 kv_a_proj_with_mqa
         fuse_qkv_a_proj = hasattr(self.config, "q_lora_rank") and (
             self.config.q_lora_rank is not None
         )
+        # 缓存 q_a_proj 和 kv_a_proj_with_mqa 的权重，等待两者都加载后融合
         cached_a_proj = {} if fuse_qkv_a_proj else None
 
         if self.num_fused_shared_experts > 0:
             assert self.num_fused_shared_experts == 1
             log_info_on_rank0(logger, "Shared experts fusion optimization enabled.")
 
+        # 使用线程池并行加载权重
         with concurrent.futures.ThreadPoolExecutor() as executor:
             futures = []
             params_dict = dict(self.named_parameters())
@@ -158,6 +186,7 @@ class DeepseekV2WeightLoaderMixin:
             for name, loaded_weight in weights:
                 use_async_loading = should_async_load(loaded_weight)
                 layer_id = get_layer_id(name)
+                # 跳过不属于当前流水线阶段的层
                 if (
                     layer_id is not None
                     and hasattr(self.model, "start_layer")
@@ -167,6 +196,7 @@ class DeepseekV2WeightLoaderMixin:
                     )
                 ):
                     continue
+                # 共享专家融合：将 shared_experts 重映射到最后一个专家位置
                 if self.num_fused_shared_experts > 0 and "mlp.shared_experts" in name:
                     name = name.replace(
                         "mlp.shared_experts",
@@ -175,24 +205,29 @@ class DeepseekV2WeightLoaderMixin:
 
                 weight_names.append(name)
 
+                # NextN 配置处理
                 match nextn_conf:
                     case NextNEnabledConfig(
                         nextn_layer_prefix=layer_prefix,
                         nextn_spec_weight_names=spec_weight_names,
                     ):
+                        # 跳过不属于 NextN 层的权重
                         if not name.startswith(layer_prefix):
                             continue
 
                         # Use shared head and embed weights from target model
+                        # 跳过共享头和嵌入权重（从目标模型复用）
                         if "shared_head.head" in name or "embed_tokens" in name:
                             continue
 
                         # Transform name: NextN-specific → "model.*", decoder → "model.decoder.*"
+                        # 名称转换：NextN 特有权重映射为 "model.*"，解码器权重映射为 "model.decoder.*"
                         if any(s in name for s in spec_weight_names):
                             name = name.replace(layer_prefix, "model")
                         else:
                             name = name.replace(layer_prefix, "model.decoder")
                     case NextNDisabledConfig():
+                        # 非 NextN 模式：跳过 NextN 预测层的权重
                         if hasattr(self.config, "num_nextn_predict_layers"):
                             num_nextn_layers = self.config.num_nextn_predict_layers
                             if num_nextn_layers > 0 and name.startswith("model.layers"):
@@ -204,9 +239,11 @@ class DeepseekV2WeightLoaderMixin:
                                 ):
                                     continue
 
+                # 跳过旋转嵌入的逆频率（不再需要）
                 if "rotary_emb.inv_freq" in name:
                     continue
 
+                # 尝试匹配堆叠参数（gate_up_proj）
                 for param_name, weight_name, shard_id in stacked_params_mapping:
                     # Skip non-stacked layers and experts (experts handled below).
                     if weight_name not in name:
@@ -219,10 +256,12 @@ class DeepseekV2WeightLoaderMixin:
                     # name will be updated to mlp.experts[0].gate_up_proj, which
                     # will then be updated below in expert_params_mapping
                     # for mlp.experts[0].gate_gate_up_proj, which breaks load.
+                    # 跳过专家的堆叠参数（专家在下面的 expert_params_mapping 中单独处理）
                     if ("mlp.experts." in name) and name not in params_dict:
                         continue
                     name = name.replace(weight_name, param_name)
                     # Skip loading extra bias for GPTQ models.
+                    # 跳过 GPTQ 模型的额外偏置
                     if name.endswith(".bias") and name not in params_dict:
                         continue
                     param = params_dict[name]
@@ -236,6 +275,7 @@ class DeepseekV2WeightLoaderMixin:
                     )
                     break
                 else:
+                    # 尝试匹配专家参数
                     for mapping in expert_params_mapping:
                         param_name, weight_name, expert_id, shard_id = mapping
                         if weight_name not in name:
@@ -265,17 +305,22 @@ class DeepseekV2WeightLoaderMixin:
                         break
                     else:
                         # Skip loading extra bias for GPTQ models.
+                        # 跳过 GPTQ 模型的额外偏置
                         if name.endswith(".bias") and name not in params_dict:
                             continue
                         # Skip loading embed_tokens if not first rank in pipeline parallelism
+                        # 跳过非流水线第一阶段的嵌入层权重
                         if ".embed_tokens." in name and not self.pp_group.is_first_rank:
                             continue
                         # Skip loading norm if not last rank in pipeline parallelism
+                        # 跳过非流水线最后阶段的归一化层权重
                         if ".norm." in name and not self.pp_group.is_last_rank:
                             continue
+                        # q_a_proj / kv_a_proj_with_mqa 融合处理
                         if fuse_qkv_a_proj and (
                             "q_a_proj" in name or "kv_a_proj_with_mqa" in name
                         ):
+                            # 缓存权重，等待两者都加载后融合
                             cached_a_proj[name] = _clone_if_runai_streamed_tensor(
                                 loaded_weight
                             )
@@ -291,6 +336,7 @@ class DeepseekV2WeightLoaderMixin:
                             )
 
                             # When both q_a_proj and kv_a_proj_with_mqa has been cached, load the fused weight to parameter
+                            # 当 q_a_proj 和 kv_a_proj_with_mqa 都缓存后，融合并加载
                             if (
                                 q_a_proj_name in cached_a_proj
                                 and kv_a_proj_name in cached_a_proj
@@ -298,11 +344,13 @@ class DeepseekV2WeightLoaderMixin:
                                 q_a_proj_weight = cached_a_proj[q_a_proj_name]
                                 kv_a_proj_weight = cached_a_proj[kv_a_proj_name]
 
+                                # 处理空张量（量化的缩放因子等）
                                 if q_a_proj_weight.shape == torch.Size(
                                     []
                                 ) and kv_a_proj_weight.shape == torch.Size([]):
                                     fused_weight = q_a_proj_weight
                                 else:
+                                    # AWQ 量化沿维度1拼接，其他沿维度0拼接
                                     cat_dim = 0
                                     if self.quant_config is not None and (
                                         self.quant_config.get_name() == "awq"
@@ -315,6 +363,7 @@ class DeepseekV2WeightLoaderMixin:
                                         [q_a_proj_weight, kv_a_proj_weight], dim=cat_dim
                                     )
 
+                                # 将名称替换为融合后的参数名
                                 param_name = (
                                     name.replace(
                                         "q_a_proj", "fused_qkv_a_proj_with_mqa"
@@ -337,9 +386,11 @@ class DeepseekV2WeightLoaderMixin:
                                     func=weight_loader,
                                     func_args=(param, fused_weight),
                                 )
+                                # 从缓存中移除已使用的权重
                                 cached_a_proj.pop(q_a_proj_name)
                                 cached_a_proj.pop(kv_a_proj_name)
                         else:
+                            # modelopt 注意力 KV 缩放的名称适配
                             if (
                                 "k_scale" in name or "v_scale" in name
                             ) and name not in params_dict:
@@ -369,11 +420,14 @@ class DeepseekV2WeightLoaderMixin:
                             )
 
             # Wait for all tasks to complete and raise any exceptions.
+            # 等待所有异步加载任务完成，并抛出任何异常
             for future in concurrent.futures.as_completed(futures):
                 future.result()
 
+        # 权重后处理（kv_b_proj 拆分为 w_kc 和 w_vc 等）
         self.post_load_weights(is_nextn=is_nextn, weight_names=weight_names)
 
+    # 初始化 NextN 投机解码配置
     def _initialize_nextn_conf(self, is_nextn: bool) -> NextNConfig:
         """
         Initialize the nextn configuration.
@@ -392,6 +446,7 @@ class DeepseekV2WeightLoaderMixin:
         assert num_nextn_layers == 1, "Only 1 nextn layer is supported"
 
         # compatible with old design
+        # 兼容旧设计：单层时 layer_id 为 0，多层时为 num_hidden_layers
         nextn_layer_id = (
             0 if self.config.num_hidden_layers == 1 else self.config.num_hidden_layers
         )
@@ -408,6 +463,8 @@ class DeepseekV2WeightLoaderMixin:
             ],
         )
 
+    # 权重后处理：将 kv_b_proj 权重拆分为 w_kc 和 w_vc，
+    # 并根据量化格式进行重量化或格式转换
     def post_load_weights(
         self,
         is_nextn: bool = False,
@@ -424,12 +481,14 @@ class DeepseekV2WeightLoaderMixin:
             is_nextn: Whether processing NextN weights
             weight_names: Optional list of loaded weight names to determine which layers to process
         """
+        # 确定需要处理的层 ID
         if is_nextn:
             layer_ids = [self.config.num_hidden_layers]
         else:
             if weight_names is None:
                 layer_ids = range(self.model.start_layer, self.model.end_layer)
             else:
+                # 仅处理包含 kv_b_proj 的层
                 layer_ids = set()
                 for name in weight_names:
                     if "kv_b_proj" in name:
@@ -444,6 +503,7 @@ class DeepseekV2WeightLoaderMixin:
                 else self.model.decoder.self_attn
             )
 
+            # AWQ 量化权重反量化
             if hasattr(self_attn.kv_b_proj, "qweight"):
                 # awq compatible, dequantize the weight if supported
                 awq_dequantize_f = awq_dequantize_func()
@@ -463,13 +523,17 @@ class DeepseekV2WeightLoaderMixin:
             # NOTE(HandH1998): Since `bmm_fp8` only supports per-tensor scale, we have to requantize `self_attn.kv_b_proj`.
             # This may affect the accuracy of fp8 model.
             # Fix deepseek v3 blockwise bmm by using deep_gemm
+            # 由于 bmm_fp8 仅支持逐张量缩放，需要将分块量化权重重量化为逐张量缩放
+            # 使用 DeepGEMM 可以避免重量化带来的精度损失
             use_deep_gemm_bmm = False
 
+            # FP8 权重处理
             if w.dtype in (
                 torch.float8_e4m3fn,
                 torch.float8_e4m3fnuz,
             ):
                 # For mixed quantization (experts int4, linear fp8), use linear_fp8_config
+                # 混合量化场景下使用 linear_fp8_config
                 selected_quant_config = getattr(
                     self.quant_config, "linear_fp8_config", None
                 )
@@ -478,6 +542,7 @@ class DeepseekV2WeightLoaderMixin:
                 weight_block_size = getattr(
                     selected_quant_config, "weight_block_size", None
                 )
+                # 分块量化路径
                 if weight_block_size is not None:
                     assert hasattr(self_attn.kv_b_proj, "weight_scale_inv") or hasattr(
                         self_attn.kv_b_proj, "weight_scale"
@@ -487,6 +552,7 @@ class DeepseekV2WeightLoaderMixin:
                         if hasattr(self_attn.kv_b_proj, "weight_scale")
                         else self_attn.kv_b_proj.weight_scale_inv
                     )
+                    # FP8 FNUZ 格式归一化
                     if _is_fp8_fnuz:
                         weight, weight_scale, _ = normalize_e4m3fn_to_e4m3fnuz(
                             weight=w,
@@ -497,6 +563,7 @@ class DeepseekV2WeightLoaderMixin:
                         weight = w
 
                     # In multiple weight loading scenarios (e.g. RL), we need to inverse the scale of the weights after the requantization happened at the first loading.
+                    # 多次权重加载场景（如 RL）下，需要逆变换 UE8M0 缩放因子
                     if (
                         should_deepgemm_weight_requant_ue8m0(
                             weight_block_size=getattr(
@@ -509,11 +576,13 @@ class DeepseekV2WeightLoaderMixin:
                             weight_scale, mn=weight.shape[-2]
                         )
 
+                    # 128x128 分块大小路径
                     if (
                         (_is_cuda or _is_musa or _is_xpu)
                         and weight_block_size[0] == 128
                         and weight_block_size[1] == 128
                     ):
+                        # DeepGEMM 路径：直接使用分块缩放，无需重量化
                         if (
                             deep_gemm_wrapper.ENABLE_JIT_DEEPGEMM
                             and not deep_gemm_wrapper.DEEPGEMM_BLACKWELL
@@ -522,6 +591,7 @@ class DeepseekV2WeightLoaderMixin:
                             block_scale = weight_scale
                             use_deep_gemm_bmm = True
                         else:
+                            # 非 DeepGEMM 路径：反量化为 BF16
                             w = block_quant_dequant(
                                 weight,
                                 weight_scale,
@@ -529,11 +599,13 @@ class DeepseekV2WeightLoaderMixin:
                                 torch.bfloat16,
                             )
                     else:
+                        # 非 128x128 分块：转换为逐张量缩放
                         w, scale = block_quant_to_tensor_quant(
                             weight, weight_scale, weight_block_size
                         )
                         self_attn.w_scale = scale
                 else:
+                    # 非分块量化（逐通道量化）路径
                     if _is_fp8_fnuz:
                         weight, weight_scale, _ = normalize_e4m3fn_to_e4m3fnuz(
                             weight=w,
@@ -544,12 +616,15 @@ class DeepseekV2WeightLoaderMixin:
                         weight = w
                         weight_scale = self_attn.kv_b_proj.weight_scale
 
+                    # 逐通道量化转换为逐张量量化
                     w, scale = channel_quant_to_tensor_quant(weight, weight_scale)
                     self_attn.w_scale = scale
 
+            # INT8 权重处理
             if w.dtype == torch.int8:
                 if hasattr(self.quant_config, "weight_block_size"):
                     # block-wise int8 need it
+                    # 分块 INT8 反量化
                     weight_block_size = self.quant_config.weight_block_size
                     if weight_block_size is not None:
                         assert hasattr(self_attn.kv_b_proj, "weight_scale_inv")
@@ -560,14 +635,17 @@ class DeepseekV2WeightLoaderMixin:
                         ).to(torch.bfloat16)
                 else:
                     # channel-wise int8 need it
+                    # 逐通道 INT8 反量化
                     w = w.to(torch.bfloat16) * self_attn.kv_b_proj.weight_scale.to(
                         torch.bfloat16
                     )
 
+            # 将 kv_b_proj 权重拆分为 w_kc（K 部分）和 w_vc（V 部分）
             w_kc, w_vc = w.unflatten(
                 0, (-1, self_attn.qk_nope_head_dim + self_attn.v_head_dim)
             ).split([self_attn.qk_nope_head_dim, self_attn.v_head_dim], dim=1)
 
+            # AITER gfx95 + Quark MXFP4 量化后处理
             if (
                 _use_aiter_gfx95
                 and self.quant_config is not None
@@ -575,11 +653,13 @@ class DeepseekV2WeightLoaderMixin:
                 and self.config.architectures
                 and self.config.architectures[0]
                 == "DeepseekV3ForCausalLM"  # Avoid processing other models like GlmMoeDsaForCausalLM
+                # 避免处理其他模型如 GlmMoeDsaForCausalLM
             ):
                 w_kc, self_attn.w_scale_k, w_vc, self_attn.w_scale_v = (
                     quark_post_load_weights(self_attn, w, "mxfp4")
                 )
 
+            # 非 DeepGEMM BMM 路径：存储 w_kc 和 w_vc
             if not use_deep_gemm_bmm:
                 self_attn.w_kc = bind_or_assign(
                     self_attn.w_kc, w_kc.transpose(1, 2).contiguous().transpose(1, 2)
@@ -588,6 +668,7 @@ class DeepseekV2WeightLoaderMixin:
                 if _is_npu:
                     w_vc = w_vc.contiguous()
                 self_attn.w_vc = bind_or_assign(self_attn.w_vc, w_vc)
+                # 设置权重缩放因子
                 if (
                     hasattr(self_attn.kv_b_proj, "weight_scale")
                     and self_attn.w_scale is None
@@ -595,9 +676,11 @@ class DeepseekV2WeightLoaderMixin:
                     self_attn.w_scale = bind_or_assign(
                         self_attn.w_scale, self_attn.kv_b_proj.weight_scale
                     )
+                    # HIP 平台缩放因子乘以 2.0
                     if _is_hip:
                         self_attn.w_scale *= 2.0
                 # XXX (MUSA): Remove this after adding FP8 support in bmm kernel on MUSA
+                # MUSA 平台暂不支持 FP8 BMM，需反量化为 BF16
                 if _is_musa and w.dtype == torch.float8_e4m3fn:
                     self_attn.w_kc = (
                         self_attn.w_kc.to(torch.bfloat16) * self_attn.w_scale
@@ -606,6 +689,7 @@ class DeepseekV2WeightLoaderMixin:
                         self_attn.w_vc.to(torch.bfloat16) * self_attn.w_scale
                     )
             else:
+                # DeepGEMM BMM 路径：将分块缩放拆分为 K 和 V 部分
                 num_tiles_k = self_attn.qk_nope_head_dim // weight_block_size[1]
                 num_tiles_n = self_attn.v_head_dim // weight_block_size[0]
                 ws_kc, ws_vc = block_scale.unflatten(
@@ -623,6 +707,9 @@ class DeepseekV2WeightLoaderMixin:
                 self_attn.w_vc = bind_or_assign(self_attn.w_vc, w_vc.contiguous())
                 self_attn.use_deep_gemm_bmm = True
 
+    # 生成权重名称过滤器
+    # 根据逻辑专家映射表，生成一个过滤函数，判断给定权重名称对应的
+    # (layer_id, expert_id) 是否在映射表中
     @classmethod
     def generate_weight_name_filter(cls, logical_experts_map: Dict[int, List[int]]):
         """
@@ -637,6 +724,7 @@ class DeepseekV2WeightLoaderMixin:
         import re
 
         # Regex pattern to extract layer_id and expert_id from weight name
+        # 正则模式：从权重名称中提取层 ID 和专家 ID
         pattern = re.compile(r"layers\.(\d+)\.mlp\.experts\.(\d+)\.")
 
         def weight_name_filter(name: str) -> bool:
@@ -644,6 +732,7 @@ class DeepseekV2WeightLoaderMixin:
             if match:
                 layer_id, expert = int(match.group(1)), int(match.group(2))
                 # First check if layer_id exists, then check if expert is in the list
+                # 先检查层 ID 是否存在，再检查专家 ID 是否在列表中
                 return (
                     layer_id in logical_experts_map
                     and expert in logical_experts_map[layer_id]
@@ -652,6 +741,8 @@ class DeepseekV2WeightLoaderMixin:
 
         return weight_name_filter
 
+    # 可选地将权重量化为 FP8 UE8M0 格式
+    # 用于 DeepSeek NVFP4 检查点中的注意力模块和 NextN MoE 权重
     def _maybe_quant_weights_to_fp8_ue8m0(
         self,
         weights,
@@ -674,12 +765,14 @@ class DeepseekV2WeightLoaderMixin:
 
         match nextn_conf:
             case NextNEnabledConfig(nextn_layer_id=layer_id):
+                # NextN 模式：量化指定注意力模块
                 if envs.SGLANG_NVFP4_CKPT_FP8_GEMM_IN_ATTN.get():
                     for stem in attn_quant_modules:
                         partial_names.append(
                             f"model.layers.{layer_id}.self_attn.{stem}"
                         )
 
+                # NextN MoE 的 BF16 权重转为 FP8
                 if enable_nextn_moe_bf16_cast_to_fp8(self.quant_config):
                     expert_sub_names = ["shared_experts"] + [
                         f"experts.{i}" for i in range(self.config.n_routed_experts)
@@ -691,6 +784,7 @@ class DeepseekV2WeightLoaderMixin:
                             )
 
             case NextNDisabledConfig():
+                # 非 NextN 模式：量化所有层的指定注意力模块
                 if envs.SGLANG_NVFP4_CKPT_FP8_GEMM_IN_ATTN.get():
                     for layer_id in range(self.config.num_hidden_layers):
                         for stem in attn_quant_modules:
@@ -699,12 +793,15 @@ class DeepseekV2WeightLoaderMixin:
                             )
 
         # Early return if no quantization needed - avoid materializing all weights into memory
+        # 无需量化时提前返回，避免将所有权重物化到内存中
         if not partial_names:
             return weights
 
         # Only materialize weights dict when quantization is actually needed
+        # 仅在确实需要量化时才物化权重字典
         weights_dict = dict(weights)
 
+        # 对每个需要量化的权重执行 FP8 UE8M0 量化
         for partial_name in tqdm.tqdm(partial_names, desc="quant weights to fp8 ue8m0"):
             original_weight = weights_dict[f"{partial_name}.weight"]
             out_w, out_s = quant_weight_ue8m0(
@@ -713,6 +810,7 @@ class DeepseekV2WeightLoaderMixin:
             weights_dict[f"{partial_name}.weight"] = out_w
             weights_dict[f"{partial_name}.weight_scale_inv"] = out_s
 
+        # 标记 NextN MoE 权重缩放为 UE8M0 格式
         if isinstance(
             nextn_conf, NextNEnabledConfig
         ) and enable_nextn_moe_bf16_cast_to_fp8(self.quant_config):
@@ -720,6 +818,7 @@ class DeepseekV2WeightLoaderMixin:
 
         return list(weights_dict.items())
 
+    # 标记 NextN MoE 权重缩放为 UE8M0 格式，避免重量化
     def _mark_nextn_moe_weights_as_ue8m0(self):
         """Mark NextN MoE weight scales as UE8M0 format to avoid requantization."""
         experts = self.model.decoder.mlp.experts

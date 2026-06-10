@@ -1,3 +1,4 @@
+# 文件名: test_weight_validation.py - 权重验证测试 - 验证分片缺失和损坏检测、缓存清理逻辑
 """
 Unit tests for weight validation and cache cleanup logic.
 
@@ -20,6 +21,7 @@ from sglang.srt.model_loader.ci_weight_validation import (
 class TestWeightValidation(unittest.TestCase):
     """Tests for weight validation functions."""
 
+    # 测试validate sharded model missing shard
     def test_validate_sharded_model_missing_shard(self):
         """
         Test that missing shards are detected correctly.
@@ -66,6 +68,7 @@ class TestWeightValidation(unittest.TestCase):
             # This is what prevents entire cache deletion
             self.assertEqual(corrupted_files, [])
 
+    # 测试validate sharded model all present
     def test_validate_sharded_model_all_present(self):
         """Test that complete shards pass validation."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -104,6 +107,7 @@ class TestWeightValidation(unittest.TestCase):
             self.assertIsNone(error_msg)
             self.assertEqual(corrupted_files, [])
 
+    # 测试validate sharded model corrupted shard
     def test_validate_sharded_model_corrupted_shard(self):
         """
         Test that corrupted shards are detected and returned in corrupted_files.
@@ -154,6 +158,7 @@ class TestWeightValidation(unittest.TestCase):
             self.assertEqual(len(corrupted_files), 1)
             self.assertIn("model-00002-of-00003.safetensors", corrupted_files[0])
 
+    # 测试broken index symlink detected
     def test_broken_index_symlink_detected(self):
         """
         Test that broken index symlinks are detected and cause validation to fail.

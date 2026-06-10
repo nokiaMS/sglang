@@ -1,3 +1,4 @@
+# 文件名: test_disaggregation_decode_offload.py - 解码卸载分离式部署测试
 import os
 import shutil
 import unittest
@@ -31,12 +32,13 @@ class TestDisaggregationDecodeOffload(PDDisaggregationServerBase):
     """
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         # Set environment variable to make offloading more frequent for testing purposes
-        cls.old_stride = os.environ.get("SGLANG_HICACHE_DECODE_OFFLOAD_STRIDE")
+        cls.old_stride = os.environ.get("SGLANG_HICACHE_DECODE_OFFLOAD_STRIDE")  # 访问环境变量
         cls.hicache_dir = "/tmp/hicache_test"
-        os.environ["SGLANG_HICACHE_FILE_BACKEND_STORAGE_DIR"] = cls.hicache_dir
-        os.environ["SGLANG_HICACHE_DECODE_OFFLOAD_STRIDE"] = "16"
+        os.environ["SGLANG_HICACHE_FILE_BACKEND_STORAGE_DIR"] = cls.hicache_dir  # 访问环境变量
+        os.environ["SGLANG_HICACHE_DECODE_OFFLOAD_STRIDE"] = "16"  # 访问环境变量
 
         # Ensure a clean cache directory
         if os.path.exists(cls.hicache_dir):
@@ -57,21 +59,23 @@ class TestDisaggregationDecodeOffload(PDDisaggregationServerBase):
         cls.launch_lb()
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         # Restore the original environment variable state
         super().tearDownClass()
         if cls.old_stride is not None:
-            os.environ["SGLANG_HICACHE_DECODE_OFFLOAD_STRIDE"] = cls.old_stride
+            os.environ["SGLANG_HICACHE_DECODE_OFFLOAD_STRIDE"] = cls.old_stride  # 访问环境变量
         else:
-            os.environ.pop("SGLANG_HICACHE_DECODE_OFFLOAD_STRIDE", None)
+            os.environ.pop("SGLANG_HICACHE_DECODE_OFFLOAD_STRIDE", None)  # 访问环境变量
 
-        os.environ.pop("SGLANG_HICACHE_FILE_BACKEND_STORAGE_DIR", None)
+        os.environ.pop("SGLANG_HICACHE_FILE_BACKEND_STORAGE_DIR", None)  # 访问环境变量
 
         # Clean up the cache directory
         if os.path.exists(cls.hicache_dir):
             shutil.rmtree(cls.hicache_dir)
 
     @classmethod
+    # 执行startprefill
     def start_prefill(cls):
         prefill_args = [
             "--trust-remote-code",
@@ -98,6 +102,7 @@ class TestDisaggregationDecodeOffload(PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 执行startdecode
     def start_decode(cls):
         decode_args = [
             "--trust-remote-code",
@@ -127,6 +132,7 @@ class TestDisaggregationDecodeOffload(PDDisaggregationServerBase):
             other_args=decode_args,
         )
 
+    # 测试mmludoubleeval
     def test_mmlu_double_eval(self):
         """
         Run two rounds of MMLU evaluation:

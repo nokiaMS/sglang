@@ -1,3 +1,4 @@
+# 文件名: test_unknown_tool_name.py - 未知工具名称
 import json
 import logging
 
@@ -13,20 +14,26 @@ register_cpu_ci(5, "base-a-test-cpu")
 register_cpu_ci(est_time=7, suite="base-b-test-cpu")
 
 
+# DummyDetector类
 class DummyDetector(BaseFormatDetector):
+
+    # DummyDetector类的has_tool_call
     def has_tool_call(self, text: str) -> bool:
         return True
 
+    # DummyDetector类的detect_and_parse
     def detect_and_parse(self, text: str, tools):
         action = json.loads(text)
         return StreamingParseResult(
             normal_text="", calls=self.parse_base_json(action, tools)
         )
 
+    # DummyDetector类的structure_info
     def structure_info(self):
         pass
 
 
+# 测试unknowntoolnamedroppeddefault
 def test_unknown_tool_name_dropped_default(caplog):
     """Test that unknown tools are dropped by default (legacy behavior)."""
     with envs.SGLANG_FORWARD_UNKNOWN_TOOLS.override(False):
@@ -51,6 +58,7 @@ def test_unknown_tool_name_dropped_default(caplog):
         assert len(result.calls) == 0  # dropped in default mode
 
 
+# 测试unknowntoolnameforwarded
 def test_unknown_tool_name_forwarded(caplog):
     """Test that unknown tools are forwarded when env var is True."""
     with envs.SGLANG_FORWARD_UNKNOWN_TOOLS.override(True):

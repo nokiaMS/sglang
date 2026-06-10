@@ -1,3 +1,4 @@
+# 文件名: test_pp_with_hicache.py - 测试流水线并行与分层缓存(HiCache)的集成精度
 """
 Usage:
 python3 -m unittest test_pp_with_hicache.TestPPWithHiCache.test_eval_accuracy
@@ -24,8 +25,9 @@ from sglang.test.test_utils import (
 
 class TestPPWithHiCache(unittest.TestCase):
     @classmethod
+    # 类级别初始化，启动服务器或设置测试环境
     def setUpClass(cls):
-        cls.base_url = f"http://127.0.0.1:{find_available_port(23337)}"
+        cls.base_url = f"http://127.0.0.1:{find_available_port(23337)}"  # 查找可用端口
         parsed_url = urlparse(cls.base_url)
         cls.base_host = parsed_url.hostname
         cls.base_port = str(parsed_url.port)
@@ -56,7 +58,7 @@ class TestPPWithHiCache(unittest.TestCase):
         env_vars = {**os.environ, **cls._mooncake_env()}
 
         try:
-            cls.process = popen_launch_server(
+            cls.process = popen_launch_server(  # 启动推理服务器
                 cls.model,
                 cls.base_url,
                 timeout=DEFAULT_TIMEOUT_FOR_SERVER_LAUNCH,
@@ -68,25 +70,27 @@ class TestPPWithHiCache(unittest.TestCase):
             raise
 
     @classmethod
+    # 类级别清理，关闭服务器或清理资源
     def tearDownClass(cls):
         if hasattr(cls, "process"):
-            kill_process_tree(cls.process.pid)
+            kill_process_tree(cls.process.pid)  # 终止服务器进程
         cls._stop_mooncake_services()
 
     @classmethod
+    # 启动Mooncake元数据与主控服务
     def _start_mooncake_services(cls):
         try:
             import mooncake.http_metadata_server  # type: ignore  # noqa: F401
         except Exception as exc:  # pragma: no cover - environment dependent
-            raise unittest.SkipTest(
+            raise unittest.SkipTest(  # 跳过测试
                 f"Mooncake metadata server module unavailable: {exc}"
             ) from exc
 
-        cls._mooncake_master_port = find_available_port(50051)
-        cls._mooncake_metadata_port = find_available_port(8080)
+        cls._mooncake_master_port = find_available_port(50051)  # 查找可用端口
+        cls._mooncake_metadata_port = find_available_port(8080)  # 查找可用端口
 
         try:
-            cls._mooncake_metadata_process = subprocess.Popen(
+            cls._mooncake_metadata_process = subprocess.Popen(  # 启动子进程
                 [
                     "python3",
                     "-m",
@@ -100,12 +104,12 @@ class TestPPWithHiCache(unittest.TestCase):
             )
         except (FileNotFoundError, subprocess.SubprocessError) as exc:
             cls._stop_mooncake_services()
-            raise unittest.SkipTest(
+            raise unittest.SkipTest(  # 跳过测试
                 f"Could not start Mooncake metadata service: {exc}"
             ) from exc
 
         try:
-            cls._mooncake_master_process = subprocess.Popen(
+            cls._mooncake_master_process = subprocess.Popen(  # 启动子进程
                 ["mooncake_master", "--port", str(cls._mooncake_master_port)],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -113,13 +117,14 @@ class TestPPWithHiCache(unittest.TestCase):
             )
         except (FileNotFoundError, subprocess.SubprocessError) as exc:
             cls._stop_mooncake_services()
-            raise unittest.SkipTest(f"Could not start mooncake_master: {exc}") from exc
+            raise unittest.SkipTest(f"Could not start mooncake_master: {exc}") from exc  # 跳过测试
 
         if not cls._wait_for_mooncake_ready():
             cls._stop_mooncake_services()
-            raise unittest.SkipTest("Mooncake services did not become ready in time")
+            raise unittest.SkipTest("Mooncake services did not become ready in time")  # 跳过测试
 
     @classmethod
+    # 停止Mooncake服务进程
     def _stop_mooncake_services(cls):
         for attr in ("_mooncake_metadata_process", "_mooncake_master_process"):
             proc = getattr(cls, attr, None)
@@ -133,6 +138,7 @@ class TestPPWithHiCache(unittest.TestCase):
         cls._mooncake_master_process = None
 
     @classmethod
+    # 构建Mooncake环境变量字典
     def _mooncake_env(cls):
         return {
             "MOONCAKE_MASTER": f"127.0.0.1:{cls._mooncake_master_port}",
@@ -145,6 +151,7 @@ class TestPPWithHiCache(unittest.TestCase):
         }
 
     @classmethod
+    # 等待Mooncake服务就绪
     def _wait_for_mooncake_ready(cls, timeout: int = 30) -> bool:
         start_time = time.time()
         while time.time() - start_time < timeout:
@@ -156,7 +163,7 @@ class TestPPWithHiCache(unittest.TestCase):
                 and cls._mooncake_metadata_process.poll() is None
             ):
                 try:
-                    resp = requests.get(
+                    resp = requests.get(  # 发送GET请求
                         f"http://127.0.0.1:{cls._mooncake_metadata_port}/metadata",
                         timeout=2,
                     )
@@ -179,14 +186,16 @@ class TestPPWithHiCache(unittest.TestCase):
 
         return False
 
+    # 刷新服务器缓存
     def flush_cache(self):
-        res = requests.post(
+        res = requests.post(  # 发送POST请求
             f"{self.base_url}/flush_cache",
             params={"timeout": 30},
             timeout=40,
         )
         res.raise_for_status()
 
+    # 测试eval accuracy功能
     def test_eval_accuracy(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -198,16 +207,16 @@ class TestPPWithHiCache(unittest.TestCase):
             num_threads=24,
         )
 
-        metrics_initial = run_eval(args)
-        self.assertGreater(metrics_initial["score"], 0.6)
+        metrics_initial = run_eval(args)  # 运行评估
+        self.assertGreater(metrics_initial["score"], 0.6)  # 断言精度大于阈值
 
         self.flush_cache()
 
-        metrics_cached = run_eval(args)
-        self.assertGreater(metrics_cached["score"], 0.6)
+        metrics_cached = run_eval(args)  # 运行评估
+        self.assertGreater(metrics_cached["score"], 0.6)  # 断言精度大于阈值
 
         accuracy_diff = abs(metrics_initial["score"] - metrics_cached["score"])
-        self.assertLess(accuracy_diff, 0.05)
+        self.assertLess(accuracy_diff, 0.05)  # 断言值小于阈值
 
 
 if __name__ == "__main__":

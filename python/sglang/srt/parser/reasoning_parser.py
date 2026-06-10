@@ -1,13 +1,17 @@
-from typing import Dict, List, Optional, Tuple, Type
+# 推理内容解析器模块
+# 本模块实现模型输出中推理（thinking）内容的检测和解析，
+# 支持多种模型的推理格式，包括DeepSeek-R1、Qwen3、Kimi、GLM-4.5等，
+# 提供一次性解析和流式增量解析两种接口。
+from typing import Dict, List, Optional, Tuple, Type  # 导入类型注解
 
-from sglang.srt.entrypoints.openai.protocol import ChatCompletionRequest
-from sglang.srt.parser.harmony_parser import HarmonyParser
+from sglang.srt.entrypoints.openai.protocol import ChatCompletionRequest  # 导入聊天补全请求协议
+from sglang.srt.parser.harmony_parser import HarmonyParser  # 导入Harmony解析器
 
 
-class StreamingParseResult:
+class StreamingParseResult:  # 流式增量解析的结果类
     """Result of streaming incremental parsing."""
 
-    def __init__(
+    def __init__(  # 初始化方法
         self,
         normal_text: Optional[str] = None,
         reasoning_text: Optional[str] = None,
@@ -16,10 +20,10 @@ class StreamingParseResult:
         self.reasoning_text = reasoning_text or ""
 
 
-class BaseReasoningFormatDetector:
+class BaseReasoningFormatDetector:  # 推理格式检测器基类
     """Base class providing two sets of interfaces: one-time and streaming incremental."""
 
-    def __init__(
+    def __init__(  # 初始化方法
         self,
         think_start_token: str,
         think_end_token: str,
@@ -32,8 +36,8 @@ class BaseReasoningFormatDetector:
         thinks_internally: bool = False,
         reasoning_default: str = "always",
     ):
-        self.think_start_token = think_start_token
-        self.think_end_token = think_end_token
+        self.think_start_token = think_start_token  # 保存推理开始标记
+        self.think_end_token = think_end_token  # 保存推理结束标记
         self.think_excluded_tokens = think_excluded_tokens
         self.tool_start_token = tool_start_token
         self.force_reasoning = force_reasoning
@@ -42,7 +46,7 @@ class BaseReasoningFormatDetector:
         self.thinks_internally = thinks_internally
         self.reasoning_default = reasoning_default
 
-        self._buffer = ""
+        self._buffer = ""  # 流式解析缓冲区
         self.stripped_think_start = False
         self.think_start_self_label = ""
 
@@ -59,7 +63,7 @@ class BaseReasoningFormatDetector:
         if self.think_end_token in self.previous_content:
             self._in_reasoning = False
 
-    def detect_and_parse(self, text: str) -> StreamingParseResult:
+    def detect_and_parse(self, text: str) -> StreamingParseResult:  # 一次性解析：检测并解析推理段落
         """
         One-time parsing: Detects and parses reasoning sections in the provided text.
         Returns both reasoning content and normal text separately.
@@ -109,7 +113,7 @@ class BaseReasoningFormatDetector:
             # think_end_token is in self.previous_content for continue_final_message=True case
             return StreamingParseResult(normal_text=processed_text)
 
-    def parse_streaming_increment(self, new_text: str) -> StreamingParseResult:
+    def parse_streaming_increment(self, new_text: str) -> StreamingParseResult:  # 流式增量解析推理内容
         """
         Streaming incremental parsing for reasoning content.
         Handles partial reasoning tags and content.
@@ -146,7 +150,7 @@ class BaseReasoningFormatDetector:
 
             reasoning_text = current_text[:end_idx]
 
-            self._buffer = ""
+            self._buffer = ""  # 流式解析缓冲区
             self._in_reasoning = False
             normal_text = current_text[end_idx + len(self.think_end_token) :]
 
@@ -162,27 +166,27 @@ class BaseReasoningFormatDetector:
                 reasoning_text = current_text[:tool_idx]
                 # Preserve tool_start_token in normal text
                 normal_text = current_text[tool_idx:]
-                self._buffer = ""
+                self._buffer = ""  # 流式解析缓冲区
                 self._in_reasoning = False
                 return StreamingParseResult(
                     normal_text=normal_text, reasoning_text=reasoning_text
                 )
             if self.stream_reasoning:
                 # Stream the content immediately
-                self._buffer = ""
+                self._buffer = ""  # 流式解析缓冲区
                 return StreamingParseResult(reasoning_text=current_text)
             else:
                 return StreamingParseResult()
 
         # If we're not in a reasoning block return as normal text
         if not self._in_reasoning:
-            self._buffer = ""
+            self._buffer = ""  # 流式解析缓冲区
             return StreamingParseResult(normal_text=current_text)
 
         return StreamingParseResult()
 
 
-class DeepSeekR1Detector(BaseReasoningFormatDetector):
+class DeepSeekR1Detector(BaseReasoningFormatDetector):  # DeepSeek-R1模型推理格式检测器
     """
     Detector for DeepSeek-R1 model.
     Assumes reasoning format:
@@ -203,7 +207,7 @@ class DeepSeekR1Detector(BaseReasoningFormatDetector):
             If True, streams reasoning content as it arrives.
     """
 
-    def __init__(
+    def __init__(  # 初始化方法
         self,
         stream_reasoning: bool = True,
         force_reasoning: bool = True,
@@ -222,7 +226,7 @@ class DeepSeekR1Detector(BaseReasoningFormatDetector):
         # https://github.com/sgl-project/sglang/pull/3202#discussion_r1950153599
 
 
-class Qwen3Detector(BaseReasoningFormatDetector):
+class Qwen3Detector(BaseReasoningFormatDetector):  # Qwen3模型推理格式检测器
     """
     Detector for Qwen3 models (e.g., Qwen/Qwen3-235B-A22B).
     Assumes reasoning format:
@@ -238,7 +242,7 @@ class Qwen3Detector(BaseReasoningFormatDetector):
             If True, streams reasoning content as it arrives.
     """
 
-    def __init__(
+    def __init__(  # 初始化方法
         self,
         stream_reasoning: bool = True,
         force_reasoning: bool = False,
@@ -264,7 +268,7 @@ class Qwen3Detector(BaseReasoningFormatDetector):
         )
 
 
-class KimiDetector(BaseReasoningFormatDetector):
+class KimiDetector(BaseReasoningFormatDetector):  # Kimi思考模型推理格式检测器
     """
     Detector for Kimi Thinking model.
     Assumes reasoning format:
@@ -273,7 +277,7 @@ class KimiDetector(BaseReasoningFormatDetector):
     and the rest of the text as `normal_text`.
     """
 
-    def __init__(
+    def __init__(  # 初始化方法
         self,
         stream_reasoning: bool = True,
         force_reasoning: bool = False,
@@ -290,7 +294,7 @@ class KimiDetector(BaseReasoningFormatDetector):
         )
 
 
-class KimiK2Detector(BaseReasoningFormatDetector):
+class KimiK2Detector(BaseReasoningFormatDetector):  # Kimi K2模型推理格式检测器
     """
     Detector for Kimi K2 models.
     Assumes reasoning format:
@@ -300,7 +304,7 @@ class KimiK2Detector(BaseReasoningFormatDetector):
     `<|tool_calls_section_begin|>` before emitting `</think>`.
     """
 
-    def __init__(
+    def __init__(  # 初始化方法
         self,
         stream_reasoning: bool = True,
         force_reasoning: bool = False,
@@ -332,7 +336,7 @@ class KimiK2Detector(BaseReasoningFormatDetector):
         )
 
 
-class Glm45Detector(BaseReasoningFormatDetector):
+class Glm45Detector(BaseReasoningFormatDetector):  # GLM-4.5模型推理格式检测器
     """
     Detector for GLM-4.5 models.
     Assumes reasoning format:
@@ -345,7 +349,7 @@ class Glm45Detector(BaseReasoningFormatDetector):
             If True, streams reasoning content as it arrives.
     """
 
-    def __init__(self, stream_reasoning: bool = True, force_reasoning: bool = False):
+    def __init__(self, stream_reasoning: bool = True, force_reasoning: bool = False):  # 初始化方法
         think_excluded_tokens = [
             "<tool_call>",
             "</tool_call>",
@@ -365,12 +369,12 @@ class Glm45Detector(BaseReasoningFormatDetector):
         )
 
 
-class GptOssDetector(BaseReasoningFormatDetector):
+class GptOssDetector(BaseReasoningFormatDetector):  # GPT-OSS模型推理格式检测器
     """
     Detector for T4-style reasoning format (GPT-OSS), using the HarmonyParser.
     """
 
-    def __init__(
+    def __init__(  # 初始化方法
         self,
         stream_reasoning: bool = True,
         force_reasoning: bool = True,
@@ -385,9 +389,9 @@ class GptOssDetector(BaseReasoningFormatDetector):
             continue_final_message=continue_final_message,
             previous_content=previous_content,
         )
-        self.parser = HarmonyParser()
+        self.parser = HarmonyParser()  # 创建Harmony解析器实例
 
-    def detect_and_parse(self, text: str) -> StreamingParseResult:
+    def detect_and_parse(self, text: str) -> StreamingParseResult:  # 一次性解析：检测并解析推理段落
         events = self.parser.parse(text)
         # Flush the buffer for one-shot parsing
         events += self.parser.parse("")
@@ -410,7 +414,7 @@ class GptOssDetector(BaseReasoningFormatDetector):
             reasoning_text=reasoning_text,
         )
 
-    def parse_streaming_increment(self, new_text: str) -> StreamingParseResult:
+    def parse_streaming_increment(self, new_text: str) -> StreamingParseResult:  # 流式增量解析推理内容
         events = self.parser.parse(new_text)
 
         reasoning_text = "".join(
@@ -431,12 +435,12 @@ class GptOssDetector(BaseReasoningFormatDetector):
         )
 
 
-class MiniMaxAppendThinkDetector(BaseReasoningFormatDetector):
+class MiniMaxAppendThinkDetector(BaseReasoningFormatDetector):  # 在文本开头追加推理开始标记的检测器
     """
     Append `<think>` token to the beginning of the text.
     """
 
-    def __init__(
+    def __init__(  # 初始化方法
         self,
         stream_reasoning: bool = True,
         force_reasoning: bool = False,
@@ -454,24 +458,24 @@ class MiniMaxAppendThinkDetector(BaseReasoningFormatDetector):
         )
         self.is_first_chunk = False
 
-    def parse_streaming_increment(self, new_text: str) -> StreamingParseResult:
+    def parse_streaming_increment(self, new_text: str) -> StreamingParseResult:  # 流式增量解析推理内容
         if not self.is_first_chunk:
             self.is_first_chunk = True
             new_text = self.think_start_token + new_text
         return StreamingParseResult(normal_text=new_text)
 
-    def detect_and_parse(self, text: str) -> StreamingParseResult:
+    def detect_and_parse(self, text: str) -> StreamingParseResult:  # 一次性解析：检测并解析推理段落
         return StreamingParseResult(normal_text=self.think_start_token + text)
 
 
-class Nemotron3Detector(BaseReasoningFormatDetector):
+class Nemotron3Detector(BaseReasoningFormatDetector):  # Nemotron3模型推理格式检测器
     """
     Detector for Nemotron3 model.
     Uses the same reasoning format as DeepSeek-R1: (<think>)*(.*)</think>
 
     """
 
-    def __init__(
+    def __init__(  # 初始化方法
         self,
         stream_reasoning: bool = True,
         force_reasoning: bool = False,
@@ -490,14 +494,14 @@ class Nemotron3Detector(BaseReasoningFormatDetector):
         )
         self._force_nonempty_content = force_nonempty_content
 
-    def detect_and_parse(self, text: str) -> StreamingParseResult:
+    def detect_and_parse(self, text: str) -> StreamingParseResult:  # 一次性解析：检测并解析推理段落
         ret = super().detect_and_parse(text)
         if self._force_nonempty_content and not ret.normal_text:
             ret.normal_text, ret.reasoning_text = ret.reasoning_text, ret.normal_text
         return ret
 
 
-class MistralDetector(BaseReasoningFormatDetector):
+class MistralDetector(BaseReasoningFormatDetector):  # Mistral模型推理格式检测器
     """
     Detector for Mistral models with reasoning (e.g., Mistral-Small-4-119B-2603).
     Assumes reasoning format:
@@ -507,7 +511,7 @@ class MistralDetector(BaseReasoningFormatDetector):
     When reasoning_effort="none", the model outputs directly without thinking tokens.
     """
 
-    def __init__(
+    def __init__(  # 初始化方法
         self,
         stream_reasoning: bool = True,
         force_reasoning: bool = False,
@@ -525,14 +529,14 @@ class MistralDetector(BaseReasoningFormatDetector):
         )
 
 
-class HunyuanDetector(BaseReasoningFormatDetector):
+class HunyuanDetector(BaseReasoningFormatDetector):  # 腾讯混元模型推理格式检测器
     """
     Detector for Hunyuan models (e.g., tencent/Hunyuan-A13B-Instruct).
 
     Like Glm45Detector but uses ``<tool_calls>`` (plural) as the tool start token.
     """
 
-    def __init__(
+    def __init__(  # 初始化方法
         self,
         stream_reasoning: bool = True,
         force_reasoning: bool = False,
@@ -550,10 +554,10 @@ class HunyuanDetector(BaseReasoningFormatDetector):
         )
 
 
-class Gemma4Detector(BaseReasoningFormatDetector):
+class Gemma4Detector(BaseReasoningFormatDetector):  # Gemma4推理格式检测器
     """Gemma4 reasoning detector."""
 
-    def __init__(
+    def __init__(  # 初始化方法
         self,
         stream_reasoning: bool = True,
         force_reasoning: bool = False,
@@ -572,32 +576,32 @@ class Gemma4Detector(BaseReasoningFormatDetector):
         self.think_start_self_label = "thought\n"
 
 
-class _DeepSeekV3Detector(Qwen3Detector):
+class _DeepSeekV3Detector(Qwen3Detector):  # DeepSeek-V3检测器，复用Qwen3标记
     """DeepSeek-V3 reuses Qwen3 tokens but requires explicit thinking=True to enable."""
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs):  # 初始化方法
         super().__init__(**kwargs)
         self.reasoning_default = "explicit_thinking"
 
 
-class _MimoDetector(Qwen3Detector):
+class _MimoDetector(Qwen3Detector):  # MIMO检测器，复用Qwen3标记
     """MIMO reuses Qwen3 tokens but requires explicit enable_thinking=True to enable."""
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs):  # 初始化方法
         super().__init__(**kwargs)
         self.reasoning_default = "explicit_enable_thinking"
 
 
-class _PoolsideV1Detector(Qwen3Detector):
+class _PoolsideV1Detector(Qwen3Detector):  # Poolside v1检测器，复用Qwen3标记
     """Poolside v1 (Laguna-XS.2) reuses Qwen3 <think> tokens but the HF chat template
     defaults `enable_thinking=False`; reasoning is opt-in via `enable_thinking=True`."""
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs):  # 初始化方法
         super().__init__(**kwargs)
         self.reasoning_default = "explicit_enable_thinking"
 
 
-class ReasoningParser:
+class ReasoningParser:  # 推理内容解析器，处理流式和非流式场景
     """
     Parser that handles both streaming and non-streaming scenarios for extracting
     reasoning content from model outputs.
@@ -608,7 +612,7 @@ class ReasoningParser:
             If True, streams reasoning content as it arrives.
     """
 
-    DetectorMap: Dict[str, Type[BaseReasoningFormatDetector]] = {
+    DetectorMap: Dict[str, Type[BaseReasoningFormatDetector]] = {  # 模型类型到检测器类的映射
         "deepseek-r1": DeepSeekR1Detector,
         "deepseek-v3": _DeepSeekV3Detector,
         "deepseek-v4": _DeepSeekV3Detector,
@@ -631,7 +635,7 @@ class ReasoningParser:
         "gemma4": Gemma4Detector,
     }
 
-    def __init__(
+    def __init__(  # 初始化方法
         self,
         model_type: Optional[str] = None,
         stream_reasoning: bool = True,
@@ -671,14 +675,14 @@ class ReasoningParser:
         if chat_template_kwargs.get("force_nonempty_content") is True:
             kwargs["force_nonempty_content"] = True
 
-        self.detector = detector_class(**kwargs)
+        self.detector = detector_class(**kwargs)  # 创建检测器实例
 
-    def parse_non_stream(self, full_text: str) -> Tuple[Optional[str], Optional[str]]:
+    def parse_non_stream(self, full_text: str) -> Tuple[Optional[str], Optional[str]]:  # 非流式调用：一次性解析
         """Non-streaming call: one-time parsing"""
         ret = self.detector.detect_and_parse(full_text)
         return ret.reasoning_text, ret.normal_text
 
-    def parse_stream_chunk(
+    def parse_stream_chunk(  # 流式调用：增量解析
         self, chunk_text: str
     ) -> Tuple[Optional[str], Optional[str]]:
         """Streaming call: incremental parsing"""

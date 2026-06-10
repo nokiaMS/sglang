@@ -1,3 +1,4 @@
+# 文件名: test_forward_split_prefill.py - 分块预填充前向测试 - 验证分块预填充前向传播的正确性
 """
 Test forward_split_prefill functionality.
 
@@ -29,6 +30,7 @@ class TestForwardSplitPrefill(CustomTestCase):
     """Test cases for forward_split_prefill functionality."""
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         """Set up the test environment once for all tests."""
         cls.model_path = DEFAULT_SMALL_MODEL_NAME_FOR_TEST
@@ -76,6 +78,7 @@ class TestForwardSplitPrefill(CustomTestCase):
             f"Test with model: {cls.model_path}, num_hidden_layers: {cls.model_config.num_hidden_layers}"
         )
 
+    # prepare test batch
     def prepare_test_batch(self, batch_size=2, input_len=128, is_split_prefill=True):
         """Prepare a test batch for split prefill testing."""
         # Create synthetic input
@@ -125,6 +128,7 @@ class TestForwardSplitPrefill(CustomTestCase):
 
         return forward_batch
 
+    # 测试split prefill functionality
     def test_split_prefill_functionality(self):
         """Test that split prefill can complete successfully."""
         print("\n=== Testing split prefill functionality ===")
@@ -163,6 +167,7 @@ class TestForwardSplitPrefill(CustomTestCase):
         self.assertIsNotNone(results[-1], "Final split should return logits")
         print(f"Split prefill completed in {split_count} splits")
 
+    # 测试split prefill vs normal prefill
     def test_split_prefill_vs_normal_prefill(self):
         """Test that split prefill produces the same results as normal prefill."""
         print("\n=== Testing split prefill vs normal prefill consistency ===")
@@ -220,6 +225,7 @@ class TestForwardSplitPrefill(CustomTestCase):
 
         print("✓ Split prefill and normal prefill produce consistent results")
 
+    # 测试split prefill different chunk sizes
     def test_split_prefill_different_chunk_sizes(self):
         """Test split prefill with different chunk sizes."""
         print("\n=== Testing split prefill with different chunk sizes ===")
@@ -276,6 +282,7 @@ class TestForwardSplitPrefill(CustomTestCase):
 
         print("✓ All chunk sizes produce consistent results")
 
+    # 测试split prefill edge cases
     def test_split_prefill_edge_cases(self):
         """Test edge cases for split prefill."""
         print("\n=== Testing split prefill edge cases ===")

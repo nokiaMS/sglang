@@ -1,3 +1,4 @@
+# 文件名: test_epd_disaggregation.py - EPD分离式部署测试
 import io
 import os
 import re
@@ -51,15 +52,16 @@ class TestEPDDisaggregationOmni(PDDisaggregationServerBase):
     """
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
-        cls.model = os.environ.get("EPD_OMNI_MODEL", DEFAULT_OMNI_MODEL)
-        cls.server_type = os.environ.get("EPD_ENCODE_SERVER_TYPE", "http")
+        cls.model = os.environ.get("EPD_OMNI_MODEL", DEFAULT_OMNI_MODEL)  # 访问环境变量
+        cls.server_type = os.environ.get("EPD_ENCODE_SERVER_TYPE", "http")  # 访问环境变量
         assert cls.server_type in (
             "grpc",
             "http",
         ), f"Invalid EPD_ENCODE_SERVER_TYPE: {cls.server_type}"
-        cls.encoder_transfer_backend = os.environ.get(
+        cls.encoder_transfer_backend = os.environ.get(  # 访问环境变量
             "EPD_ENCODER_TRANSFER_BACKEND", "zmq_to_scheduler"
         )
         assert cls.encoder_transfer_backend in (
@@ -68,8 +70,8 @@ class TestEPDDisaggregationOmni(PDDisaggregationServerBase):
             "zmq_to_tokenizer",
         ), f"Invalid EPD_ENCODER_TRANSFER_BACKEND: {cls.encoder_transfer_backend}"
         cls.enable_global_cache = (
-            os.environ.get("MOONCAKE_MASTER") is not None
-            or os.environ.get("MOONCAKE_CLIENT") is not None
+            os.environ.get("MOONCAKE_MASTER") is not None  # 访问环境变量
+            or os.environ.get("MOONCAKE_CLIENT") is not None  # 访问环境变量
         )
         if cls.server_type == "grpc":
             cls.encode_port = f"{int(cls.lb_port) + 305}"
@@ -111,15 +113,16 @@ class TestEPDDisaggregationOmni(PDDisaggregationServerBase):
         cls.launch_lb()
 
         cls.api_key = "sk-123456"
-        os.environ["OPENAI_API_KEY"] = cls.api_key
-        os.environ["OPENAI_API_BASE"] = f"{cls.lb_url}/v1"
+        os.environ["OPENAI_API_KEY"] = cls.api_key  # 访问环境变量
+        os.environ["OPENAI_API_BASE"] = f"{cls.lb_url}/v1"  # 访问环境变量
 
     @classmethod
+    # 执行startencode
     def start_encode(cls):
         if cls.server_type == "grpc":
             cls.encode_stdout = io.StringIO()
             cls.encode_stderr = io.StringIO()
-            cls.process_encode = subprocess.Popen(
+            cls.process_encode = subprocess.Popen(  # 启动子进程
                 [
                     "python3",
                     "-m",
@@ -163,6 +166,7 @@ class TestEPDDisaggregationOmni(PDDisaggregationServerBase):
             )
 
     @classmethod
+    # 执行startprefill
     def start_prefill(cls):
         prefill_args = [
             "--trust-remote-code",
@@ -187,7 +191,7 @@ class TestEPDDisaggregationOmni(PDDisaggregationServerBase):
             cls.prefill_port,
         ]
         prefill_args += cls.transfer_backend + cls.rdma_devices
-        prefill_env = os.environ.copy()
+        prefill_env = os.environ.copy()  # 访问环境变量
         if cls.server_type == "grpc":
             prefill_env["SGLANG_ENCODER_MM_RECEIVER_MODE"] = "grpc"
         cls.process_prefill = popen_launch_server(
@@ -199,6 +203,7 @@ class TestEPDDisaggregationOmni(PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 执行startdecode
     def start_decode(cls):
         decode_args = [
             "--trust-remote-code",
@@ -222,6 +227,7 @@ class TestEPDDisaggregationOmni(PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         for process in [
             cls.process_lb,
@@ -236,6 +242,7 @@ class TestEPDDisaggregationOmni(PDDisaggregationServerBase):
                     print(f"Error killing process: {e}")
 
     @staticmethod
+    # 执行waitgrpcready
     def _wait_grpc_ready(
         host, port, process, timeout=DEFAULT_TIMEOUT_FOR_SERVER_LAUNCH
     ):
@@ -263,14 +270,17 @@ class TestEPDDisaggregationOmni(PDDisaggregationServerBase):
 
     # ---- helpers ----
 
+    # 执行client
     def _client(self):
         return openai.Client(api_key=self.api_key, base_url=f"{self.lb_url}/v1")
 
+    # 执行skipifgrpc
     def _skip_if_grpc(self, msg="gRPC encode is image-only"):
         """Skip this test when encode server is gRPC (image-only)."""
         if self.server_type == "grpc":
             self.skipTest(msg)
 
+    # 执行parsecachelog
     def _parse_cache_log(self):
         """Parse encode server logs and return list of (local_hits, global_hits, misses)
         tuples from '=== Multi-Level Cache Check ===' lines."""
@@ -284,6 +294,7 @@ class TestEPDDisaggregationOmni(PDDisaggregationServerBase):
         return [(int(m[1]), int(m[2]), int(m[3])) for m in pattern.finditer(log)]
 
     # ---- image ----
+    # 测试image
     def test_image(self):
         client = self._client()
         response = client.chat.completions.create(
@@ -321,6 +332,7 @@ class TestEPDDisaggregationOmni(PDDisaggregationServerBase):
             f"Image response should mention ironing/clothes: {text}",
         )
 
+    # 测试imagecachehit
     def test_image_cache_hit(self):
         """Send the same image twice; the second request should hit the global-mm-cache."""
         self._skip_if_grpc("gRPC encode is image-only; cache test uses HTTP path")
@@ -368,6 +380,7 @@ class TestEPDDisaggregationOmni(PDDisaggregationServerBase):
         )
 
     # ---- video ----
+    # 测试video
     def test_video(self):
         self._skip_if_grpc()
         client = self._client()
@@ -437,6 +450,7 @@ class TestEPDDisaggregationOmni(PDDisaggregationServerBase):
             f"Video response should mention an action: {text}",
         )
 
+    # 测试videocachehit
     def test_video_cache_hit(self):
         """Send the same video twice; the second request should hit the global-mm-cache."""
         self._skip_if_grpc()
@@ -482,6 +496,7 @@ class TestEPDDisaggregationOmni(PDDisaggregationServerBase):
 
     # ---- audio ----
 
+    # 测试audio
     def test_audio(self):
         self._skip_if_grpc()
         client = self._client()
@@ -519,6 +534,7 @@ class TestEPDDisaggregationOmni(PDDisaggregationServerBase):
                 f"Audio response should contain '{keyword}': {text}",
             )
 
+    # 测试audiocachehit
     def test_audio_cache_hit(self):
         """Send the same audio twice; the second request should hit the global-mm-cache."""
         self._skip_if_grpc()
@@ -568,6 +584,7 @@ class TestEPDDisaggregationOmni(PDDisaggregationServerBase):
 
     # ---- mixed modality ----
 
+    # 测试mixedimageaudiovideo
     def test_mixed_image_audio_video(self):
         """Image + audio + video in one request to test multi-modal routing."""
         self._skip_if_grpc()
@@ -627,6 +644,7 @@ class TestEPDDisaggregationOneEncoder(MMMUMixin, PDDisaggregationServerBase):
     mmmu_args = ["--limit", "50"]
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
         cls.model = DEFAULT_SMALL_VLM_MODEL_NAME_FOR_TEST
@@ -657,10 +675,11 @@ class TestEPDDisaggregationOneEncoder(MMMUMixin, PDDisaggregationServerBase):
 
         # Set OpenAI API key and base URL environment variables. Needed for lmms-eval to work.
         cls.api_key = "sk-123456"
-        os.environ["OPENAI_API_KEY"] = cls.api_key
-        os.environ["OPENAI_API_BASE"] = f"{cls.lb_url}/v1"
+        os.environ["OPENAI_API_KEY"] = cls.api_key  # 访问环境变量
+        os.environ["OPENAI_API_BASE"] = f"{cls.lb_url}/v1"  # 访问环境变量
 
     @classmethod
+    # 执行startencode
     def start_encode(cls):
         """Start encode server for multimodal processing"""
         encode_args = [
@@ -682,6 +701,7 @@ class TestEPDDisaggregationOneEncoder(MMMUMixin, PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 执行startprefill
     def start_prefill(cls):
         """Start prefill server with language model only"""
         prefill_args = [
@@ -711,6 +731,7 @@ class TestEPDDisaggregationOneEncoder(MMMUMixin, PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 执行startdecode
     def start_decode(cls):
         """Start decode server"""
         decode_args = [
@@ -735,6 +756,7 @@ class TestEPDDisaggregationOneEncoder(MMMUMixin, PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         """Clean up all processes"""
         for process in [
@@ -758,6 +780,7 @@ class TestEPDDisaggregationQwen35(PDDisaggregationServerBase):
     """EPD disaggregation test for Qwen3.5 image and video requests."""
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
         cls.process_encode = None
@@ -782,6 +805,7 @@ class TestEPDDisaggregationQwen35(PDDisaggregationServerBase):
         cls.api_key = "sk-123456"
 
     @classmethod
+    # 执行startencode
     def start_encode(cls):
         encode_args = [
             "--trust-remote-code",
@@ -805,6 +829,7 @@ class TestEPDDisaggregationQwen35(PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 执行startprefill
     def start_prefill(cls):
         language_args = [
             "--trust-remote-code",
@@ -832,6 +857,7 @@ class TestEPDDisaggregationQwen35(PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         if cls.process_lb:
             kill_process_tree(cls.process_lb.pid)
@@ -842,9 +868,11 @@ class TestEPDDisaggregationQwen35(PDDisaggregationServerBase):
         if cls.process_encode:
             kill_process_tree(cls.process_encode.pid)
 
+    # 执行client
     def _client(self):
         return openai.Client(api_key=self.api_key, base_url=f"{self.language_url}/v1")
 
+    # 测试image
     def test_image(self):
         client = self._client()
         response = client.chat.completions.create(
@@ -883,6 +911,7 @@ class TestEPDDisaggregationQwen35(PDDisaggregationServerBase):
             f"Image response should mention ironing/clothes: {text}",
         )
 
+    # 测试video
     def test_video(self):
         client = self._client()
         response = client.chat.completions.create(
@@ -944,6 +973,7 @@ class TestEPDDisaggregationMultiEncoders(MMMUMixin, PDDisaggregationServerBase):
     mmmu_args = ["--limit", "50"]
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
         cls.model = DEFAULT_SMALL_VLM_MODEL_NAME_FOR_TEST
@@ -986,10 +1016,11 @@ class TestEPDDisaggregationMultiEncoders(MMMUMixin, PDDisaggregationServerBase):
 
         # Set OpenAI API key and base URL environment variables. Needed for lmms-eval to work.
         cls.api_key = "sk-123456"
-        os.environ["OPENAI_API_KEY"] = cls.api_key
-        os.environ["OPENAI_API_BASE"] = f"{cls.lb_url}/v1"
+        os.environ["OPENAI_API_KEY"] = cls.api_key  # 访问环境变量
+        os.environ["OPENAI_API_BASE"] = f"{cls.lb_url}/v1"  # 访问环境变量
 
     @classmethod
+    # 执行startencodeserver
     def start_encode_server(cls, port, gpu_id):
         """Start an encode server on specific port and GPU"""
         encode_args = [
@@ -1019,6 +1050,7 @@ class TestEPDDisaggregationMultiEncoders(MMMUMixin, PDDisaggregationServerBase):
             cls.process_encode2 = process
 
     @classmethod
+    # 执行startprefill
     def start_prefill(cls):
         """Start prefill server with multiple encode URLs"""
         prefill_args = [
@@ -1049,6 +1081,7 @@ class TestEPDDisaggregationMultiEncoders(MMMUMixin, PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 执行startdecode
     def start_decode(cls):
         """Start decode server"""
         decode_args = [
@@ -1073,6 +1106,7 @@ class TestEPDDisaggregationMultiEncoders(MMMUMixin, PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         """Clean up all processes"""
         for process in [
@@ -1098,6 +1132,7 @@ class TestEPDDisaggregationGrpcEncoderMMMU(MMMUMixin, PDDisaggregationServerBase
     mmmu_args = ["--limit", "50"]
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
         cls.model = DEFAULT_SMALL_VLM_MODEL_NAME_FOR_TEST
@@ -1125,10 +1160,11 @@ class TestEPDDisaggregationGrpcEncoderMMMU(MMMUMixin, PDDisaggregationServerBase
         cls.launch_lb()
 
         cls.api_key = "sk-123456"
-        os.environ["OPENAI_API_KEY"] = cls.api_key
-        os.environ["OPENAI_API_BASE"] = f"{cls.lb_url}/v1"
+        os.environ["OPENAI_API_KEY"] = cls.api_key  # 访问环境变量
+        os.environ["OPENAI_API_BASE"] = f"{cls.lb_url}/v1"  # 访问环境变量
 
     @classmethod
+    # 执行startencode
     def start_encode(cls):
         encode_command = [
             "python3",
@@ -1151,9 +1187,10 @@ class TestEPDDisaggregationGrpcEncoderMMMU(MMMUMixin, PDDisaggregationServerBase
             "0",
             "--enable-prefix-mm-cache",
         ]
-        cls.process_encode = subprocess.Popen(encode_command)
+        cls.process_encode = subprocess.Popen(encode_command)  # 启动子进程
 
     @classmethod
+    # 执行startprefill
     def start_prefill(cls):
         prefill_args = [
             "--trust-remote-code",
@@ -1174,7 +1211,7 @@ class TestEPDDisaggregationGrpcEncoderMMMU(MMMUMixin, PDDisaggregationServerBase
             cls.prefill_port,
         ]
         prefill_args += cls.transfer_backend + cls.rdma_devices
-        prefill_env = os.environ.copy()
+        prefill_env = os.environ.copy()  # 访问环境变量
         prefill_env["SGLANG_ENCODER_MM_RECEIVER_MODE"] = "grpc"
         cls.process_prefill = popen_launch_server(
             cls.model,
@@ -1185,6 +1222,7 @@ class TestEPDDisaggregationGrpcEncoderMMMU(MMMUMixin, PDDisaggregationServerBase
         )
 
     @classmethod
+    # 执行startdecode
     def start_decode(cls):
         decode_args = [
             "--trust-remote-code",
@@ -1208,6 +1246,7 @@ class TestEPDDisaggregationGrpcEncoderMMMU(MMMUMixin, PDDisaggregationServerBase
         )
 
     @staticmethod
+    # 执行waitgrpcready
     def wait_grpc_ready(host, port, process, timeout=DEFAULT_TIMEOUT_FOR_SERVER_LAUNCH):
         deadline = time.time() + timeout
         channel = grpc.insecure_channel(f"{host}:{port}")
@@ -1235,10 +1274,11 @@ class TestEPDDisaggregationGrpcEncoderMMMU(MMMUMixin, PDDisaggregationServerBase
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
-        os.environ.pop("SGLANG_ENCODER_MM_RECEIVER_MODE", None)
-        os.environ.pop("OPENAI_API_KEY", None)
-        os.environ.pop("OPENAI_API_BASE", None)
+        os.environ.pop("SGLANG_ENCODER_MM_RECEIVER_MODE", None)  # 访问环境变量
+        os.environ.pop("OPENAI_API_KEY", None)  # 访问环境变量
+        os.environ.pop("OPENAI_API_BASE", None)  # 访问环境变量
         for process in [
             cls.process_lb,
             cls.process_decode,
@@ -1257,9 +1297,10 @@ class TestEPDDisaggregationGrpcEncoderOnly(PDDisaggregationServerBase):
     """Test gRPC encoder server integration with zmq_to_scheduler transfers."""
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
-        os.environ["SGLANG_ENCODER_MM_RECEIVER_MODE"] = "grpc"
+        os.environ["SGLANG_ENCODER_MM_RECEIVER_MODE"] = "grpc"  # 访问环境变量
         cls.model = DEFAULT_SMALL_VLM_MODEL_NAME_FOR_TEST
         cls.encode_port = f"{int(cls.lb_port) + 302}"
 
@@ -1269,6 +1310,7 @@ class TestEPDDisaggregationGrpcEncoderOnly(PDDisaggregationServerBase):
         cls.wait_grpc_ready(cls.base_host, cls.encode_port, cls.process_encode)
 
     @classmethod
+    # 执行startencode
     def start_encode(cls):
         encode_command = [
             "python3",
@@ -1291,9 +1333,10 @@ class TestEPDDisaggregationGrpcEncoderOnly(PDDisaggregationServerBase):
             "0",
             "--enable-prefix-mm-cache",
         ]
-        cls.process_encode = subprocess.Popen(encode_command)
+        cls.process_encode = subprocess.Popen(encode_command)  # 启动子进程
 
     @staticmethod
+    # 执行waitgrpcready
     def wait_grpc_ready(host, port, process, timeout=DEFAULT_TIMEOUT_FOR_SERVER_LAUNCH):
         deadline = time.time() + timeout
         channel = grpc.insecure_channel(f"{host}:{port}")
@@ -1321,8 +1364,9 @@ class TestEPDDisaggregationGrpcEncoderOnly(PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
-        os.environ.pop("SGLANG_ENCODER_MM_RECEIVER_MODE", None)
+        os.environ.pop("SGLANG_ENCODER_MM_RECEIVER_MODE", None)  # 访问环境变量
         if cls.process_encode:
             try:
                 kill_process_tree(cls.process_encode.pid)
@@ -1330,6 +1374,7 @@ class TestEPDDisaggregationGrpcEncoderOnly(PDDisaggregationServerBase):
                 print(f"Error killing process: {e}")
         super().tearDownClass()
 
+    # 测试grpcencoderzmqtoscheduler
     def test_grpc_encoder_zmq_to_scheduler(self):
         from smg_grpc_proto import sglang_encoder_pb2, sglang_encoder_pb2_grpc
 
@@ -1393,6 +1438,7 @@ class TestEPDDisaggregationMooncake(MMMUMixin, PDDisaggregationServerBase):
     mmmu_args = ["--limit", "50"]
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
         cls.model = DEFAULT_SMALL_VLM_MODEL_NAME_FOR_TEST
@@ -1422,6 +1468,7 @@ class TestEPDDisaggregationMooncake(MMMUMixin, PDDisaggregationServerBase):
         cls.launch_lb()
 
     @classmethod
+    # 执行startencode
     def start_encode(cls):
         """Start encode server with mooncake transfer backend"""
         encode_args = [
@@ -1443,6 +1490,7 @@ class TestEPDDisaggregationMooncake(MMMUMixin, PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 执行startprefill
     def start_prefill(cls):
         """Start prefill server with mooncake transfer backend"""
         prefill_args = [
@@ -1472,6 +1520,7 @@ class TestEPDDisaggregationMooncake(MMMUMixin, PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 执行startdecode
     def start_decode(cls):
         """Start decode server"""
         decode_args = [
@@ -1496,6 +1545,7 @@ class TestEPDDisaggregationMooncake(MMMUMixin, PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         """Clean up all processes"""
         for process in [

@@ -1,3 +1,4 @@
+# 文件名: test_hf_transformers.py - HuggingFace Transformers
 """Unit tests for the sglang.srt.utils.hf_transformers subpackage.
 
 Tests cover the pure utility functions (compat patches, config helpers,
@@ -33,56 +34,65 @@ register_cpu_ci(est_time=6, suite="base-a-test-cpu")
 
 
 class TestNormalizeRopeScalingCompat(unittest.TestCase):
+
+    # TestNormalizeRopeScalingCompat类的测试addstypefromropetype
     def test_adds_type_from_rope_type(self):
         cfg = PretrainedConfig()
         cfg.rope_scaling = {"rope_type": "llama3", "factor": 8.0}
         normalize_rope_scaling_compat(cfg)
-        self.assertEqual(cfg.rope_scaling["type"], "llama3")
+        self.assertEqual(cfg.rope_scaling["type"], "llama3")  # 断言相等
 
+    # TestNormalizeRopeScalingCompat类的测试preservesexistingtype
     def test_preserves_existing_type(self):
         cfg = PretrainedConfig()
         cfg.rope_scaling = {"rope_type": "llama3", "type": "custom", "factor": 8.0}
         normalize_rope_scaling_compat(cfg)
-        self.assertEqual(cfg.rope_scaling["type"], "custom")
+        self.assertEqual(cfg.rope_scaling["type"], "custom")  # 断言相等
 
+    # TestNormalizeRopeScalingCompat类的测试noopwhennoropescaling
     def test_no_op_when_no_rope_scaling(self):
         cfg = PretrainedConfig()
         normalize_rope_scaling_compat(cfg)
-        self.assertIsNone(getattr(cfg, "rope_scaling", None))
+        self.assertIsNone(getattr(cfg, "rope_scaling", None))  # 断言为None
 
+    # TestNormalizeRopeScalingCompat类的测试noopwhenropescalingisnone
     def test_no_op_when_rope_scaling_is_none(self):
         cfg = PretrainedConfig()
         cfg.rope_scaling = None
         normalize_rope_scaling_compat(cfg)
-        self.assertIsNone(cfg.rope_scaling)
+        self.assertIsNone(cfg.rope_scaling)  # 断言为None
 
+    # TestNormalizeRopeScalingCompat类的测试recursesintotextconfig
     def test_recurses_into_text_config(self):
         text_cfg = PretrainedConfig()
         text_cfg.rope_scaling = {"rope_type": "yarn", "factor": 4.0}
         cfg = PretrainedConfig()
         cfg.text_config = text_cfg
         normalize_rope_scaling_compat(cfg)
-        self.assertEqual(text_cfg.rope_scaling["type"], "yarn")
+        self.assertEqual(text_cfg.rope_scaling["type"], "yarn")  # 断言相等
 
+    # TestNormalizeRopeScalingCompat类的测试recursesintollmconfig
     def test_recurses_into_llm_config(self):
         llm_cfg = PretrainedConfig()
         llm_cfg.rope_scaling = {"rope_type": "dynamic", "factor": 2.0}
         cfg = PretrainedConfig()
         cfg.llm_config = llm_cfg
         normalize_rope_scaling_compat(cfg)
-        self.assertEqual(llm_cfg.rope_scaling["type"], "dynamic")
+        self.assertEqual(llm_cfg.rope_scaling["type"], "dynamic")  # 断言相等
 
+    # TestNormalizeRopeScalingCompat类的测试nocrashonnondictropescaling
     def test_no_crash_on_non_dict_rope_scaling(self):
         cfg = PretrainedConfig()
         cfg.rope_scaling = "not_a_dict"
         normalize_rope_scaling_compat(cfg)
-        self.assertEqual(cfg.rope_scaling, "not_a_dict")
+        self.assertEqual(cfg.rope_scaling, "not_a_dict")  # 断言相等
 
+    # TestNormalizeRopeScalingCompat类的测试nocrashondictwithoutropetype
     def test_no_crash_on_dict_without_rope_type(self):
         cfg = PretrainedConfig()
         cfg.rope_scaling = {"factor": 4.0}
         normalize_rope_scaling_compat(cfg)
-        self.assertNotIn("type", cfg.rope_scaling)
+        self.assertNotIn("type", cfg.rope_scaling)  # 断言不包含
 
 
 # ---------------------------------------------------------------------------
@@ -91,13 +101,16 @@ class TestNormalizeRopeScalingCompat(unittest.TestCase):
 
 
 class TestGetRopeConfig(unittest.TestCase):
+
+    # TestGetRopeConfig类的测试v5ropeparameters
     def test_v5_rope_parameters(self):
         cfg = PretrainedConfig()
         cfg.rope_parameters = {"rope_theta": 10000.0, "rope_type": "default"}
         theta, params = get_rope_config(cfg)
-        self.assertEqual(theta, 10000.0)
-        self.assertIs(params, cfg.rope_parameters)
+        self.assertEqual(theta, 10000.0)  # 断言相等
+        self.assertIs(params, cfg.rope_parameters)  # 断言是同一对象
 
+    # TestGetRopeConfig类的测试v4fallbackremotecodeconfig
     def test_v4_fallback_remote_code_config(self):
         # Remote-code configs (SimpleNamespace) lack the v5 rope_parameters property
         cfg = SimpleNamespace(
@@ -105,14 +118,15 @@ class TestGetRopeConfig(unittest.TestCase):
             rope_scaling={"type": "llama3", "factor": 8.0},
         )
         theta, params = get_rope_config(cfg)
-        self.assertEqual(theta, 500000.0)
-        self.assertEqual(params, {"type": "llama3", "factor": 8.0})
+        self.assertEqual(theta, 500000.0)  # 断言相等
+        self.assertEqual(params, {"type": "llama3", "factor": 8.0})  # 断言相等
 
+    # TestGetRopeConfig类的测试v4noscaling
     def test_v4_no_scaling(self):
         cfg = SimpleNamespace(rope_theta=10000.0)
         theta, params = get_rope_config(cfg)
-        self.assertEqual(theta, 10000.0)
-        self.assertIsNone(params)
+        self.assertEqual(theta, 10000.0)  # 断言相等
+        self.assertIsNone(params)  # 断言为None
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +135,8 @@ class TestGetRopeConfig(unittest.TestCase):
 
 
 class TestPatchTextConfig(unittest.TestCase):
+
+    # TestPatchTextConfig类的测试propagatesparenttotext
     def test_propagates_parent_to_text(self):
         parent = PretrainedConfig()
         parent.pad_token_id = 0
@@ -132,19 +148,21 @@ class TestPatchTextConfig(unittest.TestCase):
         text.num_attention_heads = 32
 
         result = _patch_text_config(parent, text)
-        self.assertEqual(result.pad_token_id, 0)
-        self.assertEqual(result.bos_token_id, 1)
-        self.assertEqual(result.eos_token_id, 2)
-        self.assertIs(result, text)
+        self.assertEqual(result.pad_token_id, 0)  # 断言相等
+        self.assertEqual(result.bos_token_id, 1)  # 断言相等
+        self.assertEqual(result.eos_token_id, 2)  # 断言相等
+        self.assertIs(result, text)  # 断言是同一对象
 
+    # TestPatchTextConfig类的测试propagatestexttoparent
     def test_propagates_text_to_parent(self):
         parent = PretrainedConfig()
         text = PretrainedConfig()
         text.pad_token_id = 42
 
         _patch_text_config(parent, text)
-        self.assertEqual(parent.pad_token_id, 42)
+        self.assertEqual(parent.pad_token_id, 42)  # 断言相等
 
+    # TestPatchTextConfig类的测试nooverwritewhenbothhaveattr
     def test_no_overwrite_when_both_have_attr(self):
         parent = PretrainedConfig()
         parent.pad_token_id = 0
@@ -152,8 +170,8 @@ class TestPatchTextConfig(unittest.TestCase):
         text.pad_token_id = 99
 
         _patch_text_config(parent, text)
-        self.assertEqual(parent.pad_token_id, 0)
-        self.assertEqual(text.pad_token_id, 99)
+        self.assertEqual(parent.pad_token_id, 0)  # 断言相等
+        self.assertEqual(text.pad_token_id, 99)  # 断言相等
 
 
 # ---------------------------------------------------------------------------
@@ -162,29 +180,35 @@ class TestPatchTextConfig(unittest.TestCase):
 
 
 class TestGetContextLength(unittest.TestCase):
+
+    # TestGetContextLength类的测试maxpositionembeddings
     def test_max_position_embeddings(self):
         cfg = PretrainedConfig()
         cfg.max_position_embeddings = 4096
-        self.assertEqual(get_context_length(cfg), 4096)
+        self.assertEqual(get_context_length(cfg), 4096)  # 断言相等
 
+    # TestGetContextLength类的测试maxsequencelengthtakespriority
     def test_max_sequence_length_takes_priority(self):
         cfg = PretrainedConfig()
         cfg.max_sequence_length = 8192
         cfg.max_position_embeddings = 4096
-        self.assertEqual(get_context_length(cfg), 8192)
+        self.assertEqual(get_context_length(cfg), 8192)  # 断言相等
 
+    # TestGetContextLength类的测试ropescalingfactor
     def test_rope_scaling_factor(self):
         cfg = PretrainedConfig()
         cfg.max_position_embeddings = 4096
         cfg.rope_scaling = {"factor": 4.0}
-        self.assertEqual(get_context_length(cfg), 16384)
+        self.assertEqual(get_context_length(cfg), 16384)  # 断言相等
 
+    # TestGetContextLength类的测试ropescalingllama3ignoresfactor
     def test_rope_scaling_llama3_ignores_factor(self):
         cfg = PretrainedConfig()
         cfg.max_position_embeddings = 131072
         cfg.rope_scaling = {"rope_type": "llama3", "factor": 8.0}
-        self.assertEqual(get_context_length(cfg), 131072)
+        self.assertEqual(get_context_length(cfg), 131072)  # 断言相等
 
+    # TestGetContextLength类的测试originalmaxpositionembeddingsignoresfactor
     def test_original_max_position_embeddings_ignores_factor(self):
         cfg = PretrainedConfig()
         cfg.max_position_embeddings = 131072
@@ -192,11 +216,12 @@ class TestGetContextLength(unittest.TestCase):
             "factor": 8.0,
             "original_max_position_embeddings": 8192,
         }
-        self.assertEqual(get_context_length(cfg), 131072)
+        self.assertEqual(get_context_length(cfg), 131072)  # 断言相等
 
+    # TestGetContextLength类的测试defaultwhennokeys
     def test_default_when_no_keys(self):
         cfg = PretrainedConfig()
-        self.assertEqual(get_context_length(cfg), 2048)
+        self.assertEqual(get_context_length(cfg), 2048)  # 断言相等
 
 
 # ---------------------------------------------------------------------------
@@ -205,28 +230,34 @@ class TestGetContextLength(unittest.TestCase):
 
 
 class TestCheckGgufFile(unittest.TestCase):
+
+    # TestCheckGgufFile类的测试ggufsuffix
     def test_gguf_suffix(self):
         with tempfile.NamedTemporaryFile(suffix=".gguf") as f:
-            self.assertTrue(check_gguf_file(f.name))
+            self.assertTrue(check_gguf_file(f.name))  # 断言为真
 
+    # TestCheckGgufFile类的测试ggufmagicheader
     def test_gguf_magic_header(self):
         with tempfile.NamedTemporaryFile(suffix=".bin") as f:
             f.write(b"GGUF" + b"\x00" * 100)
             f.flush()
-            self.assertTrue(check_gguf_file(f.name))
+            self.assertTrue(check_gguf_file(f.name))  # 断言为真
 
+    # TestCheckGgufFile类的测试nongguffile
     def test_non_gguf_file(self):
         with tempfile.NamedTemporaryFile(suffix=".bin") as f:
             f.write(b"NOT_GGUF" + b"\x00" * 100)
             f.flush()
-            self.assertFalse(check_gguf_file(f.name))
+            self.assertFalse(check_gguf_file(f.name))  # 断言为假
 
+    # TestCheckGgufFile类的测试nonexistentfile
     def test_nonexistent_file(self):
-        self.assertFalse(check_gguf_file("/nonexistent/path/model.bin"))
+        self.assertFalse(check_gguf_file("/nonexistent/path/model.bin"))  # 断言为假
 
+    # TestCheckGgufFile类的测试directory
     def test_directory(self):
         with tempfile.TemporaryDirectory() as d:
-            self.assertFalse(check_gguf_file(d))
+            self.assertFalse(check_gguf_file(d))  # 断言为假
 
 
 # ---------------------------------------------------------------------------
@@ -235,32 +266,38 @@ class TestCheckGgufFile(unittest.TestCase):
 
 
 class TestDeepseekOcrDetection(unittest.TestCase):
+
+    # TestDeepseekOcrDetection类的测试ocrmodeldetected
     def test_ocr_model_detected(self):
         cfg = PretrainedConfig()
         cfg.auto_map = {"AutoModel": "modeling_deepseekocr.DeepseekOCRForCausalLM"}
-        self.assertTrue(_is_deepseek_ocr_model(cfg))
+        self.assertTrue(_is_deepseek_ocr_model(cfg))  # 断言为真
 
+    # TestDeepseekOcrDetection类的测试ocr2modeldetected
     def test_ocr2_model_detected(self):
         cfg = PretrainedConfig()
         cfg.auto_map = {"AutoModel": "modeling_deepseekocr2.DeepseekOCR2ForCausalLM"}
-        self.assertTrue(_is_deepseek_ocr2_model(cfg))
+        self.assertTrue(_is_deepseek_ocr2_model(cfg))  # 断言为真
 
+    # TestDeepseekOcrDetection类的测试nonocrmodel
     def test_non_ocr_model(self):
         cfg = PretrainedConfig()
         cfg.auto_map = {"AutoModel": "modeling_llama.LlamaForCausalLM"}
-        self.assertFalse(_is_deepseek_ocr_model(cfg))
-        self.assertFalse(_is_deepseek_ocr2_model(cfg))
+        self.assertFalse(_is_deepseek_ocr_model(cfg))  # 断言为假
+        self.assertFalse(_is_deepseek_ocr2_model(cfg))  # 断言为假
 
+    # TestDeepseekOcrDetection类的测试noautomap
     def test_no_auto_map(self):
         cfg = PretrainedConfig()
-        self.assertFalse(_is_deepseek_ocr_model(cfg))
-        self.assertFalse(_is_deepseek_ocr2_model(cfg))
+        self.assertFalse(_is_deepseek_ocr_model(cfg))  # 断言为假
+        self.assertFalse(_is_deepseek_ocr2_model(cfg))  # 断言为假
 
+    # TestDeepseekOcrDetection类的测试emptyautomap
     def test_empty_auto_map(self):
         cfg = PretrainedConfig()
         cfg.auto_map = {}
-        self.assertFalse(_is_deepseek_ocr_model(cfg))
-        self.assertFalse(_is_deepseek_ocr2_model(cfg))
+        self.assertFalse(_is_deepseek_ocr_model(cfg))  # 断言为假
+        self.assertFalse(_is_deepseek_ocr2_model(cfg))  # 断言为假
 
 
 # ---------------------------------------------------------------------------
@@ -269,33 +306,39 @@ class TestDeepseekOcrDetection(unittest.TestCase):
 
 
 class TestOverrideVHeadDimIfZero(unittest.TestCase):
+
+    # TestOverrideVHeadDimIfZero类的测试patcheszerovheaddim
     def test_patches_zero_v_head_dim(self):
         text_cfg = SimpleNamespace(v_head_dim=0)
         cfg = PretrainedConfig()
         cfg.text_config = text_cfg
         _override_v_head_dim_if_zero(cfg)
-        self.assertEqual(text_cfg.v_head_dim, 128)
+        self.assertEqual(text_cfg.v_head_dim, 128)  # 断言相等
 
+    # TestOverrideVHeadDimIfZero类的测试custompatchvalue
     def test_custom_patch_value(self):
         text_cfg = SimpleNamespace(v_head_dim=0)
         cfg = PretrainedConfig()
         cfg.text_config = text_cfg
         _override_v_head_dim_if_zero(cfg, patch=64)
-        self.assertEqual(text_cfg.v_head_dim, 64)
+        self.assertEqual(text_cfg.v_head_dim, 64)  # 断言相等
 
+    # TestOverrideVHeadDimIfZero类的测试nopatchwhennonzero
     def test_no_patch_when_nonzero(self):
         text_cfg = SimpleNamespace(v_head_dim=256)
         cfg = PretrainedConfig()
         cfg.text_config = text_cfg
         _override_v_head_dim_if_zero(cfg)
-        self.assertEqual(text_cfg.v_head_dim, 256)
+        self.assertEqual(text_cfg.v_head_dim, 256)  # 断言相等
 
+    # TestOverrideVHeadDimIfZero类的测试dictsubconfig
     def test_dict_sub_config(self):
         cfg = PretrainedConfig()
         cfg.text_config = {"v_head_dim": 0}
         _override_v_head_dim_if_zero(cfg)
-        self.assertEqual(cfg.text_config["v_head_dim"], 128)
+        self.assertEqual(cfg.text_config["v_head_dim"], 128)  # 断言相等
 
+    # TestOverrideVHeadDimIfZero类的测试nosubconfig
     def test_no_sub_config(self):
         cfg = PretrainedConfig()
         _override_v_head_dim_if_zero(cfg)  # should not raise
@@ -307,12 +350,15 @@ class TestOverrideVHeadDimIfZero(unittest.TestCase):
 
 
 class TestGetHfTextConfig(unittest.TestCase):
+
+    # TestGetHfTextConfig类的测试returnsconfigforpuretextmodel
     def test_returns_config_for_pure_text_model(self):
         cfg = PretrainedConfig()
         cfg.architectures = ["LlamaForCausalLM"]
         result = get_hf_text_config(cfg)
-        self.assertIs(result, cfg)
+        self.assertIs(result, cfg)  # 断言是同一对象
 
+    # TestGetHfTextConfig类的测试returnstextconfigformultimodal
     def test_returns_text_config_for_multimodal(self):
         text_cfg = PretrainedConfig()
         text_cfg.num_attention_heads = 32
@@ -320,8 +366,9 @@ class TestGetHfTextConfig(unittest.TestCase):
         cfg.architectures = ["SomeVLMForCausalLM"]
         cfg.text_config = text_cfg
         result = get_hf_text_config(cfg)
-        self.assertIs(result, text_cfg)
+        self.assertIs(result, text_cfg)  # 断言是同一对象
 
+    # TestGetHfTextConfig类的测试llmconfigpriorityovertextconfig
     def test_llm_config_priority_over_text_config(self):
         llm_cfg = PretrainedConfig()
         llm_cfg.num_attention_heads = 16
@@ -332,8 +379,9 @@ class TestGetHfTextConfig(unittest.TestCase):
         cfg.llm_config = llm_cfg
         cfg.text_config = text_cfg
         result = get_hf_text_config(cfg)
-        self.assertIs(result, llm_cfg)
+        self.assertIs(result, llm_cfg)  # 断言是同一对象
 
+    # TestGetHfTextConfig类的测试thinkerconfighighestpriority
     def test_thinker_config_highest_priority(self):
         thinker_cfg = PretrainedConfig()
         thinker_cfg.num_attention_heads = 8
@@ -341,8 +389,9 @@ class TestGetHfTextConfig(unittest.TestCase):
         cfg.architectures = ["SomeModel"]
         cfg.thinker_config = thinker_cfg
         result = get_hf_text_config(cfg)
-        self.assertIs(result, thinker_cfg)
+        self.assertIs(result, thinker_cfg)  # 断言是同一对象
 
+    # TestGetHfTextConfig类的测试thinkerconfigwithtextsubconfig
     def test_thinker_config_with_text_sub_config(self):
         inner_text = PretrainedConfig()
         inner_text.num_attention_heads = 8
@@ -353,9 +402,10 @@ class TestGetHfTextConfig(unittest.TestCase):
         cfg.architectures = ["Qwen2OmniModel"]
         cfg.thinker_config = thinker_cfg
         result = get_hf_text_config(cfg)
-        self.assertIs(result, inner_text)
-        self.assertEqual(inner_text.torch_dtype, "float16")
+        self.assertIs(result, inner_text)  # 断言是同一对象
+        self.assertEqual(inner_text.torch_dtype, "float16")  # 断言相等
 
+    # TestGetHfTextConfig类的测试convertsdictsubconfig
     def test_converts_dict_sub_config(self):
         cfg = PretrainedConfig()
         cfg.architectures = ["SomeModel"]
@@ -365,8 +415,9 @@ class TestGetHfTextConfig(unittest.TestCase):
         }
         result = get_hf_text_config(cfg)
         self.assertIsInstance(cfg.text_config, PretrainedConfig)
-        self.assertEqual(result.num_attention_heads, 32)
+        self.assertEqual(result.num_attention_heads, 32)  # 断言相等
 
+    # TestGetHfTextConfig类的测试llavareturnsparentconfig
     def test_llava_returns_parent_config(self):
         cfg = PretrainedConfig()
         cfg.architectures = ["LlavaForCausalLM"]
@@ -374,15 +425,16 @@ class TestGetHfTextConfig(unittest.TestCase):
         text_cfg.num_attention_heads = 32
         cfg.text_config = text_cfg
         result = get_hf_text_config(cfg)
-        self.assertIs(result, cfg)
+        self.assertIs(result, cfg)  # 断言是同一对象
 
+    # TestGetHfTextConfig类的测试callsnormalizeropescaling
     def test_calls_normalize_rope_scaling(self):
         cfg = PretrainedConfig()
         cfg.architectures = ["LlamaForCausalLM"]
         cfg.rope_scaling = {"rope_type": "llama3", "factor": 8.0}
         get_hf_text_config(cfg)
-        self.assertIn("type", cfg.rope_scaling)
-        self.assertEqual(cfg.rope_scaling["type"], "llama3")
+        self.assertIn("type", cfg.rope_scaling)  # 断言包含
+        self.assertEqual(cfg.rope_scaling["type"], "llama3")  # 断言相等
 
 
 # ---------------------------------------------------------------------------
@@ -391,6 +443,8 @@ class TestGetHfTextConfig(unittest.TestCase):
 
 
 class TestFixSpecialTokensPattern(unittest.TestCase):
+
+    # TestFixSpecialTokensPattern类的测试fixesclssepwithmissingtokens
     def test_fixes_cls_sep_with_missing_tokens(self):
         tok = SimpleNamespace(
             special_tokens_pattern="cls_sep",
@@ -398,8 +452,9 @@ class TestFixSpecialTokensPattern(unittest.TestCase):
             sep_token_id=None,
         )
         _fix_special_tokens_pattern(tok)
-        self.assertEqual(tok.special_tokens_pattern, "none")
+        self.assertEqual(tok.special_tokens_pattern, "none")  # 断言相等
 
+    # TestFixSpecialTokensPattern类的测试nochangewhentokenspresent
     def test_no_change_when_tokens_present(self):
         tok = SimpleNamespace(
             special_tokens_pattern="cls_sep",
@@ -407,8 +462,9 @@ class TestFixSpecialTokensPattern(unittest.TestCase):
             sep_token_id=102,
         )
         _fix_special_tokens_pattern(tok)
-        self.assertEqual(tok.special_tokens_pattern, "cls_sep")
+        self.assertEqual(tok.special_tokens_pattern, "cls_sep")  # 断言相等
 
+    # TestFixSpecialTokensPattern类的测试nochangeforotherpatterns
     def test_no_change_for_other_patterns(self):
         tok = SimpleNamespace(
             special_tokens_pattern="none",
@@ -416,12 +472,13 @@ class TestFixSpecialTokensPattern(unittest.TestCase):
             sep_token_id=None,
         )
         _fix_special_tokens_pattern(tok)
-        self.assertEqual(tok.special_tokens_pattern, "none")
+        self.assertEqual(tok.special_tokens_pattern, "none")  # 断言相等
 
+    # TestFixSpecialTokensPattern类的测试nochangewhennopattern
     def test_no_change_when_no_pattern(self):
         tok = SimpleNamespace(cls_token_id=None, sep_token_id=None)
         _fix_special_tokens_pattern(tok)
-        self.assertFalse(hasattr(tok, "special_tokens_pattern"))
+        self.assertFalse(hasattr(tok, "special_tokens_pattern"))  # 断言为假
 
 
 # ---------------------------------------------------------------------------
@@ -430,21 +487,24 @@ class TestFixSpecialTokensPattern(unittest.TestCase):
 
 
 class TestModuleReExports(unittest.TestCase):
+
+    # TestModuleReExports类的测试allpublicsymbolsimportable
     def test_all_public_symbols_importable(self):
         import sglang.srt.utils.hf_transformers as pkg
 
         for name in pkg.__all__:
-            self.assertTrue(
+            self.assertTrue(  # 断言为真
                 hasattr(pkg, name),
                 f"{name} listed in __all__ but not importable from package",
             )
 
+    # TestModuleReExports类的测试shimmoduleexportsmatch
     def test_shim_module_exports_match(self):
         import sglang.srt.utils.hf_transformers as pkg
         import sglang.srt.utils.hf_transformers_utils as shim
 
         for name in pkg.__all__:
-            self.assertTrue(
+            self.assertTrue(  # 断言为真
                 hasattr(shim, name),
                 f"{name} not available through shim module hf_transformers_utils",
             )
@@ -456,18 +516,21 @@ class TestModuleReExports(unittest.TestCase):
 
 
 class TestPatchRemovedSymbols(unittest.TestCase):
+
+    # TestPatchRemovedSymbols类的测试llamaflashattention2exists
     def test_llama_flash_attention2_exists(self):
         from transformers.models.llama import modeling_llama
 
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             hasattr(modeling_llama, "LlamaFlashAttention2"),
             "LlamaFlashAttention2 should be patched onto modeling_llama",
         )
 
+    # TestPatchRemovedSymbols类的测试isflashattngreaterorequal210callable
     def test_is_flash_attn_greater_or_equal_2_10_callable(self):
         import transformers.utils as _u
 
-        self.assertTrue(
+        self.assertTrue(  # 断言为真
             hasattr(_u, "is_flash_attn_greater_or_equal_2_10"),
             "is_flash_attn_greater_or_equal_2_10 should be patched onto transformers.utils",
         )
@@ -480,6 +543,8 @@ class TestPatchRemovedSymbols(unittest.TestCase):
 
 
 class TestPatchRopeParametersValidation(unittest.TestCase):
+
+    # TestPatchRopeParametersValidation类的测试injectsropethetaintoropescaling
     def test_injects_rope_theta_into_rope_scaling(self):
         config_dict = {
             "model_type": "llama",
@@ -496,8 +561,9 @@ class TestPatchRopeParametersValidation(unittest.TestCase):
         config = PretrainedConfig.from_dict(config_dict)
         rope_params = getattr(config, "rope_parameters", None)
         if rope_params is not None:
-            self.assertIn("rope_theta", rope_params)
+            self.assertIn("rope_theta", rope_params)  # 断言包含
 
+    # TestPatchRopeParametersValidation类的测试noinjectionwhenropethetaalreadyinscaling
     def test_no_injection_when_rope_theta_already_in_scaling(self):
         config_dict = {
             "model_type": "llama",
@@ -515,12 +581,13 @@ class TestPatchRopeParametersValidation(unittest.TestCase):
         config = PretrainedConfig.from_dict(config_dict)
         rope_params = getattr(config, "rope_parameters", None)
         if rope_params is not None:
-            self.assertEqual(rope_params["rope_theta"], 999.0)
+            self.assertEqual(rope_params["rope_theta"], 999.0)  # 断言相等
 
+    # TestPatchRopeParametersValidation类的测试nocrashwithoutropescaling
     def test_no_crash_without_rope_scaling(self):
         config_dict = {"model_type": "llama", "rope_theta": 10000.0}
         config = PretrainedConfig.from_dict(config_dict)
-        self.assertIsNotNone(config)
+        self.assertIsNotNone(config)  # 断言不为None
 
 
 # ---------------------------------------------------------------------------
@@ -529,15 +596,18 @@ class TestPatchRopeParametersValidation(unittest.TestCase):
 
 
 class TestCleanUpTokenizationCompat(unittest.TestCase):
+
+    # TestCleanUpTokenizationCompat类的测试cleanuptokenizationexists
     def test_clean_up_tokenization_exists(self):
         from transformers import PreTrainedTokenizerBase
 
-        self.assertTrue(hasattr(PreTrainedTokenizerBase, "clean_up_tokenization"))
+        self.assertTrue(hasattr(PreTrainedTokenizerBase, "clean_up_tokenization"))  # 断言为真
 
+    # TestCleanUpTokenizationCompat类的测试cleanuptokenizationcallable
     def test_clean_up_tokenization_callable(self):
         from transformers import PreTrainedTokenizerBase
 
-        self.assertTrue(callable(PreTrainedTokenizerBase.clean_up_tokenization))
+        self.assertTrue(callable(PreTrainedTokenizerBase.clean_up_tokenization))  # 断言为真
 
 
 # ---------------------------------------------------------------------------
@@ -546,11 +616,13 @@ class TestCleanUpTokenizationCompat(unittest.TestCase):
 
 
 class TestIsTorchFxAvailableCompat(unittest.TestCase):
+
+    # TestIsTorchFxAvailableCompat类的测试istorchfxavailableexists
     def test_is_torch_fx_available_exists(self):
         import transformers.utils.import_utils as _iu
 
-        self.assertTrue(hasattr(_iu, "is_torch_fx_available"))
-        self.assertTrue(_iu.is_torch_fx_available())
+        self.assertTrue(hasattr(_iu, "is_torch_fx_available"))  # 断言为真
+        self.assertTrue(_iu.is_torch_fx_available())  # 断言为真
 
 
 # ---------------------------------------------------------------------------
@@ -559,6 +631,8 @@ class TestIsTorchFxAvailableCompat(unittest.TestCase):
 
 
 class TestPatchNemotronHPattern(unittest.TestCase):
+
+    # TestPatchNemotronHPattern类的测试patterntolistskipsmlpdash
     def test_pattern_to_list_skips_mlp_dash(self):
         try:
             from transformers.models.nemotron_h.configuration_nemotron_h import (
@@ -566,10 +640,11 @@ class TestPatchNemotronHPattern(unittest.TestCase):
             )
 
             result = NemotronHConfig._pattern_to_list("M-*-")
-            self.assertEqual(result, ["mamba", "attention"])
+            self.assertEqual(result, ["mamba", "attention"])  # 断言相等
         except ImportError:
             self.skipTest("NemotronHConfig not available in this transformers version")
 
+    # TestPatchNemotronHPattern类的测试patterntoliststandardchars
     def test_pattern_to_list_standard_chars(self):
         try:
             from transformers.models.nemotron_h.configuration_nemotron_h import (
@@ -577,7 +652,7 @@ class TestPatchNemotronHPattern(unittest.TestCase):
             )
 
             result = NemotronHConfig._pattern_to_list("ME*")
-            self.assertEqual(result, ["mamba", "moe", "attention"])
+            self.assertEqual(result, ["mamba", "moe", "attention"])  # 断言相等
         except ImportError:
             self.skipTest("NemotronHConfig not available in this transformers version")
 

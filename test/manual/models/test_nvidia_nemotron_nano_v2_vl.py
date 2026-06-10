@@ -1,3 +1,4 @@
+# 文件名: test_nvidia_nemotron_nano_v2_vl.py - 测试NVIDIA Nemotron Nano V2视觉语言模型（GSM8K+MMMU）
 import unittest
 
 from sglang.test.kits.eval_accuracy_kit import GSM8KMixin

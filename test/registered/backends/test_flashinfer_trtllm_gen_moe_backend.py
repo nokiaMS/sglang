@@ -1,3 +1,4 @@
+# 文件名: test_flashinfer_trtllm_gen_moe_backend.py - FlashInfer TRT-LLM生成MoE后端测试
 import os
 import unittest
 from types import SimpleNamespace
@@ -19,6 +20,7 @@ class FlashinferTrtllmGenMoeBackendFP8Base:
     backend = None
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = "Qwen/Qwen3-Next-80B-A3B-Instruct-FP8"
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -26,7 +28,7 @@ class FlashinferTrtllmGenMoeBackendFP8Base:
             cls.model,
             cls.base_url,
             timeout=DEFAULT_TIMEOUT_FOR_SERVER_LAUNCH,
-            env={**os.environ, "SGLANG_ENABLE_JIT_DEEPGEMM": "False"},
+            env={**os.environ, "SGLANG_ENABLE_JIT_DEEPGEMM": "False"},  # 访问环境变量
             other_args=[
                 "--attention-backend",
                 "triton",
@@ -44,9 +46,11 @@ class FlashinferTrtllmGenMoeBackendFP8Base:
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -66,6 +70,7 @@ class FlashinferTrtllmGenMoeBackendBF16Base:
     backend = None
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = "Qwen/Qwen3-Next-80B-A3B-Instruct"
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -92,9 +97,11 @@ class FlashinferTrtllmGenMoeBackendBF16Base:
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -114,6 +121,7 @@ class FlashinferTrtllmGenMoeBackendMXFP8Base:
     backend = None
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = "zianglih/Qwen3-30B-A3B-Instruct-2507-MXFP8"
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -121,7 +129,7 @@ class FlashinferTrtllmGenMoeBackendMXFP8Base:
             cls.model,
             cls.base_url,
             timeout=DEFAULT_TIMEOUT_FOR_SERVER_LAUNCH,
-            env={**os.environ, "SGLANG_ENABLE_JIT_DEEPGEMM": "False"},
+            env={**os.environ, "SGLANG_ENABLE_JIT_DEEPGEMM": "False"},  # 访问环境变量
             other_args=[
                 "--fp8-gemm-backend",
                 "flashinfer_cutlass",
@@ -137,9 +145,11 @@ class FlashinferTrtllmGenMoeBackendMXFP8Base:
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -159,6 +169,7 @@ class FlashinferTrtllmGenMoeBackendMXFP8MixedBF16Base:
     backend = None
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = "zianglih/JoyAI-LLM-Flash-MXFP8-last-6-BF16"
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -166,7 +177,7 @@ class FlashinferTrtllmGenMoeBackendMXFP8MixedBF16Base:
             cls.model,
             cls.base_url,
             timeout=DEFAULT_TIMEOUT_FOR_SERVER_LAUNCH,
-            env={**os.environ, "SGLANG_ENABLE_JIT_DEEPGEMM": "False"},
+            env={**os.environ, "SGLANG_ENABLE_JIT_DEEPGEMM": "False"},  # 访问环境变量
             other_args=[
                 "--kv-cache-dtype",
                 "bf16",
@@ -181,9 +192,11 @@ class FlashinferTrtllmGenMoeBackendMXFP8MixedBF16Base:
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -204,6 +217,7 @@ class FlashinferTrtllmGenMoeBackendNVFP4Base:
     extra_env = {}
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = "nvidia/Qwen3-30B-A3B-NVFP4"
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -211,7 +225,7 @@ class FlashinferTrtllmGenMoeBackendNVFP4Base:
             cls.model,
             cls.base_url,
             timeout=DEFAULT_TIMEOUT_FOR_SERVER_LAUNCH,
-            env={**os.environ, **cls.extra_env, "SGLANG_ENABLE_JIT_DEEPGEMM": "False"},
+            env={**os.environ, **cls.extra_env, "SGLANG_ENABLE_JIT_DEEPGEMM": "False"},  # 访问环境变量
             other_args=[
                 "--moe-runner-backend",
                 cls.backend,
@@ -225,9 +239,11 @@ class FlashinferTrtllmGenMoeBackendNVFP4Base:
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,

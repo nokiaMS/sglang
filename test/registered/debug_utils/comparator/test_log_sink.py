@@ -1,3 +1,4 @@
+# 文件名: test_log_sink.py - 日志接收器测试
 import json
 import sys
 
@@ -15,6 +16,7 @@ register_cpu_ci(est_time=10, suite="base-a-test-cpu", nightly=True)
 register_cpu_ci(est_time=1, suite="base-b-test-cpu")
 
 
+# 执行makeerrorlog
 def _make_error_log(**overrides) -> ErrorLog:
     defaults: dict = dict(
         category="test",
@@ -25,6 +27,7 @@ def _make_error_log(**overrides) -> ErrorLog:
 
 
 class TestLogSink:
+    # 测试basiccollection
     def test_basic_collection(self) -> None:
         sink = LogSink()
         log = _make_error_log()
@@ -35,6 +38,7 @@ class TestLogSink:
         assert len(collected) == 1
         assert collected[0] is log
 
+    # 测试nestedcontexts
     def test_nested_contexts(self) -> None:
         sink = LogSink()
         outer_log = _make_error_log(message="outer")
@@ -50,12 +54,14 @@ class TestLogSink:
         assert len(outer) == 1
         assert outer[0] is outer_log
 
+    # 测试emptycontext
     def test_empty_context(self) -> None:
         sink = LogSink()
         with sink.context() as collected:
             pass
         assert collected == []
 
+    # 测试addoutsidecontextprints
     def test_add_outside_context_prints(self, capsys) -> None:
         sink = LogSink()
         report_sink.configure(output_format="text")
@@ -65,6 +71,7 @@ class TestLogSink:
         captured = capsys.readouterr()
         assert "test warning" in captured.out
 
+    # 测试contextcapturesinsteadofprinting
     def test_context_captures_instead_of_printing(self, capsys) -> None:
         sink = LogSink()
         report_sink.configure(output_format="text")
@@ -76,6 +83,7 @@ class TestLogSink:
         captured = capsys.readouterr()
         assert captured.out == ""
 
+    # 测试jsonoutputoutsidecontext
     def test_json_output_outside_context(self, capsys) -> None:
         sink = LogSink()
         report_sink.configure(output_format="json")
@@ -87,6 +95,7 @@ class TestLogSink:
         assert "errors" in parsed
         assert len(parsed["errors"]) == 1
 
+    # 测试infologoutsidecontextroutestoinfos
     def test_info_log_outside_context_routes_to_infos(self, capsys) -> None:
         """InfoLog added outside context populates LogRecord.infos, not errors."""
         sink = LogSink()
@@ -98,6 +107,7 @@ class TestLogSink:
         assert len(parsed["infos"]) == 1
         assert len(parsed["errors"]) == 0
 
+    # 测试exceptionincontextcleansstack
     def test_exception_in_context_cleans_stack(self, capsys) -> None:
         sink = LogSink()
         report_sink.configure(output_format="text")

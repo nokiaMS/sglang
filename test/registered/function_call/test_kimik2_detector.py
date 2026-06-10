@@ -1,3 +1,4 @@
+# 文件名: test_kimik2_detector.py - Kimik2检测器测试
 import json
 import unittest
 
@@ -15,6 +16,7 @@ register_cpu_ci(5, "base-a-test-cpu")
 register_cpu_ci(est_time=7, suite="base-b-test-cpu")
 
 
+# 执行maketool
 def _make_tool(name, parameters=None):
     """Helper to create a Tool with less boilerplate."""
     return Tool(
@@ -34,6 +36,7 @@ def _make_tool(name, parameters=None):
     )
 
 
+# 执行collectstreamingtoolcalls
 def _collect_streaming_tool_calls(detector, chunks, tools):
     """Run streaming chunks through a detector and collect assembled tool calls."""
     tool_calls = []
@@ -61,6 +64,7 @@ def _collect_streaming_tool_calls(detector, chunks, tools):
 class TestKimiK2DetectorBasic(unittest.TestCase):
     """Basic non-streaming parsing tests for KimiK2Detector."""
 
+    # 初始化设置
     def setUp(self):
         self.tools = [
             _make_tool("ReadFile"),
@@ -78,6 +82,7 @@ class TestKimiK2DetectorBasic(unittest.TestCase):
         ]
         self.detector = KimiK2FuncDetector()
 
+    # 测试singletoolcall
     def test_single_tool_call(self):
         """Parse a single complete tool call."""
         text = (
@@ -93,6 +98,7 @@ class TestKimiK2DetectorBasic(unittest.TestCase):
         self.assertEqual(result.calls[0].parameters, '{"path": "/test.py"}')
         self.assertEqual(result.normal_text, "")
 
+    # 测试multipletoolcalls
     def test_multiple_tool_calls(self):
         """Parse two consecutive tool calls."""
         text = (
@@ -111,6 +117,7 @@ class TestKimiK2DetectorBasic(unittest.TestCase):
         self.assertEqual(result.calls[1].name, "get_weather")
         self.assertEqual(result.calls[1].parameters, '{"city": "Tokyo"}')
 
+    # 测试normaltextbeforetoolcall
     def test_normal_text_before_tool_call(self):
         """Normal text before tool call markers is preserved."""
         text = (
@@ -125,6 +132,7 @@ class TestKimiK2DetectorBasic(unittest.TestCase):
         self.assertEqual(len(result.calls), 1)
         self.assertEqual(result.normal_text, "Let me check the file.")
 
+    # 测试notoolcall
     def test_no_tool_call(self):
         """Text without tool call markers returns as normal text."""
         text = "Just a normal response."
@@ -132,6 +140,7 @@ class TestKimiK2DetectorBasic(unittest.TestCase):
         self.assertEqual(len(result.calls), 0)
         self.assertEqual(result.normal_text, text)
 
+    # 测试hastoolcall
     def test_has_tool_call(self):
         """has_tool_call correctly detects the presence of tool call markers."""
         self.assertTrue(
@@ -143,6 +152,7 @@ class TestKimiK2DetectorBasic(unittest.TestCase):
 class TestKimiK2DetectorHyphenatedNames(unittest.TestCase):
     """Test support for hyphenated function names (common in MCP tools)."""
 
+    # 初始化设置
     def setUp(self):
         self.tools = [
             _make_tool("mcp__portal__search-documents"),
@@ -150,6 +160,7 @@ class TestKimiK2DetectorHyphenatedNames(unittest.TestCase):
         ]
         self.detector = KimiK2FuncDetector()
 
+    # 测试hyphenatednamenonstreaming
     def test_hyphenated_name_non_streaming(self):
         """Parse tool call with hyphenated function name."""
         text = (
@@ -163,6 +174,7 @@ class TestKimiK2DetectorHyphenatedNames(unittest.TestCase):
         self.assertEqual(len(result.calls), 1)
         self.assertEqual(result.calls[0].name, "mcp__portal__search-documents")
 
+    # 测试hyphenatednamestreaming
     def test_hyphenated_name_streaming(self):
         """Stream tool call with hyphenated function name."""
         chunks = [
@@ -183,6 +195,7 @@ class TestKimiK2DetectorHyphenatedNames(unittest.TestCase):
 class TestKimiK2DetectorStreaming(unittest.TestCase):
     """Streaming incremental parsing tests for KimiK2Detector."""
 
+    # 初始化设置
     def setUp(self):
         self.tools = [
             _make_tool("ReadFile"),
@@ -196,6 +209,7 @@ class TestKimiK2DetectorStreaming(unittest.TestCase):
             ),
         ]
 
+    # 测试streamingsingletoolcall
     def test_streaming_single_tool_call(self):
         """Stream a single tool call across multiple chunks."""
         detector = KimiK2FuncDetector()
@@ -212,6 +226,7 @@ class TestKimiK2DetectorStreaming(unittest.TestCase):
         self.assertEqual(tool_calls[0]["name"], "ReadFile")
         self.assertEqual(tool_calls[0]["parameters"], '{"path": "/test.py"}')
 
+    # 测试streamingmultipletoolcalls
     def test_streaming_multiple_tool_calls(self):
         """Stream two tool calls sequentially."""
         detector = KimiK2FuncDetector()
@@ -231,6 +246,7 @@ class TestKimiK2DetectorStreaming(unittest.TestCase):
         self.assertEqual(tool_calls[1]["name"], "get_weather")
         self.assertEqual(json.loads(tool_calls[1]["parameters"]), {"city": "Paris"})
 
+    # 测试streamingstateresetaftercompletion
     def test_streaming_state_reset_after_completion(self):
         """Buffer and state reset after tool call completes."""
         detector = KimiK2FuncDetector()
@@ -251,9 +267,11 @@ class TestKimiK2DetectorStreaming(unittest.TestCase):
 class TestKimiK2DetectorSpecialTokenLeakage(unittest.TestCase):
     """Verify special tokens are never leaked into normal_text output."""
 
+    # 初始化设置
     def setUp(self):
         self.tools = [_make_tool("ReadFile")]
 
+    # 测试noleakinnontooltext
     def test_no_leak_in_non_tool_text(self):
         """End tokens appearing without start tokens are stripped from output."""
         detector = KimiK2FuncDetector()
@@ -263,6 +281,7 @@ class TestKimiK2DetectorSpecialTokenLeakage(unittest.TestCase):
         self.assertNotIn("<|tool_calls_section_end|>", result.normal_text)
         self.assertIn("normal text", result.normal_text)
 
+    # 测试noleakofargumentbegintoken
     def test_no_leak_of_argument_begin_token(self):
         """Argument begin token is stripped when leaked."""
         detector = KimiK2FuncDetector()
@@ -271,6 +290,7 @@ class TestKimiK2DetectorSpecialTokenLeakage(unittest.TestCase):
         )
         self.assertNotIn("<|tool_call_argument_begin|>", result.normal_text)
 
+    # 测试noleakonerrorfallback
     def test_no_leak_on_error_fallback(self):
         """On parse errors, normal_text fallback has tokens stripped."""
         cleaned = _strip_special_tokens(
@@ -278,6 +298,7 @@ class TestKimiK2DetectorSpecialTokenLeakage(unittest.TestCase):
         )
         self.assertEqual(cleaned, "leakedcontent")
 
+    # 测试stripspecialtokensalltokens
     def test_strip_special_tokens_all_tokens(self):
         """All 5 known special tokens are stripped."""
         dirty = (
@@ -289,6 +310,7 @@ class TestKimiK2DetectorSpecialTokenLeakage(unittest.TestCase):
         )
         self.assertEqual(_strip_special_tokens(dirty), "")
 
+    # 测试strippreservesnormaltext
     def test_strip_preserves_normal_text(self):
         """Stripping doesn't affect normal text content."""
         text = "Hello world, this is normal text."
@@ -303,6 +325,7 @@ class TestKimiK2DetectorSpecialTokenLeakage(unittest.TestCase):
 class TestKimiK2ReasoningDetectorNonStreaming(unittest.TestCase):
     """Non-streaming tests for KimiK2ReasoningDetector."""
 
+    # 测试normalreasoningwiththinkend
     def test_normal_reasoning_with_think_end(self):
         """Standard case: <think>...</think> followed by tool call markers."""
         det = KimiK2ReasoningDetector()
@@ -318,6 +341,7 @@ class TestKimiK2ReasoningDetectorNonStreaming(unittest.TestCase):
         self.assertEqual(result.reasoning_text, "I need to check the file.")
         self.assertIn("<|tool_calls_section_begin|>", result.normal_text)
 
+    # 测试toolcallinsidethinkwithoutclosetag
     def test_tool_call_inside_think_without_close_tag(self):
         """
         BUG FIX: Model outputs tool call markers inside <think> without </think>.
@@ -347,6 +371,7 @@ class TestKimiK2ReasoningDetectorNonStreaming(unittest.TestCase):
         self.assertIn("<|tool_calls_section_begin|>", result.normal_text)
         self.assertIn("<|tool_call_begin|>", result.normal_text)
 
+    # 测试noreasoningjusttoolcall
     def test_no_reasoning_just_tool_call(self):
         """No <think> block, just tool call markers — pass through as normal_text."""
         det = KimiK2ReasoningDetector()
@@ -361,6 +386,7 @@ class TestKimiK2ReasoningDetectorNonStreaming(unittest.TestCase):
         self.assertEqual(result.reasoning_text, "")
         self.assertIn("<|tool_calls_section_begin|>", result.normal_text)
 
+    # 测试normaltextwithoutreasoning
     def test_normal_text_without_reasoning(self):
         """Plain text without reasoning or tool calls."""
         det = KimiK2ReasoningDetector()
@@ -372,6 +398,7 @@ class TestKimiK2ReasoningDetectorNonStreaming(unittest.TestCase):
 class TestKimiK2ReasoningDetectorStreaming(unittest.TestCase):
     """Streaming tests for KimiK2ReasoningDetector."""
 
+    # 执行runstreaming
     def _run_streaming(self, chunks, **kwargs):
         """Helper: run chunks through streaming detector, collect reasoning and normal text."""
         det = KimiK2ReasoningDetector(**kwargs)
@@ -383,6 +410,7 @@ class TestKimiK2ReasoningDetectorStreaming(unittest.TestCase):
             all_normal += r.normal_text
         return all_reasoning, all_normal
 
+    # 测试streamingnormalthinkthentoolcall
     def test_streaming_normal_think_then_tool_call(self):
         """Standard streaming: <think>...</think> then tool call markers."""
         reasoning, normal = self._run_streaming(
@@ -398,6 +426,7 @@ class TestKimiK2ReasoningDetectorStreaming(unittest.TestCase):
         self.assertIn("<|tool_calls_section_begin|>", normal)
         self.assertNotIn("<|tool_calls_section_begin|>", reasoning)
 
+    # 测试streamingtoolcallinsidethink
     def test_streaming_tool_call_inside_think(self):
         """
         BUG FIX (streaming): Tool call markers inside <think> without </think>.
@@ -429,6 +458,7 @@ class TestKimiK2ReasoningDetectorStreaming(unittest.TestCase):
         self.assertIn("<|tool_calls_section_begin|>", normal)
         self.assertIn("functions.ReadFile:5", normal)
 
+    # 测试streamingtoolcallmarkerinsinglechunk
     def test_streaming_tool_call_marker_in_single_chunk(self):
         """Tool call marker arrives in a single chunk while in reasoning mode."""
         reasoning, normal = self._run_streaming(
@@ -440,6 +470,7 @@ class TestKimiK2ReasoningDetectorStreaming(unittest.TestCase):
         self.assertIn("thinking...", reasoning)
         self.assertIn("<|tool_calls_section_begin|>", normal)
 
+    # 测试streamingpartialmarkerbuffering
     def test_streaming_partial_marker_buffering(self):
         """
         Partial tool call marker at end of chunk is buffered to prevent
@@ -464,6 +495,7 @@ class TestKimiK2ReasoningDetectorStreaming(unittest.TestCase):
         # Now it should force-exit reasoning
         self.assertIn("<|tool_calls_section_begin|>", r3.normal_text)
 
+    # 测试streamingnoreasoningmode
     def test_streaming_no_reasoning_mode(self):
         """Normal text without reasoning passes through as normal_text."""
         reasoning, normal = self._run_streaming(
@@ -476,6 +508,7 @@ class TestKimiK2ReasoningDetectorStreaming(unittest.TestCase):
         self.assertIn("Hello, I can help with that.", normal)
         self.assertIn(" What do you need?", normal)
 
+    # 测试streamingforcereasoning
     def test_streaming_force_reasoning(self):
         """With force_reasoning, content before </think> is reasoning."""
         reasoning, normal = self._run_streaming(
@@ -505,6 +538,7 @@ class TestKimiK2EndToEnd(unittest.TestCase):
     split between reasoning and tool call parsers.
     """
 
+    # 初始化设置
     def setUp(self):
         self.tools = [
             _make_tool("ReadFile"),
@@ -518,6 +552,7 @@ class TestKimiK2EndToEnd(unittest.TestCase):
             ),
         ]
 
+    # 测试e2estreamingreasoningtotoolcall
     def test_e2e_streaming_reasoning_to_tool_call(self):
         """
         Full pipeline: streaming reasoning parser feeds into streaming tool call parser.
@@ -568,6 +603,7 @@ class TestKimiK2EndToEnd(unittest.TestCase):
         full_params = "".join(c.parameters for c in param_calls)
         self.assertIn("/Users/user/project/file.ts", full_params)
 
+    # 测试e2enonstreamingreasoningtotoolcall
     def test_e2e_non_streaming_reasoning_to_tool_call(self):
         """Non-streaming pipeline: reason parser then tool call parser."""
         reasoning_det = KimiK2ReasoningDetector()
@@ -596,6 +632,7 @@ class TestKimiK2EndToEnd(unittest.TestCase):
             {"path": "/src/main.py"},
         )
 
+    # 测试e2enormalthinkclosethentoolcall
     def test_e2e_normal_think_close_then_tool_call(self):
         """Standard case with </think> — should also work correctly."""
         reasoning_det = KimiK2ReasoningDetector(stream_reasoning=True)
@@ -627,6 +664,7 @@ class TestKimiK2EndToEnd(unittest.TestCase):
         self.assertEqual(len(name_calls), 1)
         self.assertEqual(name_calls[0].name, "get_weather")
 
+    # 测试e2emultipletoolcallswithoutthinkclose
     def test_e2e_multiple_tool_calls_without_think_close(self):
         """Multiple tool calls inside <think> without </think>."""
         reasoning_det = KimiK2ReasoningDetector(stream_reasoning=True)
@@ -672,6 +710,7 @@ class TestKimiK2EndToEnd(unittest.TestCase):
 class TestKimiK2BareCounterParsing(unittest.TestCase):
     """Tests for bare numeric tool_call_id format (e.g., '3' instead of 'functions.ReadFile:0')."""
 
+    # 初始化设置
     def setUp(self):
         self.detector = KimiK2FuncDetector()
         self.tools = [
@@ -691,6 +730,7 @@ class TestKimiK2BareCounterParsing(unittest.TestCase):
 
     # --- _parse_tool_call_id ---
 
+    # 测试standardformatwithfunctionsprefix
     def test_standard_format_with_functions_prefix(self):
         name, idx = self.detector._parse_tool_call_id(
             "functions.ReadFile:0", self.tools
@@ -698,11 +738,13 @@ class TestKimiK2BareCounterParsing(unittest.TestCase):
         self.assertEqual(name, "ReadFile")
         self.assertEqual(idx, 0)
 
+    # 测试standardformatwithoutfunctionsprefix
     def test_standard_format_without_functions_prefix(self):
         name, idx = self.detector._parse_tool_call_id("ReadFile:1", self.tools)
         self.assertEqual(name, "ReadFile")
         self.assertEqual(idx, 1)
 
+    # 测试barecountersingletool
     def test_bare_counter_single_tool(self):
         single_tool = [_make_tool("search")]
         name, idx = self.detector._parse_tool_call_id(
@@ -711,6 +753,7 @@ class TestKimiK2BareCounterParsing(unittest.TestCase):
         self.assertEqual(name, "search")
         self.assertEqual(idx, 3)
 
+    # 测试barecounterinfersbyargs
     def test_bare_counter_infers_by_args(self):
         name, idx = self.detector._parse_tool_call_id(
             "0", self.tools, '{"city": "Tokyo"}'
@@ -718,16 +761,19 @@ class TestKimiK2BareCounterParsing(unittest.TestCase):
         self.assertEqual(name, "get_weather")
         self.assertEqual(idx, 0)
 
+    # 测试barecounternotoolsreturnsnone
     def test_bare_counter_no_tools_returns_none(self):
         name, idx = self.detector._parse_tool_call_id("5", [], '{"x": 1}')
         self.assertIsNone(name)
         self.assertEqual(idx, 5)
 
+    # 测试barecounternoargsmultipletoolsreturnsnone
     def test_bare_counter_no_args_multiple_tools_returns_none(self):
         name, idx = self.detector._parse_tool_call_id("2", self.tools, None)
         self.assertIsNone(name)
         self.assertEqual(idx, 2)
 
+    # 测试unexpectedformatreturnsnone
     def test_unexpected_format_returns_none(self):
         name, idx = self.detector._parse_tool_call_id("some_garbage", self.tools)
         self.assertIsNone(name)
@@ -735,27 +781,33 @@ class TestKimiK2BareCounterParsing(unittest.TestCase):
 
     # --- _infer_tool_name ---
 
+    # 测试infernotools
     def test_infer_no_tools(self):
         self.assertIsNone(self.detector._infer_tool_name([], '{"x": 1}'))
 
+    # 测试infersingletool
     def test_infer_single_tool(self):
         result = self.detector._infer_tool_name([_make_tool("only_one")], '{"x": 1}')
         self.assertEqual(result, "only_one")
 
+    # 测试inferbyargumentoverlap
     def test_infer_by_argument_overlap(self):
         result = self.detector._infer_tool_name(
             self.tools, '{"city": "Paris", "unit": "celsius"}'
         )
         self.assertEqual(result, "get_weather")
 
+    # 测试infermalformedjsonreturnsnone
     def test_infer_malformed_json_returns_none(self):
         result = self.detector._infer_tool_name(self.tools, '{"city": "Par')
         self.assertIsNone(result)
 
+    # 测试inferemptyargsreturnsnone
     def test_infer_empty_args_returns_none(self):
         self.assertIsNone(self.detector._infer_tool_name(self.tools, None))
         self.assertIsNone(self.detector._infer_tool_name(self.tools, ""))
 
+    # 测试infernomatchingpropsreturnsnone
     def test_infer_no_matching_props_returns_none(self):
         tools_no_props = [
             _make_tool("a", {"type": "object"}),
@@ -766,6 +818,7 @@ class TestKimiK2BareCounterParsing(unittest.TestCase):
 
     # --- detect_and_parse with bare counter (end-to-end) ---
 
+    # 测试detectandparsebarecounter
     def test_detect_and_parse_bare_counter(self):
         text = (
             "<|tool_calls_section_begin|>"
@@ -779,6 +832,7 @@ class TestKimiK2BareCounterParsing(unittest.TestCase):
         self.assertEqual(result.calls[0].name, "get_weather")
         self.assertEqual(result.calls[0].parameters, '{"city": "Tokyo"}')
 
+    # 测试detectandparsebarecounterskipsunknown
     def test_detect_and_parse_bare_counter_skips_unknown(self):
         text = (
             "<|tool_calls_section_begin|>"
@@ -791,6 +845,7 @@ class TestKimiK2BareCounterParsing(unittest.TestCase):
         # No tool props match, _infer_tool_name returns None, call is skipped
         self.assertEqual(len(result.calls), 0)
 
+    # 测试streamingbarecountersingletool
     def test_streaming_bare_counter_single_tool(self):
         detector = KimiK2FuncDetector()
         single_tool = [_make_tool("search")]

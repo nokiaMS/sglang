@@ -1,3 +1,4 @@
+# 文件名: test_run_candidate.py - 运行候选配置
 import sys
 import time
 import unittest
@@ -18,7 +19,10 @@ register_cuda_ci(est_time=6, stage="base-b", runner_config="1-gpu-small")
 register_amd_ci(est_time=6, suite="stage-b-test-1-gpu-small-amd")
 
 
+# TestAutoBenchmarkRunCandidate类
 class TestAutoBenchmarkRunCandidate(AutoBenchmarkTestCase):
+
+    # TestAutoBenchmarkRunCandidate类的测试runcandidatebinarysearchavoidsroundingloop
     def test_run_candidate_binary_search_avoids_rounding_loop(self):
         benchmark_cfg = {
             "qps": {"lower": 1.0, "upper": 1.00000001, "tolerance": 1e-12},
@@ -32,9 +36,10 @@ class TestAutoBenchmarkRunCandidate(AutoBenchmarkTestCase):
         ):
             records = run_candidate(**self._run_candidate_kwargs(benchmark_cfg))
 
-        self.assertLess(len(calls), 40)
-        self.assertEqual(len(records), len(calls))
+        self.assertLess(len(calls), 40)  # 断言小于
+        self.assertEqual(len(records), len(calls))  # 断言相等
 
+    # TestAutoBenchmarkRunCandidate类的测试runcandidatebinarysearchrespectsmaxrounds
     def test_run_candidate_binary_search_respects_max_rounds(self):
         benchmark_cfg = {
             "qps": {"lower": 1.0, "upper": 32.0, "tolerance": 1e-12, "max_rounds": 2},
@@ -48,16 +53,17 @@ class TestAutoBenchmarkRunCandidate(AutoBenchmarkTestCase):
         ):
             records = run_candidate(**self._run_candidate_kwargs(benchmark_cfg))
 
-        self.assertEqual(len(calls), 2)
-        self.assertEqual(len(records), 2)
+        self.assertEqual(len(calls), 2)  # 断言相等
+        self.assertEqual(len(records), 2)  # 断言相等
 
+    # TestAutoBenchmarkRunCandidate类的测试runcandidatestopswhensearchbudgetisexhausted
     def test_run_candidate_stops_when_search_budget_is_exhausted(self):
         benchmark_cfg = {
             "qps": {"lower": 1.0, "upper": 2.0, "tolerance": 0.1},
             "max_concurrency": [None],
         }
 
-        with self.assertRaises(SearchDeadlineExceeded):
+        with self.assertRaises(SearchDeadlineExceeded):  # 断言抛出异常
             run_candidate(
                 **self._run_candidate_kwargs(
                     benchmark_cfg,
@@ -66,6 +72,7 @@ class TestAutoBenchmarkRunCandidate(AutoBenchmarkTestCase):
                 )
             )
 
+    # TestAutoBenchmarkRunCandidate类的测试runcandidateresumeskipsexistingfixedtrials
     def test_run_candidate_resume_skips_existing_fixed_trials(self):
         benchmark_cfg = {
             "qps": [1.0, 2.0],
@@ -90,8 +97,8 @@ class TestAutoBenchmarkRunCandidate(AutoBenchmarkTestCase):
                 )
             )
 
-        self.assertEqual(calls, [2.0])
-        self.assertEqual([record["requested_qps"] for record in records], [1.0, 2.0])
+        self.assertEqual(calls, [2.0])  # 断言相等
+        self.assertEqual([record["requested_qps"] for record in records], [1.0, 2.0])  # 断言相等
 
 
 if __name__ == "__main__":

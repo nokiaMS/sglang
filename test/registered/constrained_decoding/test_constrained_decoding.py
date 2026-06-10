@@ -1,3 +1,4 @@
+# 文件名: test_constrained_decoding.py - 约束解码测试
 import unittest
 
 from sglang.srt.utils import kill_process_tree
@@ -22,6 +23,7 @@ class ServerWithGrammar(CustomTestCase):
     disable_overlap = False
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = DEFAULT_SMALL_MODEL_NAME_FOR_TEST
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -43,6 +45,7 @@ class ServerWithGrammar(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 

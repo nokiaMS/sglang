@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# 文件名: test_mooncake_transfer_engine.py - Mooncake传输引擎基准测试工具
 import argparse
 
 try:
@@ -12,6 +13,7 @@ except ImportError:
     exit(0)
 
 
+# 构建并执行Mooncake基准命令
 def run_cmd(args):
     cmd = [BENCH_TOOL_PATH]
     if args.initiator:
@@ -40,6 +42,7 @@ def run_cmd(args):
         exit(1)
 
 
+# 主函数，解析参数并运行测试
 def main():
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group()

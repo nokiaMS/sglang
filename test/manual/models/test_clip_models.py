@@ -1,3 +1,4 @@
+# 文件名: test_clip_models.py - 测试CLIP视觉嵌入模型的精度
 # Copyright 2023-2024 SGLang Team
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -31,9 +32,11 @@ TORCH_DTYPES = [torch.float16]
 class TestClipModels(unittest.TestCase):
 
     @classmethod
+    # 类级别初始化，启动服务器或设置测试环境
     def setUpClass(cls):
         mp.set_start_method("spawn", force=True)
 
+    # 执行assert_close_embeddings
     def assert_close_embeddings(self, model, prefill_tolerance, torch_dtype):
 
         with HFRunner(
@@ -68,6 +71,7 @@ class TestClipModels(unittest.TestCase):
             abs(image_similarity - 1) < prefill_tolerance
         ), "embeddings are not all close"
 
+    # 测试accuracy功能
     def test_accuracy(self):
         for model, prefill_tolerance in MODELS:
             for torch_dtype in TORCH_DTYPES:

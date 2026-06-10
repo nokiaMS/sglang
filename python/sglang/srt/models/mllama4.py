@@ -1,52 +1,59 @@
+# Llama4 多模态条件生成模型实现
+# 该文件实现了 Llama4 的多模态版本，结合视觉编码器和 Llama4 语言模型，
+# 支持图像输入，通过像素混洗和 MLP 投影器将视觉特征映射到语言模型空间。
+
+
 import json as json_lib
 import logging
 import math
 import os
 import re
-from collections.abc import Iterable
-from typing import List, Optional, Set, Tuple
+from collections.abc import Iterable  # 导入abc
+from typing import List, Optional, Set, Tuple  # 导入from typing
 
 import torch
-from torch import nn
-from transformers import Llama4Config, Llama4VisionConfig
-from transformers.models.llama4.modeling_llama4 import (
+from torch import nn  # 导入from torch
+from transformers import Llama4Config, Llama4VisionConfig  # 导入from transformers
+from transformers.models.llama4.modeling_llama4 import (  # 导入modeling_llama4
     Llama4MultiModalProjector,
     vision_apply_rotary_emb,
 )
 
-from sglang.srt.layers.attention.vision import VisionAttention
-from sglang.srt.layers.linear import (
+from sglang.srt.layers.attention.vision import VisionAttention  # 导入vision
+from sglang.srt.layers.linear import (  # 导入linear
     ColumnParallelLinear,
     ReplicatedLinear,
     RowParallelLinear,
 )
-from sglang.srt.layers.logits_processor import LogitsProcessor
-from sglang.srt.layers.moe.fused_moe_triton import FusedMoE
-from sglang.srt.layers.quantization import QuantizationConfig
-from sglang.srt.managers.mm_utils import (
+from sglang.srt.layers.logits_processor import LogitsProcessor  # 导入logits_processor
+from sglang.srt.layers.moe.fused_moe_triton import FusedMoE  # 导入fused_moe_triton
+from sglang.srt.layers.quantization import QuantizationConfig  # 导入quantization
+from sglang.srt.managers.mm_utils import (  # 导入mm_utils
     MultiModalityDataPaddingPatternMultimodalTokens,
     general_mm_embed_routine,
 )
-from sglang.srt.managers.schedule_batch import (
+from sglang.srt.managers.schedule_batch import (  # 导入schedule_batch
     Modality,
     MultimodalDataItem,
     MultimodalInputs,
 )
-from sglang.srt.model_executor.forward_batch_info import ForwardBatch
-from sglang.srt.server_args import get_global_server_args
-from sglang.srt.utils import is_cpu
+from sglang.srt.model_executor.forward_batch_info import ForwardBatch  # 导入forward_batch_info
+from sglang.srt.server_args import get_global_server_args  # 导入server_args
+from sglang.srt.utils import is_cpu  # 导入utils
 
 _is_cpu = is_cpu()
 
-from sglang.srt.model_loader.weight_utils import (
+from sglang.srt.model_loader.weight_utils import (  # 导入weight_utils
     default_weight_loader,
     maybe_remap_kv_scale_name,
 )
-from sglang.srt.utils import add_prefix
+from sglang.srt.utils import add_prefix  # 导入utils
 
 logger = logging.getLogger(__name__)
 
 
+# Llama4 视觉 MLP 模块
+# Llama4 视觉 MLP 模块
 class Llama4VisionMLP(nn.Module):
 
     def __init__(
@@ -89,6 +96,8 @@ class Llama4VisionMLP(nn.Module):
         return hidden_states
 
 
+# 像素混洗操作，降低空间分辨率增加通道维度
+# 像素混洗操作，降低空间分辨率增加通道维度
 def pixel_shuffle(input_tensor, shuffle_ratio):
     # input_tensor: [batch_size, num_patches, channels]
     batch_size, num_patches, channels = input_tensor.shape
@@ -114,6 +123,8 @@ def pixel_shuffle(input_tensor, shuffle_ratio):
     return output_tensor
 
 
+# Llama4 视觉像素混洗 MLP，先像素混洗再投影
+# Llama4 视觉像素混洗 MLP，先像素混洗再投影
 class Llama4VisionPixelShuffleMLP(nn.Module):
 
     def __init__(
@@ -141,6 +152,8 @@ class Llama4VisionPixelShuffleMLP(nn.Module):
         return self.mlp(encoded_patches)
 
 
+# 应用位置嵌入到查询和键
+# 应用位置嵌入到查询和键
 def apply_position_embedding(q, k, freqs_ci, shape):
     # [batch_size_times_num_tiles, num_channels]
     input_shape = shape[:2]
@@ -152,6 +165,8 @@ def apply_position_embedding(q, k, freqs_ci, shape):
     return q, k
 
 
+# Llama4 视觉编码器层，包含自注意力和 MLP
+# Llama4 视觉编码器层，包含自注意力和 MLP
 class Llama4VisionEncoderLayer(nn.Module):
 
     def __init__(
@@ -213,6 +228,8 @@ class Llama4VisionEncoderLayer(nn.Module):
         return outputs
 
 
+# Llama4 视觉编码器，由多个编码器层组成
+# Llama4 视觉编码器，由多个编码器层组成
 class Llama4VisionEncoder(nn.Module):
 
     def __init__(
@@ -259,6 +276,8 @@ class Llama4VisionEncoder(nn.Module):
         return hidden_states
 
 
+# Llama4 展开卷积，将图像块展平为序列
+# Llama4 展开卷积，将图像块展平为序列
 class Llama4UnfoldConvolution(nn.Module):
 
     def __init__(
@@ -294,6 +313,8 @@ class Llama4UnfoldConvolution(nn.Module):
         return hidden_states
 
 
+# Llama4 视觉旋转位置编码
+# Llama4 视觉旋转位置编码
 class Llama4VisionRotaryEmbedding(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -325,6 +346,8 @@ class Llama4VisionRotaryEmbedding(nn.Module):
         return self.freqs_ci.to(hidden_states.device)
 
 
+# Llama4 视觉模型，包含补丁嵌入、位置编码和编码器
+# Llama4 视觉模型，包含补丁嵌入、位置编码和编码器
 class Llama4VisionModel(nn.Module):
 
     def __init__(
@@ -414,6 +437,8 @@ class Llama4VisionModel(nn.Module):
         return hidden_state
 
 
+# Llama4 条件生成模型，结合视觉和语言模型
+# Llama4 条件生成模型，结合视觉和语言模型
 class Llama4ForConditionalGeneration(nn.Module):
     packed_modules_mapping = {
         "qkv_proj": ["q_proj", "k_proj", "v_proj"],
@@ -472,7 +497,7 @@ class Llama4ForConditionalGeneration(nn.Module):
             self.multi_modal_projector = None
 
         # Initialize the language model
-        from sglang.srt.models.llama4 import Llama4ForCausalLM
+        from sglang.srt.models.llama4 import Llama4ForCausalLM  # 导入llama4
 
         self.language_model = Llama4ForCausalLM(
             config.text_config if hasattr(config, "text_config") else config,
@@ -485,6 +510,8 @@ class Llama4ForConditionalGeneration(nn.Module):
         )
         self.padding_pattern = MultiModalityDataPaddingPatternMultimodalTokens()
 
+    # 检查模型是否包含视觉组件权重
+    # 检查模型是否包含视觉组件权重
     def _has_vision_weights(self, config) -> bool:
         """Check if the model has vision components by examining the checkpoint."""
         model_path = getattr(config, "_name_or_path", None)
@@ -501,7 +528,7 @@ class Llama4ForConditionalGeneration(nn.Module):
         # The config might say it's multimodal, but the checkpoint might be text-only
         try:
             # Try to access the HuggingFace cache directory
-            from huggingface_hub import try_to_load_from_cache
+            from huggingface_hub import try_to_load_from_cache  # 导入from huggingface_hub
 
             # Check if index file exists in cache
             index_file_path = try_to_load_from_cache(
@@ -519,6 +546,8 @@ class Llama4ForConditionalGeneration(nn.Module):
         # Fallback, assume text-only
         return False
 
+    # 检查模型索引文件中是否包含视觉权重
+    # 检查模型索引文件中是否包含视觉权重
     def _check_vision_weights_in_index(self, index_file: str) -> bool:
         """Check if the model.safetensors.index.json contains vision weights."""
         try:
@@ -535,9 +564,13 @@ class Llama4ForConditionalGeneration(nn.Module):
         except (OSError, json_lib.JSONDecodeError, KeyError):
             return False
 
+    # 填充输入标记 ID
+    # 填充输入标记 ID
     def pad_input_ids(self, input_ids: List[int], mm_inputs: MultimodalInputs):
         return self.padding_pattern.pad_input_tokens(input_ids, mm_inputs)
 
+    # 提取并投影图像视觉特征
+    # 提取并投影图像视觉特征
     def get_image_feature(
         self,
         items: List[MultimodalDataItem],
@@ -558,6 +591,8 @@ class Llama4ForConditionalGeneration(nn.Module):
 
         return projected_vision_flat
 
+    # 判断是否应对指定模块应用 LoRA
+    # 判断是否应对指定模块应用 LoRA
     def should_apply_lora(self, module_name: str) -> bool:
         """Skip vision model and multi_modal_projector for LoRA."""
         return bool(self.lora_pattern.match(module_name))
@@ -585,12 +620,16 @@ class Llama4ForConditionalGeneration(nn.Module):
 
         return hs
 
+    # 为旋转位置编码重排 QK 权重
+    # 为旋转位置编码重排 QK 权重
     def permute_qk_weight_for_rotary(
         self,
         name: str,
         loaded_weight: torch.Tensor,
     ) -> Tuple[str, torch.Tensor]:
 
+        # 重排权重张量以适配旋转位置编码
+        # 重排权重张量以适配旋转位置编码
         def permute(w: torch.Tensor, n_heads: int):
             attn_in = self.language_model.config.head_dim * n_heads
             attn_out = self.language_model.config.hidden_size
@@ -619,6 +658,8 @@ class Llama4ForConditionalGeneration(nn.Module):
 
         return name, loaded_weight
 
+    # 加载模型权重
+    # 加载模型权重
     def load_weights(self, weights: Iterable[Tuple[str, torch.Tensor]]) -> Set[str]:
         stacked_params_mapping = [
             # (param_name, shard_name, shard_id)
@@ -687,12 +728,16 @@ class Llama4ForConditionalGeneration(nn.Module):
                 f"Some weights are not initialized from checkpoints {unloaded_params}"
             )
 
+    # 判断是否应跳过加载该权重
+    # 判断是否应跳过加载该权重
     def _should_skip_weight(self, name: str) -> bool:
         """Check if we should skip loading this weight."""
         return not self.has_vision and (
             "vision" in name or "multi_modal_projector" in name
         )
 
+    # 转换权重名称，添加 language_model 前缀
+    # 转换权重名称，添加 language_model 前缀
     def _transform_weight_name(self, name: str) -> str:
         """Transform weight name by adding language_model prefix if needed."""
         if (
@@ -703,6 +748,8 @@ class Llama4ForConditionalGeneration(nn.Module):
             return f"language_model.{name}"
         return name
 
+    # 处理缩放参数重映射
+    # 处理缩放参数重映射
     def _handle_scale_remapping(self, name: str, params_dict: dict) -> bool:
         """Handle scale parameter remapping. Returns True if handled."""
         if "scale" in name and "expert" not in name:
@@ -710,6 +757,8 @@ class Llama4ForConditionalGeneration(nn.Module):
             return remapped_name != name
         return False
 
+    # 处理堆叠参数加载
+    # 处理堆叠参数加载
     def _handle_stacked_params(
         self,
         name: str,
@@ -728,6 +777,8 @@ class Llama4ForConditionalGeneration(nn.Module):
                 return True
         return False
 
+    # 处理 MoE 专家权重加载
+    # 处理 MoE 专家权重加载
     def _handle_expert_weights(
         self,
         name: str,
@@ -766,6 +817,8 @@ class Llama4ForConditionalGeneration(nn.Module):
                 name, loaded_weight, params_dict, num_experts, loaded_params
             )
 
+    # 处理非 gate_up/down_proj 的专家参数
+    # 处理非 gate_up/down_proj 的专家参数
     def _handle_other_expert_params(
         self,
         name: str,
@@ -797,6 +850,8 @@ class Llama4ForConditionalGeneration(nn.Module):
                 return True
         return False
 
+    # 转换专家参数名称并获取分片信息
+    # 转换专家参数名称并获取分片信息
     def _transform_expert_name(
         self, name: str, is_weight: bool = False
     ) -> Tuple[str, str, List[str]]:
@@ -826,6 +881,8 @@ class Llama4ForConditionalGeneration(nn.Module):
 
         return transformed_name, shard_id, shard_id_list
 
+    # 处理专家权重的量化缩放参数
+    # 处理专家权重的量化缩放参数
     def _handle_expert_scale_params(
         self,
         name: str,
@@ -874,6 +931,8 @@ class Llama4ForConditionalGeneration(nn.Module):
 
         return True
 
+    # 处理专家层的实际权重张量
+    # 处理专家层的实际权重张量
     def _handle_expert_weight_params(
         self,
         name: str,
@@ -938,6 +997,8 @@ class Llama4ForConditionalGeneration(nn.Module):
 
         return True
 
+    # 处理默认权重加载
+    # 处理默认权重加载
     def _handle_default_weight(
         self, name: str, loaded_weight: torch.Tensor, params_dict: dict
     ):
@@ -950,10 +1011,14 @@ class Llama4ForConditionalGeneration(nn.Module):
         weight_loader = getattr(param, "weight_loader", default_weight_loader)
         weight_loader(param, loaded_weight)
 
+    # 设置 EAGLE3 需要捕获的层
+    # 设置 EAGLE3 需要捕获的层
     def set_eagle3_layers_to_capture(self, layer_ids: Optional[List[int]] = None):
         if hasattr(self.language_model, "set_eagle3_layers_to_capture"):
             self.language_model.set_eagle3_layers_to_capture(layer_ids)
 
+    # 获取嵌入层和语言模型头
+    # 获取嵌入层和语言模型头
     def get_embed_and_head(self):
         # For EAGLE3, we delegate to the language model which should have this method
         # If the language model doesn't have lm_head (like EAGLE3), we return None for head
@@ -966,6 +1031,8 @@ class Llama4ForConditionalGeneration(nn.Module):
             # For EAGLE3, head might not be needed
             return embed, None
 
+    # 设置嵌入层和语言模型头
+    # 设置嵌入层和语言模型头
     def set_embed_and_head(self, embed, head):
         if hasattr(self.language_model, "set_embed_and_head"):
             return self.language_model.set_embed_and_head(embed, head)
@@ -973,12 +1040,18 @@ class Llama4ForConditionalGeneration(nn.Module):
             # For EAGLE3, only set embed
             return self.language_model.set_embed(embed)
 
+    # 获取嵌入层
+    # 获取嵌入层
     def get_embed(self):
         return self.language_model.get_embed()
 
+    # 设置嵌入层
+    # 设置嵌入层
     def set_embed(self, embed):
         return self.language_model.set_embed(embed)
 
+    # 获取指定模块的隐藏维度
+    # 获取指定模块的隐藏维度
     def get_hidden_dim(self, module_name, layer_idx):
         # return input_dim, output_dim
         if module_name == "qkv_proj":

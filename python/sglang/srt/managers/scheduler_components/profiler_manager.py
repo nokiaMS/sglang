@@ -1,3 +1,8 @@
+# 调度器性能分析管理器
+# 负责管理PyTorch Profiler的启动、停止、配置和结果导出，
+# 支持按阶段（prefill/decode）分析、ROCm RPD分析器、NPU分析器，
+# 以及多rank分析跟踪文件的合并。
+
 from __future__ import annotations
 
 import logging
@@ -44,11 +49,14 @@ from sglang.srt.utils.profile_utils import ProfileManager
 
 @dataclass(kw_only=True)
 class SchedulerProfilerManager:
+    """调度器性能分析管理器，支持V1和V2两种分析模式"""
+
     ps: Any
     dp_tp_cpu_group: Any
     get_forward_ct: Callable[[], int]
 
     def __post_init__(self) -> None:
+        """初始化分析器状态，支持V2模式（ProfileManager）和V1模式（原生torch profiler）"""
         if envs.SGLANG_PROFILE_V2.get():
             self._profile_manager = ProfileManager(
                 ps=self.ps,
@@ -56,6 +64,7 @@ class SchedulerProfilerManager:
             )
             return
 
+        # V1模式的初始化
         self.torch_profiler = None
         self.torch_profiler_output_dir: Optional[Path] = None
         self.profiler_activities: Optional[List[str]] = None
@@ -64,6 +73,7 @@ class SchedulerProfilerManager:
         self.profiler_start_forward_ct: Optional[int] = None
         self.profiler_target_forward_ct: Optional[int] = None
 
+        # 按阶段分析时的计数器
         self.profiler_prefill_ct: Optional[int] = None
         self.profiler_decode_ct: Optional[int] = None
         self.profiler_target_prefill_ct: Optional[int] = None
@@ -90,6 +100,7 @@ class SchedulerProfilerManager:
         profile_prefix: str = "",
         profile_stages: Optional[List[str]] = None,
     ) -> ProfileReqOutput:
+        """初始化性能分析配置，设置输出目录、活动类型、步数等参数"""
         if envs.SGLANG_PROFILE_V2.get():
             return self._profile_manager.configure(
                 output_dir=output_dir,
@@ -114,6 +125,7 @@ class SchedulerProfilerManager:
         self.profile_by_stage = profile_by_stage
         self.merge_profiles = merge_profiles
 
+        # 设置默认输出目录和活动类型
         if output_dir is None:
             output_dir = os.getenv("SGLANG_TORCH_PROFILER_DIR", "/tmp")
         if activities is None:
@@ -126,11 +138,14 @@ class SchedulerProfilerManager:
         self.profile_id = profile_id
         self.profile_prefix = profile_prefix
 
+        # 设置起始步数
         if start_step:
             self.profiler_start_forward_ct = max(start_step, self.get_forward_ct() + 1)
 
+        # 设置目标步数
         if num_steps:
             if self.profile_by_stage:
+                # 按阶段分析：prefill和decode分别计数
                 self.profiler_prefill_ct = 0
                 self.profiler_decode_ct = 0
                 self.profiler_target_prefill_ct = num_steps
@@ -150,6 +165,7 @@ class SchedulerProfilerManager:
     def _start_profile(
         self, stage: Optional[ForwardMode] = None
     ) -> ProfileReqOutput | None:
+        """启动性能分析器，支持torch profiler、RPD（ROCm）和NPU分析器"""
         if envs.SGLANG_PROFILE_V2.get():
             return self._profile_manager.manual_start()
 
@@ -162,6 +178,7 @@ class SchedulerProfilerManager:
         with_stack = self.torch_profiler_with_stack
         record_shapes = self.torch_profiler_record_shapes
 
+        # 构建活动类型映射
         activity_map = {
             "CPU": torch.profiler.ProfilerActivity.CPU,
             "GPU": torch.profiler.ProfilerActivity.CUDA,
@@ -172,6 +189,7 @@ class SchedulerProfilerManager:
             activity_map[a] for a in activities if a in activity_map
         ]
 
+        # ROCm RPD分析器
         if "RPD" in activities:  # for ROCM
             from rpdTracerControl import rpdTracerControl
 
@@ -182,6 +200,7 @@ class SchedulerProfilerManager:
                 "rpd-" + str(time.time()) + f"-TP-{self.ps.tp_rank}" + ".trace.json.gz",
             )
 
+            # rank 0创建RPD数据库
             if self.ps.tp_rank == 0:
                 import sqlite3
 
@@ -202,6 +221,7 @@ class SchedulerProfilerManager:
             self.rpd_profiler.rangePush("", "rpd profile range", "")
             self.profile_in_progress = True
         elif torchprof_activities:
+            # 标准torch profiler启动
             self.torch_profiler = torch.profiler.profile(
                 activities=torchprof_activities,
                 with_stack=with_stack if with_stack is not None else True,
@@ -232,10 +252,12 @@ class SchedulerProfilerManager:
             self.torch_profiler.start()
             self.profile_in_progress = True
 
+        # 内存分析
         if "MEM" in activities:
             torch.cuda.memory._record_memory_history(max_entries=100000)
             self.profile_in_progress = True
 
+        # CUDA Profiler API
         if "CUDA_PROFILER" in activities:
             if self.ps.gpu_id == get_global_server_args().base_gpu_id:
                 torch.cuda.cudart().cudaProfilerStart()
@@ -244,9 +266,11 @@ class SchedulerProfilerManager:
         return ProfileReqOutput(success=True, message="Succeeded")
 
     def _merge_profile_traces(self) -> str:
+        """合并多rank的分析跟踪文件"""
         if not self.merge_profiles:
             return ""
 
+        # 只有rank 0执行合并
         if self.ps.tp_rank != 0:
             return ""
         if self.ps.dp_size > 1 and self.ps.dp_rank != 0:
@@ -278,6 +302,7 @@ class SchedulerProfilerManager:
     def _stop_profile(
         self, stage: Optional[ForwardMode] = None
     ) -> ProfileReqOutput | None:
+        """停止性能分析器并导出跟踪文件"""
         if envs.SGLANG_PROFILE_V2.get():
             return self._profile_manager.manual_stop()
 
@@ -296,6 +321,8 @@ class SchedulerProfilerManager:
 
         stage_suffix = f"-{stage.name}" if stage else ""
         logger.info("Stop profiling" + stage_suffix + "...")
+
+        # 停止torch profiler并导出跟踪文件
         if self.torch_profiler is not None:
             self.torch_profiler.stop()
             if not _is_npu:
@@ -322,6 +349,7 @@ class SchedulerProfilerManager:
                 )
             torch.distributed.barrier(self.dp_tp_cpu_group)
 
+        # 停止RPD分析器并转换跟踪格式
         if self.rpd_profiler is not None:
             self.rpd_profiler.rangePop()
             self.rpd_profiler.stop()
@@ -335,6 +363,7 @@ class SchedulerProfilerManager:
             self.rpd_profiler = None
             self.rpd_profile_path = None
 
+        # 导出内存分析快照
         if self.profiler_activities is not None and "MEM" in self.profiler_activities:
             memory_profile_path = os.path.join(
                 self.torch_profiler_output_dir,
@@ -346,10 +375,12 @@ class SchedulerProfilerManager:
             torch.cuda.memory._dump_snapshot(memory_profile_path)
             torch.cuda.memory._record_memory_history(enabled=None)
 
+        # 停止CUDA Profiler API
         if "CUDA_PROFILER" in self.profiler_activities:
             if self.ps.gpu_id == get_global_server_args().base_gpu_id:
                 torch.cuda.cudart().cudaProfilerStop()
 
+        # 合并多rank的跟踪文件
         merge_message = self._merge_profile_traces()
 
         logger.info(
@@ -364,11 +395,13 @@ class SchedulerProfilerManager:
         return ProfileReqOutput(success=True, message=f"Succeeded.{merge_message}")
 
     def _profile_batch_predicate(self, batch: ScheduleBatch):
+        """根据当前批次判断是否需要启动或停止性能分析"""
         if envs.SGLANG_PROFILE_V2.get():
             self._profile_manager.step(forward_mode=batch.forward_mode)
             return
 
         if self.profile_by_stage:
+            # 按阶段（prefill/decode）分别分析
             if batch.forward_mode.is_prefill():
                 if self.profiler_prefill_ct == 0:
                     self._start_profile(batch.forward_mode)
@@ -391,6 +424,7 @@ class SchedulerProfilerManager:
             else:
                 raise RuntimeError(f"unsupported profile stage: {batch.forward_mode}")
         else:
+            # 按前向步数分析
             # Check profiler
             if (
                 self.profiler_target_forward_ct
@@ -404,8 +438,10 @@ class SchedulerProfilerManager:
                 self._start_profile()
 
     def _profile(self, recv_req: ProfileReq):
+        """处理性能分析请求，根据类型启动或停止分析"""
         if recv_req.type == ProfileReqType.START_PROFILE:
             if recv_req.profile_by_stage or recv_req.start_step:
+                # 延迟启动：先初始化配置，后续由batch predicate触发
                 return self._init_profile(
                     recv_req.output_dir,
                     recv_req.start_step,
@@ -420,6 +456,7 @@ class SchedulerProfilerManager:
                     recv_req.profile_stages,
                 )
             else:
+                # 立即启动
                 self._init_profile(
                     recv_req.output_dir,
                     recv_req.start_step,

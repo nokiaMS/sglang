@@ -1,3 +1,4 @@
+# 文件名: test_deepseek_v31_perf.py - 夜间测试：DeepSeek-V3.1性能基准（basic/MTP变体）
 import unittest
 
 from sglang.test.nightly_utils import NightlyBenchmarkRunner
@@ -9,6 +10,7 @@ PROFILE_DIR = "performance_profiles_deepseek_v31"
 
 class TestNightlyDeepseekV31Performance(unittest.TestCase):
     @classmethod
+    # 类级别初始化，启动服务器或设置测试环境
     def setUpClass(cls):
         cls.model = DEEPSEEK_V31_MODEL_PATH
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -53,6 +55,7 @@ class TestNightlyDeepseekV31Performance(unittest.TestCase):
         cls.runner = NightlyBenchmarkRunner(PROFILE_DIR, cls.__name__, cls.base_url)
         cls.runner.setup_profile_directory()
 
+    # 测试bench one batch功能
     def test_bench_one_batch(self):
         failed_variants = []
 

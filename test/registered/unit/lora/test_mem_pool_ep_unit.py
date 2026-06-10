@@ -1,3 +1,4 @@
+# 文件名: test_mem_pool_ep_unit.py - 内存池EP单元
 """Unit tests for LoRAMemoryPool's MoE expert-parallel (EP) handling.
 
 Covers the global->local expert-id remapping and per-rank buffer sizing
@@ -33,6 +34,7 @@ from sglang.srt.lora.mem_pool import (
 )
 
 
+# 内部方法_make_pool
 def _make_pool(
     *,
     num_experts_global: int,
@@ -61,6 +63,7 @@ def _make_pool(
     return pool
 
 
+# 内部方法_make_fake_base_model
 def _make_fake_base_model(num_experts: int) -> torch.nn.Module:
     """Return a `torch.nn.Module` whose `.config` exposes `num_experts`.
 
@@ -73,13 +76,15 @@ def _make_fake_base_model(num_experts: int) -> torch.nn.Module:
     return model
 
 
+# TestNumExpertHelpers类
 class TestNumExpertHelpers(unittest.TestCase):
     """`_get_num_experts` / `_get_num_local_experts` / buffer-dim picker."""
 
     def test_num_experts_read_from_config(self):
         model = _make_fake_base_model(num_experts=8)
-        self.assertEqual(LoRAMemoryPool._get_num_experts(model), 8)
+        self.assertEqual(LoRAMemoryPool._get_num_experts(model), 8)  # 断言相等
 
+    # TestNumExpertHelpers类的测试numlocalexpertsnoep
     def test_num_local_experts_no_ep(self):
         pool = _make_pool(
             num_experts_global=8,
@@ -88,8 +93,9 @@ class TestNumExpertHelpers(unittest.TestCase):
             moe_use_local_expert_ids=False,
         )
         model = _make_fake_base_model(num_experts=8)
-        self.assertEqual(pool._get_num_local_experts(model), 8)
+        self.assertEqual(pool._get_num_local_experts(model), 8)  # 断言相等
 
+    # TestNumExpertHelpers类的测试numlocalexpertswithep
     def test_num_local_experts_with_ep(self):
         pool = _make_pool(
             num_experts_global=8,
@@ -98,8 +104,9 @@ class TestNumExpertHelpers(unittest.TestCase):
             moe_use_local_expert_ids=True,
         )
         model = _make_fake_base_model(num_experts=8)
-        self.assertEqual(pool._get_num_local_experts(model), 2)
+        self.assertEqual(pool._get_num_local_experts(model), 2)  # 断言相等
 
+    # TestNumExpertHelpers类的测试numlocalexpertswithepbutbackendkeepsglobalids
     def test_num_local_experts_with_ep_but_backend_keeps_global_ids(self):
         """FlashInfer-style backends keep global topk_ids, so even under EP
         the LoRA buffers must remain globally-keyed.
@@ -111,8 +118,9 @@ class TestNumExpertHelpers(unittest.TestCase):
             moe_use_local_expert_ids=False,
         )
         model = _make_fake_base_model(num_experts=8)
-        self.assertEqual(pool._get_num_local_experts(model), 8)
+        self.assertEqual(pool._get_num_local_experts(model), 8)  # 断言相等
 
+    # TestNumExpertHelpers类的测试unevensplitdisableslocalmapping
     def test_uneven_split_disables_local_mapping(self):
         """Shouldn't happen in practice (base MoE requires even split), but
         `__init__` must fold uneven splits into `moe_use_local_expert_ids ==
@@ -128,9 +136,10 @@ class TestNumExpertHelpers(unittest.TestCase):
             moe_use_local_expert_ids=False,
         )
         model = _make_fake_base_model(num_experts=7)
-        self.assertEqual(pool._get_num_local_experts(model), 7)
+        self.assertEqual(pool._get_num_local_experts(model), 7)  # 断言相等
 
 
+# TestGlobalToLocalExpertId类
 class TestGlobalToLocalExpertId(unittest.TestCase):
     """`_global_to_local_expert_id` — the per-rank filter + remap."""
 
@@ -142,8 +151,9 @@ class TestGlobalToLocalExpertId(unittest.TestCase):
             moe_use_local_expert_ids=False,
         )
         for gid in range(8):
-            self.assertEqual(pool._global_to_local_expert_id(gid), gid)
+            self.assertEqual(pool._global_to_local_expert_id(gid), gid)  # 断言相等
 
+    # TestGlobalToLocalExpertId类的测试rank0ofep4ownsfirstquarter
     def test_rank0_of_ep4_owns_first_quarter(self):
         pool = _make_pool(
             num_experts_global=8,
@@ -152,12 +162,13 @@ class TestGlobalToLocalExpertId(unittest.TestCase):
             moe_use_local_expert_ids=True,
         )
         # Owned: 0, 1 -> local 0, 1
-        self.assertEqual(pool._global_to_local_expert_id(0), 0)
-        self.assertEqual(pool._global_to_local_expert_id(1), 1)
+        self.assertEqual(pool._global_to_local_expert_id(0), 0)  # 断言相等
+        self.assertEqual(pool._global_to_local_expert_id(1), 1)  # 断言相等
         # Not owned by rank 0.
         for gid in (2, 3, 4, 5, 6, 7):
-            self.assertIsNone(pool._global_to_local_expert_id(gid))
+            self.assertIsNone(pool._global_to_local_expert_id(gid))  # 断言为None
 
+    # TestGlobalToLocalExpertId类的测试rank2ofep4ownsthirdquarter
     def test_rank2_of_ep4_owns_third_quarter(self):
         pool = _make_pool(
             num_experts_global=8,
@@ -166,11 +177,12 @@ class TestGlobalToLocalExpertId(unittest.TestCase):
             moe_use_local_expert_ids=True,
         )
         # Owned globals 4, 5 -> local 0, 1
-        self.assertEqual(pool._global_to_local_expert_id(4), 0)
-        self.assertEqual(pool._global_to_local_expert_id(5), 1)
+        self.assertEqual(pool._global_to_local_expert_id(4), 0)  # 断言相等
+        self.assertEqual(pool._global_to_local_expert_id(5), 1)  # 断言相等
         for gid in (0, 1, 2, 3, 6, 7):
-            self.assertIsNone(pool._global_to_local_expert_id(gid))
+            self.assertIsNone(pool._global_to_local_expert_id(gid))  # 断言为None
 
+    # TestGlobalToLocalExpertId类的测试lastrankownslastslice
     def test_last_rank_owns_last_slice(self):
         pool = _make_pool(
             num_experts_global=128,
@@ -179,12 +191,13 @@ class TestGlobalToLocalExpertId(unittest.TestCase):
             moe_use_local_expert_ids=True,
         )
         # Local 0 <-> global 96, local 31 <-> global 127.
-        self.assertEqual(pool._global_to_local_expert_id(96), 0)
-        self.assertEqual(pool._global_to_local_expert_id(127), 31)
-        self.assertIsNone(pool._global_to_local_expert_id(95))
-        self.assertIsNone(pool._global_to_local_expert_id(128))
+        self.assertEqual(pool._global_to_local_expert_id(96), 0)  # 断言相等
+        self.assertEqual(pool._global_to_local_expert_id(127), 31)  # 断言相等
+        self.assertIsNone(pool._global_to_local_expert_id(95))  # 断言为None
+        self.assertIsNone(pool._global_to_local_expert_id(128))  # 断言为None
 
 
+# TestIterLocalExpertWeightsDict类
 class TestIterLocalExpertWeightsDict(unittest.TestCase):
     """`_iter_local_expert_weights` with dict input (the common case)."""
 
@@ -201,10 +214,11 @@ class TestIterLocalExpertWeightsDict(unittest.TestCase):
             lid: w.tolist()
             for lid, w, _ in pool._iter_local_expert_weights(weights, cache_keys)
         }
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             got, {0: [0.0, 0.0], 1: [1.0, 1.0], 2: [2.0, 2.0], 3: [3.0, 3.0]}
         )
 
+    # TestIterLocalExpertWeightsDict类的测试rank0ofep4filtersandremaps
     def test_rank0_of_ep4_filters_and_remaps(self):
         pool = _make_pool(
             num_experts_global=8,
@@ -219,8 +233,9 @@ class TestIterLocalExpertWeightsDict(unittest.TestCase):
             for lid, w, _ in pool._iter_local_expert_weights(weights, cache_keys)
         }
         # Rank 0 sees globals 0,1 remapped to locals 0,1.
-        self.assertEqual(got, {0: [0.0, 0.0], 1: [1.0, 1.0]})
+        self.assertEqual(got, {0: [0.0, 0.0], 1: [1.0, 1.0]})  # 断言相等
 
+    # TestIterLocalExpertWeightsDict类的测试rank3ofep4filtersandremaps
     def test_rank3_of_ep4_filters_and_remaps(self):
         pool = _make_pool(
             num_experts_global=8,
@@ -235,8 +250,9 @@ class TestIterLocalExpertWeightsDict(unittest.TestCase):
             for lid, w, _ in pool._iter_local_expert_weights(weights, cache_keys)
         }
         # Rank 3 sees globals 6,7 remapped to locals 0,1.
-        self.assertEqual(got, {0: [6.0, 6.0], 1: [7.0, 7.0]})
+        self.assertEqual(got, {0: [6.0, 6.0], 1: [7.0, 7.0]})  # 断言相等
 
+    # TestIterLocalExpertWeightsDict类的测试sparsedictonlyyieldsownedexperts
     def test_sparse_dict_only_yields_owned_experts(self):
         """Adapters may only target a subset of experts. The iterator must
         still correctly filter and remap whatever subset is provided.
@@ -260,8 +276,9 @@ class TestIterLocalExpertWeightsDict(unittest.TestCase):
             lid: w.tolist()
             for lid, w, _ in pool._iter_local_expert_weights(weights, cache_keys)
         }
-        self.assertEqual(got, {0: [4.0, 4.0], 1: [5.0, 5.0]})
+        self.assertEqual(got, {0: [4.0, 4.0], 1: [5.0, 5.0]})  # 断言相等
 
+    # TestIterLocalExpertWeightsDict类的测试noexpertsownedyieldsnothing
     def test_no_experts_owned_yields_nothing(self):
         """Rank with no matching experts in a sparse dict yields nothing,
         leaves buffer zeroed.
@@ -276,13 +293,15 @@ class TestIterLocalExpertWeightsDict(unittest.TestCase):
         weights = {4: torch.full((2,), 4.0), 5: torch.full((2,), 5.0)}
         cache_keys = {gid: f"expert.{gid}" for gid in weights}
         got = list(pool._iter_local_expert_weights(weights, cache_keys))
-        self.assertEqual(got, [])
+        self.assertEqual(got, [])  # 断言相等
 
 
+# TestIterLocalExpertWeightsTensor类
 class TestIterLocalExpertWeightsTensor(unittest.TestCase):
     """`_iter_local_expert_weights` with 3D tensor input (shared-outer and
     packed MoE-LoRA formats)."""
 
+    # TestIterLocalExpertWeightsTensor类的测试passthroughwithoutep
     def test_passthrough_without_ep(self):
         pool = _make_pool(
             num_experts_global=4,
@@ -296,8 +315,8 @@ class TestIterLocalExpertWeightsTensor(unittest.TestCase):
             (lid, w.clone(), cache_key)
             for lid, w, cache_key in pool._iter_local_expert_weights(weights, "weights")
         ]
-        self.assertEqual([lid for lid, _, _ in got], [0, 1, 2, 3])
-        self.assertEqual(
+        self.assertEqual([lid for lid, _, _ in got], [0, 1, 2, 3])  # 断言相等
+        self.assertEqual(  # 断言相等
             [cache_key for _, _, cache_key in got],
             [
                 "weights#expert0",
@@ -307,8 +326,9 @@ class TestIterLocalExpertWeightsTensor(unittest.TestCase):
             ],
         )
         for lid, w, _ in got:
-            self.assertTrue(torch.equal(w, weights[lid]))
+            self.assertTrue(torch.equal(w, weights[lid]))  # 断言为真
 
+    # TestIterLocalExpertWeightsTensor类的测试rank1ofep2seesupperhalf
     def test_rank1_of_ep2_sees_upper_half(self):
         pool = _make_pool(
             num_experts_global=4,
@@ -322,14 +342,15 @@ class TestIterLocalExpertWeightsTensor(unittest.TestCase):
             for lid, w, cache_key in pool._iter_local_expert_weights(weights, "weights")
         ]
         # Rank 1 of EP=2 with 4 experts owns globals 2, 3 -> locals 0, 1.
-        self.assertEqual([lid for lid, _, _ in got], [0, 1])
-        self.assertTrue(torch.equal(got[0][1], weights[2]))
-        self.assertTrue(torch.equal(got[1][1], weights[3]))
-        self.assertEqual(
+        self.assertEqual([lid for lid, _, _ in got], [0, 1])  # 断言相等
+        self.assertTrue(torch.equal(got[0][1], weights[2]))  # 断言为真
+        self.assertTrue(torch.equal(got[1][1], weights[3]))  # 断言为真
+        self.assertEqual(  # 断言相等
             [cache_key for _, _, cache_key in got],
             ["weights#expert2", "weights#expert3"],
         )
 
+    # TestIterLocalExpertWeightsTensor类的测试rankwithpartialtensorcoverage
     def test_rank_with_partial_tensor_coverage(self):
         """Defensive: tensor has fewer experts than the expected local slice
         (e.g. sparse adapter).
@@ -345,38 +366,44 @@ class TestIterLocalExpertWeightsTensor(unittest.TestCase):
         # beyond the tensor length and must be skipped safely.
         weights = torch.arange(6 * 2, dtype=torch.float32).reshape(6, 2)
         # Note: this is 2D, not 3D -> should raise (sanity check).
-        with self.assertRaises(TypeError):
+        with self.assertRaises(TypeError):  # 断言抛出异常
             list(pool._iter_local_expert_weights(weights, "weights"))
 
 
+# TestModuleLevelHelpers类
 class TestModuleLevelHelpers(unittest.TestCase):
     """`_get_moe_ep_context` / `_moe_runner_keeps_global_expert_ids`
     must degrade gracefully when the MoE EP group or runner backend is
     not yet initialized (e.g. in pure-TP launches or hermetic tests)."""
 
+    # TestModuleLevelHelpers类的测试epcontextdefaultswhengroupuninitialized
     def test_ep_context_defaults_when_group_uninitialized(self):
         # Real process here: the MoE EP group isn't set up in a unit test.
         # The helper must return (1, 0) rather than raising.
         ep_size, ep_rank = _get_moe_ep_context()
-        self.assertEqual(ep_size, 1)
-        self.assertEqual(ep_rank, 0)
+        self.assertEqual(ep_size, 1)  # 断言相等
+        self.assertEqual(ep_rank, 0)  # 断言相等
 
+    # TestModuleLevelHelpers类的测试tpcontextdefaultswhengroupuninitialized
     def test_tp_context_defaults_when_group_uninitialized(self):
         # Mirror of `_get_moe_ep_context` for the MoE TP group: if it isn't
         # initialized (hermetic tests, pure-TP launches), fall back to (1, 0).
         tp_size, tp_rank = _get_moe_tp_context()
-        self.assertEqual(tp_size, 1)
-        self.assertEqual(tp_rank, 0)
+        self.assertEqual(tp_size, 1)  # 断言相等
+        self.assertEqual(tp_rank, 0)  # 断言相等
 
+    # TestModuleLevelHelpers类的测试keepsglobalexpertidsdefaultstofalse
     def test_keeps_global_expert_ids_defaults_to_false(self):
         # Without a specific flashinfer backend selected, default is False.
-        self.assertFalse(_moe_runner_keeps_global_expert_ids())
+        self.assertFalse(_moe_runner_keeps_global_expert_ids())  # 断言为假
 
 
+# TestPoolInitPicksUpEpContext类
 class TestPoolInitPicksUpEpContext(unittest.TestCase):
     """`LoRAMemoryPool.__init__` should read EP context from the module-
     level helpers and set `moe_use_local_expert_ids` correctly."""
 
+    # TestPoolInitPicksUpEpContext类的内部方法_new_pool_with_ep
     def _new_pool_with_ep(
         self,
         ep_size: int,
@@ -427,27 +454,31 @@ class TestPoolInitPicksUpEpContext(unittest.TestCase):
                 lora_added_tokens_size=0,
             )
 
+    # TestPoolInitPicksUpEpContext类的测试noep
     def test_no_ep(self):
         pool = self._new_pool_with_ep(ep_size=1, ep_rank=0, keeps_global=False)
-        self.assertEqual(pool.moe_ep_size, 1)
-        self.assertEqual(pool.moe_ep_rank, 0)
-        self.assertFalse(pool.moe_use_local_expert_ids)
+        self.assertEqual(pool.moe_ep_size, 1)  # 断言相等
+        self.assertEqual(pool.moe_ep_rank, 0)  # 断言相等
+        self.assertFalse(pool.moe_use_local_expert_ids)  # 断言为假
 
+    # TestPoolInitPicksUpEpContext类的测试ep4tritonbackend
     def test_ep4_triton_backend(self):
         pool = self._new_pool_with_ep(ep_size=4, ep_rank=2, keeps_global=False)
-        self.assertEqual(pool.moe_ep_size, 4)
-        self.assertEqual(pool.moe_ep_rank, 2)
-        self.assertTrue(pool.moe_use_local_expert_ids)
+        self.assertEqual(pool.moe_ep_size, 4)  # 断言相等
+        self.assertEqual(pool.moe_ep_rank, 2)  # 断言相等
+        self.assertTrue(pool.moe_use_local_expert_ids)  # 断言为真
 
+    # TestPoolInitPicksUpEpContext类的测试ep4flashinfercutlasskeepsglobal
     def test_ep4_flashinfer_cutlass_keeps_global(self):
         """FlashInfer CUTLASS keeps global topk_ids, so LoRA buffers stay
         globally-keyed even under EP.
         """
         pool = self._new_pool_with_ep(ep_size=4, ep_rank=2, keeps_global=True)
-        self.assertEqual(pool.moe_ep_size, 4)
-        self.assertEqual(pool.moe_ep_rank, 2)
-        self.assertFalse(pool.moe_use_local_expert_ids)
+        self.assertEqual(pool.moe_ep_size, 4)  # 断言相等
+        self.assertEqual(pool.moe_ep_rank, 2)  # 断言相等
+        self.assertFalse(pool.moe_use_local_expert_ids)  # 断言为假
 
+    # TestPoolInitPicksUpEpContext类的测试epwithunevensplitfallsbacktoglobalids
     def test_ep_with_uneven_split_falls_back_to_global_ids(self):
         """If `num_experts % ep_size != 0` (shouldn't happen in practice,
         base MoE requires even split) `__init__` must fall back to
@@ -457,10 +488,11 @@ class TestPoolInitPicksUpEpContext(unittest.TestCase):
         pool = self._new_pool_with_ep(
             ep_size=4, ep_rank=1, keeps_global=False, num_experts=7
         )
-        self.assertEqual(pool.moe_ep_size, 4)
-        self.assertEqual(pool.moe_ep_rank, 1)
-        self.assertFalse(pool.moe_use_local_expert_ids)
+        self.assertEqual(pool.moe_ep_size, 4)  # 断言相等
+        self.assertEqual(pool.moe_ep_rank, 1)  # 断言相等
+        self.assertFalse(pool.moe_use_local_expert_ids)  # 断言为假
 
+    # TestPoolInitPicksUpEpContext类的测试initcapturesmoetpcontext
     def test_init_captures_moe_tp_context(self):
         """`__init__` must capture moe_tp_size/rank so per-expert MoE LoRA
         buffers can be sharded by the MoE-TP group (not the outer attn TP).
@@ -475,11 +507,12 @@ class TestPoolInitPicksUpEpContext(unittest.TestCase):
             moe_tp_size=1,
             moe_tp_rank=0,
         )
-        self.assertEqual(pool.tp_size, 4)
-        self.assertEqual(pool.moe_tp_size, 1)
-        self.assertEqual(pool.moe_tp_rank, 0)
+        self.assertEqual(pool.tp_size, 4)  # 断言相等
+        self.assertEqual(pool.moe_tp_size, 1)  # 断言相等
+        self.assertEqual(pool.moe_tp_rank, 0)  # 断言相等
 
 
+# 内部方法_fake_base_model_with_hidden_dim
 def _fake_base_model_with_hidden_dim(num_experts: int) -> torch.nn.Module:
     """Fake base model that implements `get_hidden_dim` for MoE + attention
     modules. Matches the signatures `LoRAMemoryPool.get_lora_{A,B}_shape`
@@ -487,6 +520,8 @@ def _fake_base_model_with_hidden_dim(num_experts: int) -> torch.nn.Module:
     """
 
     class _Model(torch.nn.Module):
+
+        # _Model类的初始化
         def __init__(self):
             super().__init__()
             self.lin = torch.nn.Linear(4, 4, bias=False)
@@ -502,6 +537,7 @@ def _fake_base_model_with_hidden_dim(num_experts: int) -> torch.nn.Module:
                 num_experts=num_experts,
             )
 
+        # _Model类的get_hidden_dim
         def get_hidden_dim(self, module_name: str, layer_idx: int):
             cfg = self.config
             if module_name == "qkv_proj":
@@ -515,11 +551,12 @@ def _fake_base_model_with_hidden_dim(num_experts: int) -> torch.nn.Module:
                 return cfg.hidden_size, cfg.moe_intermediate_size * 2
             if module_name == "down_proj_moe":
                 return cfg.moe_intermediate_size, cfg.hidden_size
-            raise NotImplementedError(module_name)
+            raise NotImplementedError(module_name)  # 抛出异常
 
     return _Model()
 
 
+# TestMoeBufferShardsByMoeTp类
 class TestMoeBufferShardsByMoeTp(unittest.TestCase):
     """Regression: per-expert MoE LoRA buffers must shard by `moe_tp_size`,
     not the outer attention `tp_size`.
@@ -564,6 +601,7 @@ class TestMoeBufferShardsByMoeTp(unittest.TestCase):
         )
         return pool
 
+    # TestMoeBufferShardsByMoeTp类的测试moedownprojusesmoetpnotattntp
     def test_moe_down_proj_uses_moe_tp_not_attn_tp(self):
         """down_proj_moe is row-parallel: LoRA-A input_dim = moe_inter must
         be divided by `moe_tp_size`, NOT `tp_size`. This is the exact shape
@@ -573,16 +611,17 @@ class TestMoeBufferShardsByMoeTp(unittest.TestCase):
         model = _fake_base_model_with_hidden_dim(num_experts=128)
         num_local = 128 // 4  # 32
         # A: input_dim = moe_inter / moe_tp_size = 192 / 1 = 192 (pre-fix: 48).
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             pool.get_lora_A_shape("down_proj_moe", model, 8, 0),
             (2, num_local, 8, 192),
         )
         # B: output_dim = hidden_size, not row-parallel -> unsharded.
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             pool.get_lora_B_shape("down_proj_moe", model, 8, 0),
             (2, num_local, 64, 8),
         )
 
+    # TestMoeBufferShardsByMoeTp类的测试moegateupprojusesmoetpnotattntp
     def test_moe_gate_up_proj_uses_moe_tp_not_attn_tp(self):
         """gate_up_proj_moe is column-parallel: LoRA-B output_dim =
         moe_inter*2 must be divided by `moe_tp_size`, not `tp_size`.
@@ -592,16 +631,17 @@ class TestMoeBufferShardsByMoeTp(unittest.TestCase):
         num_local = 128 // 4
         # A: input_dim = hidden_size, not row-parallel -> unsharded. Rank
         # dim is `max_lora_dim * stacked_multiply` (2 for gate_up).
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             pool.get_lora_A_shape("gate_up_proj_moe", model, 8, 0),
             (2, num_local, 16, 64),
         )
         # B: output_dim = moe_inter*2 / moe_tp_size = 384 / 1 = 384 (pre-fix: 96).
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             pool.get_lora_B_shape("gate_up_proj_moe", model, 8, 0),
             (2, num_local, 384, 8),
         )
 
+    # TestMoeBufferShardsByMoeTp类的测试moetpgt1stillshardsmoedims
     def test_moe_tp_gt1_still_shards_moe_dims(self):
         """Under `--tp 8 --ep 4` the MoE TP group has size 2, so per-expert
         weights ARE sharded along the MoE inner dim — the LoRA buffer must
@@ -611,21 +651,22 @@ class TestMoeBufferShardsByMoeTp(unittest.TestCase):
         model = _fake_base_model_with_hidden_dim(num_experts=128)
         num_local = 128 // 4
         # 192 / 2 = 96
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             pool.get_lora_A_shape("down_proj_moe", model, 8, 0),
             (2, num_local, 8, 96),
         )
         # 384 / 2 = 192 (B: moe_inter*2 / moe_tp_size).
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             pool.get_lora_B_shape("gate_up_proj_moe", model, 8, 0),
             (2, num_local, 192, 8),
         )
         # A: input_dim = hidden_size, unaffected by MoE TP.
-        self.assertEqual(
+        self.assertEqual(  # 断言相等
             pool.get_lora_A_shape("gate_up_proj_moe", model, 8, 0),
             (2, num_local, 16, 64),
         )
 
+    # TestMoeBufferShardsByMoeTp类的测试nonmoemodulesunaffectedbymoetp
     def test_non_moe_modules_unaffected_by_moe_tp(self):
         """Non-MoE modules must continue to shard by the outer `tp_size`;
         the MoE-TP substitution applies only to `*_moe` modules.
@@ -636,14 +677,15 @@ class TestMoeBufferShardsByMoeTp(unittest.TestCase):
         o_a = pool.get_lora_A_shape("o_proj", model, 8, 0)
         o_b = pool.get_lora_B_shape("o_proj", model, 8, 0)
         # head_dim*num_heads / tp_size = 64 / 4 = 16; B output = hidden_size = 64.
-        self.assertEqual(o_a, (2, 8, 16))
-        self.assertEqual(o_b, (2, 64, 8))
+        self.assertEqual(o_a, (2, 8, 16))  # 断言相等
+        self.assertEqual(o_b, (2, 64, 8))  # 断言相等
         # qkv_proj is column-parallel: A unsharded, B sharded by tp_size.
         q_b = pool.get_lora_B_shape("qkv_proj", model, 8, 0)
         # head_dim * (heads + 2*kv_heads) / tp_size = 8 * 24 / 4 = 48.
-        self.assertEqual(q_b, (2, 48, 8))
+        self.assertEqual(q_b, (2, 48, 8))  # 断言相等
 
 
+# TestLoadBufferPassesMoeTpRankToSlice类
 class TestLoadBufferPassesMoeTpRankToSlice(unittest.TestCase):
     """Regression: `load_lora_weight_to_buffer` must hand `moe_tp_rank` (not
     the outer `tp_rank`) to `slice_moe_lora_{a,b}_weights`.
@@ -669,6 +711,7 @@ class TestLoadBufferPassesMoeTpRankToSlice(unittest.TestCase):
         execution before the buffer-copy phase (which would need real
         shapes the test does not provide)."""
 
+    # TestLoadBufferPassesMoeTpRankToSlice类的测试moetprankusedforslicingwheneplttp
     def test_moe_tp_rank_used_for_slicing_when_ep_lt_tp(self):
         from sglang.srt.lora.layers import FusedMoEWithLoRA
 
@@ -708,13 +751,15 @@ class TestLoadBufferPassesMoeTpRankToSlice(unittest.TestCase):
 
         moe_mod = mock.MagicMock(spec=FusedMoEWithLoRA)
 
+        # capture_a
         def capture_a(weights, tp_rank, target_module):
             captured_ranks.append(("A", target_module, tp_rank))
-            raise TestLoadBufferPassesMoeTpRankToSlice._StopAfterCapture()
+            raise TestLoadBufferPassesMoeTpRankToSlice._StopAfterCapture()  # 抛出异常
 
+        # capture_b
         def capture_b(weights, tp_rank, target_module):
             captured_ranks.append(("B", target_module, tp_rank))
-            raise TestLoadBufferPassesMoeTpRankToSlice._StopAfterCapture()
+            raise TestLoadBufferPassesMoeTpRankToSlice._StopAfterCapture()  # 抛出异常
 
         moe_mod.slice_moe_lora_a_weights.side_effect = capture_a
         moe_mod.slice_moe_lora_b_weights.side_effect = capture_b
@@ -741,7 +786,7 @@ class TestLoadBufferPassesMoeTpRankToSlice(unittest.TestCase):
             )
         ]
 
-        with self.assertRaises(TestLoadBufferPassesMoeTpRankToSlice._StopAfterCapture):
+        with self.assertRaises(TestLoadBufferPassesMoeTpRankToSlice._StopAfterCapture):  # 断言抛出异常
             pool.load_lora_weight_to_buffer(
                 uid="test",
                 buffer_id=0,
@@ -751,9 +796,9 @@ class TestLoadBufferPassesMoeTpRankToSlice(unittest.TestCase):
                 lora_lm_head_module=None,
             )
 
-        self.assertGreater(len(captured_ranks), 0, "slicing was never invoked")
+        self.assertGreater(len(captured_ranks), 0, "slicing was never invoked")  # 断言大于
         for ab, target_module, rank in captured_ranks:
-            self.assertEqual(
+            self.assertEqual(  # 断言相等
                 rank,
                 pool.moe_tp_rank,
                 f"slice_moe_lora_{ab.lower()}_weights for {target_module} "

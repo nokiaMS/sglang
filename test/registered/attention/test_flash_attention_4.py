@@ -1,3 +1,4 @@
+# 文件名: test_flash_attention_4.py - Flash Attention 4测试
 import unittest
 from types import SimpleNamespace
 
@@ -19,6 +20,7 @@ register_cuda_ci(est_time=260, stage="base-b", runner_config="4-gpu-b200")
 @unittest.skipIf(get_device_sm() < 100, "Test requires CUDA SM 100 or higher")
 class TestFlashAttention4(unittest.TestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = "Qwen/Qwen3-8B"
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -35,9 +37,11 @@ class TestFlashAttention4(unittest.TestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
@@ -63,6 +67,7 @@ class TestFlashAttention4SpeculativeDecodeTopk(unittest.TestCase):
     """
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = "Qwen/Qwen3-30B-A3B-Instruct-2507"
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -89,9 +94,11 @@ class TestFlashAttention4SpeculativeDecodeTopk(unittest.TestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,

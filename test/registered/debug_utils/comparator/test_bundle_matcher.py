@@ -1,3 +1,4 @@
+# 文件名: test_bundle_matcher.py - 束匹配器测试
 import sys
 from typing import Any
 
@@ -16,6 +17,7 @@ from sglang.test.ci.ci_register import register_cpu_ci
 register_cpu_ci(est_time=15, suite="base-a-test-cpu", nightly=True)
 
 
+# 执行makerow
 def _make_row(
     *,
     name: str,
@@ -38,6 +40,7 @@ def _make_row(
     return row
 
 
+# 执行makedf
 def _make_df(rows: list[dict[str, Any]]) -> pl.DataFrame:
     if not rows:
         return pl.DataFrame(rows)
@@ -52,6 +55,7 @@ def _make_df(rows: list[dict[str, Any]]) -> pl.DataFrame:
 
 
 class TestMatchBundles:
+    # 测试singletensorsinglestep
     def test_single_tensor_single_step(self) -> None:
         target_df: pl.DataFrame = _make_df([_make_row(name="t_a")])
         baseline_df: pl.DataFrame = _make_df([_make_row(name="t_a")])
@@ -66,6 +70,7 @@ class TestMatchBundles:
         assert len(results[0].y) == 1
         assert results[0].y[0].name == "t_a"
 
+    # 测试multiplenamesseparatebundles
     def test_multiple_names_separate_bundles(self) -> None:
         target_df: pl.DataFrame = _make_df(
             [
@@ -90,6 +95,7 @@ class TestMatchBundles:
         assert "t_a" in result_names
         assert "t_b" in result_names
 
+    # 测试skiprankgroupsacrossranks
     def test_skip_rank_groups_across_ranks(self) -> None:
         target_df: pl.DataFrame = _make_df(
             [
@@ -112,6 +118,7 @@ class TestMatchBundles:
         assert len(results) == 1
         assert len(results[0].y) == 2
 
+    # 测试baselinemissingtensor
     def test_baseline_missing_tensor(self) -> None:
         target_df: pl.DataFrame = _make_df(
             [
@@ -136,6 +143,7 @@ class TestMatchBundles:
         ][0]
         assert extra_pair.x == []
 
+    # 测试emptytargetreturnsempty
     def test_empty_target_returns_empty(self) -> None:
         target_df: pl.DataFrame = _make_df([])
         baseline_df: pl.DataFrame = _make_df([_make_row(name="t_a")])
@@ -147,6 +155,7 @@ class TestMatchBundles:
 
         assert results == []
 
+    # 测试skipstepgroupsacrosssteps
     def test_skip_step_groups_across_steps(self) -> None:
         target_df: pl.DataFrame = _make_df(
             [
@@ -175,6 +184,7 @@ class TestMatchBundlesPipelineParallel:
 
     LOGICAL_SKIP_KEYS: set[str] = {"filename", "rank", "dump_index", "recompute_status"}
 
+    # 测试samelayeriddifferentranksmatch
     def test_same_layer_id_different_ranks_match(self) -> None:
         """SGLang PP=2 rank 0 (layers 0-31) vs Megatron PP=4 rank 2 (layers 16-31):
         layer_id=20 should match regardless of world rank."""
@@ -194,6 +204,7 @@ class TestMatchBundlesPipelineParallel:
         assert len(results[0].x) == 1
         assert len(results[0].y) == 1
 
+    # 测试layeridnonenonlayertensorsmatch
     def test_layer_id_none_non_layer_tensors_match(self) -> None:
         """Non-layer tensors (embedding, lm_head) have no layer_id.
         They should match across different PP ranks."""
@@ -209,6 +220,7 @@ class TestMatchBundlesPipelineParallel:
         assert len(results[0].x) == 1
         assert len(results[0].y) == 1
 
+    # 测试differentppsizeslayerandnonlayerbundles
     def test_different_pp_sizes_layer_and_non_layer_bundles(self) -> None:
         """SGLang PP=2 TP=2 (4 ranks) vs Megatron PP=4 TP=2 (8 ranks).
         Layer tensors match by (name, layer_id); non-layer tensors match by name.
@@ -267,6 +279,7 @@ class TestMatchBundlesPipelineParallel:
         assert len(names_to_pairs["lm_head"].x) == 2
         assert len(names_to_pairs["lm_head"].y) == 2
 
+    # 测试unmatchedlayeridcreatesemptybaseline
     def test_unmatched_layer_id_creates_empty_baseline(self) -> None:
         """If target has a layer_id that baseline doesn't, the baseline side
         should be empty (not incorrectly matched to a different layer)."""
@@ -293,6 +306,7 @@ class TestMatchBundlesPipelineParallel:
         assert len(matched) == 1
         assert len(unmatched) == 1
 
+    # 测试pp1vsppgt1matchesbylayerid
     def test_pp1_vs_pp_gt1_matches_by_layer_id(self) -> None:
         """PP=1 (all layers on 1 rank) vs PP>1 (layers split across ranks).
         Should match correctly by layer_id regardless of rank."""
@@ -323,6 +337,7 @@ class TestMatchBundlesPipelineParallel:
 
 
 class TestRowsToTensorInfos:
+    # 测试filtersextracolumns
     def test_filters_extra_columns(self) -> None:
         rows: list[dict[str, Any]] = [
             {"filename": "a.pt", "name": "t_a", "step": 0, "rank": 7}
@@ -332,6 +347,7 @@ class TestRowsToTensorInfos:
         assert len(infos) == 1
         assert infos[0] == TensorFileInfo(filename="a.pt", name="t_a", step=0)
 
+    # 测试emptyrows
     def test_empty_rows(self) -> None:
         infos: list[TensorFileInfo] = _rows_to_tensor_infos([])
         assert infos == []

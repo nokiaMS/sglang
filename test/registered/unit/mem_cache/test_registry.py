@@ -1,3 +1,4 @@
+# 文件名: test_registry.py - 注册表
 """Unit tests for the radix-cache registry, routing, and selection chain."""
 
 from sglang.test.ci.ci_register import register_cpu_ci
@@ -19,6 +20,7 @@ from sglang.srt.mem_cache.registry import (
 from sglang.test.test_utils import CustomTestCase
 
 
+# 内部方法_make_ctx
 def _make_ctx(
     *,
     backend=None,
@@ -50,6 +52,7 @@ def _make_ctx(
     )
 
 
+# _RegistryIsolationMixin类
 class _RegistryIsolationMixin:
     """Restore the global registry around each test so registrations
     from one test don't leak into the next.
@@ -59,37 +62,48 @@ class _RegistryIsolationMixin:
         super().setUp()
         self._registry_snapshot = dict(_RADIX_CACHE_REGISTRY)
 
+    # _RegistryIsolationMixin类的测试清理
     def tearDown(self):
         _RADIX_CACHE_REGISTRY.clear()
         _RADIX_CACHE_REGISTRY.update(self._registry_snapshot)
         super().tearDown()
 
 
+# TestRegisterRadixCacheBackend类
 class TestRegisterRadixCacheBackend(_RegistryIsolationMixin, CustomTestCase):
+
+    # TestRegisterRadixCacheBackend类的测试registerthenlookup
     def test_register_then_lookup(self):
         factory = MagicMock()
         register_radix_cache_backend("oss_unit_test", factory)
-        self.assertIs(get_radix_cache_factory("oss_unit_test"), factory)
-        self.assertIn("oss_unit_test", registered_radix_cache_backends())
+        self.assertIs(get_radix_cache_factory("oss_unit_test"), factory)  # 断言是同一对象
+        self.assertIn("oss_unit_test", registered_radix_cache_backends())  # 断言包含
 
+    # TestRegisterRadixCacheBackend类的测试lookupunknownreturnsnone
     def test_lookup_unknown_returns_none(self):
-        self.assertIsNone(get_radix_cache_factory("definitely_not_registered"))
+        self.assertIsNone(get_radix_cache_factory("definitely_not_registered"))  # 断言为None
 
+    # TestRegisterRadixCacheBackend类的测试emptynameraises
     def test_empty_name_raises(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError):  # 断言抛出异常
             register_radix_cache_backend("", MagicMock())
 
+    # TestRegisterRadixCacheBackend类的测试whitespaceonlynameraises
     def test_whitespace_only_name_raises(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError):  # 断言抛出异常
             register_radix_cache_backend("   ", MagicMock())
 
+    # TestRegisterRadixCacheBackend类的测试duplicateregistrationraises
     def test_duplicate_registration_raises(self):
         register_radix_cache_backend("dupe", MagicMock())
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError):  # 断言抛出异常
             register_radix_cache_backend("dupe", MagicMock())
 
 
+# TestCreateTreeCacheRouting类
 class TestCreateTreeCacheRouting(_RegistryIsolationMixin, CustomTestCase):
+
+    # TestCreateTreeCacheRouting类的测试dispatchestoregisteredfactory
     def test_dispatches_to_registered_factory(self):
         cache = MagicMock()
         cache.supports_streaming_session.return_value = True
@@ -99,13 +113,16 @@ class TestCreateTreeCacheRouting(_RegistryIsolationMixin, CustomTestCase):
         result = create_tree_cache(_make_ctx(backend="custom"))
 
         factory.assert_called_once()
-        self.assertIs(result, cache)
+        self.assertIs(result, cache)  # 断言是同一对象
 
+    # TestCreateTreeCacheRouting类的测试unknownbackendraises
     def test_unknown_backend_raises(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError):  # 断言抛出异常
             create_tree_cache(_make_ctx(backend="not_a_real_backend"))
 
     @patch("sglang.srt.mem_cache.registry.default_radix_cache_factory")
+
+    # TestCreateTreeCacheRouting类的测试unsetbackendfallsbacktodefault
     def test_unset_backend_falls_back_to_default(self, default_factory):
         cache = MagicMock()
         cache.supports_streaming_session.return_value = True
@@ -114,8 +131,9 @@ class TestCreateTreeCacheRouting(_RegistryIsolationMixin, CustomTestCase):
         result = create_tree_cache(_make_ctx(backend=None))
 
         default_factory.assert_called_once()
-        self.assertIs(result, cache)
+        self.assertIs(result, cache)  # 断言是同一对象
 
+    # TestCreateTreeCacheRouting类的测试streamingwrapwhencachedoesnotsupportit
     def test_streaming_wrap_when_cache_does_not_support_it(self):
         inner = MagicMock()
         inner.supports_streaming_session.return_value = False
@@ -130,8 +148,9 @@ class TestCreateTreeCacheRouting(_RegistryIsolationMixin, CustomTestCase):
             )
 
         session_cls.assert_called_once_with(inner)
-        self.assertIs(result, session_cls.return_value)
+        self.assertIs(result, session_cls.return_value)  # 断言是同一对象
 
+    # TestCreateTreeCacheRouting类的测试nostreamingwrapwhencachesupportsit
     def test_no_streaming_wrap_when_cache_supports_it(self):
         inner = MagicMock()
         inner.supports_streaming_session.return_value = True
@@ -141,9 +160,10 @@ class TestCreateTreeCacheRouting(_RegistryIsolationMixin, CustomTestCase):
             _make_ctx(backend="streaming", enable_streaming=True)
         )
 
-        self.assertIs(result, inner)
+        self.assertIs(result, inner)  # 断言是同一对象
 
 
+# TestDefaultRadixCacheFactory类
 class TestDefaultRadixCacheFactory(CustomTestCase):
     """Branch coverage for the built-in radix cache selection chain.
 
@@ -158,8 +178,9 @@ class TestDefaultRadixCacheFactory(CustomTestCase):
             ChunkCache.return_value = MagicMock()
             result = default_radix_cache_factory(ctx)
             ChunkCache.assert_called_once_with(ctx.params)
-            self.assertIs(result, ChunkCache.return_value)
+            self.assertIs(result, ChunkCache.return_value)  # 断言是同一对象
 
+    # TestDefaultRadixCacheFactory类的测试swachunkcachewhenchunkedprefilldisableandhybridswa
     def test_swa_chunk_cache_when_chunked_prefill_disable_and_hybrid_swa(self):
         ctx = _make_ctx(
             effective_chunked_prefill_size=512,
@@ -170,8 +191,9 @@ class TestDefaultRadixCacheFactory(CustomTestCase):
             SWAChunkCache.return_value = MagicMock()
             result = default_radix_cache_factory(ctx)
             SWAChunkCache.assert_called_once_with(ctx.params)
-            self.assertIs(result, SWAChunkCache.return_value)
+            self.assertIs(result, SWAChunkCache.return_value)  # 断言是同一对象
 
+    # TestDefaultRadixCacheFactory类的测试cppradixcachewhenenvflagset
     def test_cpp_radix_cache_when_env_flag_set(self):
         ctx = _make_ctx()
         # `radix_cache_cpp` requires ninja + C++ extension to import, so
@@ -192,8 +214,9 @@ class TestDefaultRadixCacheFactory(CustomTestCase):
             fake_module.RadixCacheCpp.assert_called_once_with(
                 params=ctx.params, server_args=ctx.server_args
             )
-            self.assertIs(result, fake_module.RadixCacheCpp.return_value)
+            self.assertIs(result, fake_module.RadixCacheCpp.return_value)  # 断言是同一对象
 
+    # TestDefaultRadixCacheFactory类的测试unifiedradixcachewhenenvflagset
     def test_unified_radix_cache_when_env_flag_set(self):
         ctx = _make_ctx()
         # Shim both factory imports — each transitively loads sgl_kernel.
@@ -214,8 +237,9 @@ class TestDefaultRadixCacheFactory(CustomTestCase):
         ):
             result = default_radix_cache_factory(ctx)
             fake_radix.UnifiedRadixCache.assert_called_once_with(ctx.params)
-            self.assertIs(result, fake_radix.UnifiedRadixCache.return_value)
+            self.assertIs(result, fake_radix.UnifiedRadixCache.return_value)  # 断言是同一对象
 
+    # TestDefaultRadixCacheFactory类的测试hiradixcachewhenhierarchical
     def test_hi_radix_cache_when_hierarchical(self):
         ctx = _make_ctx(enable_hierarchical_cache=True)
         # `hiradix_cache` imports `hicache_storage` and
@@ -231,8 +255,9 @@ class TestDefaultRadixCacheFactory(CustomTestCase):
                 params=ctx.params, server_args=ctx.server_args
             )
             ctx.tp_worker.register_hicache_layer_transfer_counter.assert_called_once()
-            self.assertIs(result, fake_module.HiRadixCache.return_value)
+            self.assertIs(result, fake_module.HiRadixCache.return_value)  # 断言是同一对象
 
+    # TestDefaultRadixCacheFactory类的测试himambaradixcachewhenhierarchicalandhybridssm
     def test_hi_mamba_radix_cache_when_hierarchical_and_hybrid_ssm(self):
         ctx = _make_ctx(enable_hierarchical_cache=True, is_hybrid_ssm=True)
         # `hi_mamba_radix_cache` imports `hicache_storage`, which
@@ -246,24 +271,27 @@ class TestDefaultRadixCacheFactory(CustomTestCase):
             fake_module.HiMambaRadixCache.assert_called_once_with(
                 params=ctx.params, server_args=ctx.server_args
             )
-            self.assertIs(result, fake_module.HiMambaRadixCache.return_value)
+            self.assertIs(result, fake_module.HiMambaRadixCache.return_value)  # 断言是同一对象
 
+    # TestDefaultRadixCacheFactory类的测试swaradixcachewhenhybridswa
     def test_swa_radix_cache_when_hybrid_swa(self):
         ctx = _make_ctx(is_hybrid_swa=True)
         with patch("sglang.srt.mem_cache.swa_radix_cache.SWARadixCache") as SWA:
             SWA.return_value = MagicMock()
             result = default_radix_cache_factory(ctx)
             SWA.assert_called_once_with(params=ctx.params)
-            self.assertIs(result, SWA.return_value)
+            self.assertIs(result, SWA.return_value)  # 断言是同一对象
 
+    # TestDefaultRadixCacheFactory类的测试mambaradixcachewhenhybridssm
     def test_mamba_radix_cache_when_hybrid_ssm(self):
         ctx = _make_ctx(is_hybrid_ssm=True)
         with patch("sglang.srt.mem_cache.mamba_radix_cache.MambaRadixCache") as Mamba:
             Mamba.return_value = MagicMock()
             result = default_radix_cache_factory(ctx)
             Mamba.assert_called_once_with(ctx.params)
-            self.assertIs(result, Mamba.return_value)
+            self.assertIs(result, Mamba.return_value)  # 断言是同一对象
 
+    # TestDefaultRadixCacheFactory类的测试lmcradixcachewhenenablelmcache
     def test_lmc_radix_cache_when_enable_lmcache(self):
         ctx = _make_ctx(enable_lmcache=True)
         # The lmcache backend raises at import time when the `lmcache`
@@ -282,15 +310,16 @@ class TestDefaultRadixCacheFactory(CustomTestCase):
                 rank=ctx.tp_rank,
                 tp_group=ctx.tp_group,
             )
-            self.assertIs(result, fake_module.LMCRadixCache.return_value)
+            self.assertIs(result, fake_module.LMCRadixCache.return_value)  # 断言是同一对象
 
+    # TestDefaultRadixCacheFactory类的测试fallbacktoradixcache
     def test_fallback_to_radix_cache(self):
         ctx = _make_ctx()
         with patch("sglang.srt.mem_cache.radix_cache.RadixCache") as RadixCache:
             RadixCache.return_value = MagicMock()
             result = default_radix_cache_factory(ctx)
             RadixCache.assert_called_once_with(ctx.params)
-            self.assertIs(result, RadixCache.return_value)
+            self.assertIs(result, RadixCache.return_value)  # 断言是同一对象
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+# 文件名: test_nvfp4_gemm_archived.py - NVFP4 GEMM归档测试 - 验证NVFP4量化模型的GSM8K准确性
 """Archived test classes split out of test/registered/quant/test_nvfp4_gemm.py.
 
 Originally registered with `register_cuda_ci(...)`. Moved here as part of
@@ -25,6 +26,7 @@ class FP4GemmBase:
     backend = None
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         if cls.backend is None:
             raise NotImplementedError("Subclass must set 'backend' attribute")
@@ -45,9 +47,11 @@ class FP4GemmBase:
         )
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         parsed_url = urlparse(self.base_url)
         args = SimpleNamespace(

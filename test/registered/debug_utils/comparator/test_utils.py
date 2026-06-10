@@ -1,3 +1,4 @@
+# 文件名: test_utils.py - 工具函数测试
 import sys
 from pathlib import Path
 
@@ -22,29 +23,34 @@ register_cpu_ci(est_time=1, suite="base-b-test-cpu")
 
 
 class TestCalcRelDiff:
+    # 测试identicaltensors
     def test_identical_tensors(self):
         x = torch.randn(10, 10)
-        assert calc_rel_diff(x, x).item() == pytest.approx(0.0, abs=1e-5)
+        assert calc_rel_diff(x, x).item() == pytest.approx(0.0, abs=1e-5)  # 获取标量值
 
+    # 测试orthogonaltensors
     def test_orthogonal_tensors(self):
         result = calc_rel_diff(
             torch.tensor([1.0, 0.0]), torch.tensor([0.0, 1.0])
-        ).item()
+        ).item()  # 获取标量值
         assert result == pytest.approx(1.0, abs=1e-5)
 
+    # 测试similartensors
     def test_similar_tensors(self):
         x = torch.tensor([1.0, 2.0, 3.0])
         y = torch.tensor([1.01, 2.01, 3.01])
-        result = calc_rel_diff(x, y).item()
+        result = calc_rel_diff(x, y).item()  # 获取标量值
         assert 0.0 < result < 0.01
 
+    # 测试negatedtensors
     def test_negated_tensors(self):
         x = torch.tensor([1.0, 2.0])
-        result = calc_rel_diff(x, -x).item()
+        result = calc_rel_diff(x, -x).item()  # 获取标量值
         assert result == pytest.approx(2.0, abs=1e-5)
 
 
 class TestCalcPerTokenRelDiff:
+    # 测试identicaltensors
     def test_identical_tensors(self) -> None:
         """Identical tensors → per-token diff all zero."""
         x: torch.Tensor = torch.randn(8, 16)
@@ -53,6 +59,7 @@ class TestCalcPerTokenRelDiff:
         assert result.shape == (8,)
         assert torch.allclose(result, torch.zeros(8), atol=1e-6)
 
+    # 测试differenttensors
     def test_different_tensors(self) -> None:
         """Single token position differs → that position has higher diff."""
         torch.manual_seed(42)
@@ -68,6 +75,7 @@ class TestCalcPerTokenRelDiff:
         for i in [0, 1, 2, 4, 5, 6, 7]:
             assert result[i] < 1e-6
 
+    # 测试seqdimselection
     def test_seq_dim_selection(self) -> None:
         """Different seq_dim values produce correct output shapes."""
         x: torch.Tensor = torch.randn(4, 8, 16)
@@ -77,6 +85,7 @@ class TestCalcPerTokenRelDiff:
         assert calc_per_token_rel_diff(x, y, seq_dim=1).shape == (8,)
         assert calc_per_token_rel_diff(x, y, seq_dim=2).shape == (16,)
 
+    # 测试1dtensor
     def test_1d_tensor(self) -> None:
         """1D tensor with seq_dim=0 returns per-element diff."""
         x: torch.Tensor = torch.tensor([1.0, 2.0, 3.0])
@@ -91,15 +100,18 @@ class TestCalcPerTokenRelDiff:
 
 
 class TestArgmaxCoord:
+    # 测试1dtensor
     def test_1d_tensor(self):
         x = torch.tensor([0.0, 0.0, 5.0, 0.0])
         assert argmax_coord(x) == (2,)
 
+    # 测试2dtensor
     def test_2d_tensor(self):
         x = torch.zeros(3, 4)
         x[1, 2] = 10.0
         assert argmax_coord(x) == (1, 2)
 
+    # 测试3dtensor
     def test_3d_tensor(self):
         x = torch.zeros(2, 3, 4)
         x[1, 2, 3] = 10.0
@@ -107,14 +119,17 @@ class TestArgmaxCoord:
 
 
 class TestTryUnifyShape:
+    # 测试squeezeleadingones
     def test_squeeze_leading_ones(self):
         target = torch.Size([3, 4])
         assert try_unify_shape(torch.randn(1, 1, 3, 4), target).shape == target
 
+    # 测试nosqueezewhenleadingdimnotone
     def test_no_squeeze_when_leading_dim_not_one(self):
         target = torch.Size([3, 4])
         assert try_unify_shape(torch.randn(2, 3, 4), target).shape == (2, 3, 4)
 
+    # 测试sameshapenoop
     def test_same_shape_noop(self):
         target = torch.Size([3, 4])
         x = torch.randn(3, 4)
@@ -122,6 +137,7 @@ class TestTryUnifyShape:
         assert result.shape == target
         assert result.data_ptr() == x.data_ptr()
 
+    # 测试trailingdimsmismatch
     def test_trailing_dims_mismatch(self):
         target = torch.Size([5, 6])
         x = torch.randn(1, 3, 4)
@@ -130,38 +146,45 @@ class TestTryUnifyShape:
 
 
 class TestComputeSmallerDtype:
+    # 测试float32bfloat16
     def test_float32_bfloat16(self):
         assert (
             compute_smaller_dtype(Pair(x=torch.float32, y=torch.bfloat16))
             == torch.bfloat16
         )
 
+    # 测试reverseorder
     def test_reverse_order(self):
         assert (
             compute_smaller_dtype(Pair(x=torch.bfloat16, y=torch.float32))
             == torch.bfloat16
         )
 
+    # 测试samedtypereturnsnone
     def test_same_dtype_returns_none(self):
         assert compute_smaller_dtype(Pair(x=torch.float32, y=torch.float32)) is None
 
+    # 测试unknownpairreturnsnone
     def test_unknown_pair_returns_none(self):
         assert compute_smaller_dtype(Pair(x=torch.int32, y=torch.int64)) is None
 
 
 class TestPairMap:
+    # 测试mapbasic
     def test_map_basic(self):
         pair = Pair(x=[1, 2, 3], y=[4, 5, 6])
         result = pair.map(lambda lst: sum(lst))
         assert result.x == 6
         assert result.y == 15
 
+    # 测试maptypechange
     def test_map_type_change(self):
         pair = Pair(x=[1, 2, 3], y=[10, 20])
         result = pair.map(len)
         assert result.x == 3
         assert result.y == 2
 
+    # 测试mapreturnsnewpair
     def test_map_returns_new_pair(self):
         pair = Pair(x="hello", y="world")
         result = pair.map(str.upper)
@@ -173,6 +196,7 @@ class TestPairMap:
 class TestComputeExitCode:
     """Unit tests for compute_exit_code logic."""
 
+    # 测试allpassed
     def test_all_passed(self):
         """All passed → exit 0."""
         summary = SummaryRecord(total=3, passed=3, failed=0, skipped=0)
@@ -187,6 +211,7 @@ class TestComputeExitCode:
             == 0
         )
 
+    # 测试hasfailedandpassed
     def test_has_failed_and_passed(self):
         """Has failed and passed → exit 1."""
         summary = SummaryRecord(total=4, passed=2, failed=2, skipped=0)
@@ -201,6 +226,7 @@ class TestComputeExitCode:
             == 1
         )
 
+    # 测试allfailed
     def test_all_failed(self):
         """All failed (0 passed) → exit 1."""
         summary = SummaryRecord(total=3, passed=0, failed=3, skipped=0)
@@ -215,6 +241,7 @@ class TestComputeExitCode:
             == 1
         )
 
+    # 测试allskippedallowall
     def test_all_skipped_allow_all(self):
         """All skipped + allow_skipped_pattern='.*' → exit 1 (nothing passed)."""
         summary = SummaryRecord(total=2, passed=0, failed=0, skipped=2)
@@ -229,6 +256,7 @@ class TestComputeExitCode:
             == 1
         )
 
+    # 测试allskippedforbidall
     def test_all_skipped_forbid_all(self):
         """All skipped + allow_skipped_pattern='^$' → exit 1."""
         summary = SummaryRecord(total=2, passed=0, failed=0, skipped=2)
@@ -243,6 +271,7 @@ class TestComputeExitCode:
             == 1
         )
 
+    # 测试passedandskippedallowall
     def test_passed_and_skipped_allow_all(self):
         """Passed + skipped, allow all → exit 0."""
         summary = SummaryRecord(total=3, passed=2, failed=0, skipped=1)
@@ -257,6 +286,7 @@ class TestComputeExitCode:
             == 0
         )
 
+    # 测试passedandskippedforbidall
     def test_passed_and_skipped_forbid_all(self):
         """Passed + skipped + forbid all → exit 1."""
         summary = SummaryRecord(total=3, passed=2, failed=0, skipped=1)
@@ -271,6 +301,7 @@ class TestComputeExitCode:
             == 1
         )
 
+    # 测试skippatternmatchesspecificname
     def test_skip_pattern_matches_specific_name(self):
         """Pattern matching specific name allows that skip, forbids others."""
         summary = SummaryRecord(total=4, passed=2, failed=0, skipped=2)
@@ -285,6 +316,7 @@ class TestComputeExitCode:
             == 0
         )
 
+    # 测试skippatternpartialmatchforbidden
     def test_skip_pattern_partial_match_forbidden(self):
         """Pattern matches some skips but not all → exit 1."""
         summary = SummaryRecord(total=4, passed=1, failed=0, skipped=3)
@@ -299,6 +331,7 @@ class TestComputeExitCode:
             == 1
         )
 
+    # 测试allowfailedpatternmatchesall
     def test_allow_failed_pattern_matches_all(self):
         """allow_failed_pattern='.*' tolerates all failures → exit 0."""
         summary = SummaryRecord(total=3, passed=1, failed=2, skipped=0)
@@ -313,6 +346,7 @@ class TestComputeExitCode:
             == 0
         )
 
+    # 测试allowfailedpatternmatchesspecific
     def test_allow_failed_pattern_matches_specific(self):
         """Pattern matches all failed names → exit 0."""
         summary = SummaryRecord(total=3, passed=1, failed=2, skipped=0)
@@ -327,6 +361,7 @@ class TestComputeExitCode:
             == 0
         )
 
+    # 测试allowfailedpatternpartialmatch
     def test_allow_failed_pattern_partial_match(self):
         """Pattern matches some but not all failures → exit 1."""
         summary = SummaryRecord(total=3, passed=0, failed=3, skipped=0)
@@ -341,6 +376,7 @@ class TestComputeExitCode:
             == 1
         )
 
+    # 测试allowfailedpatternnofailures
     def test_allow_failed_pattern_no_failures(self):
         """Pattern set but no failures → exit 0."""
         summary = SummaryRecord(total=2, passed=2, failed=0, skipped=0)
@@ -355,6 +391,7 @@ class TestComputeExitCode:
             == 0
         )
 
+    # 测试bothfailedandskippedpatterns
     def test_both_failed_and_skipped_patterns(self):
         """Both patterns set, both satisfied → exit 0."""
         summary = SummaryRecord(total=4, passed=1, failed=1, skipped=2)
@@ -369,6 +406,7 @@ class TestComputeExitCode:
             == 0
         )
 
+    # 测试failedpatternsatisfiedbutskippednot
     def test_failed_pattern_satisfied_but_skipped_not(self):
         """Failed pattern OK but skipped pattern fails → exit 1."""
         summary = SummaryRecord(total=3, passed=1, failed=1, skipped=1)
@@ -383,6 +421,7 @@ class TestComputeExitCode:
             == 1
         )
 
+    # 测试zeropassedexitsone
     def test_zero_passed_exits_one(self):
         """No tensors passed → exit 1, even when all failures are allowed."""
         summary = SummaryRecord(total=2, passed=0, failed=2, skipped=0)
@@ -397,6 +436,7 @@ class TestComputeExitCode:
             == 1
         )
 
+    # 测试zeropassedallskippedexitsone
     def test_zero_passed_all_skipped_exits_one(self):
         """All skipped, nothing passed → exit 1."""
         summary = SummaryRecord(total=3, passed=0, failed=0, skipped=3)
@@ -411,6 +451,7 @@ class TestComputeExitCode:
             == 1
         )
 
+    # 测试erroredwithpassedexitsone
     def test_errored_with_passed_exits_one(self):
         """Has errored bundle even with passed → exit 1."""
         summary = SummaryRecord(total=3, passed=2, failed=0, skipped=0, errored=1)
@@ -426,6 +467,7 @@ class TestComputeExitCode:
             == 1
         )
 
+    # 测试erroredonlyexitsone
     def test_errored_only_exits_one(self):
         """All errored → exit 1 (passed==0 already exits 1, but errored also independently triggers)."""
         summary = SummaryRecord(total=1, passed=0, failed=0, skipped=0, errored=1)
@@ -442,24 +484,28 @@ class TestComputeExitCode:
         )
 
 
+# 执行makept
 def _make_pt(directory: Path) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     torch.save(torch.tensor([1.0]), directory / "dummy.pt")
 
 
 class TestAutoDescendDir:
+    # 测试nodescendwhenptatroot
     def test_no_descend_when_pt_at_root(self, tmp_path: Path) -> None:
         """Directory with .pt files directly is returned as-is."""
         _make_pt(tmp_path)
         _make_pt(tmp_path / "child_a")
         assert auto_descend_dir(tmp_path, label="test") == tmp_path
 
+    # 测试descendintosinglechild
     def test_descend_into_single_child(self, tmp_path: Path) -> None:
         """Single child with .pt triggers descend."""
         child: Path = tmp_path / "engine_0"
         _make_pt(child)
         assert auto_descend_dir(tmp_path, label="test") == child
 
+    # 测试descendsinglenonemptychildamongempty
     def test_descend_single_nonempty_child_among_empty(self, tmp_path: Path) -> None:
         """Two subdirs but only one has .pt — descend into that one."""
         nonempty: Path = tmp_path / "engine_0"
@@ -467,6 +513,7 @@ class TestAutoDescendDir:
         (tmp_path / "empty_child").mkdir()
         assert auto_descend_dir(tmp_path, label="test") == nonempty
 
+    # 测试errorwithmultiplenonemptychildren
     def test_error_with_multiple_nonempty_children(self, tmp_path: Path) -> None:
         """Two children with .pt files — ambiguous, raises ValueError."""
         _make_pt(tmp_path / "engine_0")
@@ -474,6 +521,7 @@ class TestAutoDescendDir:
         with pytest.raises(ValueError, match="multiple subdirectories contain data"):
             auto_descend_dir(tmp_path, label="test")
 
+    # 测试errorwhennodatafound
     def test_error_when_no_data_found(self, tmp_path: Path) -> None:
         """No .pt files anywhere — raises ValueError."""
         (tmp_path / "empty_child").mkdir()

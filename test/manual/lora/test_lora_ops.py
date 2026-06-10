@@ -1,3 +1,4 @@
+# 文件名: test_lora_ops.py - 测试LoRA运算（SGEMM shrink/expand/embedding操作）
 import random
 import unittest
 
@@ -22,6 +23,7 @@ from sglang.test.test_utils import CustomTestCase
 
 
 class TestLoraOps(CustomTestCase):
+    # 测试sgemm lora a embedding fwd功能
     def test_sgemm_lora_a_embedding_fwd(self):
         batch_size = 64
         input_dim = 1024
@@ -76,8 +78,9 @@ class TestLoraOps(CustomTestCase):
             vocab_size,
         )
 
-        self.assertTrue(torch.allclose(actual_output, expect_output))
+        self.assertTrue(torch.allclose(actual_output, expect_output))  # 断言条件为真
 
+    # 测试sgemm lora a fwd功能
     def test_sgemm_lora_a_fwd(self):
         batch_size = 2
         input_dim = 1024
@@ -129,8 +132,9 @@ class TestLoraOps(CustomTestCase):
             lora_scaling_tensor,
         )
 
-        self.assertTrue(torch.allclose(actual_output, expect_output))
+        self.assertTrue(torch.allclose(actual_output, expect_output))  # 断言条件为真
 
+    # 测试sgemm lora b fwd功能
     def test_sgemm_lora_b_fwd(self):
         batch_size = 2
         output_dim = 1024
@@ -173,8 +177,9 @@ class TestLoraOps(CustomTestCase):
             slice_offsets,
         )
 
-        self.assertTrue(torch.allclose(actual_output, expect_output))
+        self.assertTrue(torch.allclose(actual_output, expect_output))  # 断言条件为真
 
+    # 测试sgemm lora a embedding fwd expand功能
     def test_sgemm_lora_a_embedding_fwd_expand(self):
         batch_size = 2
         input_dim = 1024
@@ -234,8 +239,9 @@ class TestLoraOps(CustomTestCase):
             vocab_size,
         )
 
-        self.assertTrue(torch.allclose(actual_output, expect_output))
+        self.assertTrue(torch.allclose(actual_output, expect_output))  # 断言条件为真
 
+    # 测试sgemm lora a fwd expand功能
     def test_sgemm_lora_a_fwd_expand(self):
         batch_size = 2
         input_dim = 1024
@@ -292,8 +298,9 @@ class TestLoraOps(CustomTestCase):
             lora_scaling_tensor,
         )
 
-        self.assertTrue(torch.allclose(actual_output, expect_output))
+        self.assertTrue(torch.allclose(actual_output, expect_output))  # 断言条件为真
 
+    # 测试sgemm lora b fwd expand功能
     def test_sgemm_lora_b_fwd_expand(self):
         batch_size = 2
         output_dim = 1024
@@ -341,8 +348,9 @@ class TestLoraOps(CustomTestCase):
             slice_offsets,
         )
 
-        self.assertTrue(torch.allclose(actual_output, expect_output))
+        self.assertTrue(torch.allclose(actual_output, expect_output))  # 断言条件为真
 
+    # 测试sgemm lora a embedding graph fwd功能
     def test_sgemm_lora_a_embedding_graph_fwd(self):
         batch_size = 4
         input_dim = 1024
@@ -398,10 +406,11 @@ class TestLoraOps(CustomTestCase):
             vocab_size,
         )
 
-        self.assertTrue(
-            torch.allclose(actual_output, expect_output, rtol=1e-3, atol=1e-5)
+        self.assertTrue(  # 断言条件为真
+            torch.allclose(actual_output, expect_output, rtol=1e-3, atol=1e-5)  # 验证张量近似相等
         )
 
+    # 测试sgemm lora a graph fwd功能
     def test_sgemm_lora_a_graph_fwd(self):
         batch_size = 4
         input_dim = 1024
@@ -454,10 +463,11 @@ class TestLoraOps(CustomTestCase):
             lora_scaling_tensor,
         )
 
-        self.assertTrue(
-            torch.allclose(actual_output, expect_output, rtol=1e-3, atol=1e-5)
+        self.assertTrue(  # 断言条件为真
+            torch.allclose(actual_output, expect_output, rtol=1e-3, atol=1e-5)  # 验证张量近似相等
         )
 
+    # 测试sgemm lora b graph fwd功能
     def test_sgemm_lora_b_graph_fwd(self):
         batch_size = 4
         output_dim = 1024
@@ -501,8 +511,8 @@ class TestLoraOps(CustomTestCase):
             slice_offsets,
         )
 
-        self.assertTrue(
-            torch.allclose(actual_output, expect_output, rtol=1e-3, atol=1e-5)
+        self.assertTrue(  # 断言条件为真
+            torch.allclose(actual_output, expect_output, rtol=1e-3, atol=1e-5)  # 验证张量近似相等
         )
 
 

@@ -1,3 +1,4 @@
+# 文件名: test_srt_engine.py - SRT引擎测试
 """
 Usage:
 python3 -m unittest test_srt_engine.TestSRTEngine.test_4_sync_async_stream_combination
@@ -26,6 +27,7 @@ register_amd_ci(est_time=261, suite="stage-b-test-1-gpu-small-amd")
 
 class TestSRTEngine(CustomTestCase):
 
+    # 测试1engineruntimeconsistency
     def test_1_engine_runtime_consistency(self):
         prompt = "Today is a sunny day and I like"
         model_path = DEFAULT_SMALL_MODEL_NAME_FOR_TEST
@@ -47,6 +49,7 @@ class TestSRTEngine(CustomTestCase):
         print(out2)
         self.assertEqual(out1, out2)
 
+    # 测试2engineruntimeencodeconsistency
     def test_2_engine_runtime_encode_consistency(self):
         prompt = "Today is a sunny day and I like"
         model_path = DEFAULT_SMALL_EMBEDDING_MODEL_NAME_FOR_TEST
@@ -61,6 +64,7 @@ class TestSRTEngine(CustomTestCase):
 
         self.assertTrue(torch.allclose(out1, out2, atol=1e-5, rtol=1e-3))
 
+    # 测试3enginetokenidsconsistency
     def test_3_engine_token_ids_consistency(self):
         # just to ensure there is no issue running multiple generate calls
         prompt = "Today is a sunny day and I like"
@@ -87,6 +91,7 @@ class TestSRTEngine(CustomTestCase):
         print(out2)
         self.assertEqual(out1, out2)
 
+    # 测试6enginecpuoffload
     def test_6_engine_cpu_offload(self):
         prompt = "Today is a sunny day and I like"
         model_path = DEFAULT_SMALL_MODEL_NAME_FOR_TEST
@@ -117,6 +122,7 @@ class TestSRTEngine(CustomTestCase):
         print(out2)
         self.assertEqual(out1, out2)
 
+    # 测试7engineofflinethroughput
     def test_7_engine_offline_throughput(self):
         server_args = ServerArgs(
             model_path=DEFAULT_SMALL_MODEL_NAME_FOR_TEST,
@@ -125,6 +131,7 @@ class TestSRTEngine(CustomTestCase):
         result = throughput_test(server_args=server_args, bench_args=bench_args)
         self.assertGreater(result["total_throughput"], 3000)
 
+    # 测试8engineasyncencodeconsistency
     def test_8_engine_async_encode_consistency(self):
         prompt = "Today is a sunny day and I like"
         model_path = DEFAULT_SMALL_EMBEDDING_MODEL_NAME_FOR_TEST

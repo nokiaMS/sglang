@@ -1,3 +1,4 @@
+# 文件名: test_fim_completion.py - FIM补全测试 - 验证Fill-in-the-Middle补全功能
 import unittest
 
 import openai
@@ -14,6 +15,7 @@ from sglang.test.test_utils import (
 
 class TestFimCompletion(CustomTestCase):
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         cls.model = "deepseek-ai/deepseek-coder-1.3b-base"
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -30,9 +32,11 @@ class TestFimCompletion(CustomTestCase):
         cls.tokenizer = get_tokenizer(cls.model)
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # run fim completion
     def run_fim_completion(self, number_of_completion):
         client = openai.Client(api_key=self.api_key, base_url=self.base_url)
         prompt = "function sum(a: number, b: number): number{\n"
@@ -63,6 +67,7 @@ class TestFimCompletion(CustomTestCase):
         assert response.usage.completion_tokens > 0
         assert response.usage.total_tokens > 0
 
+    # 测试fim completion
     def test_fim_completion(self):
         for number_of_completion in [1, 3]:
             self.run_fim_completion(number_of_completion)

@@ -1,3 +1,4 @@
+# 文件名: test_disaggregation_piecewise_cuda_graph.py - 测试分离式推理中Prefill服务器使用分段CUDA图
 import unittest
 from types import SimpleNamespace
 
@@ -16,6 +17,7 @@ class TestDisaggregationPiecewiseCudaGraph(PDDisaggregationServerBase):
     """Test piecewise CUDA graph support in disaggregation prefill server"""
 
     @classmethod
+    # 类级别初始化，启动服务器或设置测试环境
     def setUpClass(cls):
         super().setUpClass()
         cls.model = DEFAULT_MODEL_NAME_FOR_TEST
@@ -31,6 +33,7 @@ class TestDisaggregationPiecewiseCudaGraph(PDDisaggregationServerBase):
         cls.launch_lb()
 
     @classmethod
+    # 启动Prefill服务器
     def start_prefill(cls):
         prefill_args = [
             "--trust-remote-code",
@@ -49,6 +52,7 @@ class TestDisaggregationPiecewiseCudaGraph(PDDisaggregationServerBase):
         )
 
     @classmethod
+    # 启动Decode服务器
     def start_decode(cls):
         decode_args = [
             "--trust-remote-code",
@@ -78,10 +82,10 @@ class TestDisaggregationPiecewiseCudaGraph(PDDisaggregationServerBase):
             num_examples=200,
             num_threads=128,
         )
-        metrics = run_eval(args)
+        metrics = run_eval(args)  # 运行评估
         print(f"GSM8K accuracy with piecewise cuda graph: {metrics['score']:.3f}")
 
-        self.assertGreater(metrics["score"], 0.62)
+        self.assertGreater(metrics["score"], 0.62)  # 断言精度大于阈值
 
 
 if __name__ == "__main__":

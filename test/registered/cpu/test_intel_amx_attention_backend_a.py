@@ -1,3 +1,4 @@
+# 文件名: test_intel_amx_attention_backend_a.py - Intel AMX注意力后端A测试
 """
 Usage:
 python3 -m unittest test_intel_amx_attention_backend.TestIntelAMXAttnBackend.test_latency_default_model
@@ -29,6 +30,7 @@ class TestIntelAMXAttnBackend(CustomTestCase):
         extra_args=["--batch-size", "4", "--mem-fraction-static", "0.3"],
         min_throughput=10,
     )
+    # 测试latencymlamodel
     def test_latency_mla_model(self):
         return DEFAULT_MLA_MODEL_NAME_FOR_TEST
 
@@ -36,9 +38,11 @@ class TestIntelAMXAttnBackend(CustomTestCase):
         extra_args=["--batch-size", "4", "--mem-fraction-static", "0.1"],
         min_throughput=40,
     )
+    # 测试latencydefaultmodel
     def test_latency_default_model(self):
         return DEFAULT_MODEL_NAME_FOR_TEST
 
+    # 测试mmlu
     def test_mmlu(self):
         model = DEFAULT_MLA_MODEL_NAME_FOR_TEST
         base_url = DEFAULT_URL_FOR_TEST

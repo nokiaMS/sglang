@@ -1,3 +1,4 @@
+# 文件名: test_triton.py - Triton内核测试
 import sys
 import unittest
 from pathlib import Path
@@ -252,6 +253,7 @@ class TestTritonMLAAttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试tinydeepseekmlaattentioncases
     def test_tiny_deepseek_mla_attention_cases(self):
         for case in self.CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -283,6 +285,7 @@ class TestTritonMLAAttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试layoutrobustnesscases
     def test_layout_robustness_cases(self):
         for case in self.LAYOUT_ROBUSTNESS_CASES:
             for layout in ("interleaved_pages", "non_monotonic_extend"):
@@ -291,11 +294,13 @@ class TestTritonMLAAttentionBackendCorrectness(CustomTestCase):
                 with self.subTest(case=case.name, layout=layout):
                     run_mla_attention_case(self, case, loc_layout=layout)
 
+    # 测试runnermodecudagraphdecodecases
     def test_runner_mode_cuda_graph_decode_cases(self):
         for case in self.CUDA_GRAPH_CASES:
             with self.subTest(case=case.name, backend=case.backend):
                 run_mla_cuda_graph_decode_case(self, case)
 
+    # 测试runnermodesplitopextendcases
     def test_runner_mode_split_op_extend_cases(self):
         for case, static_num_tokens in self.SPLIT_OP_CASES:
             for breakable in (False, True):
@@ -312,6 +317,7 @@ class TestTritonMLAAttentionBackendCorrectness(CustomTestCase):
                         static_num_tokens=static_num_tokens,
                     )
 
+    # 测试runnermodeeagleverifycases
     def test_runner_mode_eagle_verify_cases(self):
         for case, topk, spec_kind in self.EAGLE_VERIFY_CASES:
             with self.subTest(
@@ -322,6 +328,7 @@ class TestTritonMLAAttentionBackendCorrectness(CustomTestCase):
             ):
                 run_mla_eagle_verify_case(self, case, topk=topk, spec_kind=spec_kind)
 
+    # 测试runnermodeeagleverifycudagraphcases
     def test_runner_mode_eagle_verify_cuda_graph_cases(self):
         for case, topk, spec_kind in self.EAGLE_VERIFY_CUDA_GRAPH_CASES:
             with self.subTest(
@@ -334,6 +341,7 @@ class TestTritonMLAAttentionBackendCorrectness(CustomTestCase):
                     self, case, topk=topk, spec_kind=spec_kind
                 )
 
+    # 测试runnermodeeagledraftextendv2cudagraphcases
     def test_runner_mode_eagle_draft_extend_v2_cuda_graph_cases(self):
         for case in self.DRAFT_EXTEND_V2_CUDA_GRAPH_CASES:
             for pad_style in ("small_real", "prod_fill"):
@@ -355,11 +363,13 @@ class TestTritonMLAAttentionBackendCorrectness(CustomTestCase):
                             pad_style=pad_style,
                         )
 
+    # 测试runnermodeeagledraftextendv2cudagraphrunnercases
     def test_runner_mode_eagle_draft_extend_v2_cuda_graph_runner_cases(self):
         for case in self.EAGLE_DRAFT_EXTEND_V2_RUNNER_CASES:
             with self.subTest(case=case.name, backend=case.backend):
                 run_mla_eagle_draft_extend_v2_cuda_graph_runner_case(self, case)
 
+    # 测试runnermodeeagledraftcudagraphrunnercases
     def test_runner_mode_eagle_draft_cuda_graph_runner_cases(self):
         for case, topk, num_draft_tokens in self.EAGLE_DRAFT_RUNNER_CASES:
             with self.subTest(case=case.name, backend=case.backend, topk=topk):

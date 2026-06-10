@@ -1,3 +1,4 @@
+# 文件名: test_sampling_batch_info.py - 采样批次信息
 """Unit tests for srt/sampling/sampling_batch_info.py — no server, no model loading."""
 
 from sglang.test.ci.ci_register import register_cpu_ci
@@ -41,80 +42,91 @@ def _make_info(batch_size=2, **overrides):
     return SamplingBatchInfo(**defaults)
 
 
+# TestMergeBiasTensor类
 class TestMergeBiasTensor(CustomTestCase):
 
+    # TestMergeBiasTensor类的测试bothnonereturnsnone
     def test_both_none_returns_none(self):
         """Test that merging two None tensors returns None."""
         result = merge_bias_tensor(None, None, 2, 3, DEVICE, 0.0)
-        self.assertIsNone(result)
+        self.assertIsNone(result)  # 断言为None
 
+    # TestMergeBiasTensor类的测试bothpresentconcatenates
     def test_both_present_concatenates(self):
         """Test that two present tensors are concatenated along batch dim."""
         lhs = torch.ones(2, VOCAB_SIZE)
         rhs = torch.zeros(3, VOCAB_SIZE)
         result = merge_bias_tensor(lhs, rhs, 2, 3, DEVICE, 0.0)
-        self.assertEqual(result.shape, (5, VOCAB_SIZE))
-        self.assertEqual(result[0, 0].item(), 1.0)
-        self.assertEqual(result[3, 0].item(), 0.0)
+        self.assertEqual(result.shape, (5, VOCAB_SIZE))  # 断言相等
+        self.assertEqual(result[0, 0].item(), 1.0)  # 断言相等
+        self.assertEqual(result[3, 0].item(), 0.0)  # 断言相等
 
+    # TestMergeBiasTensor类的测试lhsnonefillsdefault
     def test_lhs_none_fills_default(self):
         """Test that missing lhs is filled with default value before concatenation."""
         rhs = torch.ones(3, VOCAB_SIZE)
         result = merge_bias_tensor(None, rhs, 2, 3, DEVICE, 0.0)
-        self.assertEqual(result.shape, (5, VOCAB_SIZE))
+        self.assertEqual(result.shape, (5, VOCAB_SIZE))  # 断言相等
         # First 2 rows filled with default (0.0)
-        self.assertEqual(result[0, 0].item(), 0.0)
+        self.assertEqual(result[0, 0].item(), 0.0)  # 断言相等
         # Last 3 rows from rhs
-        self.assertEqual(result[2, 0].item(), 1.0)
+        self.assertEqual(result[2, 0].item(), 1.0)  # 断言相等
 
+    # TestMergeBiasTensor类的测试rhsnonefillsdefault
     def test_rhs_none_fills_default(self):
         """Test that missing rhs is filled with default value before concatenation."""
         lhs = torch.ones(2, VOCAB_SIZE)
         result = merge_bias_tensor(lhs, None, 2, 3, DEVICE, 0.0)
-        self.assertEqual(result.shape, (5, VOCAB_SIZE))
-        self.assertEqual(result[0, 0].item(), 1.0)
+        self.assertEqual(result.shape, (5, VOCAB_SIZE))  # 断言相等
+        self.assertEqual(result[0, 0].item(), 1.0)  # 断言相等
         # Last 3 rows filled with default (0.0)
-        self.assertEqual(result[3, 0].item(), 0.0)
+        self.assertEqual(result[3, 0].item(), 0.0)  # 断言相等
 
+    # TestMergeBiasTensor类的测试customdefaultvalue
     def test_custom_default_value(self):
         """Test that a custom default (-1.0) fills the missing lhs rows."""
         rhs = torch.ones(1, VOCAB_SIZE)
         result = merge_bias_tensor(None, rhs, 2, 1, DEVICE, -1.0)
-        self.assertEqual(result[0, 0].item(), -1.0)
-        self.assertEqual(result[1, 0].item(), -1.0)
-        self.assertEqual(result[2, 0].item(), 1.0)
+        self.assertEqual(result[0, 0].item(), -1.0)  # 断言相等
+        self.assertEqual(result[1, 0].item(), -1.0)  # 断言相等
+        self.assertEqual(result[2, 0].item(), 1.0)  # 断言相等
 
 
 # SamplingBatchInfo.__len__
 class TestSamplingBatchInfoLen(CustomTestCase):
 
+    # TestSamplingBatchInfoLen类的测试lenmatchesbatchsize
     def test_len_matches_batch_size(self):
         """Test that __len__ returns batch size (number of temperature rows)."""
         info = _make_info(batch_size=5)
-        self.assertEqual(len(info), 5)
+        self.assertEqual(len(info), 5)  # 断言相等
 
 
+# TestMergeCustomLogitProcessor类
 class TestMergeCustomLogitProcessor(CustomTestCase):
 
+    # TestMergeCustomLogitProcessor类的测试bothnonereturnsnone
     def test_both_none_returns_none(self):
         """Test that merging two None processor dicts returns None."""
         result = SamplingBatchInfo.merge_custom_logit_processor(
             None, None, 2, 3, DEVICE
         )
-        self.assertIsNone(result)
+        self.assertIsNone(result)  # 断言为None
 
+    # TestMergeCustomLogitProcessor类的测试samekeymergesmasks
     def test_same_key_merges_masks(self):
         """Test that same processor key concatenates the boolean masks."""
         proc = MagicMock()
         lhs = {42: (proc, torch.tensor([True, False]))}
         rhs = {42: (proc, torch.tensor([False, True, True]))}
         result = SamplingBatchInfo.merge_custom_logit_processor(lhs, rhs, 2, 3, DEVICE)
-        self.assertIn(42, result)
-        self.assertEqual(result[42][1].shape[0], 5)
-        self.assertTrue(result[42][1][0].item())  # from lhs
-        self.assertFalse(result[42][1][1].item())  # from lhs
-        self.assertTrue(result[42][1][3].item())  # from rhs
+        self.assertIn(42, result)  # 断言包含
+        self.assertEqual(result[42][1].shape[0], 5)  # 断言相等
+        self.assertTrue(result[42][1][0].item())  # from lhs  # 断言为真
+        self.assertFalse(result[42][1][1].item())  # from lhs  # 断言为假
+        self.assertTrue(result[42][1][3].item())  # from rhs  # 断言为真
 
+    # TestMergeCustomLogitProcessor类的测试disjointkeys
     def test_disjoint_keys(self):
         """Test that disjoint processor keys are merged with zero-filled padding."""
         proc_a = MagicMock()
@@ -123,34 +135,37 @@ class TestMergeCustomLogitProcessor(CustomTestCase):
         rhs = {2: (proc_b, torch.tensor([True]))}
         result = SamplingBatchInfo.merge_custom_logit_processor(lhs, rhs, 2, 1, DEVICE)
         # Key 1: lhs mask [True, False] + zero-filled rhs [False]
-        self.assertEqual(result[1][1].shape[0], 3)
-        self.assertTrue(result[1][1][0].item())
-        self.assertFalse(result[1][1][2].item())
+        self.assertEqual(result[1][1].shape[0], 3)  # 断言相等
+        self.assertTrue(result[1][1][0].item())  # 断言为真
+        self.assertFalse(result[1][1][2].item())  # 断言为假
         # Key 2: zero-filled lhs [False, False] + rhs mask [True]
-        self.assertEqual(result[2][1].shape[0], 3)
-        self.assertFalse(result[2][1][0].item())
-        self.assertTrue(result[2][1][2].item())
+        self.assertEqual(result[2][1].shape[0], 3)  # 断言相等
+        self.assertFalse(result[2][1][0].item())  # 断言为假
+        self.assertTrue(result[2][1][2].item())  # 断言为真
 
+    # TestMergeCustomLogitProcessor类的测试lhsnonerhspresent
     def test_lhs_none_rhs_present(self):
         """Test that None lhs is treated as empty dict and rhs mask is padded."""
         proc = MagicMock()
         rhs = {10: (proc, torch.tensor([True]))}
         result = SamplingBatchInfo.merge_custom_logit_processor(None, rhs, 2, 1, DEVICE)
-        self.assertIn(10, result)
-        self.assertEqual(result[10][1].shape[0], 3)
+        self.assertIn(10, result)  # 断言包含
+        self.assertEqual(result[10][1].shape[0], 3)  # 断言相等
 
 
 # apply_logits_bias
 class TestApplyLogitsBias(CustomTestCase):
 
+    # TestApplyLogitsBias类的测试appliesadditivepenalties
     def test_applies_additive_penalties(self):
         """Test that pre-accumulated additive penalties are added to logits."""
         info = _make_info(batch_size=1)
         info.acc_additive_penalties = torch.tensor([[-1.0] * VOCAB_SIZE])
         logits = torch.zeros(1, VOCAB_SIZE)
         info.apply_logits_bias(logits)
-        self.assertAlmostEqual(logits[0, 0].item(), -1.0, places=5)
+        self.assertAlmostEqual(logits[0, 0].item(), -1.0, places=5)  # 断言近似相等
 
+    # TestApplyLogitsBias类的测试applieslogitbias
     def test_applies_logit_bias(self):
         """Test that per-token logit_bias is added to logits."""
         info = _make_info(batch_size=1)
@@ -159,9 +174,10 @@ class TestApplyLogitsBias(CustomTestCase):
         info.logit_bias = bias
         logits = torch.zeros(1, VOCAB_SIZE)
         info.apply_logits_bias(logits)
-        self.assertAlmostEqual(logits[0, 5].item(), 10.0, places=5)
-        self.assertAlmostEqual(logits[0, 0].item(), 0.0, places=5)
+        self.assertAlmostEqual(logits[0, 5].item(), 10.0, places=5)  # 断言近似相等
+        self.assertAlmostEqual(logits[0, 0].item(), 0.0, places=5)  # 断言近似相等
 
+    # TestApplyLogitsBias类的测试appliesvocabmask
     def test_applies_vocab_mask(self):
         """Test that vocab_mask triggers the apply_mask_func callback."""
         info = _make_info(batch_size=1)
@@ -171,6 +187,7 @@ class TestApplyLogitsBias(CustomTestCase):
         info.apply_logits_bias(logits)
         info.apply_mask_func.assert_called_once()
 
+    # TestApplyLogitsBias类的测试appliespenalizerorchestrator
     def test_applies_penalizer_orchestrator(self):
         """Test that a required orchestrator's apply() is called on logits."""
         orch = MagicMock(is_required=True)
@@ -179,6 +196,7 @@ class TestApplyLogitsBias(CustomTestCase):
         info.apply_logits_bias(logits)
         orch.apply.assert_called_once_with(logits)
 
+    # TestApplyLogitsBias类的测试nobiasnochange
     def test_no_bias_no_change(self):
         """Test that logits stay unchanged when no bias sources are set."""
         info = _make_info(batch_size=1)
@@ -188,51 +206,56 @@ class TestApplyLogitsBias(CustomTestCase):
         logits = torch.zeros(1, VOCAB_SIZE)
         original = logits.clone()
         info.apply_logits_bias(logits)
-        self.assertTrue(torch.equal(logits, original))
+        self.assertTrue(torch.equal(logits, original))  # 断言为真
 
 
 # update_penalties
 class TestUpdatePenalties(CustomTestCase):
 
+    # TestUpdatePenalties类的测试requiredcreatespenaltiestensor
     def test_required_creates_penalties_tensor(self):
         """Test that update_penalties allocates a zero tensor and calls orchestrator methods."""
         orch = MagicMock(is_required=True)
         orch.accumulate_scaling_penalties.return_value = None
         info = _make_info(batch_size=2, penalizer_orchestrator=orch)
         info.update_penalties()
-        self.assertIsNotNone(info.acc_additive_penalties)
-        self.assertEqual(info.acc_additive_penalties.shape, (2, VOCAB_SIZE))
+        self.assertIsNotNone(info.acc_additive_penalties)  # 断言不为None
+        self.assertEqual(info.acc_additive_penalties.shape, (2, VOCAB_SIZE))  # 断言相等
         orch.accumulate_additive_penalties.assert_called_once_with(
             info.acc_additive_penalties
         )
         orch.accumulate_scaling_penalties.assert_called_once()
 
+    # TestUpdatePenalties类的测试notrequiredsetsnone
     def test_not_required_sets_none(self):
         """Test that update_penalties sets acc_additive_penalties to None when not required."""
         orch = MagicMock(is_required=False)
         info = _make_info(batch_size=2, penalizer_orchestrator=orch)
         info.update_penalties()
-        self.assertIsNone(info.acc_additive_penalties)
+        self.assertIsNone(info.acc_additive_penalties)  # 断言为None
 
 
 # update_regex_vocab_mask
 class TestUpdateRegexVocabMask(CustomTestCase):
 
+    # TestUpdateRegexVocabMask类的测试nogrammarsclearsmask
     def test_no_grammars_clears_mask(self):
         """Test that None grammars clears both vocab_mask and apply_mask_func."""
         info = _make_info(batch_size=1)
         info.grammars = None
         info.update_regex_vocab_mask()
-        self.assertIsNone(info.vocab_mask)
-        self.assertIsNone(info.apply_mask_func)
+        self.assertIsNone(info.vocab_mask)  # 断言为None
+        self.assertIsNone(info.apply_mask_func)  # 断言为None
 
+    # TestUpdateRegexVocabMask类的测试emptygrammarsclearsmask
     def test_empty_grammars_clears_mask(self):
         """Test that empty grammars list clears vocab_mask."""
         info = _make_info(batch_size=1)
         info.grammars = []
         info.update_regex_vocab_mask()
-        self.assertIsNone(info.vocab_mask)
+        self.assertIsNone(info.vocab_mask)  # 断言为None
 
+    # TestUpdateRegexVocabMask类的测试withgrammarsallocatesandfills
     def test_with_grammars_allocates_and_fills(self):
         """Test that an active grammar gets allocate, fill, and move called."""
         grammar = MagicMock()
@@ -247,6 +270,7 @@ class TestUpdateRegexVocabMask(CustomTestCase):
         grammar.fill_vocab_mask.assert_called_once()
         grammar.move_vocab_mask.assert_called_once()
 
+    # TestUpdateRegexVocabMask类的测试mixedgrammarsonlyactivefills
     def test_mixed_grammars_only_active_fills(self):
         """Test that finished, terminated, and None grammars are skipped."""
         active = MagicMock()
@@ -274,6 +298,7 @@ class TestUpdateRegexVocabMask(CustomTestCase):
 # filter_batch
 class TestFilterBatch(CustomTestCase):
 
+    # TestFilterBatch类的测试filterkeepscorrectindices
     def test_filter_keeps_correct_indices(self):
         """Test that filter retains rows at indices 0 and 2, dropping index 1."""
         info = _make_info(batch_size=3)
@@ -284,13 +309,14 @@ class TestFilterBatch(CustomTestCase):
         info.logit_bias = torch.ones(3, VOCAB_SIZE)
         keep = torch.tensor([0, 2])
         info.filter_batch([0, 2], keep)
-        self.assertEqual(len(info), 2)
-        self.assertAlmostEqual(info.temperatures[0, 0].item(), 1.0)
-        self.assertAlmostEqual(info.temperatures[1, 0].item(), 3.0)
-        self.assertAlmostEqual(info.top_ps[1].item(), 0.7)
+        self.assertEqual(len(info), 2)  # 断言相等
+        self.assertAlmostEqual(info.temperatures[0, 0].item(), 1.0)  # 断言近似相等
+        self.assertAlmostEqual(info.temperatures[1, 0].item(), 3.0)  # 断言近似相等
+        self.assertAlmostEqual(info.top_ps[1].item(), 0.7)  # 断言近似相等
         # logit_bias should also be filtered
-        self.assertEqual(info.logit_bias.shape, (2, VOCAB_SIZE))
+        self.assertEqual(info.logit_bias.shape, (2, VOCAB_SIZE))  # 断言相等
 
+    # TestFilterBatch类的测试filterwithcustomlogitprocessor
     def test_filter_with_custom_logit_processor(self):
         """Test that filter updates both custom_params list and processor mask."""
         proc = MagicMock()
@@ -300,10 +326,11 @@ class TestFilterBatch(CustomTestCase):
         info.custom_params = [{"a": 1}, {"b": 2}, {"c": 3}]
         keep = torch.tensor([0, 2])
         info.filter_batch([0, 2], keep)
-        self.assertEqual(info.custom_params, [{"a": 1}, {"c": 3}])
+        self.assertEqual(info.custom_params, [{"a": 1}, {"c": 3}])  # 断言相等
         mask = info.custom_logit_processor[42][1]
-        self.assertEqual(mask.shape[0], 2)
+        self.assertEqual(mask.shape[0], 2)  # 断言相等
 
+    # TestFilterBatch类的测试filterremovesallcustomprocessors
     def test_filter_removes_all_custom_processors(self):
         """Test cleanup when filter removes all requests using a processor."""
         proc = MagicMock()
@@ -314,21 +341,23 @@ class TestFilterBatch(CustomTestCase):
         # Keep only index 0 and 2 — processor 42's mask becomes [False, False]
         keep = torch.tensor([0, 2])
         info.filter_batch([0, 2], keep)
-        self.assertFalse(info.has_custom_logit_processor)
-        self.assertIsNone(info.custom_logit_processor)
+        self.assertFalse(info.has_custom_logit_processor)  # 断言为假
+        self.assertIsNone(info.custom_logit_processor)  # 断言为None
 
+    # TestFilterBatch类的测试filterwithnonesamplingseed
     def test_filter_with_none_sampling_seed(self):
         """Test that filter preserves None sampling_seed without error."""
         info = _make_info(batch_size=3)
         info.sampling_seed = None
         keep = torch.tensor([1])
         info.filter_batch([1], keep)
-        self.assertIsNone(info.sampling_seed)
+        self.assertIsNone(info.sampling_seed)  # 断言为None
 
 
 # merge_batch
 class TestMergeBatch(CustomTestCase):
 
+    # TestMergeBatch类的测试mergeconcatenatestensors
     def test_merge_concatenates_tensors(self):
         """Test that merge concatenates temperature tensors from both batches."""
         info1 = _make_info(batch_size=2)
@@ -336,9 +365,10 @@ class TestMergeBatch(CustomTestCase):
         info2 = _make_info(batch_size=1)
         info2.temperatures = torch.tensor([[3.0]])
         info1.merge_batch(info2)
-        self.assertEqual(len(info1), 3)
-        self.assertAlmostEqual(info1.temperatures[2, 0].item(), 3.0)
+        self.assertEqual(len(info1), 3)  # 断言相等
+        self.assertAlmostEqual(info1.temperatures[2, 0].item(), 3.0)  # 断言近似相等
 
+    # TestMergeBatch类的测试mergecombinesflags
     def test_merge_combines_flags(self):
         """Test that merge ANDs is_all_greedy and ORs need_*_sampling flags."""
         info1 = _make_info(
@@ -354,11 +384,12 @@ class TestMergeBatch(CustomTestCase):
             need_min_p_sampling=True,
         )
         info1.merge_batch(info2)
-        self.assertFalse(info1.is_all_greedy)  # AND semantics
-        self.assertTrue(info1.need_top_p_sampling)  # OR semantics
-        self.assertTrue(info1.need_top_k_sampling)  # OR semantics
-        self.assertTrue(info1.need_min_p_sampling)  # OR semantics
+        self.assertFalse(info1.is_all_greedy)  # AND semantics  # 断言为假
+        self.assertTrue(info1.need_top_p_sampling)  # OR semantics  # 断言为真
+        self.assertTrue(info1.need_top_k_sampling)  # OR semantics  # 断言为真
+        self.assertTrue(info1.need_min_p_sampling)  # OR semantics  # 断言为真
 
+    # TestMergeBatch类的测试mergewithlogitbias
     def test_merge_with_logit_bias(self):
         """Test that merge pads missing logit_bias with zeros before concatenation."""
         info1 = _make_info(batch_size=1)
@@ -366,8 +397,9 @@ class TestMergeBatch(CustomTestCase):
         info2 = _make_info(batch_size=1)
         info2.logit_bias = None
         info1.merge_batch(info2)
-        self.assertEqual(info1.logit_bias.shape, (2, VOCAB_SIZE))
+        self.assertEqual(info1.logit_bias.shape, (2, VOCAB_SIZE))  # 断言相等
 
+    # TestMergeBatch类的测试mergewithcustomlogitprocessor
     def test_merge_with_custom_logit_processor(self):
         """Test that merge combines processors when only one side has them."""
         proc = MagicMock()
@@ -380,9 +412,10 @@ class TestMergeBatch(CustomTestCase):
         info2.custom_logit_processor = None
         info2.custom_params = None
         info1.merge_batch(info2)
-        self.assertTrue(info1.has_custom_logit_processor)
-        self.assertEqual(len(info1.custom_params), 2)
+        self.assertTrue(info1.has_custom_logit_processor)  # 断言为真
+        self.assertEqual(len(info1.custom_params), 2)  # 断言相等
 
+    # TestMergeBatch类的测试mergewithnonesamplingseed
     def test_merge_with_none_sampling_seed(self):
         """Test that merge preserves None when both sampling_seeds are None."""
         info1 = _make_info(batch_size=1)
@@ -390,8 +423,9 @@ class TestMergeBatch(CustomTestCase):
         info2 = _make_info(batch_size=1)
         info2.sampling_seed = None
         info1.merge_batch(info2)
-        self.assertIsNone(info1.sampling_seed)
+        self.assertIsNone(info1.sampling_seed)  # 断言为None
 
+    # TestMergeBatch类的测试mergewithbothsamplingseeds
     def test_merge_with_both_sampling_seeds(self):
         """Test that merge concatenates both sampling_seed tensors."""
         info1 = _make_info(batch_size=2)
@@ -399,28 +433,30 @@ class TestMergeBatch(CustomTestCase):
         info2 = _make_info(batch_size=1)
         info2.sampling_seed = torch.tensor([30], dtype=torch.int64)
         info1.merge_batch(info2)
-        self.assertEqual(info1.sampling_seed.shape[0], 3)
-        self.assertEqual(info1.sampling_seed[0].item(), 10)
-        self.assertEqual(info1.sampling_seed[1].item(), 20)
-        self.assertEqual(info1.sampling_seed[2].item(), 30)
+        self.assertEqual(info1.sampling_seed.shape[0], 3)  # 断言相等
+        self.assertEqual(info1.sampling_seed[0].item(), 10)  # 断言相等
+        self.assertEqual(info1.sampling_seed[1].item(), 20)  # 断言相等
+        self.assertEqual(info1.sampling_seed[2].item(), 30)  # 断言相等
 
 
 # copy_for_forward
 class TestCopyForForward(CustomTestCase):
 
+    # TestCopyForForward类的测试returnscopywithoutorchestrator
     def test_returns_copy_without_orchestrator(self):
         """Test that copy_for_forward returns a copy with orchestrator set to None."""
         orch = MagicMock(is_required=False)
         info = _make_info(batch_size=1, penalizer_orchestrator=orch)
         copied = info.copy_for_forward()
-        self.assertIsNone(copied.penalizer_orchestrator)
+        self.assertIsNone(copied.penalizer_orchestrator)  # 断言为None
         # Original should still have orchestrator
-        self.assertIsNotNone(info.penalizer_orchestrator)
+        self.assertIsNotNone(info.penalizer_orchestrator)  # 断言不为None
 
 
 # from_schedule_batch
 class TestFromScheduleBatch(CustomTestCase):
 
+    # TestFromScheduleBatch类的内部方法_make_req
     def _make_req(
         self,
         temp=1.0,
@@ -453,6 +489,8 @@ class TestFromScheduleBatch(CustomTestCase):
         return req
 
     @patch("sglang.srt.sampling.sampling_batch_info.get_global_server_args")
+
+    # TestFromScheduleBatch类的测试basicconstruction
     def test_basic_construction(self, mock_server_args):
         """Test that from_schedule_batch correctly extracts sampling params from requests."""
         mock_server_args.return_value.enable_deterministic_inference = False
@@ -464,12 +502,14 @@ class TestFromScheduleBatch(CustomTestCase):
         batch.device = DEVICE
 
         info = SamplingBatchInfo.from_schedule_batch(batch, VOCAB_SIZE)
-        self.assertEqual(len(info), 1)
-        self.assertAlmostEqual(info.temperatures[0, 0].item(), 0.8, places=5)
-        self.assertAlmostEqual(info.top_ps[0].item(), 0.9, places=5)
-        self.assertEqual(info.top_ks[0].item(), 50)
+        self.assertEqual(len(info), 1)  # 断言相等
+        self.assertAlmostEqual(info.temperatures[0, 0].item(), 0.8, places=5)  # 断言近似相等
+        self.assertAlmostEqual(info.top_ps[0].item(), 0.9, places=5)  # 断言近似相等
+        self.assertEqual(info.top_ks[0].item(), 50)  # 断言相等
 
     @patch("sglang.srt.sampling.sampling_batch_info.get_global_server_args")
+
+    # TestFromScheduleBatch类的测试greedydetection
     def test_greedy_detection(self, mock_server_args):
         """Test that top_k=1 sets is_all_greedy=True."""
         mock_server_args.return_value.enable_deterministic_inference = False
@@ -480,9 +520,11 @@ class TestFromScheduleBatch(CustomTestCase):
         batch.reqs = reqs
         batch.device = DEVICE
         info = SamplingBatchInfo.from_schedule_batch(batch, VOCAB_SIZE)
-        self.assertTrue(info.is_all_greedy)
+        self.assertTrue(info.is_all_greedy)  # 断言为真
 
     @patch("sglang.srt.sampling.sampling_batch_info.get_global_server_args")
+
+    # TestFromScheduleBatch类的测试logitbiasconstruction
     def test_logit_bias_construction(self, mock_server_args):
         """Test that logit_bias dict is converted to a tensor with correct values."""
         mock_server_args.return_value.enable_deterministic_inference = False
@@ -493,12 +535,14 @@ class TestFromScheduleBatch(CustomTestCase):
         batch.reqs = reqs
         batch.device = DEVICE
         info = SamplingBatchInfo.from_schedule_batch(batch, VOCAB_SIZE)
-        self.assertIsNotNone(info.logit_bias)
-        self.assertAlmostEqual(info.logit_bias[0, 5].item(), 2.0)
-        self.assertAlmostEqual(info.logit_bias[0, 10].item(), -1.0)
-        self.assertAlmostEqual(info.logit_bias[0, 0].item(), 0.0)
+        self.assertIsNotNone(info.logit_bias)  # 断言不为None
+        self.assertAlmostEqual(info.logit_bias[0, 5].item(), 2.0)  # 断言近似相等
+        self.assertAlmostEqual(info.logit_bias[0, 10].item(), -1.0)  # 断言近似相等
+        self.assertAlmostEqual(info.logit_bias[0, 0].item(), 0.0)  # 断言近似相等
 
     @patch("sglang.srt.sampling.sampling_batch_info.get_global_server_args")
+
+    # TestFromScheduleBatch类的测试deterministicseed
     def test_deterministic_seed(self, mock_server_args):
         """Test that explicit seed=123 is kept and missing seed defaults to 42."""
         mock_server_args.return_value.enable_deterministic_inference = True
@@ -509,11 +553,13 @@ class TestFromScheduleBatch(CustomTestCase):
         batch.reqs = reqs
         batch.device = DEVICE
         info = SamplingBatchInfo.from_schedule_batch(batch, VOCAB_SIZE)
-        self.assertIsNotNone(info.sampling_seed)
-        self.assertEqual(info.sampling_seed[0].item(), 123)
-        self.assertEqual(info.sampling_seed[1].item(), 42)  # default
+        self.assertIsNotNone(info.sampling_seed)  # 断言不为None
+        self.assertEqual(info.sampling_seed[0].item(), 123)  # 断言相等
+        self.assertEqual(info.sampling_seed[1].item(), 42)  # default  # 断言相等
 
     @patch("sglang.srt.sampling.sampling_batch_info.get_global_server_args")
+
+    # TestFromScheduleBatch类的测试fromschedulebatchsamplingflags
     def test_from_schedule_batch_sampling_flags(self, mock_server_args):
         """Test that sampling flags (need_top_p/top_k/min_p) are set correctly."""
         mock_server_args.return_value.enable_deterministic_inference = False
@@ -524,12 +570,14 @@ class TestFromScheduleBatch(CustomTestCase):
         batch.reqs = reqs
         batch.device = DEVICE
         info = SamplingBatchInfo.from_schedule_batch(batch, VOCAB_SIZE)
-        self.assertTrue(info.need_top_p_sampling)  # 0.9 != 1.0
-        self.assertTrue(info.need_top_k_sampling)  # 50 != TOP_K_ALL
-        self.assertTrue(info.need_min_p_sampling)  # 0.1 > 0
-        self.assertFalse(info.is_all_greedy)  # top_k=50 > 1
+        self.assertTrue(info.need_top_p_sampling)  # 0.9 != 1.0  # 断言为真
+        self.assertTrue(info.need_top_k_sampling)  # 50 != TOP_K_ALL  # 断言为真
+        self.assertTrue(info.need_min_p_sampling)  # 0.1 > 0  # 断言为真
+        self.assertFalse(info.is_all_greedy)  # top_k=50 > 1  # 断言为假
 
     @patch("sglang.srt.sampling.sampling_batch_info.get_global_server_args")
+
+    # TestFromScheduleBatch类的测试nologitbiaswhenallnone
     def test_no_logit_bias_when_all_none(self, mock_server_args):
         """Test that logit_bias stays None when no request has logit_bias set."""
         mock_server_args.return_value.enable_deterministic_inference = False
@@ -540,9 +588,11 @@ class TestFromScheduleBatch(CustomTestCase):
         batch.reqs = reqs
         batch.device = DEVICE
         info = SamplingBatchInfo.from_schedule_batch(batch, VOCAB_SIZE)
-        self.assertIsNone(info.logit_bias)
+        self.assertIsNone(info.logit_bias)  # 断言为None
 
     @patch("sglang.srt.sampling.sampling_batch_info.get_global_server_args")
+
+    # TestFromScheduleBatch类的测试customlogitprocessormerging
     def test_custom_logit_processor_merging(self, mock_server_args):
         """Test deserialization and merging of custom logit processors."""
         from sglang.srt.sampling.custom_logit_processor import (
@@ -565,17 +615,17 @@ class TestFromScheduleBatch(CustomTestCase):
         batch.device = DEVICE
         info = SamplingBatchInfo.from_schedule_batch(batch, VOCAB_SIZE)
 
-        self.assertTrue(info.has_custom_logit_processor)
-        self.assertIsNotNone(info.custom_logit_processor)
-        self.assertEqual(len(info.custom_logit_processor), 1)
+        self.assertTrue(info.has_custom_logit_processor)  # 断言为真
+        self.assertIsNotNone(info.custom_logit_processor)  # 断言不为None
+        self.assertEqual(len(info.custom_logit_processor), 1)  # 断言相等
         # Check the mask: req1 has processor (True), req2 doesn't (False)
         key = list(info.custom_logit_processor.keys())[0]
         proc, mask = info.custom_logit_processor[key]
         self.assertIsInstance(proc, DisallowedTokensLogitsProcessor)
-        self.assertTrue(mask[0].item())
-        self.assertFalse(mask[1].item())
+        self.assertTrue(mask[0].item())  # 断言为真
+        self.assertFalse(mask[1].item())  # 断言为假
         # custom_params should be collected for all reqs
-        self.assertEqual(len(info.custom_params), 2)
+        self.assertEqual(len(info.custom_params), 2)  # 断言相等
 
 
 if __name__ == "__main__":

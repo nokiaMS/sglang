@@ -1,3 +1,4 @@
+# 文件名: test_common.py - 通用工具
 import unittest
 from array import array
 
@@ -11,6 +12,8 @@ register_cuda_ci(est_time=5, stage="base-b", runner_config="1-gpu-small")
 
 
 @unittest.skipUnless(torch.cuda.is_available(), "requires CUDA")
+
+# TestFlattenArraysToInt64Tensor类
 class TestFlattenArraysToInt64Tensor(CustomTestCase):
     """`flatten_arrays_to_int64_tensor` is invoked by `prepare_for_extend`
     to build the per-batch input_ids tensor (pinned, async H2D) from a
@@ -21,6 +24,7 @@ class TestFlattenArraysToInt64Tensor(CustomTestCase):
     DEVICES = ("cpu", "cuda")
     PIN_OPTIONS = (False, True)
 
+    # TestFlattenArraysToInt64Tensor类的内部方法_check
     def _check(self, parts: list, expected: list[int]) -> None:
         for device in self.DEVICES:
             for pin in self.PIN_OPTIONS:
@@ -28,15 +32,17 @@ class TestFlattenArraysToInt64Tensor(CustomTestCase):
                     out = flatten_arrays_to_int64_tensor(parts, device, pin)
                     if device == "cuda":
                         torch.cuda.synchronize()
-                    self.assertEqual(out.dtype, torch.int64)
-                    self.assertEqual(out.device.type, device)
-                    self.assertEqual(out.shape, (len(expected),))
-                    self.assertEqual(out.cpu().tolist(), expected)
+                    self.assertEqual(out.dtype, torch.int64)  # 断言相等
+                    self.assertEqual(out.device.type, device)  # 断言相等
+                    self.assertEqual(out.shape, (len(expected),))  # 断言相等
+                    self.assertEqual(out.cpu().tolist(), expected)  # 断言相等
 
+    # TestFlattenArraysToInt64Tensor类的测试singlepart
     def test_single_part(self):
         parts = [array("q", [1, 2, 3, 4, 5])]
         self._check(parts, [1, 2, 3, 4, 5])
 
+    # TestFlattenArraysToInt64Tensor类的测试multipleparts
     def test_multiple_parts(self):
         parts = [
             array("q", [10, 20, 30]),

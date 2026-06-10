@@ -1,3 +1,4 @@
+# 文件名: test_logprobs.py - 对数概率测试 - 验证生成请求的对数概率输出正确性
 """
 Logprobs Accuracy Test for SGLang
 
@@ -96,6 +97,7 @@ DEFAULT_ENGINE_CONFIG = {
 }
 
 
+# generate baseline
 def generate_baseline(
     baseline_file=DEFAULT_BASELINE_PKL,
     meta_file=DEFAULT_META_JSON,
@@ -220,18 +222,21 @@ def generate_baseline(
 class TestLogprobsDense(unittest.TestCase):
 
     @classmethod
+    # setUpClass
     def setUpClass(cls):
         """Set up the test class - initialize the engine once for all tests."""
         print(f"Launching SGLang Engine with {DENSE_MODEL_NAME}...")
         cls.engine = sgl.Engine(**DEFAULT_ENGINE_CONFIG)
 
     @classmethod
+    # tearDownClass
     def tearDownClass(cls):
         """Clean up after all tests - shutdown the engine."""
         cls.engine.shutdown()
         torch.cuda.empty_cache()
 
     @classmethod
+    # restart engine with config
     def restart_engine_with_config(cls, **kwargs):
         """Create engine with custom configuration"""
         # Safely shutdown existing engine
@@ -251,6 +256,7 @@ class TestLogprobsDense(unittest.TestCase):
         engine_config = {**DEFAULT_ENGINE_CONFIG, **kwargs}
         cls.engine = sgl.Engine(**engine_config)
 
+    # load test data
     def load_test_data(self, baseline_file=None):
         """Load test data from local baseline file. In test mode, only local baseline is supported."""
         if not baseline_file:
@@ -270,6 +276,7 @@ class TestLogprobsDense(unittest.TestCase):
         except (IOError, pickle.PickleError) as e:
             raise Exception(f"Failed to load local baseline: {e}") from e
 
+    # compare meta
     def compare_meta(self, baseline_meta, sglang_meta):
         """Compare metadata between two outputs and return max and mean differences."""
         diffs = []
@@ -299,6 +306,7 @@ class TestLogprobsDense(unittest.TestCase):
             return 0.0, 0.0
         return max(diffs), float(np.mean(diffs))
 
+    # 测试logprobs comparison
     def test_logprobs_comparison(self, baseline_file=None):
         """Test the logprobs comparison functionality with different parameter combinations."""
         # Load test data with retry mechanism
@@ -476,6 +484,7 @@ class TestLogprobsDense(unittest.TestCase):
                     )
 
 
+# main
 def main():
     """Main function to handle command line arguments and run either generation or testing."""
     parser = argparse.ArgumentParser(

@@ -1,3 +1,4 @@
+# 文件名: test_qwen3_30b.py - Qwen3 30B上下文并行测试
 import unittest
 from types import SimpleNamespace
 
@@ -20,6 +21,7 @@ GSM8K_BASELINE_ACCURACY = 0.85
 
 class TestQwen330B(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = QWEN3_30B_MODEL_PATH
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -49,9 +51,11 @@ class TestQwen330B(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             model=self.model,
@@ -75,6 +79,7 @@ class TestQwen330B(CustomTestCase):
 
 class TestQwen330BCP(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = QWEN3_30B_MODEL_PATH
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -104,9 +109,11 @@ class TestQwen330BCP(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             model=self.model,

@@ -1,3 +1,4 @@
+# 文件名: test_moe_runners_1gpu.py - 测试1GPU MoE运行器（Triton、FlashInfer、Cutlass等多种后端）
 import os
 import unittest
 from types import SimpleNamespace
@@ -169,6 +170,7 @@ class TestMoERunner(CustomTestCase):
         },
     }
 
+    # 运行单个MoE配置的评估
     def _run_config(self, config: dict) -> None:
         model = config["model"]
         other_args = config.get("other_args", [])
@@ -179,7 +181,7 @@ class TestMoERunner(CustomTestCase):
         env.update(config.get("env_overrides", {}))
         timeout = config.get("timeout", self.TIMEOUT)
 
-        process = popen_launch_server(
+        process = popen_launch_server(  # 启动推理服务器
             model,
             self.BASE_URL,
             timeout=timeout,
@@ -192,11 +194,11 @@ class TestMoERunner(CustomTestCase):
                 model=model,
                 **eval_kwargs,
             )
-            metrics = run_eval(args)
+            metrics = run_eval(args)  # 运行评估
             print(f"{metrics=}")
-            self.assertGreaterEqual(metrics["score"], 0.48)
+            self.assertGreaterEqual(metrics["score"], 0.48)  # 断言精度大于等于阈值
         finally:
-            kill_process_tree(process.pid)
+            kill_process_tree(process.pid)  # 终止服务器进程
 
 
 for _name, _cfg in TestMoERunner.CONFIGS.items():

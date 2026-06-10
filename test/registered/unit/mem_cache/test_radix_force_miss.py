@@ -1,3 +1,4 @@
+# 文件名: test_radix_force_miss.py - 基数强制缺失
 """Unit tests for SGLANG_RADIX_FORCE_MISS.
 
 The flag is gated at the scheduler boundary, so we test the helper directly
@@ -26,7 +27,10 @@ from sglang.srt.mem_cache.base_prefix_cache import (
 from sglang.srt.mem_cache.radix_cache import RadixCache, RadixKey
 
 
+# _StubReq类
 class _StubReq:
+
+    # _StubReq类的初始化
     def __init__(self, token_ids):
         self.origin_input_ids = array("q", token_ids)
         self.output_ids = array("q")
@@ -40,26 +44,34 @@ class _StubReq:
         self.cache_protected_len = None
 
 
+# TestZeroMatchResult类
 class TestZeroMatchResult(unittest.TestCase):
+
+    # TestZeroMatchResult类的测试zeroreplacesindicesandnodes
     def test_zero_replaces_indices_and_nodes(self):
         tree = RadixCache.create_simulated()
         tree.insert(InsertParams(key=RadixKey(token_ids=array("q", [1, 2, 3, 4, 5]))))
         match = tree.match_prefix(
             MatchPrefixParams(key=RadixKey(token_ids=array("q", [1, 2, 3, 9])))
         )
-        self.assertGreater(len(match.device_indices), 0)
+        self.assertGreater(len(match.device_indices), 0)  # 断言大于
         zeroed = zero_match_result(tree, match)
-        self.assertEqual(int(zeroed.device_indices.numel()), 0)
-        self.assertIs(zeroed.last_device_node, tree.root_node)
-        self.assertIs(zeroed.last_host_node, tree.root_node)
-        self.assertIs(zeroed.best_match_node, tree.root_node)
-        self.assertEqual(zeroed.host_hit_length, 0)
+        self.assertEqual(int(zeroed.device_indices.numel()), 0)  # 断言相等
+        self.assertIs(zeroed.last_device_node, tree.root_node)  # 断言是同一对象
+        self.assertIs(zeroed.last_host_node, tree.root_node)  # 断言是同一对象
+        self.assertIs(zeroed.best_match_node, tree.root_node)  # 断言是同一对象
+        self.assertEqual(zeroed.host_hit_length, 0)  # 断言相等
         # dtype/device preserved (slice-not-allocate).
-        self.assertEqual(zeroed.device_indices.dtype, match.device_indices.dtype)
-        self.assertEqual(zeroed.device_indices.device, match.device_indices.device)
+        self.assertEqual(zeroed.device_indices.dtype, match.device_indices.dtype)  # 断言相等
+        self.assertEqual(zeroed.device_indices.device, match.device_indices.device)  # 断言相等
 
+    # TestZeroMatchResult类的测试chunkcacheispassthrough
     def test_chunk_cache_is_passthrough(self):
+
+        # _StubChunkCache类
         class _StubChunkCache:
+
+            # _StubChunkCache类的is_chunk_cache
             def is_chunk_cache(self) -> bool:
                 return True
 
@@ -70,10 +82,13 @@ class TestZeroMatchResult(unittest.TestCase):
             best_match_node=None,
             host_hit_length=0,
         )
-        self.assertIs(zero_match_result(_StubChunkCache(), original), original)
+        self.assertIs(zero_match_result(_StubChunkCache(), original), original)  # 断言是同一对象
 
 
+# TestMatchPrefixForReqForceMiss类
 class TestMatchPrefixForReqForceMiss(unittest.TestCase):
+
+    # TestMatchPrefixForReqForceMiss类的测试forcemisszerosreqprefix
     def test_force_miss_zeros_req_prefix(self):
         tree = RadixCache.create_simulated()
         tree.insert(
@@ -86,17 +101,17 @@ class TestMatchPrefixForReqForceMiss(unittest.TestCase):
         baseline_req = _StubReq([10, 11, 12, 13, 99, 100])
         with envs.SGLANG_RADIX_FORCE_MISS.override(False):
             match_prefix_for_req(tree, baseline_req)
-        self.assertGreater(int(baseline_req.prefix_indices.numel()), 0)
-        self.assertIsNot(baseline_req.last_node, tree.root_node)
+        self.assertGreater(int(baseline_req.prefix_indices.numel()), 0)  # 断言大于
+        self.assertIsNot(baseline_req.last_node, tree.root_node)  # 断言不是同一对象
 
         # With the flag, the same lookup is forced to miss.
         forced_req = _StubReq([10, 11, 12, 13, 99, 100])
         with envs.SGLANG_RADIX_FORCE_MISS.override(True):
             match_prefix_for_req(tree, forced_req)
-        self.assertEqual(int(forced_req.prefix_indices.numel()), 0)
-        self.assertIs(forced_req.last_node, tree.root_node)
-        self.assertIs(forced_req.last_host_node, tree.root_node)
-        self.assertEqual(forced_req.host_hit_length, 0)
+        self.assertEqual(int(forced_req.prefix_indices.numel()), 0)  # 断言相等
+        self.assertIs(forced_req.last_node, tree.root_node)  # 断言是同一对象
+        self.assertIs(forced_req.last_host_node, tree.root_node)  # 断言是同一对象
+        self.assertEqual(forced_req.host_hit_length, 0)  # 断言相等
 
 
 if __name__ == "__main__":

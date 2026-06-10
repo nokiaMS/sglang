@@ -1,3 +1,4 @@
+# 文件名: test_specv2_kvcache_offloading.py - SpecV2 KV缓存卸载测试
 """
 Unit tests for _release_finished_req in DecodeKVCacheOffloadManager.
 
@@ -21,6 +22,7 @@ from sglang.test.ci.ci_register import register_cuda_ci
 register_cuda_ci(est_time=8, stage="base-b", runner_config="1-gpu-small")
 
 
+# 执行makemockreq
 def _make_mock_req(
     req_pool_idx: int,
     kv_committed_len: int,
@@ -38,11 +40,13 @@ def _make_mock_req(
     req.kv_overallocated_freed = False
     req.prefix_indices = list(range(prefix_indices_len))
 
+    # 执行popcommitted
     def pop_committed():
         assert not req.kv_committed_freed
         req.kv_committed_freed = True
         return req.kv_committed_len
 
+    # 执行popoverallocated
     def pop_overallocated():
         assert not req.kv_overallocated_freed
         req.kv_overallocated_freed = True
@@ -53,6 +57,7 @@ def _make_mock_req(
     return req
 
 
+# 执行makemanager
 def _make_manager(pool_size: int, page_size: int = 1):
     """Create a DecodeKVCacheOffloadManager with mock pools for testing."""
     # Build a real req_to_token tensor so indexing works
@@ -86,6 +91,7 @@ def _make_manager(pool_size: int, page_size: int = 1):
 
 
 class _FinishedEvent:
+    # 执行synchronize
     def synchronize(self):
         pass
 
@@ -93,6 +99,7 @@ class _FinishedEvent:
 class TestReleaseFinishedReq(unittest.TestCase):
     """Tests for _release_finished_req overallocation cleanup."""
 
+    # 测试nooverallocation
     def test_no_overallocation(self):
         """Without spec v2, kv_committed == kv_allocated; no extra free."""
         manager, freed = _make_manager(pool_size=32)
@@ -111,6 +118,7 @@ class TestReleaseFinishedReq(unittest.TestCase):
         self.assertTrue(torch.equal(freed[0], expected))
         manager.req_to_token_pool.free.assert_called_once_with(req)
 
+    # 测试withoverallocation
     def test_with_overallocation(self):
         """With spec v2, overallocated slots [committed:allocated] must be freed."""
         manager, freed = _make_manager(pool_size=32)
@@ -131,6 +139,7 @@ class TestReleaseFinishedReq(unittest.TestCase):
         self.assertTrue(torch.equal(freed[1], expected_overalloc))
         manager.req_to_token_pool.free.assert_called_once_with(req)
 
+    # 测试overallocationwithpagealignment
     def test_overallocation_with_page_alignment(self):
         """With page_size > 1, start of overallocated range is ceil-aligned."""
         page_size = 4
@@ -152,6 +161,7 @@ class TestReleaseFinishedReq(unittest.TestCase):
         self.assertTrue(torch.equal(freed[0], expected_committed))
         self.assertTrue(torch.equal(freed[1], expected_overalloc))
 
+    # 测试overallocationpagealignednoop
     def test_overallocation_page_aligned_noop(self):
         """When ceil_align(committed, page_size) >= allocated, no overalloc free."""
         page_size = 4
@@ -170,6 +180,7 @@ class TestReleaseFinishedReq(unittest.TestCase):
         expected_committed = torch.arange(4, 10, dtype=torch.int64)
         self.assertTrue(torch.equal(freed[0], expected_committed))
 
+    # 测试prefixindicesdecremented
     def test_prefix_indices_decremented(self):
         """protected_size_ is decremented by len(req.prefix_indices)."""
         manager, _ = _make_manager(pool_size=32)
@@ -185,6 +196,7 @@ class TestReleaseFinishedReq(unittest.TestCase):
 
         self.assertEqual(manager.tree_cache.protected_size_, 5)
 
+    # 测试releasefinishedreqfreesprefillwhenstatepresent
     def test_release_finished_req_frees_prefill_when_state_present(self):
         """
         When offloaded_state[rid].prefill_len > 0, _release_finished_req must
@@ -217,6 +229,7 @@ class TestReleaseFinishedReq(unittest.TestCase):
         # State entry is removed at the end of _release_finished_req.
         self.assertNotIn(rid, manager.offloaded_state)
 
+    # 测试releasefinishedreqskipsprefillfreewhenprefilllenzero
     def test_release_finished_req_skips_prefill_free_when_prefill_len_zero(self):
         """
         When state exists but prefill_len == 0 (request shorter than page_size,
@@ -242,6 +255,7 @@ class TestReleaseFinishedReq(unittest.TestCase):
         expected_committed = torch.arange(0, 10, dtype=torch.int64)
         self.assertTrue(torch.equal(freed[0], expected_committed))
 
+    # 测试finalizereleasecreatesstatesoprefillisfreed
     def test_finalize_release_creates_state_so_prefill_is_freed(self):
         """
         finalize_release_on_finish handles the case where no incremental
@@ -273,6 +287,7 @@ class TestReleaseFinishedReq(unittest.TestCase):
         # State is deleted by _release_finished_req on the way out.
         self.assertNotIn(rid, manager.offloaded_state)
 
+    # 测试unfinishedoffloadackdoesnotfreeincrementalslots
     def test_unfinished_offload_ack_does_not_free_incremental_slots(self):
         manager, freed = _make_manager(pool_size=32)
         req = _make_mock_req(
@@ -301,6 +316,7 @@ class TestReleaseFinishedReq(unittest.TestCase):
         manager.req_to_token_pool.free.assert_not_called()
         self.assertNotIn(req.rid, manager.offload_inflight)
 
+    # 测试offloadkvcachetracksinflightwriteuntilack
     def test_offload_kv_cache_tracks_inflight_write_until_ack(self):
         manager, freed = _make_manager(pool_size=32, page_size=4)
         manager.cache_controller = MagicMock()
@@ -334,6 +350,7 @@ class TestReleaseFinishedReq(unittest.TestCase):
         self.assertEqual(freed, [])
         self.assertNotIn(req.rid, manager.offload_inflight)
 
+    # 测试finalizereleasedeferswhileoffloadisinflight
     def test_finalize_release_defers_while_offload_is_in_flight(self):
         manager, freed = _make_manager(pool_size=32)
         req = _make_mock_req(
@@ -350,6 +367,7 @@ class TestReleaseFinishedReq(unittest.TestCase):
         manager.req_to_token_pool.free.assert_not_called()
         self.assertIn(req.rid, manager.offloaded_state)
 
+    # 测试finishedoffloadackwaitsforotherinflightwrites
     def test_finished_offload_ack_waits_for_other_inflight_writes(self):
         manager, freed = _make_manager(pool_size=32)
         req = _make_mock_req(
@@ -378,6 +396,7 @@ class TestReleaseFinishedReq(unittest.TestCase):
         manager.req_to_token_pool.free.assert_not_called()
         self.assertEqual(manager.offload_inflight[req.rid], 1)
 
+    # 测试finishedrequestreleasesallcommittedslotsafterlastoffloadack
     def test_finished_request_releases_all_committed_slots_after_last_offload_ack(
         self,
     ):

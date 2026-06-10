@@ -1,3 +1,4 @@
+# 文件名: test_cutlass_moe.py - CUTLASS MoE基准测试 - 比较CUTLASS和Triton融合MoE的FP8性能
 import argparse
 
 import torch
@@ -19,6 +20,7 @@ def calc_diff(x, y):
     return 1 - sim
 
 
+# 获取模型配置 - 从HuggingFace加载DeepSeek-R1的模型配置
 def get_model_config(tp_size: int):
     config = AutoConfig.from_pretrained(
         "deepseek-ai/Deepseek-R1", trust_remote_code=True
@@ -38,6 +40,7 @@ def get_model_config(tp_size: int):
     }
 
 
+# 转换为FP8 - 将张量缩放并转换为FP8 E4M3格式
 def to_fp8(tensor: torch.Tensor) -> torch.Tensor:
     """Converts tensor to FP8 E4M3, scaling values to fit the range."""
     finfo = torch.finfo(torch.float8_e4m3fn)
@@ -60,6 +63,7 @@ def to_fp8(tensor: torch.Tensor) -> torch.Tensor:
     return fp8_tensor
 
 
+# 运行测试 - 执行CUTLASS与Triton MoE的基准对比测试
 def run_test(tp_size, batch_size, model_config, check=False):
     print(f"\n--- Batch Size: {batch_size} ---")
     torch.set_default_device("cuda")
@@ -266,6 +270,7 @@ def run_test(tp_size, batch_size, model_config, check=False):
         print("Correctness check passed.")
 
 
+# main
 def main(tp_size=8, batch_sizes=[1, 4, 8, 16, 32, 64, 128, 256, 512], check=False):
     model_config = get_model_config(tp_size)
     print("Model Config:", model_config)

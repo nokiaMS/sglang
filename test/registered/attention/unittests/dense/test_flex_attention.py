@@ -1,3 +1,4 @@
+# 文件名: test_flex_attention.py - FlexAttention测试
 import sys
 import unittest
 from pathlib import Path
@@ -55,6 +56,7 @@ class TestFlexDenseAttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试projecteddenseattentioncases
     def test_projected_dense_attention_cases(self):
         for case in self.CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -85,6 +87,7 @@ class TestFlexDenseAttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试layoutrobustnesscases
     def test_layout_robustness_cases(self):
         for case in self.LAYOUT_ROBUSTNESS_CASES:
             # shuffled_pages is the default and already covered.
@@ -97,6 +100,7 @@ class TestFlexDenseAttentionBackendCorrectness(CustomTestCase):
                 with self.subTest(case=case.name, layout=layout):
                     run_dense_attention_case(self, case, loc_layout=layout)
 
+    # 测试runnermodesplitopextendcases
     def test_runner_mode_split_op_extend_cases(self):
         for case, static_num_tokens in self.SPLIT_OP_CASES:
             for breakable in (False, True):

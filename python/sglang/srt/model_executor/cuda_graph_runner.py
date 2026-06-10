@@ -11,6 +11,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+# 本文件实现了 CUDA Graph 捕获与重放机制，以及 torch.compile 集成。
+# CUDA Graph 通过将 GPU 操作序列录制为图来消除 CPU 端的 kernel launch 开销，
+# 从而显著提升 decode 阶段的小批量推理吞吐量。
+# 主要组件包括：
+#   - DecodeInputBuffers: 解码阶段的输入缓冲区管理
+#   - CudaGraphRunner: CUDA Graph 捕获与重放的核心类
+#   - DeepEPCudaGraphRunnerAdapter: DeepEP 模式下的适配器
+#   - 各种辅助函数：模式切换、内存池管理、批量大小计算等
 """Run the model with cuda graph and torch.compile."""
 
 from __future__ import annotations
@@ -104,9 +112,11 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from sglang.srt.model_executor.model_runner import ModelRunner
 
+# 检测 PyTorch 是否支持 _foreach_copy_ 批量拷贝操作
 _has_foreach_copy = hasattr(torch, "_foreach_copy_")
 
 
+# 按 (目标数据类型, 源数据类型) 分组执行批量拷贝，提高拷贝效率
 def _grouped_foreach_copy_(dsts: List[torch.Tensor], srcs: List[torch.Tensor]) -> None:
     """Call torch._foreach_copy_ grouped by (dst_dtype, src_dtype) pairs."""
 
@@ -114,9 +124,11 @@ def _grouped_foreach_copy_(dsts: List[torch.Tensor], srcs: List[torch.Tensor]) -
         if _has_foreach_copy:
             torch._foreach_copy_(dsts, srcs)
         else:
+            # 回退方案：逐个拷贝
             for dst, src in zip(dsts, srcs):
                 dst.copy_(src)
 
+    # 按数据类型对分组，相同类型对的张量可以批量拷贝
     groups: Dict[Tuple[torch.dtype, torch.dtype], Tuple[List, List]] = {}
     for dst, src in zip(dsts, srcs):
         key = (dst.dtype, src.dtype)
@@ -128,6 +140,7 @@ def _grouped_foreach_copy_(dsts: List[torch.Tensor], srcs: List[torch.Tensor]) -
         foreach_copy(group_dsts, group_srcs)
 
 
+# 解码阶段的输入缓冲区数据类，管理 CUDA Graph 重放所需的全部输入张量
 @dataclass
 class DecodeInputBuffers(ForwardInputBuffers):
 
@@ -174,19 +187,23 @@ class DecodeInputBuffers(ForwardInputBuffers):
         ne_token_table: Optional[torch.Tensor] = None,
         hc_hidden_size: Optional[int] = None,
     ) -> "DecodeInputBuffers":
+        """创建解码阶段的输入缓冲区，在指定设备上预分配所有张量"""
         with torch.device(device):
             input_ids = torch.zeros((max_num_token,), dtype=torch.int64)
             input_embeds = torch.zeros((max_num_token, hidden_size), dtype=dtype)
             req_pool_indices = torch.zeros((max_bs,), dtype=torch.int64)
+            # 序列长度初始化为填充值，用于 CUDA Graph 的固定形状
             seq_lens = torch.full((max_bs,), seq_len_fill_value, dtype=torch.int32)
             out_cache_loc = torch.zeros((max_num_token,), dtype=cache_loc_dtype)
             positions = torch.zeros((max_num_token,), dtype=torch.int64)
+            # 多模态旋转位置编码，3个维度分别对应时间、高度、宽度
             mrope_positions = torch.zeros((3, max_num_token), dtype=torch.int64)
             num_token_non_padded = torch.zeros((1,), dtype=torch.int32)
             custom_mask = torch.ones(
                 (max_bs * seq_len_fill_value + max_num_token) * num_tokens_per_bs,
                 dtype=torch.bool,
             )
+            # 用于存储解码阶段的 logits，避免重复分配
             next_token_logits_buffer = torch.zeros(
                 (max_num_token, vocab_size),
                 dtype=torch.float,
@@ -204,6 +221,7 @@ class DecodeInputBuffers(ForwardInputBuffers):
                 # mHC (e.g. DSV4) flattens residual into hidden_states (size = hc_hidden_size).
                 is_mhc = hc_hidden_size is not None
                 hs = hc_hidden_size if is_mhc else hidden_size
+                # 流水线并行代理张量，用于跨 stage 传递隐藏状态
                 pp_proxy_tensors = {
                     "hidden_states": torch.zeros((max_bs, hs), dtype=dtype),
                 }
@@ -215,6 +233,7 @@ class DecodeInputBuffers(ForwardInputBuffers):
                 pp_proxy_tensors = None
 
             if is_encoder_decoder:
+                # 编码器长度初始化为非零值，确保交叉注意力内核被捕获进图
                 encoder_lens = torch.full(
                     (max_bs,), encoder_len_fill_value, dtype=torch.int32
                 )
@@ -222,6 +241,7 @@ class DecodeInputBuffers(ForwardInputBuffers):
                 encoder_lens = None
 
             if require_mlp_tp_gather:
+                # 需要跨 TP 组收集全局 token 数量
                 global_num_tokens_gpu = torch.zeros((dp_size,), dtype=torch.int32)
                 global_num_tokens_for_logprob_gpu = torch.zeros(
                     (dp_size,), dtype=torch.int32
@@ -294,6 +314,8 @@ class DecodeInputBuffers(ForwardInputBuffers):
         enable_num_token_non_padded_flag: bool,
         pp_proxy_tensors: Optional[PPProxyTensors] = None,
     ):
+        """将 ForwardBatch 中的数据拷贝到缓冲区中，供 CUDA Graph 重放使用"""
+        # 当实际批量大小小于填充后的批量大小时，需要清零填充区域
         if bs != raw_bs:
             self.seq_lens.fill_(seq_len_fill_value)
             self.out_cache_loc.zero_()
@@ -301,6 +323,7 @@ class DecodeInputBuffers(ForwardInputBuffers):
             # req_pool slot 0 (req_to_token[0, :] is all zeros from init),
             # so dummy attention reads land on slot 0 instead of a stale
             # req_to_token row left by an earlier replay.
+            # 清零请求池索引，使填充行指向保留的 slot 0，避免读取陈旧数据
             self.req_pool_indices.zero_()
             if self.mamba_track_indices is not None:
                 self.mamba_track_indices.zero_()
@@ -308,6 +331,7 @@ class DecodeInputBuffers(ForwardInputBuffers):
                 self.mamba_track_mask.fill_(False)
 
         # Build batched copy lists for all GPU tensors.
+        # 构建批量拷贝列表，将所有 GPU 张量的拷贝合并执行
         dsts = [
             self.input_ids[:raw_num_token],
             self.req_pool_indices[:raw_bs],
@@ -364,11 +388,13 @@ class DecodeInputBuffers(ForwardInputBuffers):
             srcs.append(forward_batch.bootstrap_room_ids_int)
 
         if require_gathered_buffer:
+            # 全局 token 数量统一设置为填充后的值
             self.global_num_tokens_gpu.fill_(bs * num_tokens_per_bs)
             self.global_num_tokens_for_logprob_gpu.fill_(bs * num_tokens_per_bs)
 
         if enable_num_token_non_padded_flag:
             if require_gathered_buffer and not dsa_enable_prefill_cp:
+                # 需要计算当前 TP rank 的本地非填充 token 数量
                 num_tokens_per_dp = bs * num_tokens_per_bs
                 local = compute_local_num_token_non_padded(
                     global_num_token_non_padded=forward_batch.num_token_non_padded,
@@ -389,29 +415,35 @@ class DecodeInputBuffers(ForwardInputBuffers):
                 srcs.append(src)
 
         # Batch all GPU copies, grouped by dtype pair.
+        # 按数据类型对分组执行批量拷贝，提高效率
         _grouped_foreach_copy_(dsts, srcs)
 
         # CPU tensor copy (cannot be batched with GPU tensors).
+        # CPU 张量拷贝无法与 GPU 张量合并，需单独处理
         if forward_batch.seq_lens_cpu is not None:
             if bs != raw_bs:
                 self.seq_lens_cpu.fill_(seq_len_fill_value)
             self.seq_lens_cpu[:raw_bs].copy_(forward_batch.seq_lens_cpu)
 
 
+# 检测当前前向传播是否处于图捕获模式的全局标志
 # Detect whether the current forward pass is in capture mode
 is_capture_mode = False
 
 
+# 获取当前是否处于图捕获模式
 def get_is_capture_mode():
     return is_capture_mode
 
 
+# 在图捕获模式下，将函数通过 torch.compile 编译；否则直接返回原函数
 def compile_in_capture_mode(func):
     if get_is_capture_mode():
         return torch.compile(func)
     return func
 
 
+# 图捕获模式的上下文管理器，进入时设置标志为 True，退出时恢复为 False
 @contextmanager
 def model_capture_mode():
     global is_capture_mode
@@ -422,6 +454,7 @@ def model_capture_mode():
     is_capture_mode = False
 
 
+# 冻结 Python 垃圾回收的上下文管理器，避免 CUDA Graph 捕获期间的 GC 干扰
 @contextmanager
 def freeze_gc(enable_cudagraph_gc: bool):
     """
@@ -432,15 +465,18 @@ def freeze_gc(enable_cudagraph_gc: bool):
     gc.collect()
     should_freeze = not enable_cudagraph_gc
     if should_freeze:
+        # 冻结 GC，防止捕获期间触发垃圾回收
         gc.freeze()
     try:
         yield
     finally:
         if should_freeze:
+            # 解冻 GC 并执行一次回收
             gc.unfreeze()
             gc.collect()
 
 
+# 递归遍历模型的子模块，将 MultiPlatformOp 切换到 torch.compile 模式或恢复原模式
 def _to_torch(model: torch.nn.Module, reverse: bool, num_tokens: int):
     for sub in model._modules.values():
         if isinstance(sub, MultiPlatformOp):
@@ -452,6 +488,7 @@ def _to_torch(model: torch.nn.Module, reverse: bool, num_tokens: int):
             _to_torch(sub, reverse, num_tokens)
 
 
+# 模型补丁上下文管理器，使模型兼容 torch.compile 编译
 @contextmanager
 def patch_model(
     model: torch.nn.Module,
@@ -464,6 +501,7 @@ def patch_model(
 
     try:
         if enable_compile:
+            # 将模型中的自定义算子切换为 torch 原生实现
             _to_torch(model, reverse=False, num_tokens=num_tokens)
             backup_ca_comm = tp_group.ca_comm
             # Use custom-allreduce here.
@@ -478,22 +516,28 @@ def patch_model(
                 dynamic=_is_hip and get_bool_env_var("SGLANG_TORCH_DYNAMIC_SHAPE"),
             )
         else:
+            # 不启用编译时直接使用原始 forward
             yield model.forward
     finally:
         if enable_compile:
+            # 恢复模型中的自定义算子和通信后端
             _to_torch(model, reverse=True, num_tokens=num_tokens)
             tp_group.ca_comm = backup_ca_comm
 
 
+# 配置 torch.compile 的编译优化参数
 def set_torch_compile_config():
     import torch._dynamo.config
     import torch._inductor.config
 
+    # 启用坐标下降调优策略
     torch._inductor.config.coordinate_descent_tuning = True
+    # 为每个 triton kernel 生成唯一名称，便于调试
     torch._inductor.config.triton.unique_kernel_names = True
     torch._inductor.config.fx_graph_cache = True  # Experimental feature to reduce compilation times, will be on by default in future
 
     # FIXME: tmp workaround
+    # 提高 dynamo 缓存大小限制，避免编译时缓存溢出
     torch._dynamo.config.accumulated_cache_size_limit = 1024
     if hasattr(torch._dynamo.config, "cache_size_limit"):
         torch._dynamo.config.cache_size_limit = 1024
@@ -501,11 +545,13 @@ def set_torch_compile_config():
     monkey_patch_torch_compile()
 
 
+# 计算需要捕获 CUDA Graph 的批量大小列表
 def get_batch_sizes_to_capture(model_runner: ModelRunner, num_tokens_per_bs=1):
     server_args = model_runner.server_args
     capture_bs = server_args.cuda_graph_bs
     num_max_requests = model_runner.req_to_token_pool.size
 
+    # 乘数基数，用于确保批量大小满足并行约束
     mul_base = 1
     if server_args.enable_two_batch_overlap:
         mul_base *= 2
@@ -518,6 +564,7 @@ def get_batch_sizes_to_capture(model_runner: ModelRunner, num_tokens_per_bs=1):
         mul_base *= get_attention_cp_size()
 
     # pad `num_max_requests` to avoid being filtered out
+    # 将最大请求数向上取整到 mul_base 的倍数，避免被过滤
     num_max_requests = (num_max_requests + mul_base - 1) // mul_base * mul_base
     if max(capture_bs) > num_max_requests:
         # In some cases (e.g., with a small GPU or --max-running-requests), the #max-running-requests
@@ -525,6 +572,7 @@ def get_batch_sizes_to_capture(model_runner: ModelRunner, num_tokens_per_bs=1):
         capture_bs += [num_max_requests]
 
     # Model input token count = bs * num_tokens_per_bs; must be a multiple of attn_tp_size.
+    # 过滤掉不满足并行约束的批量大小
     capture_bs = [bs for bs in capture_bs if bs * num_tokens_per_bs % mul_base == 0]
     capture_bs = [bs for bs in capture_bs if bs <= num_max_requests]
     capture_bs = list(sorted(set(capture_bs)))
@@ -538,6 +586,7 @@ def get_batch_sizes_to_capture(model_runner: ModelRunner, num_tokens_per_bs=1):
     return capture_bs, compile_bs
 
 
+# 全局 CUDA Graph 内存池，在所有图运行器之间共享
 # Reuse this memory pool across all cuda graph runners.
 global_graph_memory_pool = None
 
@@ -551,6 +600,7 @@ def set_global_graph_memory_pool(val):
     global_graph_memory_pool = val
 
 
+# CUDA Graph 运行器，负责图的捕获、重放以及与 torch.compile 的集成
 class CudaGraphRunner:
     """A CudaGraphRunner runs the forward pass of a model with cuda graph and torch.compile."""
 
@@ -566,6 +616,7 @@ class CudaGraphRunner:
         self.model_runner = model_runner
         self.device = model_runner.device
         self.device_module = torch.get_device_module(self.device)
+        # 存储不同批量大小对应的 CUDA Graph 和输出缓冲区
         self.graphs = {}
         self.output_buffers = {}
         self.enable_torch_compile = model_runner.server_args.enable_torch_compile
@@ -600,6 +651,7 @@ class CudaGraphRunner:
         # #18233) uses the plain LayerCommunicator with an attn_tp-replicated
         # layout and is intentionally excluded so the attn_tp-local
         # num_token_non_padded adjustment still runs for it.
+        # 判断是否启用了 prefill 上下文并行（DSA 或 MLA 架构）
         self.enable_prefill_cp = (
             is_dsa_enable_prefill_cp() or is_mla_prefill_cp_enabled()
         )
@@ -620,6 +672,7 @@ class CudaGraphRunner:
             else speculative_num_draft_tokens
         )
 
+        # 确定捕获时的前向模式和每请求 token 数
         self.capture_forward_mode = ForwardMode.DECODE
         self.capture_hidden_mode = CaptureHiddenMode.NULL
         self.num_tokens_per_bs = 1
@@ -630,6 +683,7 @@ class CudaGraphRunner:
                     not self.model_runner.spec_algorithm.supports_target_verify_for_draft()
                 ):
                     raise RuntimeError("This should not happen")
+            # 推测解码时使用 TARGET_VERIFY 模式
             self.capture_forward_mode = ForwardMode.TARGET_VERIFY
             self.num_tokens_per_bs = (
                 model_runner.spec_algorithm.get_num_tokens_per_bs_for_target_verify(
@@ -637,10 +691,12 @@ class CudaGraphRunner:
                 )
             )
         elif self.is_dllm:
+            # DLLM 模式使用 DLLM_EXTEND 前向模式
             self.capture_forward_mode = ForwardMode.DLLM_EXTEND
             self.num_tokens_per_bs = self.dllm_config.block_size
 
         # Batch sizes to capture
+        # 计算需要捕获的批量大小列表和需要编译的批量大小列表
         self.capture_bs, self.compile_bs = get_batch_sizes_to_capture(
             model_runner, self.num_tokens_per_bs
         )
@@ -649,16 +705,19 @@ class CudaGraphRunner:
             KTMoEWrapper.set_capture_batch_sizes(self.capture_bs)
 
         # If returning hidden states is enabled, set initial capture hidden mode to full to avoid double-capture on startup
+        # 启用隐藏状态返回时，初始捕获模式设为 FULL，避免启动时双重捕获
         if model_runner.server_args.enable_return_hidden_states:
             self.capture_hidden_mode = CaptureHiddenMode.FULL
 
         # Attention backend
+        # 初始化注意力后端的 CUDA Graph 状态
         self.max_bs = max(self.capture_bs)
         self.max_num_token = self.max_bs * self.num_tokens_per_bs
         self.attn_backend.init_cuda_graph_state(self.max_bs, self.max_num_token)
 
         # Init PDMux if needed
         self.maybe_init_pdmux()
+        # 序列长度填充值，由注意力后端决定
         self.seq_len_fill_value = (
             self.attn_backend.get_cuda_graph_seq_len_fill_value()
             if self.dllm_config is None
@@ -666,6 +725,7 @@ class CudaGraphRunner:
         )
 
         # Non-zero encoder length ensures cross-attention kernels are captured in the graph.
+        # 编码器长度填充值，非零值确保交叉注意力内核被捕获进图
         self.encoder_len_fill_value = (
             getattr(model_runner.model_config.hf_config, "max_source_positions", 0)
             if self.is_encoder_decoder
@@ -679,6 +739,7 @@ class CudaGraphRunner:
             # Phase 2 of LoRA CUDA graph init: dense LoRA batch metadata.
             # Phase 1 (MoE buffers) was handled earlier in ModelRunner via
             # lora_manager.init_cuda_graph_moe_buffers().
+            # LoRA CUDA Graph 初始化的第二阶段：密集 LoRA 批量元数据
             self.model_runner.lora_manager.init_cuda_graph_batch_info(
                 max_bs_in_cuda_graph=self.max_bs,
                 num_tokens_per_bs=self.num_tokens_per_bs,
@@ -691,6 +752,7 @@ class CudaGraphRunner:
 
         if self.require_gathered_buffer:
             assert self.require_mlp_tp_gather or self.require_attn_tp_gather
+        # 创建解码阶段的输入缓冲区
         self.buffers: DecodeInputBuffers = DecodeInputBuffers.create(
             device=self.device,
             max_bs=self.max_bs,
@@ -714,11 +776,13 @@ class CudaGraphRunner:
                 self.model_runner.model_config, "hc_hidden_size", None
             ),
         )
+        # 将缓冲区注册到 forward_context 中，使其在模型前向传播时可访问
         self.buffers.share_buffers()
 
         self.tbo_plugin = TboCudaGraphRunnerPlugin()
 
         # Capture
+        # 在捕获模式下执行 CUDA Graph 捕获
         try:
             with model_capture_mode():
                 self.capture()
@@ -727,20 +791,26 @@ class CudaGraphRunner:
                 f"Capture cuda graph failed: {e}\n{CUDA_GRAPH_CAPTURE_FAILED_MSG}"
             )
 
+    # 初始化 PD-Mux（流水线数据复用）相关状态
     def maybe_init_pdmux(self):
         if self.enable_pdmux:
             self.stream_groups = get_stream_groups()
+            # 为每个注意力后端初始化 CUDA Graph 状态
             for attn_backend in self.model_runner.decode_attn_backend_group:
                 attn_backend.init_cuda_graph_state(self.max_bs, self.max_num_token)
 
+    # 获取 cache_loc 的数据类型
     def _cache_loc_dtype(self):
         return torch.int64
 
+    # 判断当前前向批次是否可以通过 CUDA Graph 运行
     def can_run(self, forward_batch: ForwardBatch):
         # Disable for token embedding overrides (dynamic per-request)
+        # token embedding 覆盖是动态的，无法使用 CUDA Graph
         if forward_batch.replace_embeds is not None:
             return False
         if self.require_mlp_tp_gather:
+            # 需要 MLP TP gather 时，根据全局 token 数计算等效批量大小
             cuda_graph_bs = (
                 max(forward_batch.global_num_tokens_cpu) // self.num_tokens_per_bs
                 if self.model_runner.spec_algorithm.is_eagle()
@@ -751,6 +821,7 @@ class CudaGraphRunner:
         else:
             cuda_graph_bs = forward_batch.batch_size
 
+        # PDMux 模式下，图键包含流索引
         graph_key = cuda_graph_bs
         if self.enable_pdmux:
             graph_key = f"{get_current_stream_idx()}_{cuda_graph_bs}"
@@ -767,12 +838,14 @@ class CudaGraphRunner:
         # NOTE: cuda graph cannot handle mixed batch (encoder_len = 0)
         # If mixed batch cannot be supported, then encoder_lens can be removed in cuda graph
         # because the full_text_row_masked_out_mask tensor will always be ones
+        # 编码器-解码器模式下，检查是否所有编码器长度都大于零（不支持混合批次）
         is_encoder_lens_supported = (
             torch.all(forward_batch.encoder_lens > 0)
             if self.is_encoder_decoder
             else True
         )
 
+        # 确定所需的隐藏状态捕获模式
         requested_capture_hidden_mode = max(
             forward_batch.capture_hidden_mode,
             (
@@ -790,6 +863,7 @@ class CudaGraphRunner:
             forward_batch.can_run_tbo if self.enable_two_batch_overlap else True
         )
 
+        # ngram 模式下检查 token 数是否匹配
         is_ngram_supported = (
             (
                 forward_batch.batch_size * self.num_tokens_per_bs
@@ -807,6 +881,7 @@ class CudaGraphRunner:
             and is_ngram_supported
         )
 
+    # 初始化性能分析和内存记录上下文
     def _init_profile_context_and_memory_record(self):
         profile_context = profile(
             activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
@@ -815,6 +890,7 @@ class CudaGraphRunner:
         torch.cuda.memory._record_memory_history()
         return profile_context
 
+    # 性能分析后的处理：导出内存快照和性能报告
     def _post_process_after_profile(self, prof_context):
         torch.cuda.memory._dump_snapshot(f"cuda_graph_runner_memory_usage.pickle")
         torch.cuda.memory._record_memory_history(enabled=None)
@@ -831,6 +907,7 @@ class CudaGraphRunner:
         )
         logger.info(log_message)
 
+    # 捕获所有批量大小对应的 CUDA Graph
     def capture(self) -> None:
         profile_context = empty_context()
         if self.enable_profile_cuda_graph:
@@ -843,6 +920,7 @@ class CudaGraphRunner:
                 empty_cache=False,
             )
             # Reverse the order to enable better memory sharing across cuda graphs.
+            # 逆序捕获，使较大的批量先分配内存，较小的批量可复用其内存池
             capture_range = (
                 tqdm.tqdm(list(reversed(self.capture_bs)))
                 if get_tensor_model_parallel_rank() == 0
@@ -859,6 +937,7 @@ class CudaGraphRunner:
                         f"Capturing batches ({bs=} {avail_mem=:.2f} GB)"
                     )
 
+                # 对需要编译的批量大小启用 torch.compile
                 with patch_model(
                     self.model_runner.model,
                     bs in self.compile_bs,
@@ -870,6 +949,7 @@ class CudaGraphRunner:
                         output_buffers,
                     ) = self.capture_one_batch_size(bs, forward, stream_idx)
                     # For pd_multiplexing, we need to save the graph and output buffers
+                    # PDMux 模式下键包含流索引，否则直接使用批量大小
                     key = bs if stream_idx is None else f"{stream_idx}_{bs}"
                     self.graphs[key] = graph
                     self.output_buffers[key] = output_buffers
@@ -877,12 +957,14 @@ class CudaGraphRunner:
         # Trigger CUDA graph capture for specific shapes.
         # Capture the large shapes first so that the smaller shapes
         # can reuse the memory pool allocated for the large shapes.
+        # 在冻结 GC 的上下文中执行捕获，避免 GC 干扰
         with freeze_gc(self.model_runner.server_args.enable_cudagraph_gc):
             if not self.enable_pdmux:
                 with graph_capture() as graph_capture_context, profile_context as prof:
                     self.stream = graph_capture_context.stream
                     _capture_one_stream()
             else:
+                # PDMux 模式：需要为每个流分别捕获
                 set_pdmux_status(False)
                 for i, sg in enumerate(self.stream_groups):
                     with (
@@ -895,6 +977,7 @@ class CudaGraphRunner:
         if self.enable_profile_cuda_graph:
             self._post_process_after_profile(prof)
 
+    # 执行 CUDA Graph 的实际捕获操作（含可中断图、内存节省等模式）
     def _capture_graph(self, graph, pool, stream, run_once_fn):
         if self.model_runner.server_args.debug_cuda_graph:
             assert (
@@ -906,6 +989,7 @@ class CudaGraphRunner:
             and get_bool_env_var("SGLANG_MEMORY_SAVER_CUDA_GRAPH")
         )
 
+        # 根据配置选择捕获方式：可中断图、内存节省模式或标准模式
         if envs.SGLANG_USE_BREAKABLE_CUDA_GRAPH.get():
             if memory_saver_adapter.enabled:
                 raise NotImplementedError(
@@ -920,14 +1004,17 @@ class CudaGraphRunner:
             )
 
         if self.model_runner.server_args.debug_cuda_graph:
+            # 调试模式下使用 eager_on_graph 而非真正的图捕获
             captured_fn = eager_on_graph(True)(run_once_fn)
         else:
             captured_fn = run_once_fn
 
+        # 在图上下文中执行一次前向传播，完成 CUDA Graph 的录制
         with graph_ctx(cuda_graph=graph, pool=pool, stream=stream):
             out = captured_fn()
         return out
 
+    # 创建设备上的 CUDA Graph 对象（支持可中断图模式）
     def _create_device_graph(self):
         if envs.SGLANG_USE_BREAKABLE_CUDA_GRAPH.get():
             if _is_hip:
@@ -935,6 +1022,7 @@ class CudaGraphRunner:
             return BreakableCUDAGraph()
         return torch.cuda.CUDAGraph()
 
+    # 捕获单个批量大小对应的 CUDA Graph
     def capture_one_batch_size(
         self, bs: int, forward: Callable, stream_idx: Optional[int] = None
     ):
@@ -944,6 +1032,7 @@ class CudaGraphRunner:
         num_tokens = bs * self.num_tokens_per_bs
 
         # Graph inputs
+        # 从缓冲区中切片出当前批量大小对应的输入视图
         input_ids = buffers.input_ids[:num_tokens]
         req_pool_indices = buffers.req_pool_indices[:bs]
         seq_lens = buffers.seq_lens[:bs]
@@ -965,6 +1054,7 @@ class CudaGraphRunner:
 
         # Adjust for attention TP if needed (matching replay path in
         # populate_from_forward_batch).
+        # 调整非填充 token 数量，与重放路径保持一致
         buffers.num_token_non_padded[...] = num_tokens
         if (
             enable_num_token_non_padded()
@@ -978,12 +1068,14 @@ class CudaGraphRunner:
             buffers.num_token_non_padded.copy_(local)
 
         # pipeline parallelism
+        # 流水线并行代理张量
         if self.pp_size > 1:
             pp_proxy_tensors = PPProxyTensors(
                 {k: v[:num_tokens] for k, v in buffers.pp_proxy_tensors.items()}
             )
 
         if self.require_mlp_tp_gather:
+            # 设置全局 token 数量（每个 DP rank 相同）
             buffers.global_num_tokens_gpu.copy_(
                 torch.tensor(
                     [num_tokens] * self.dp_size,
@@ -1000,6 +1092,7 @@ class CudaGraphRunner:
             )
             global_dp_buffer_len = num_tokens * self.dp_size
         elif self.require_attn_tp_gather:
+            # 注意力 TP gather 模式下的全局 token 数量
             buffers.global_num_tokens_gpu.copy_(
                 torch.tensor(
                     [num_tokens],
@@ -1018,6 +1111,7 @@ class CudaGraphRunner:
         else:
             global_dp_buffer_len = None
 
+        # 获取推测解码信息
         spec_info = self.get_spec_info(num_tokens)
         if self.capture_hidden_mode != CaptureHiddenMode.FULL:
             self.capture_hidden_mode = (
@@ -1027,11 +1121,13 @@ class CudaGraphRunner:
         if self.model_runner.server_args.enable_lora:
             # It is safe to capture CUDA graph using empty LoRA id, as the LoRA kernels will always be launched whenever
             # `--enable-lora` is set to True (and return immediately if the LoRA id is empty for perf optimization).
+            # 使用空的 LoRA id 捕获图是安全的，因为 LoRA 内核在启用时会始终启动
             lora_ids = [None] * bs
         else:
             lora_ids = None
 
         # mamba state tracking
+        # Mamba 状态追踪索引和掩码
         mamba_track_indices = (
             buffers.mamba_track_indices[:bs]
             if buffers.mamba_track_indices is not None
@@ -1043,12 +1139,14 @@ class CudaGraphRunner:
             else None
         )
 
+        # 根据流索引选择对应的注意力后端
         if stream_idx is None:
             attn_backend = self.attn_backend
         else:
             assert self.enable_pdmux
             attn_backend = self.model_runner.decode_attn_backend_group[stream_idx]
 
+        # 构建捕获用的 ForwardBatch
         forward_batch = ForwardBatch(
             forward_mode=self.capture_forward_mode,
             batch_size=bs,
@@ -1083,6 +1181,7 @@ class CudaGraphRunner:
 
         # Trip the coordinator so the hisparse code path is captured into the
         # graph; backends read it from self.model_runner.hisparse_coordinator.
+        # 设置 hisparse 协调器的真实请求数，确保 hisparse 代码路径被捕获进图
         hisparse_coordinator = self.model_runner.hisparse_coordinator
         if hisparse_coordinator is not None:
             hisparse_coordinator.num_real_reqs.fill_(bs)
@@ -1093,12 +1192,14 @@ class CudaGraphRunner:
         # All setup hooks below read get_attn_backend() (TboForwardBatchPreparer,
         # DeepEP adapter, …) so they must run inside the same ForwardContext
         # that wraps the warmup/capture forward.
+        # 所有设置钩子需要在同一个 ForwardContext 中执行
         with forward_context(ForwardContext(attn_backend=attn_backend)):
             self.tbo_plugin.capture_one_batch_size(forward_batch, num_tokens=num_tokens)
 
             if lora_ids is not None:
                 self.model_runner.lora_manager.prepare_lora_batch(forward_batch)
 
+            # 初始化注意力后端的捕获元数据
             attn_backend.init_forward_metadata_capture_cuda_graph(
                 bs,
                 num_tokens,
@@ -1109,16 +1210,19 @@ class CudaGraphRunner:
                 forward_batch.spec_info,
             )
 
+            # 执行一次前向传播的函数（用于预热和图录制）
             def run_once():
                 # Without this, warmup-1 caches the translation; the capture
                 # run hits the cache, skips the gather, and replay reuses
                 # stale SWA locations.
+                # 混合 SWA 模式下需要失效 loc 缓存，避免陈旧的位置信息
                 if self.model_runner.is_hybrid_swa:
                     self.model_runner.token_to_kv_pool.invalidate_loc_cache()
 
                 forward_batch.dp_local_start_pos = forward_batch.dp_local_num_tokens = (
                     None
                 )
+                # 设置 DP 缓冲区长度和扩展标志
                 set_dp_buffer_len(
                     global_dp_buffer_len,
                     num_tokens,
@@ -1131,6 +1235,7 @@ class CudaGraphRunner:
                     self.pp_size > 1
                     and "pp_proxy_tensors" in inspect.signature(forward).parameters
                 ):
+                    # 流水线并行需要克隆代理张量，避免图内共享引用
                     kwargs["pp_proxy_tensors"] = PPProxyTensors(
                         {k: v.clone() for k, v in pp_proxy_tensors.tensors.items()}
                     )
@@ -1139,6 +1244,7 @@ class CudaGraphRunner:
                     and self.model_runner.is_draft_worker
                     and "input_embeds" in inspect.signature(forward).parameters
                 ):
+                    # DFlash 推测解码的 draft worker 需要 input_embeds
                     kwargs["input_embeds"] = buffers.input_embeds[:num_tokens]
 
                 logits_output_or_pp_proxy_tensors = forward(
@@ -1149,36 +1255,43 @@ class CudaGraphRunner:
                 )
                 return logits_output_or_pp_proxy_tensors
 
+            # 设置 DeepEP 的分发模式
             self.deepep_adapter.capture(is_extend_in_batch=False)
 
+            # 金丝雀管理器上下文（KV 一致性校验）
             canary_ctx = (
                 c.with_active_single_forward_manager(0)
                 if (c := self.model_runner.canary_manager) is not None
                 else contextlib.nullcontext()
             )
             with canary_ctx:
+                # 预热：执行两次前向传播以确保所有延迟初始化完成
                 for _ in range(2):
                     self.device_module.synchronize()
                     self.model_runner.tp_group.barrier()
                     run_once()
                     attn_backend.on_after_cuda_graph_warmup()
 
+                # 设置全局内存池，使后续图可复用同一内存池
                 if get_global_graph_memory_pool() is None:
-                    set_global_graph_memory_pool(self.device_module.graph_pool_handle())
+                    set_global_graph_memory_pool(self.device_module.graphpool_handle())
                 # Set graph pool id globally to be able to use symmetric memory
                 set_graph_pool_id(get_global_graph_memory_pool())
 
+                # 录制 CUDA Graph
                 out = self._capture_graph(
                     graph, get_global_graph_memory_pool(), stream, run_once
                 )
 
         return graph, out
 
+    # 检查是否需要重新捕获 CUDA Graph（当隐藏状态捕获模式发生变化时）
     def recapture_if_needed(self, forward_batch: ForwardBatch):
 
         # If the required capture_hidden_mode changes, we need to recapture the graph
 
         # These are the different factors that can influence the capture_hidden_mode
+        # 收集影响隐藏状态捕获模式的各个因素
         capture_hidden_mode_required_by_forward_batch = (
             forward_batch.capture_hidden_mode
         )
@@ -1195,6 +1308,7 @@ class CudaGraphRunner:
         # Determine the highest capture_hidden_mode required
         # (If we have FULL, we can emulate LAST or NULL)
         # (If we have LAST, we can emulate NULL)
+        # 确定所需的最高隐藏状态捕获模式（高等级可向下兼容低等级）
         required_capture_hidden_mode = max(
             capture_hidden_mode_required_by_forward_batch,
             capture_hidden_mode_required_by_spec_info,
@@ -1202,22 +1316,26 @@ class CudaGraphRunner:
         )
 
         # If the current hidden mode is no longer aligned with the required hidden mode, we need to set it to what is required and re-capture
+        # 当隐藏模式不匹配时，更新模式并重新捕获所有图
         if self.capture_hidden_mode != required_capture_hidden_mode:
             self.capture_hidden_mode = required_capture_hidden_mode
             self.capture()
 
+    # 重放前的准备工作：填充缓冲区、初始化注意力后端元数据
     def replay_prepare(
         self,
         forward_batch: ForwardBatch,
         pp_proxy_tensors: Optional[PPProxyTensors] = None,
     ):
         buffers = self.buffers
+        # 检查并执行重新捕获（如果隐藏模式变化）
         self.recapture_if_needed(forward_batch)
 
         raw_bs = forward_batch.batch_size
         raw_num_token = raw_bs * self.num_tokens_per_bs
 
         # Pad
+        # 找到最近的已捕获批量大小进行填充
         if self.require_mlp_tp_gather:
             max_num_tokens = max(forward_batch.global_num_tokens_cpu)
             max_batch_size = (
@@ -1229,9 +1347,11 @@ class CudaGraphRunner:
             )
             index = bisect.bisect_left(self.capture_bs, max_batch_size)
         else:
+            # 二分查找找到 >= raw_bs 的最小已捕获批量大小
             index = bisect.bisect_left(self.capture_bs, raw_bs)
         bs = self.capture_bs[index]
 
+        # 将前向批次数据填充到缓冲区
         buffers.populate_from_forward_batch(
             forward_batch=forward_batch,
             raw_bs=raw_bs,
@@ -1247,6 +1367,7 @@ class CudaGraphRunner:
             pp_proxy_tensors=pp_proxy_tensors,
         )
 
+        # DFlash 推测解码的 draft worker 需要拷贝 input_embeds
         if (
             self.model_runner.spec_algorithm.is_dflash()
             and self.model_runner.is_draft_worker
@@ -1264,6 +1385,7 @@ class CudaGraphRunner:
         if forward_batch.forward_mode.is_idle() and forward_batch.spec_info is not None:
             forward_batch.spec_info.custom_mask = buffers.custom_mask
         # Attention backend
+        # 根据是否启用 PDMux 选择注意力后端
         if self.enable_pdmux:
             stream_idx = get_current_stream_idx()
             attn_backend = self.model_runner.decode_attn_backend_group[stream_idx]
@@ -1272,11 +1394,13 @@ class CudaGraphRunner:
         # FIXME: implicit channel for backends (dsv4) that need forward_batch
         # in replay metadata prep. Should become a real param on the interface.
         attn_backend._replay_forward_batch = forward_batch
+        # 计算填充后的序列长度总和
         seq_lens_sum_arg = (
             None
             if forward_batch.seq_lens_sum is None
             else forward_batch.seq_lens_sum + (bs - raw_bs) * self.seq_len_fill_value
         )
+        # 初始化注意力后端的重放元数据
         attn_backend.init_forward_metadata_replay_cuda_graph(
             bs,
             buffers.req_pool_indices[:bs],
@@ -1290,25 +1414,31 @@ class CudaGraphRunner:
         attn_backend._replay_forward_batch = None
 
         # Store fields
+        # 保存当前重放的批量信息，供 replay 方法使用
         self.raw_bs = raw_bs
         self.raw_num_token = raw_num_token
         self.bs = bs
 
         if self.model_runner.hisparse_coordinator is not None:
+            # 设置 hisparse 协调器的真实请求数（不含填充）
             self.model_runner.hisparse_coordinator.num_real_reqs.fill_(raw_bs)
 
+    # 重放 CUDA Graph，执行一次前向传播
     def replay(
         self,
         forward_batch: ForwardBatch,
         skip_attn_backend_init: bool = False,
         pp_proxy_tensors: Optional[PPProxyTensors] = None,
     ) -> Union[LogitsProcessorOutput, PPProxyTensors]:
+        # 设置 DeepEP 的重放分发模式
         self.deepep_adapter.replay()
 
         if not skip_attn_backend_init:
+            # 完整的重放准备：填充缓冲区并初始化注意力后端
             self.replay_prepare(forward_batch, pp_proxy_tensors)
         else:
             # In speculative decoding, these two fields are still needed.
+            # 推测解码中跳过注意力后端初始化时，仍需拷贝 input_ids 和 positions
             self.buffers.input_ids[: self.raw_num_token].copy_(forward_batch.input_ids)
             self.buffers.positions[: self.raw_num_token].copy_(forward_batch.positions)
             if (
@@ -1321,10 +1451,12 @@ class CudaGraphRunner:
                 )
 
         # Replay
+        # 根据是否启用 PDMux 确定图键
         if self.enable_pdmux:
             graph_key = f"{get_current_stream_idx()}_{self.bs}"
         else:
             graph_key = self.bs
+        # 设备计时器包装（可选）
         ctx = (
             self.model_runner.device_timer.wrap(
                 metadata={
@@ -1335,10 +1467,12 @@ class CudaGraphRunner:
             else contextlib.nullcontext()
         )
         with ctx:
+            # 执行 CUDA Graph 重放
             self.graphs[graph_key].replay()
 
         output = self.output_buffers[graph_key]
 
+        # 裁剪输出到实际批量大小，去除填充部分
         if isinstance(output, LogitsProcessorOutput):
             if self.is_dllm:
                 next_token_logits = None
@@ -1366,9 +1500,11 @@ class CudaGraphRunner:
                 customized_info=output.customized_info,
             )
         else:
+            # 流水线并行模式返回代理张量
             assert isinstance(output, PPProxyTensors)
             return PPProxyTensors({k: v[: self.bs] for k, v in output.tensors.items()})
 
+    # 获取推测解码的验证输入信息（Eagle、DFlash、Ngram 等）
     def get_spec_info(self, num_tokens: int):
         spec_info = None
         if (
@@ -1386,6 +1522,7 @@ class CudaGraphRunner:
                     if self.model_runner.spec_algorithm.is_standalone()
                     else CaptureHiddenMode.FULL
                 )
+                # 创建 Eagle 验证输入，包含 draft token 和自定义掩码
                 spec_info = EagleVerifyInput(
                     draft_token=None,
                     custom_mask=self.buffers.custom_mask,
@@ -1412,6 +1549,7 @@ class CudaGraphRunner:
             _, build_custom_mask = resolve_dflash_verify_mask_policy(
                 self.model_runner.attn_backend
             )
+            # 创建 DFlash 验证输入
             spec_info = DFlashVerifyInput(
                 draft_token=None,
                 positions=None,
@@ -1431,6 +1569,7 @@ class CudaGraphRunner:
         elif self.model_runner.spec_algorithm.is_ngram():
             from sglang.srt.speculative.ngram_info import NgramVerifyInput
 
+            # 创建 Ngram 验证输入
             spec_info = NgramVerifyInput(
                 draft_token=None,
                 tree_mask=self.buffers.custom_mask,
@@ -1445,6 +1584,7 @@ class CudaGraphRunner:
         return spec_info
 
 
+# CUDA Graph 捕获失败时的错误提示信息
 CUDA_GRAPH_CAPTURE_FAILED_MSG = (
     "Possible solutions:\n"
     "1. set --mem-fraction-static to a smaller value (e.g., 0.8 or 0.7)\n"
@@ -1455,11 +1595,14 @@ CUDA_GRAPH_CAPTURE_FAILED_MSG = (
 )
 
 
+# DeepEP 模式下的 CUDA Graph 适配器，确保捕获和重放使用相同的分发模式
 class DeepEPCudaGraphRunnerAdapter:
     def __init__(self):
         # Record DeepEP mode used during capture to ensure replay consistency
+        # 记录捕获时使用的 DeepEP 模式，确保重放一致性
         self._captured_deepep_mode = None
 
+    # 捕获时设置 DeepEP 的分发模式
     def capture(self, is_extend_in_batch: bool):
         if not get_moe_a2a_backend().is_deepep():
             return
@@ -1468,6 +1611,7 @@ class DeepEPCudaGraphRunnerAdapter:
         )
         DeepEPBuffer.set_dispatch_mode(self._captured_deepep_mode)
 
+    # 重放时恢复捕获时的 DeepEP 分发模式
     def replay(self):
         if not get_moe_a2a_backend().is_deepep():
             return

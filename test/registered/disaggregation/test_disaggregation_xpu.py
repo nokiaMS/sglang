@@ -1,3 +1,4 @@
+# 文件名: test_disaggregation_xpu.py - XPU分离式部署测试
 """
 Disaggregation integration test for the NIXL transfer backend on Intel XPU.
 
@@ -41,6 +42,7 @@ class TestDisaggregationNixlBasic(PDDisaggregationServerBase):
     """Smoke-test the NIXL disaggregation backend with a small completion."""
 
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         super().setUpClass()
         cls.model = DEFAULT_SMALL_MODEL_NAME_FOR_TEST_QWEN
@@ -56,6 +58,7 @@ class TestDisaggregationNixlBasic(PDDisaggregationServerBase):
         )
         cls.launch_all()
 
+    # 测试completionreturnstext
     def test_completion_returns_text(self):
         """A simple completion must succeed and return non-empty generated text."""
         response = requests.post(
@@ -74,6 +77,7 @@ class TestDisaggregationNixlBasic(PDDisaggregationServerBase):
             "Generated text should not be empty",
         )
 
+    # 测试completioncorrectoutput
     def test_completion_correct_output(self):
         """Disaggregated NIXL output must produce the expected token for a deterministic prompt."""
         response = requests.post(

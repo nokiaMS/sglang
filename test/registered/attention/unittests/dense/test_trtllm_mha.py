@@ -1,3 +1,4 @@
+# 文件名: test_trtllm_mha.py - TensorRT-LLM MHA注意力测试
 import sys
 import unittest
 from pathlib import Path
@@ -143,6 +144,7 @@ class TestTRTLLMMHADenseAttentionBackendCorrectness(CustomTestCase):
         ),
     )
 
+    # 测试projecteddensedecodecases
     def test_projected_dense_decode_cases(self):
         for case in self.DECODE_CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -153,6 +155,7 @@ class TestTRTLLMMHADenseAttentionBackendCorrectness(CustomTestCase):
                     hidden_size=self.HIDDEN_SIZE,
                 )
 
+    # 测试runnermodecudagraphdecodecases
     def test_runner_mode_cuda_graph_decode_cases(self):
         for case in self.CUDA_GRAPH_DECODE_CASES:
             with self.subTest(case=case.name, backend=case.backend):
@@ -163,6 +166,7 @@ class TestTRTLLMMHADenseAttentionBackendCorrectness(CustomTestCase):
                     hidden_size=self.HIDDEN_SIZE,
                 )
 
+    # 测试runnermodeeagledraftcudagraphrunnercases
     def test_runner_mode_eagle_draft_cuda_graph_runner_cases(self):
         for case, topk, num_draft_tokens in self.EAGLE_DRAFT_RUNNER_CASES:
             with self.subTest(case=case.name, backend=case.backend, topk=topk):

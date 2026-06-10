@@ -1,74 +1,77 @@
-import asyncio
-import os
-import re
-import tempfile
-from typing import Dict, List, Optional, Tuple, Union
-from urllib.parse import unquote, urlparse
+# MossVL多模态处理器模块
+# 实现MossVL视觉语言模型的多模态数据处理
+# 支持图像和视频输入，包含MRoPE位置编码计算和CUDA IPC传输
+import asyncio  # 导入异步IO模块
+import os  # 导入操作系统模块
+import re  # 导入正则表达式模块
+import tempfile  # 导入临时文件模块
+from typing import Dict, List, Optional, Tuple, Union  # 导入类型提示
+from urllib.parse import unquote, urlparse  # 导入URL解析工具
 
-import pybase64
-import requests
-import torch
+import pybase64  # 导入base64编解码库
+import requests  # 导入HTTP请求库
+import torch  # 导入PyTorch
 
-from sglang.srt.managers.schedule_batch import (
+from sglang.srt.managers.schedule_batch import (  # 导入调度批次相关类
     Modality,
     MultimodalDataItem,
     MultimodalProcessorOutput,
 )
-from sglang.srt.models.moss_vl import MossVLForConditionalGeneration
-from sglang.srt.multimodal.processors.base_processor import (
+from sglang.srt.models.moss_vl import MossVLForConditionalGeneration  # 导入MossVL模型
+from sglang.srt.multimodal.processors.base_processor import (  # 导入CUDA IPC标志
     SGL_USE_CUDA_IPC,
 )
-from sglang.srt.multimodal.processors.base_processor import (
+from sglang.srt.multimodal.processors.base_processor import (  # 导入基础多模态处理器
     BaseMultimodalProcessor as SGLangBaseProcessor,
 )
-from sglang.srt.multimodal.processors.base_processor import (
+from sglang.srt.multimodal.processors.base_processor import (  # 导入多模态特殊令牌类
     MultimodalSpecialTokens,
 )
-from sglang.srt.utils.cuda_ipc_transport_utils import CudaIpcTensorTransportProxy
+from sglang.srt.utils.cuda_ipc_transport_utils import CudaIpcTensorTransportProxy  # 导入CUDA IPC传输代理
 
 
-class MossVLImageProcessor(SGLangBaseProcessor):
-    models = [MossVLForConditionalGeneration]
+class MossVLImageProcessor(SGLangBaseProcessor):  # MossVL图像处理器类，继承自SGLang基础处理器
+    models = [MossVLForConditionalGeneration]  # 关联的模型列表
 
-    def __init__(self, hf_config, server_args, _processor, *args, **kwargs):
-        super().__init__(hf_config, server_args, _processor, *args, **kwargs)
-        self.image_only_mm_tokens = MultimodalSpecialTokens(
+    def __init__(self, hf_config, server_args, _processor, *args, **kwargs):  # 初始化MossVL图像处理器
+        super().__init__(hf_config, server_args, _processor, *args, **kwargs)  # 调用父类初始化
+        self.image_only_mm_tokens = MultimodalSpecialTokens(  # 创建仅图像的多模态特殊令牌
             image_token="<|image|>",
             image_token_regex=re.compile(re.escape("<|image|>")),
-        ).build(_processor)
-        self.image_token_id = getattr(hf_config, "image_token_id", None)
+        ).build(_processor)  # 从配置获取图像令牌ID
+        self.image_token_id = getattr(hf_config, "image_token_id", None)  # 视觉序列填充对齐倍数
         self.vision_seq_pad_multiple = 1
 
-    def _build_mm_items(
+    def _build_mm_items(  # 构建多模态数据项
         self, processor_output: Dict, input_ids: torch.Tensor
     ) -> List[MultimodalDataItem]:
         pixel_values = processor_output.get("pixel_values")
-        if pixel_values is None:
-            return []
+        if pixel_values is None:  # 获取像素值
+            return []  # 如果没有像素值则返回空列表
 
-        item = MultimodalDataItem(
+        item = MultimodalDataItem(  # 创建多模态数据项
             modality=Modality.IMAGE,
             feature=pixel_values,
             model_specific_data={},
-        )
-
+        )  # 获取grid_thw
+  # 如果有grid_thw则设置到数据项
         grid_thw = processor_output.get("grid_thw")
         if grid_thw is not None:
-            item.set("grid_thw", grid_thw)
+            item.set("grid_thw", grid_thw)  # 返回数据项列表
 
-        return [item]
-
-    def _build_vision_token_info(
+        return [item]  # 构建视觉令牌信息
+  # 构建视觉令牌信息
+    def _build_vision_token_info(  # 如果没有grid_thw则返回空列表
         self,
-        grid_thw: Optional[torch.Tensor],
-        media_nums_per_sample: Optional[List[int]],
-    ) -> List[dict]:
+        grid_thw: Optional[torch.Tensor],  # 转为长张量
+        media_nums_per_sample: Optional[List[int]],  # 如果1维则增加维度
+    ) -> List[dict]:  # 如果为空则返回空列表
         if grid_thw is None:
-            return []
+            return []  # 计算每个媒体的令牌数
 
         grid_thw = torch.as_tensor(grid_thw, dtype=torch.long)
-        if grid_thw.ndim == 1:
-            grid_thw = grid_thw.unsqueeze(0)
+        if grid_thw.ndim == 1:  # 如果没有提供每样本媒体数
+            grid_thw = grid_thw.unsqueeze(0)  # 默认为grid_thw的数量
         if grid_thw.numel() == 0:
             return []
 
@@ -182,12 +185,12 @@ class MossVLImageProcessor(SGLangBaseProcessor):
 
             vision_token_info.append(sample_info)
 
-        return vision_token_info
-
-    def _compute_position_ids(
+        return vision_token_info  # 计算位置ID
+  # 判断哪些是图像令牌
+    def _compute_position_ids(  # 计算位置ID
         self,
         input_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,  # 判断哪些是常规令牌（非图像非填充）
     ) -> torch.Tensor:
         is_image_token = input_ids == self.image_token_id
         if attention_mask is not None:
@@ -199,9 +202,9 @@ class MossVLImageProcessor(SGLangBaseProcessor):
         cumulative_regular = is_regular_token.long().cumsum(dim=1)
         base_position_ids = cumulative_regular - is_regular_token.long()
         base_position_ids = base_position_ids.masked_fill(is_padding, 0)
-        return base_position_ids.unsqueeze(0).expand(3, -1, -1).clone()
+        return base_position_ids.unsqueeze(0).expand(3, -1, -1).clone()  # 计算视觉位置ID
 
-    def _compute_vision_position_ids(
+    def _compute_vision_position_ids(  # 计算视觉位置ID
         self,
         input_ids: torch.Tensor,
         position_ids: torch.Tensor,
@@ -348,9 +351,9 @@ class MossVLImageProcessor(SGLangBaseProcessor):
 
         max_pos = position_ids.max(dim=0).values.max(dim=-1).values
         rope_deltas = max_pos + 1 - input_ids.shape[1]
-        return vision_pos_ids, position_ids, rope_deltas
+        return vision_pos_ids, position_ids, rope_deltas  # 计算位置元数据
 
-    def _compute_position_metadata(
+    def _compute_position_metadata(  # 计算位置元数据
         self,
         input_ids: torch.Tensor,
         attention_mask: Optional[torch.Tensor],
@@ -392,9 +395,9 @@ class MossVLImageProcessor(SGLangBaseProcessor):
             rope_deltas.unsqueeze(1),
             vision_position_ids,
             vision_token_info,
-        )
+        )  # 计算可见帧计数
 
-    def _compute_visible_frame_counts(
+    def _compute_visible_frame_counts(  # 计算可见帧计数
         self, cross_attention_mask: Optional[Union[torch.Tensor, List]]
     ) -> Optional[torch.Tensor]:
         if cross_attention_mask is None:
@@ -404,23 +407,23 @@ class MossVLImageProcessor(SGLangBaseProcessor):
         # (batch_size, 1, text_len, num_frames), where True means masked.
         cross_attention_mask = torch.as_tensor(cross_attention_mask, dtype=torch.bool)
         visible_frame_counts = (~cross_attention_mask).sum(dim=-1, dtype=torch.int32)
-        return visible_frame_counts.reshape(-1)
+        return visible_frame_counts.reshape(-1)  # 解析文件URL
 
-    def _resolve_file_url(self, value: str) -> str:
+    def _resolve_file_url(self, value: str) -> str:  # 解析文件URL
         parsed = urlparse(value)
         path = unquote(parsed.path or "")
         if parsed.netloc and not path.startswith("/"):
             path = f"/{path}"
-        return path
+        return path  # 将视频字节写入临时文件
 
-    def _write_video_bytes_to_tempfile(
+    def _write_video_bytes_to_tempfile(  # 将视频字节写入临时文件
         self, video_bytes: bytes, suffix: str = ".mp4"
     ) -> str:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as f:
             f.write(video_bytes)
-            return f.name
+            return f.name  # 规范化视频字符串
 
-    def _normalize_video_string(self, value: str) -> Tuple[str, Optional[str]]:
+    def _normalize_video_string(self, value: str) -> Tuple[str, Optional[str]]:  # 规范化视频字符串
         if value.startswith("file://"):
             return self._resolve_file_url(value), None
 
@@ -455,9 +458,9 @@ class MossVLImageProcessor(SGLangBaseProcessor):
         temp_path = self._write_video_bytes_to_tempfile(
             pybase64.b64decode(value, validate=True)
         )
-        return temp_path, temp_path
+        return temp_path, temp_path  # 规范化单个视频输入
 
-    def _normalize_single_video_input(
+    def _normalize_single_video_input(  # 规范化单个视频输入
         self, video_input: Union[str, Dict]
     ) -> Tuple[Union[str, Dict], List[str]]:
         temp_paths: List[str] = []
@@ -474,9 +477,9 @@ class MossVLImageProcessor(SGLangBaseProcessor):
         normalized_path, temp_path = self._normalize_video_string(video_input)
         if temp_path is not None:
             temp_paths.append(temp_path)
-        return normalized_path, temp_paths
+        return normalized_path, temp_paths  # 异步规范化视频输入
 
-    async def _normalize_video_inputs_async(
+    async def _normalize_video_inputs_async(  # 异步规范化视频输入
         self, video_data: Optional[List[Union[str, Dict]]]
     ) -> Tuple[Optional[List[Union[str, Dict]]], List[str]]:
         if not video_data:
@@ -496,9 +499,9 @@ class MossVLImageProcessor(SGLangBaseProcessor):
         for normalized_input, created_paths in results:
             normalized_inputs.append(normalized_input)
             temp_paths.extend(created_paths)
-        return normalized_inputs, temp_paths
+        return normalized_inputs, temp_paths  # 异步处理多模态数据
 
-    async def process_mm_data_async(
+    async def process_mm_data_async(  # 异步处理多模态数据
         self,
         image_data: List[Union[str, bytes, Dict]],
         input_text,

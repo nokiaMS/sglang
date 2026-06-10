@@ -1,3 +1,4 @@
+# 文件名: test_flashinfer_trtllm_gen_attn_backend.py - FlashInfer TRT-LLM生成注意力后端测试
 import os
 import unittest
 from types import SimpleNamespace
@@ -17,6 +18,7 @@ register_cuda_ci(est_time=300, suite="nightly-4-gpu-b200", nightly=True)
 
 class TestFlashinferTrtllmGenAttnBackend(CustomTestCase):
     @classmethod
+    # 执行setUpClass
     def setUpClass(cls):
         cls.model = "Qwen/Qwen3-Next-80B-A3B-Instruct"
         cls.base_url = DEFAULT_URL_FOR_TEST
@@ -24,7 +26,7 @@ class TestFlashinferTrtllmGenAttnBackend(CustomTestCase):
             cls.model,
             cls.base_url,
             timeout=DEFAULT_TIMEOUT_FOR_SERVER_LAUNCH,
-            env={**os.environ, "SGLANG_ENABLE_JIT_DEEPGEMM": "False"},
+            env={**os.environ, "SGLANG_ENABLE_JIT_DEEPGEMM": "False"},  # 访问环境变量
             other_args=[
                 "--attention-backend",
                 "trtllm_mha",
@@ -43,9 +45,11 @@ class TestFlashinferTrtllmGenAttnBackend(CustomTestCase):
         )
 
     @classmethod
+    # 执行tearDownClass
     def tearDownClass(cls):
         kill_process_tree(cls.process.pid)
 
+    # 测试gsm8k
     def test_gsm8k(self):
         args = SimpleNamespace(
             base_url=self.base_url,
