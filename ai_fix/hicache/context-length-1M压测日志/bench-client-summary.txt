@@ -1,0 +1,54 @@
+============ Serving Benchmark Result ============
+Backend:                                 sglang
+Traffic request rate:                    inf
+Max request concurrency:                 1
+Successful requests:                     1
+Benchmark duration (s):                  6.24
+Total input tokens:                      50000
+Total input text tokens:                 50000
+Total generated tokens:                  200
+Total generated tokens (retokenized):    200
+Request throughput (req/s):              0.16
+Input token throughput (tok/s):          8009.12
+Output token throughput (tok/s):         32.04
+Peak output token throughput (tok/s):    35.00
+Peak concurrent requests:                1
+Total token throughput (tok/s):          8041.16
+Concurrency:                             1.00
+----------------End-to-End Latency----------------
+Mean E2E Latency (ms):                   6215.81
+Median E2E Latency (ms):                 6215.81
+P90 E2E Latency (ms):                    6215.81
+P99 E2E Latency (ms):                    6215.81
+---------------Time to First Token----------------
+Mean TTFT (ms):                          417.90
+Median TTFT (ms):                        417.90
+P99 TTFT (ms):                           417.90
+-----Time per Output Token (excl. 1st token)------
+Mean TPOT (ms):                          29.14
+Median TPOT (ms):                        29.14
+P99 TPOT (ms):                           29.14
+---------------Inter-Token Latency----------------
+Mean ITL (ms):                           29.14
+Median ITL (ms):                         28.93
+P95 ITL (ms):                            29.77
+P99 ITL (ms):                            32.99
+Max ITL (ms):                            33.52
+==================================================
+
+压测命令:
+python3 -m sglang.bench_serving \
+  --backend sglang \
+  --host 127.0.0.1 --port 8080 \
+  --model /userdata/dsv4/DeepSeek-V4-Pro \
+  --dataset-name random-ids \
+  --random-input-len 50000 \
+  --random-output-len 200 \
+  --num-prompts 1 \
+  --max-concurrency 1 \
+  --seed 123 \
+  --random-range-ratio 1.0 \
+  --output-details --output-file /tmp/bench_1m.jsonl
+
+服务启动参数:
+--context-length 1048576 --chunked-prefill-size 2048
