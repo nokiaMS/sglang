@@ -499,143 +499,251 @@ class SchedulerMetricsReporter:
         can_run_cuda_graph: bool,
         dp_cooperation_info: Optional[DPCooperationInfo] = None,
     ):
+        """记录并上报 prefill 阶段的调度与性能指标。
+
+        该函数在每个 prefill 批次完成后被调用，负责计算输入吞吐、
+        组装日志文本、更新调度器统计快照，并把实时 token、KV 缓存、
+        估算性能、PD 分离队列、LoRA、HiCache 等指标提交给 metrics collector。
+
+        参数:
+            batch: 当前 prefill 批次；为空时使用调度器全局 forward 计数。
+            prefill_stats: 当前批次收集到的 prefill 统计数据。
+            can_run_cuda_graph: 当前批次是否可以使用 CUDA graph。
+            dp_cooperation_info: 数据并行协作信息，用于跨 DP 统计 token 指标。
+        """
+        # 如果当前 rank 不负责打印统计日志，并且调度器指标也未启用，则无需继续处理。
         if (
+            # 判断当前进程是否不是统计日志 rank。
             not self.is_stats_logging_rank
+            # 同时判断当前调度器指标采集是否未启用。
             and not self.current_scheduler_metrics_enabled
         ):
+            # 没有日志或指标需求时直接返回，避免额外统计开销。
             return
 
+        # 获取当前高精度时间，用于计算距离上次 prefill 统计的间隔。
         now = time.perf_counter()
+        # 计算本次和上次 prefill 统计之间的耗时。
         gap_latency = now - self.last_prefill_stats_tic
+        # 更新上次 prefill 统计时间戳，供下一次吞吐计算使用。
         self.last_prefill_stats_tic = now
+        # 根据本批输入 token 数和时间间隔计算最近一次输入吞吐。
         self.last_input_throughput = (
+            # 时间间隔为正时计算 token/s，否则防止除零并记为 0。
             prefill_stats.log_input_tokens / gap_latency if gap_latency > 0 else 0.0
         )
 
+        # 从调度器的内存池观察器读取当前内存池使用情况。
         pool_stats = self.scheduler.pool_stats_observer.get_pool_stats()
+        # 生成 prefill 日志中的内存池使用片段，并追加统一的逗号分隔符。
         token_usage_msg = ", ".join(pool_stats.get_prefill_usage_msg_parts()) + ", "
 
+        # 将当前批次的新 token 比例写入统计快照。
         self.stats.new_token_ratio = prefill_stats.new_token_ratio
+        # 选择日志中展示的 forward 迭代编号。
         batch_iter = (
+            # 如果 batch 中已有 forward_iter，则优先使用批次自身的迭代编号。
             batch.forward_iter
+            # 只有 batch 存在且 forward_iter 不为空时才使用上面的值。
             if batch is not None and batch.forward_iter is not None
+            # 否则退回到调度器维护的全局 forward 计数。
             else self.scheduler.forward_ct
         )
+        # 根据开关决定是否在日志中追加 forward 迭代编号。
         iter_msg = f" [{batch_iter}]" if LOG_FORWARD_ITERS else ""
 
+        # 组装 prefill 批次的基础日志信息。
         msg = (
+            # 写入 prefill 批次前缀和可选的迭代编号。
             f"Prefill batch{iter_msg}, "
+            # 写入本批新增请求数。
             f"#new-seq: {prefill_stats.num_new_seqs}, "
+            # 写入本批需要实际 prefill 计算的输入 token 数。
             f"#new-token: {prefill_stats.log_input_tokens}, "
+            # 写入本批命中缓存的 token 数。
             f"#cached-token: {prefill_stats.log_hit_tokens}, "
+            # 写入内存池使用信息。
             f"{token_usage_msg}"
+            # 写入当前运行中请求数。
             f"#running-req: {prefill_stats.num_running_reqs.total}, "
+            # 写入等待队列中的请求数。
             f"#queue-req: {len(self.scheduler.waiting_queue)}, "
+            # 写入仍待处理的 token 数。
             f"#pending-token: {prefill_stats.num_pending_tokens}, "
         )
 
+        # 如果当前调度器运行在 PD 分离的 prefill 模式，则追加 prefill 侧队列状态。
         if self.scheduler.disaggregation_mode == DisaggregationMode.PREFILL:
+            # 追加 bootstrap 队列中的请求数。
             msg += f"#bootstrap-req: {len(self.scheduler.disagg_prefill_bootstrap_queue.queue)}, "
+            # 追加正在 prefill 传输或处理中的请求数。
             msg += (
+                # 写入 inflight 队列长度。
                 f"#inflight-req: {len(self.scheduler.disagg_prefill_inflight_queue)}, "
             )
 
+        # 如果语言模型侧通过 zmq 接收 encoder 结果，则追加等待图像请求数。
         if (
+            # 判断服务是否处于 language-only 模式。
             self.scheduler.server_args.language_only
+            # 判断 encoder 传输后端是否为 zmq_to_scheduler。
             and self.scheduler.server_args.encoder_transfer_backend
             == "zmq_to_scheduler"
         ):
+            # 追加多模态接收器等待列表中的图像请求数。
             msg += (
+                # 写入等待图像请求数量。
                 f"waiting-image-req: {len(self.scheduler.mm_receiver.waiting_list)}, "
             )
 
+        # 追加当前图后端是否可以运行 CUDA graph 的状态。
         msg += f"{self._graph_backend_label}: {can_run_cuda_graph}, "
+        # 追加最近一次 prefill 输入吞吐。
         msg += f"input throughput (token/s): {self.last_input_throughput:.2f}"
 
+        # 如果启用了 MFU 指标且时间间隔有效，则估算 prefill 每 GPU TFLOPS。
         if self.enable_mfu_metrics and gap_latency > 0:
+            # 根据输入 token 数估算本批 prefill 的浮点运算量。
             flops, _, _ = self._estimate_prefill_perf(prefill_stats.log_input_tokens)
+            # 将 FLOPS 除以耗时并换算为 TFLOPS/s。
             tflops_per_s = flops / gap_latency / 1e12
+            # 把估算的每 GPU prefill TFLOPS/s 写入日志。
             msg += f", est. prefill TFLOPS/s (per GPU): {tflops_per_s:.2f}"
 
+        # 如果启用了设备计时器，则在日志中追加 forward occupancy。
         if ENABLE_METRICS_DEVICE_TIMER:
+            # 追加当前 forward kernel 占用率。
             msg += f", fwd occupancy: {self.fwd_occupancy:.2f}%"
 
+        # 只有统计日志 rank 才负责打印 prefill 日志，避免多进程重复输出。
         if self.is_stats_logging_rank:
+            # 输出组装好的 prefill 统计日志。
             logger.info(msg)
+        # 如果调度器指标采集启用，则继续更新 metrics collector 和统计快照。
         if self.current_scheduler_metrics_enabled:
+            # 记录本批是否通过 CUDA graph 路径执行。
             self.metrics_collector.increment_prefill_cuda_graph_pass(
+                # 将布尔状态作为增量值传给指标采集器。
                 value=can_run_cuda_graph
             )
+            # 增加实时 token 计数，包括实际 prefill token 和缓存命中 token。
             self.metrics_collector.increment_realtime_tokens(
+                # 写入本批实际计算的 prefill token 数。
                 prefill_compute_tokens=prefill_stats.log_input_tokens,
+                # 写入本批缓存命中的 prefill token 数。
                 prefill_cache_tokens=prefill_stats.log_hit_tokens,
+                # 传递 DP 协作信息，用于数据并行场景下的指标归并。
                 dp_cooperation_info=dp_cooperation_info,
             )
+            # 如果启用了 MFU 指标，则把估算的计算量和访存量上报给采集器。
             if self.enable_mfu_metrics:
+                # 估算本批 prefill 的 FLOPs、读字节数和写字节数。
                 flops, read_bytes, write_bytes = self._estimate_prefill_perf(
+                    # 使用本批实际 prefill token 数作为估算输入。
                     prefill_stats.log_input_tokens
                 )
+                # 上报每 GPU 估算性能指标。
                 self.metrics_collector.increment_estimated_perf(
+                    # 上报每 GPU 估算 FLOPs。
                     num_flops_per_gpu=flops,
+                    # 上报每 GPU 估算读字节数。
                     num_read_bytes_per_gpu=read_bytes,
+                    # 上报每 GPU 估算写字节数。
                     num_write_bytes_per_gpu=write_bytes,
                 )
 
+            # 读取是否启用了优先级调度，用于队列计数按优先级拆分。
             priority_enabled = self.scheduler.enable_priority_scheduling
+            # 计算有效输入 token，排除被重新处理的输入 token。
             effective_input_tokens = (
+                # 从日志输入 token 中扣除重复处理的输入 token。
                 prefill_stats.log_input_tokens
                 - prefill_stats.reprocessed_log_input_tokens
             )
+            # 计算有效缓存命中 token，排除被重新处理的缓存命中 token。
             effective_hit_tokens = (
+                # 从日志缓存命中 token 中扣除重复处理的缓存命中 token。
                 prefill_stats.log_hit_tokens - prefill_stats.reprocessed_log_hit_tokens
             )
+            # 计算用于缓存命中率分母的有效 token 总数。
             total_tokens = effective_input_tokens + effective_hit_tokens
+            # 计算缓存命中率；没有有效 token 时记为 0。
             cache_hit_rate = (
+                # 分母为正时使用有效命中 token 除以有效总 token。
                 effective_hit_tokens / total_tokens if total_tokens > 0 else 0.0
             )
 
             # Basics
+            # 更新运行中请求数统计。
             self.stats.num_running_reqs = prefill_stats.num_running_reqs
+            # 根据等待队列和优先级开关更新排队请求数统计。
             self.stats.num_queue_reqs = QueueCount.from_reqs(
+                # 使用调度器当前等待队列。
                 self.scheduler.waiting_queue, priority_enabled
             )
+            # 更新 grammar 队列中的请求数量。
             self.stats.num_grammar_queue_reqs = len(self.scheduler.grammar_manager)
+            # 更新缓存命中率统计。
             self.stats.cache_hit_rate = cache_hit_rate
 
             # Memory pool usage ratios / Absolute token counts
+            # 将内存池使用率和绝对 token 数写入调度器统计快照。
             pool_stats.update_scheduler_stats(self.stats)
 
             # Retract
+            # 上报本周期发生的 retract 请求数。
             self.stats.num_retracted_reqs = self.num_retracted_reqs
+            # 上报本周期发生的 paused 请求数。
             self.stats.num_paused_reqs = self.num_paused_reqs
+            # 清零本周期 retract 和 paused 计数，避免下次重复上报。
             self.num_retracted_reqs = self.num_paused_reqs = 0
 
             # PD disaggregation
+            # 在 prefill 分离模式下，记录 prefill 侧相关队列和 KV 传输指标。
             if self.scheduler.disaggregation_mode == DisaggregationMode.PREFILL:
+                # 统计 prefill bootstrap 队列中的请求数。
                 self.stats.num_prefill_bootstrap_queue_reqs = QueueCount.from_reqs(
+                    # 使用 prefill bootstrap 队列中的请求。
                     self.scheduler.disagg_prefill_bootstrap_queue.queue,
+                    # 按是否启用优先级调度决定 QueueCount 的统计方式。
                     priority_enabled,
                 )
+                # 统计 prefill inflight 队列中的请求数。
                 self.stats.num_prefill_inflight_queue_reqs = QueueCount.from_reqs(
+                    # 使用 prefill inflight 队列中的请求。
                     self.scheduler.disagg_prefill_inflight_queue, priority_enabled
                 )
+                # 更新 KV 传输速度统计。
                 self.stats.kv_transfer_speed_gb_s = self.kv_transfer_speed_gb_s
+                # 更新 KV 传输延迟统计。
                 self.stats.kv_transfer_latency_ms = self.kv_transfer_latency_ms
+            # 在 decode 分离模式下，记录 decode 侧预分配和传输队列指标。
             elif self.scheduler.disaggregation_mode == DisaggregationMode.DECODE:
+                # 统计 decode prealloc 队列中的请求数。
                 self.stats.num_decode_prealloc_queue_reqs = QueueCount.from_reqs(
+                    # 使用 decode prealloc 队列中的请求。
                     self.scheduler.disagg_decode_prealloc_queue.queue, priority_enabled
                 )
+                # 统计 decode transfer 队列中的请求数。
                 self.stats.num_decode_transfer_queue_reqs = QueueCount.from_reqs(
+                    # 使用 decode transfer 队列中的请求。
                     self.scheduler.disagg_decode_transfer_queue.queue, priority_enabled
                 )
 
             # Utilization / LoRA / HiCache
+            # 计算并更新调度器利用率相关统计。
             self._calculate_utilization()
+            # 写入 forward occupancy 统计。
             self.stats.fwd_occupancy = self.fwd_occupancy
+            # 更新 LoRA 相关指标。
             self._update_lora_metrics()
+            # 记录 HiCache 相关统计。
             self._log_hicache_stats()
+            # 将完整统计快照提交给 metrics collector。
             self.metrics_collector.log_stats(self.stats)
+            # 发布 KV 指标事件。
             self.scheduler.kv_events_publisher.emit_kv_metrics()
+        # 无论是否启用 metrics collector，都发布已积累的 KV 事件。
         self.scheduler.kv_events_publisher.publish_kv_events()
 
     def report_decode_stats(

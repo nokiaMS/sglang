@@ -943,22 +943,33 @@ class OpenAIServingChat(OpenAIServingBase):
         request: ChatCompletionRequest,
         raw_request: Request,
     ) -> Union[StreamingResponse, ErrorResponse]:
-        """Handle streaming chat completion request"""
+        """处理 OpenAI Chat Completions 的流式请求。
+
+        这里不直接生成每一个 SSE 数据块，而是把内部异步生成器
+        `_generate_chat_stream` 包装成 FastAPI 的 `StreamingResponse`。
+        预取第一块数据是为了在 HTTP 200 发出前提前触发底层校验，
+        这样上下文长度超限等错误仍然可以返回普通 JSON 错误响应。
+        """
+        # 创建真正负责生成 OpenAI SSE 数据块的异步生成器。
         generator = self._generate_chat_stream(adapted_request, request, raw_request)
 
-        # Kick-start the generator to trigger validation before HTTP 200 is sent.
-        # If validation fails (e.g., context length exceeded), we can still return
-        # a proper HTTP 400 error response instead of streaming it as SSE payload.
+        # 先启动生成器并预取第一块数据，在 StreamingResponse 发送 HTTP 200 前
+        # 触发 tokenizer/scheduler 侧的请求校验。
         try:
             first_chunk = await generator.__anext__()
         except ValueError as e:
+            # 预取阶段还没有开始 SSE 响应，因此可以返回标准 OpenAI 错误 JSON。
             return self.create_error_response(str(e))
 
         async def prepend_first_chunk():
+            # first_chunk 已经被上面的预取消费掉，这里先补回给客户端。
             yield first_chunk
+            # 后续数据继续从原生成器透传。
             async for chunk in generator:
                 yield chunk
 
+        # 返回 text/event-stream 响应；background abort task 用于在客户端断连
+        # 或响应结束后通知 runtime 清理对应请求。
         return StreamingResponse(
             prepend_first_chunk(),
             media_type="text/event-stream",
@@ -971,19 +982,26 @@ class OpenAIServingChat(OpenAIServingBase):
         request: ChatCompletionRequest,
         raw_request: Request,
     ) -> AsyncGenerator[str, None]:
-        """Generate streaming chat completion response"""
-        # Parsers for tool calls and reasoning
+        """生成 OpenAI Chat Completions 兼容的 SSE 流式响应。
+
+        该函数从 `TokenizerManager.generate_request()` 持续接收内部 runtime
+        输出，将每个输出块转换成 OpenAI Chat Completions 的 `data: ...\n\n`
+        SSE 数据块。它同时负责维护多 choice 的流式状态、logprobs 增量位置、
+        reasoning/tool call 解析状态、usage 统计，以及结束时的 finish_reason、
+        sglext、usage 和 `[DONE]` 尾包。
+        """
+        # 每个 choice 各自维护 tool call 与 reasoning 的增量解析器状态。
         parser_dict = {}
         reasoning_parser_dict = {}
 
-        # State tracking for streaming
+        # 流式状态：支持 n > 1 时不同 choice 独立推进。
         is_firsts = {}
         stream_offsets = {}
         n_prev_tokens = {}
         has_tool_calls = {}
         finish_reasons = {}
 
-        # Usage tracking
+        # usage 与扩展信息统计：结束时用于生成 usage/sglext 尾包。
         prompt_tokens = {}
         reasoning_tokens = {}
         completion_tokens = {}
@@ -995,18 +1013,23 @@ class OpenAIServingChat(OpenAIServingBase):
         audio_tokens = {}
         video_tokens = {}
 
+        # 标记 SSE 是否已经开始；还没开始时的 ValueError 可以交给外层返回 HTTP 错误。
         stream_started = False
         try:
+            # 根据 stream_options 和服务端默认配置决定是否输出 usage。
             include_usage, continuous_usage_stats = should_include_usage(
                 request.stream_options,
                 self.tokenizer_manager.server_args.stream_response_default_include_usage,
             )
 
+            # 从 TokenizerManager 拉取 runtime 增量输出；底层会继续经过 Scheduler/Detokenizer。
             async for content in self.tokenizer_manager.generate_request(
                 adapted_request, raw_request
             ):
+                # index 对应 OpenAI choices 的下标，多路采样时每个 choice 独立返回。
                 index = content.get("index", 0)
 
+                # 从 meta_info 更新该 choice 的 token 统计和可选扩展信息。
                 prompt_tokens[index] = content["meta_info"].get("prompt_tokens", 0)
                 completion_tokens[index] = content["meta_info"].get(
                     "completion_tokens", 0
@@ -1024,7 +1047,7 @@ class OpenAIServingChat(OpenAIServingBase):
                 audio_tokens[index] = content["meta_info"].get("audio_tokens", 0)
                 video_tokens[index] = content["meta_info"].get("video_tokens", 0)
 
-                # Handle logprobs
+                # 处理流式 logprobs：只输出相比上一块新增的 token logprobs。
                 choice_logprobs = None
                 if request.logprobs:
                     n_prev_token = n_prev_tokens.get(index, 0)
@@ -1040,14 +1063,12 @@ class OpenAIServingChat(OpenAIServingBase):
                 finish_reason = content["meta_info"].get("finish_reason", None)
                 finish_reason_type = finish_reason["type"] if finish_reason else None
 
-                # Track finish_reason for each index
+                # 记录每个 choice 的 finish_reason，后续统一发送 finish_reason 尾包。
                 if finish_reason_type:
-                    # Abort with an explicit error status_code is a system error
-                    # (timeout, OOM, validation): emit a streaming error chunk.
-                    # A graceful abort (no status_code, e.g. user-initiated via
-                    # /abort_request or session lifecycle cleanup) falls through
-                    # to the normal chunk path, matching the non-stream behavior
-                    # in tokenizer_manager._handle_abort_finish_reason.
+                    # 带 status_code 的 abort 表示系统级错误，例如超时、OOM 或校验失败。
+                    # 这类错误需要作为 SSE error chunk 发给客户端并终止流。
+                    # 没有 status_code 的正常 abort 会继续走普通 chunk 路径，
+                    # 与 tokenizer_manager._handle_abort_finish_reason 的非流式行为保持一致。
                     if finish_reason_type == "abort" and isinstance(
                         finish_reason.get("status_code"), HTTPStatus
                     ):
@@ -1061,7 +1082,7 @@ class OpenAIServingChat(OpenAIServingBase):
                         break
                     finish_reasons[index] = finish_reason
 
-                # First chunk with role
+                # 每个 choice 的第一块先发送 assistant role，这是 OpenAI 流式协议的惯例。
                 if is_firsts.get(index, True):
                     is_firsts[index] = False
                     yield build_sse_content(
@@ -1074,7 +1095,7 @@ class OpenAIServingChat(OpenAIServingBase):
                     )
                     stream_started = True
 
-                # Generate streaming content (override in subclass for custom behavior)
+                # 将内部文本增量转换成 OpenAI delta；这里会处理普通文本、reasoning 和 tool calls。
                 async for chunk in self._generate_stream_content(
                     content=content,
                     index=index,
@@ -1092,11 +1113,11 @@ class OpenAIServingChat(OpenAIServingBase):
                 ):
                     yield chunk
 
-            # Send finish_reason chunks for each index that completed
+            # runtime 输出结束后，为每个完成的 choice 发送 finish_reason 尾包。
             for idx, finish_reason_data in finish_reasons.items():
                 finish_reason_type = finish_reason_data["type"]
 
-                # Change finish_reason to "tool_calls" if we had tool calls and stopped naturally
+                # 如果模型自然停止但过程中产生了 tool call，OpenAI 语义要求 finish_reason 为 tool_calls。
                 final_finish_reason = finish_reason_type
                 if has_tool_calls.get(idx, False) and finish_reason_type == "stop":
                     final_finish_reason = "tool_calls"
@@ -1111,7 +1132,7 @@ class OpenAIServingChat(OpenAIServingBase):
                     matched_stop=matched_stop,
                 )
 
-            # Send hidden states if requested
+            # 如果请求了 hidden states，额外发送最后一个 token 的 hidden states。
             if request.return_hidden_states and hidden_states:
                 for index, choice_hidden_states in hidden_states.items():
                     if choice_hidden_states:
@@ -1129,13 +1150,14 @@ class OpenAIServingChat(OpenAIServingBase):
                                     delta=DeltaMessage(
                                         hidden_states=last_token_hidden_states
                                     ),
-                                    finish_reason=None,  # Hidden states don't need finish_reason
+                                    finish_reason=None,  # hidden states chunk 不携带 finish_reason。
                                 )
                             ],
                             model=request.model,
                         )
                         yield f"data: {hidden_states_chunk.model_dump_json()}\n\n"
 
+            # sglext 是 SGLang 扩展字段，放在 response 级别而不是 choice 级别。
             sglext_routed = None
             if request.return_routed_experts and routed_experts:
                 sglext_routed = next(
@@ -1154,7 +1176,7 @@ class OpenAIServingChat(OpenAIServingBase):
                 sglext_chunk = ChatCompletionStreamResponse(
                     id=content["meta_info"]["id"],
                     created=int(time.time()),
-                    choices=[],  # sglext is at response level
+                    choices=[],  # sglext 是 response 级字段，因此 choices 为空。
                     model=request.model,
                     sglext=SglExt(
                         routed_experts=sglext_routed,
@@ -1163,10 +1185,9 @@ class OpenAIServingChat(OpenAIServingBase):
                 )
                 yield f"data: {sglext_chunk.model_dump_json()}\n\n"
 
-            # Additional usage chunk
+            # 如果需要 include_usage，按 OpenAI 兼容格式额外发送一个 usage chunk。
             if include_usage:
-                # Multimodal tokens are per-prompt (input side), so aggregate
-                # once per prompt (first choice), matching prompt/cached semantics.
+                # 多模态 token 属于输入侧，每个 prompt 只统计一次；n > 1 时只聚合第一个 choice。
                 total_image_tokens = sum(
                     tok for idx, tok in image_tokens.items() if idx % request.n == 0
                 )
@@ -1190,7 +1211,7 @@ class OpenAIServingChat(OpenAIServingBase):
                 usage_chunk = ChatCompletionStreamResponse(
                     id=content["meta_info"]["id"],
                     created=int(time.time()),
-                    choices=[],  # Empty choices array as per OpenAI spec
+                    choices=[],  # OpenAI 约定 usage chunk 的 choices 为空。
                     model=request.model,
                     usage=usage,
                 )
@@ -1198,10 +1219,13 @@ class OpenAIServingChat(OpenAIServingBase):
 
         except ValueError as e:
             if not stream_started:
+                # SSE 还没有开始时，把错误交回外层，让外层返回普通 HTTP 错误响应。
                 raise
+            # SSE 已经开始后只能继续以 data: error 的形式返回错误。
             error = self.create_streaming_error_response(str(e))
             yield f"data: {error}\n\n"
 
+        # OpenAI 流式响应结束标记。
         yield "data: [DONE]\n\n"
 
     async def _handle_non_streaming_request(

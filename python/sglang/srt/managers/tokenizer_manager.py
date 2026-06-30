@@ -577,12 +577,22 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
         obj: Union[GenerateReqInput, EmbeddingReqInput],
         request: Optional[fastapi.Request] = None,
     ):
+        """处理一次生成/embedding 请求，并以异步生成器形式返回结果。
+
+        这是 HTTP API、OpenAI serving 和 Python Engine API 进入 runtime 的统一入口。
+        函数会完成请求规范化、ReqState 注册、LoRA/暂停/权重更新并发控制、
+        tokenization、多模态预处理、发送到 Scheduler，以及等待 Scheduler/
+        Detokenizer 通过后台接收循环回填结果。流式请求会多次 yield chunk，
+        非流式请求通常只 yield 一次最终结果。
+        """
+        # 确保后台接收循环已经启动，用于从 tokenizer_ipc_name 接收返回结果。
         self.auto_create_handle_loop()
 
-        # Normalize the request
+        # 规范化单请求/批请求参数，并补齐默认 priority。
         obj.normalize_batch_and_arguments()
         self._set_default_priority(obj)
 
+        # 校验显式指定的 DP 路由 rank，避免请求被路由到不存在的 DP worker。
         if isinstance(obj, GenerateReqInput) and obj.routed_dp_rank is not None:
             dp_size = self.server_args.dp_size
             if dp_size <= 1 and obj.routed_dp_rank == 0:
@@ -594,22 +604,31 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
                     f"routed_dp_rank={obj.routed_dp_rank} out of range [0, {dp_size})"
                 )
 
+        # 多 tokenizer worker 模式下，需要把当前 HTTP worker 的 IPC 信息附到请求上，
+        # 这样 Detokenizer/Scheduler 返回时可以路由回正确的 worker。
         if self.server_args.tokenizer_worker_num > 1:
             self._attach_multi_http_worker_info(obj)
+
+        # 为每个 rid 建立 ReqState；后续 _handle_batch_output 会按 rid 回填结果并唤醒等待方。
         self._init_req_state(obj, request)
+
+        # encoder-only / EPD 场景下，多模态输入可能需要先派发给 encoder 侧处理。
         if self.server_args.language_only:
             self._handle_epd_disaggregation_encode_request(obj)
 
-        # Log the request
+        # 记录请求日志；这里仍保留原始 tokenizer 以便日志中展示文本/token 信息。
         self.request_logger.log_received_request(obj, self.tokenizer, request)
 
+        # 如果服务处于 pause 状态，请求在这里等待 resume。
         async with self.is_pause_cond:
             await self.is_pause_cond.wait_for(lambda: not self.is_pause)
 
+        # 与在线权重更新互斥：推理请求持有 reader lock，权重更新持有 writer lock。
         async with self.model_update_lock.reader_lock:
+            # 校验并解析 LoRA 请求，必要时触发动态加载或 registry acquire。
             await self._validate_and_resolve_lora(obj)
 
-            # Tokenize the request and send it to the scheduler
+            # 单请求：tokenize 后直接发送给 Scheduler，然后等待对应 rid 的返回。
             if obj.is_single:
                 tokenized_obj = await self._tokenize_one_request(obj)
                 state = self.rid_to_state[obj.rid]
@@ -619,6 +638,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
                 async for response in self._wait_one_response(obj, request):
                     yield response
             else:
+                # 批请求：内部会选择批量 tokenize 或逐条 tokenize，并聚合/流式返回各子请求结果。
                 async for response in self._handle_batch_request(obj, request):
                     yield response
 
@@ -686,52 +706,35 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
         Tuple[List[int], Optional[List[int]]],
         Tuple[List[List[int]], Optional[List[List[int]]]],
     ]:
-        """
-        Tokenize text(s) using the appropriate tokenizer strategy.
+        """对文本输入执行 tokenize，并按原始输入形态返回 token ids。
 
-        This method handles multiple input formats and chooses between async dynamic
-        batch tokenizer (for single texts only) and regular tokenizer.
+        该函数统一处理普通文本、文本 batch，以及 cross-encoder 的句对输入。
+        单条普通文本可以走 async dynamic batch tokenizer；其他情况使用常规
+        tokenizer。返回值会通过 `_extract_tokenizer_results()` 还原成单条或
+        batch 形态。只有 cross-encoder 请求会返回 `token_type_ids`。
 
         Args:
-            texts: Text input in various formats:
-
-                   Regular cases:
-                   - Single string: "How are you?"
-                   - Batch of strings: ["Hello", "World", "How are you?"]
-
-                   Cross-encoder cases (sentence pairs for similarity/ranking):
-                   - Single pair: [["query text", "document text"]]
-                   - Multiple pairs: [["q1", "d1"], ["q2", "d2"], ["q3", "d3"]]
-
-            is_cross_encoder: Whether to return token_type_ids for cross-encoder models.
-                             Enables proper handling of sentence pairs with segment IDs.
+            texts: 文本输入，可以是单个字符串、字符串列表，或 cross-encoder 句对列表。
+            is_cross_encoder: 是否按 cross-encoder 句对处理，并返回 segment ids。
 
         Returns:
-            Single input cases:
-                Tuple[List[int], Optional[List[int]]]: (input_ids, token_type_ids)
-                Example: ([101, 2129, 102], [0, 0, 0]) for single text
-                Example: ([101, 2129, 102, 4068, 102], [0, 0, 0, 1, 1]) for cross-encoder pair
-
-            Batch input cases:
-                Tuple[List[List[int]], Optional[List[List[int]]]]: (batch_input_ids, batch_token_type_ids)
-                Example: ([[101, 2129, 102], [101, 4068, 102]], None) for regular batch
-
-            Note: token_type_ids is None unless is_cross_encoder=True.
+            单条输入返回 `(input_ids, token_type_ids)`；
+            批量输入返回 `(batch_input_ids, batch_token_type_ids)`。
         """
         if not texts or self.tokenizer is None:
             raise ValueError("texts cannot be empty and tokenizer must be initialized")
 
-        # Step 1: Detect input format and prepare for tokenization
+        # 第一步：识别输入形态，并整理成 tokenizer 可接受的 batch 输入。
         input_format = self._detect_input_format(texts, is_cross_encoder)
         tokenizer_input = self._prepare_tokenizer_input(texts, input_format)
         original_batch_size = len(texts) if not isinstance(texts, str) else 1
 
-        # Step 2: Set up tokenizer arguments
+        # 第二步：cross-encoder 需要 token_type_ids 来区分 query/document 段。
         tokenizer_kwargs = (
             {"return_token_type_ids": is_cross_encoder} if is_cross_encoder else {}
         )
 
-        # Step 3: Choose tokenization strategy
+        # 第三步：选择 tokenize 策略。async dynamic batch tokenizer 只用于单条普通文本。
         use_async_tokenizer = (
             self.async_dynamic_batch_tokenizer is not None
             and input_format == InputFormat.SINGLE_STRING
@@ -739,10 +742,10 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
 
         if use_async_tokenizer:
             logger.debug("Using async dynamic batch tokenizer for single text")
+            # async tokenizer 返回单条结果；下面包装成 batch 形态，便于后续统一处理。
             result = await self.async_dynamic_batch_tokenizer.encode(
                 tokenizer_input[0], **tokenizer_kwargs
             )
-            # Convert to batch format for consistency
             input_ids = [result["input_ids"]]
             token_type_ids = (
                 [result["token_type_ids"]]
@@ -753,16 +756,18 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
             logger.debug(f"Using regular tokenizer for {len(tokenizer_input)} inputs")
 
             if not is_cross_encoder and (not getattr(self.tokenizer, "is_fast", False)):
+                # 慢 tokenizer 的批量 __call__ 开销/兼容性不稳定，这里逐条 encode。
                 input_ids = [self.tokenizer.encode(t) for t in tokenizer_input]
                 token_type_ids = None
             else:
+                # fast tokenizer 或 cross-encoder 走 tokenizer.__call__，以支持 batch 和 token_type_ids。
                 encoded = self.tokenizer(tokenizer_input, **tokenizer_kwargs)
                 input_ids = encoded["input_ids"]
                 token_type_ids = (
                     encoded.get("token_type_ids") if is_cross_encoder else None
                 )
 
-        # Step 4: Extract results based on input format
+        # 第四步：根据原始输入形态，把内部 batch 结果还原成单条或批量返回。
         return self._extract_tokenizer_results(
             input_ids, token_type_ids, input_format, original_batch_size
         )
@@ -771,14 +776,23 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
         self,
         obj: Union[GenerateReqInput, EmbeddingReqInput],
     ):
-        """Tokenize one request."""
-        # Tokenize
+        """将单个 Generate/Embedding 请求转换成 Scheduler 可消费的 tokenized 请求。
+
+        该函数负责选择输入来源（input_embeds、input_ids 或 text）、执行文本
+        tokenize、调用多模态 processor 生成/覆盖 input_ids、处理 token_type_ids
+        与多模态 hash，最后完成长度/模型类型校验并构造
+        `TokenizedGenerateReqInput` 或 `TokenizedEmbeddingReqInput`。
+        """
+        # 初始化通用字段：input_text 保留原始文本，input_embeds/token_type_ids 按需填充。
         input_embeds = None
         input_text = obj.text
         token_type_ids = None
         is_cross_encoder_request = (
             isinstance(obj, EmbeddingReqInput) and obj.is_cross_encoder_request
         )
+
+        # 优先级 1：调用方直接提供 input_embeds。
+        # input_embeds 不适合 radix cache，因此要求启动时关闭 radix cache。
         if obj.input_embeds is not None:
             if not self.server_args.disable_radix_cache:
                 raise ValueError(
@@ -788,8 +802,12 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
                 )
             input_embeds = obj.input_embeds
             input_ids = obj.input_ids
+
+        # 优先级 2：调用方已经完成 tokenize，直接使用 input_ids。
         elif obj.input_ids is not None:
             input_ids = obj.input_ids
+
+        # 优先级 3：从 text 走 tokenizer；如果 skip_tokenizer_init=True，则必须提供 input_ids。
         else:
             if self.tokenizer is None:
                 raise ValueError(
@@ -798,16 +816,17 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
                     "the engine with skip_tokenizer_init=False."
                 )
 
-            # For audio-only requests (e.g., Whisper), text may be empty.
-            # The multimodal processor will provide input_ids later.
+            # audio-only 请求（例如 Whisper）可能没有文本，后续多模态 processor 会补 input_ids。
             if not input_text and self.mm_processor and obj.contains_mm_input():
-                # Use empty placeholder - multimodal processor will override
+                # 先放一个空占位，等待多模态 processor 覆盖。
                 input_ids = []
             else:
+                # 普通文本或 cross-encoder 文本在这里完成 tokenize。
                 input_ids, token_type_ids = await self._tokenize_texts(
                     input_text, is_cross_encoder_request
                 )
 
+        # 判断是否需要运行多模态 processor：有多模态输入，或 MossVL 这类特殊架构。
         contains_mm_input = obj.contains_mm_input()
         is_mossvl = (
             "MossVLForConditionalGeneration"
@@ -818,6 +837,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
         )
 
         if should_run_mm_processor:
+            # 统一把单个 image/video/audio 包装成 list，便于后续 processor 按批处理。
             if obj.image_data is not None and not isinstance(obj.image_data, list):
                 obj.image_data = [obj.image_data]
             if obj.video_data is not None and not isinstance(obj.video_data, list):
@@ -829,6 +849,8 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
 
             mm_inputs = None
 
+            # 默认路径：本地处理多模态输入；language_only + zmq_to_tokenizer 时
+            # 会优先等待 encoder 侧传回来的多模态 embedding。
             if (
                 not self.server_args.language_only
                 or self.server_args.encoder_transfer_backend == "zmq_to_tokenizer"
@@ -853,6 +875,9 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
                         request_obj=obj,
                         max_req_input_len=self.max_req_input_len,
                     )
+
+            # language_only + zmq_to_scheduler/mooncake 下，如果本请求没有派发到 encoder，
+            # 则退回本地多模态处理，行为与普通非 language_only 请求一致。
             elif (
                 self.server_args.language_only
                 and self.server_args.encoder_transfer_backend
@@ -869,22 +894,16 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
                     max_req_input_len=self.max_req_input_len,
                 )
 
+            # 多模态 processor 可能会插入 image/audio/video 占位 token，从而覆盖 input_ids。
             if mm_inputs and mm_inputs.input_ids is not None:
                 input_ids = mm_inputs.input_ids
             if mm_inputs and mm_inputs.token_type_ids is not None:
                 token_type_ids = mm_inputs.token_type_ids
                 if not isinstance(token_type_ids, list):
                     token_type_ids = token_type_ids.flatten().tolist()
-            # Caller-supplied per-image hashes (external KV routers, e.g.
-            # routing-aware orchestrators that compute a content-addressed
-            # hash before dispatch). Setting MultimodalDataItem.hash here
-            # short-circuits the internal hash_feature() recompute inside
-            # set_pad_value(), making the derived pad_value deterministic
-            # from the caller's hash. That alignment lets the router's
-            # routing decision agree with sglang's prefix-cache key for
-            # the same image. On any per-item parse error or list-length
-            # mismatch we fall back to the internal recompute so a
-            # malformed mm_hashes never blocks a request.
+
+            # 外部 KV router 可以传入每个多模态 item 的 hash，使 sglang 的 prefix-cache
+            # key 与外部路由决策保持一致；格式错误时只告警并退回内部 hash_feature()。
             caller_mm_hashes = getattr(obj, "mm_hashes", None)
             if caller_mm_hashes and mm_inputs and mm_inputs.mm_items:
                 if len(caller_mm_hashes) != len(mm_inputs.mm_items):
@@ -911,13 +930,18 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
                 and mm_inputs
                 and mm_inputs.mm_items
             ):
+                # 可选预计算 pad_value，提前固定多模态 item 的缓存键相关值。
                 for item in mm_inputs.mm_items:
                     if isinstance(item, MultimodalDataItem):
                         item.set_pad_value()
         else:
+            # 纯文本或纯 input_ids/input_embeds 请求不需要多模态输入。
             mm_inputs = None
 
+        # 做上下文长度、max_new_tokens、embedding/generation 模型类型等校验。
         self._validate_one_request(obj, input_ids)
+
+        # 构造跨进程传输对象，并绑定 time_stats，供 Scheduler 后续处理。
         return self._create_tokenized_object(
             obj, input_text, input_ids, input_embeds, mm_inputs, token_type_ids
         )

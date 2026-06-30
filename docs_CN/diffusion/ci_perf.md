@@ -1,0 +1,33 @@
+<!-- 本文件由 docs/ 自动生成到 docs_CN/。代码块、命令、路径、模型名和外部链接保持原样；本地 docs 链接已改写到 docs_CN。 -->
+
+# CI 性能
+
+## Perf Baseline Generation Script
+
+`python/sglang/multimodal_gen/test/scripts/gen_perf_baselines.py` starts a local diffusion server, issues requests for selected test cases, aggregates stage/denoise-step/E2E timings from the perf log, and writes the results back to the `scenarios` section of `perf_baselines.json`.
+
+### 用法
+
+Update a single case:
+
+```bash
+python python/sglang/multimodal_gen/test/scripts/gen_perf_baselines.py --case qwen_image_t2i
+```
+
+Select by regex:
+
+```bash
+python python/sglang/multimodal_gen/test/scripts/gen_perf_baselines.py --match 'qwen_image_.*'
+```
+
+Run all keys from the baseline file `scenarios`:
+
+```bash
+python python/sglang/multimodal_gen/test/scripts/gen_perf_baselines.py --all-from-baseline
+```
+
+Specify input/output paths and timeout:
+
+```bash
+python python/sglang/multimodal_gen/test/scripts/gen_perf_baselines.py --baseline python/sglang/multimodal_gen/test/server/perf_baselines.json --out /tmp/perf_baselines.json --timeout 600
+```
