@@ -467,24 +467,33 @@ def get_tokenizer(
     **kwargs,
 ) -> Union[PreTrainedTokenizer, PreTrainedTokenizerFast]:
     """Gets a tokenizer for the given model name via Huggingface."""
+    logger.info("get_tokenizer: start")
     # Tiktoken format has its own backend — no fastokens patching needed.
     if tokenizer_name.endswith(".json"):
+        logger.info("get_tokenizer: tiktoken tokenizer branch")
         from sglang.srt.tokenizer.tiktoken_tokenizer import TiktokenTokenizer
 
-        return TiktokenTokenizer(tokenizer_name)
+        tokenizer = TiktokenTokenizer(tokenizer_name)
+        logger.info("get_tokenizer: finished")
+        return tokenizer
 
     if tokenizer_backend == "fastokens":
+        logger.info("get_tokenizer: fastokens backend branch")
         _ensure_fastokens_patched()
 
     if tokenizer_mode == "slow":
+        logger.info("get_tokenizer: slow tokenizer mode branch")
         if kwargs.get("use_fast", False):
+            logger.info("get_tokenizer: invalid fast tokenizer in slow mode branch")
             raise ValueError("Cannot use the fast tokenizer in slow tokenizer mode.")
         kwargs["use_fast"] = False
     elif tokenizer_mode == "auto":
+        logger.info("get_tokenizer: auto tokenizer mode branch")
         # Transformers v5 AutoTokenizer ignores use_fast (always fast), but
         # some code paths pass kwargs to non-AutoTokenizer loaders where
         # use_fast still matters. Set explicitly for those fallback paths.
         if "use_fast" not in kwargs:
+            logger.info("get_tokenizer: default use_fast branch")
             kwargs["use_fast"] = True
 
     tokenizer_name = _resolve_tokenizer_name(tokenizer_name, kwargs)
@@ -498,6 +507,7 @@ def get_tokenizer(
 
     try:
         if is_bare_tekken_checkpoint(tokenizer_name, tokenizer_revision):
+            logger.info("get_tokenizer: bare tekken checkpoint branch")
             from transformers.tokenization_mistral_common import (
                 MistralCommonTokenizer,
             )
@@ -514,6 +524,7 @@ def get_tokenizer(
                 tokenizer_name, revision=tokenizer_revision
             )
         else:
+            logger.info("get_tokenizer: auto tokenizer loading branch")
             tokenizer = _auto_tokenizer_from_pretrained(
                 tokenizer_name, *args, **common_kwargs
             )
@@ -525,13 +536,19 @@ def get_tokenizer(
                 type(tokenizer).__name__ == _TOKENIZERS_BACKEND
                 and tokenizer_backend != "fastokens"
             ):
+                logger.info("get_tokenizer: tokenizers backend resolution branch")
                 tokenizer = _resolve_tokenizers_backend(
                     tokenizer_name, *args, **common_kwargs
                 )
 
-        return _apply_post_load_fixes(tokenizer, tokenizer_name, tokenizer_revision)
+        tokenizer = _apply_post_load_fixes(
+            tokenizer, tokenizer_name, tokenizer_revision
+        )
+        logger.info("get_tokenizer: finished")
+        return tokenizer
     except Exception as e:
         if tokenizer_backend == "fastokens":
+            logger.info("get_tokenizer: fastokens failure branch")
             raise RuntimeError(
                 f"fastokens failed to load tokenizer for {tokenizer_name!r}. "
                 f"This model's tokenizer may not be supported by fastokens — "

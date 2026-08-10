@@ -357,262 +357,389 @@ class Scheduler(
         moe_dp_rank: int,
         dp_rank: Optional[int],
     ):
+        """初始化调度器及其依赖的模型、缓存、通信和请求处理组件。
+
+        参数：
+            server_args: 服务启动参数，包含调度、模型、缓存和并行配置。
+            port_args: 进程间通信及分布式通信所需的端口配置。
+            gpu_id: 当前调度器绑定的 GPU 编号。
+            tp_rank: 当前进程在张量并行组中的序号。
+            moe_ep_rank: 当前进程在 MoE 专家并行组中的序号。
+            pp_rank: 当前进程在流水线并行组中的序号。
+            attn_cp_rank: 当前进程在注意力上下文并行组中的序号。
+            moe_dp_rank: 当前进程在 MoE 数据并行组中的序号。
+            dp_rank: 当前进程的数据并行序号；未启用时可为 ``None``。
+        """
+        # 标记调度器正处于初始化阶段，避免其他逻辑将其当作已就绪实例。
         self.is_initializing = True
-        # init_soft_watchdog starts a daemon thread that reads these on its first tick.
+        # 软看门狗启动的守护线程会在第一次检查时读取前向执行次数。
         self.forward_ct: int = 0
+        # 初始化调试用的当前批次引用，此时尚无正在执行的调度批次。
         self.cur_batch_for_debug: Optional[ScheduleBatch] = None
+        # 启动软看门狗，以便监控调度器初始化及后续执行是否卡住。
         self.init_soft_watchdog(server_args)
 
-        # Parse args
+        # 保存完整的服务启动参数，供后续各初始化模块读取。
         self.server_args = server_args
+        # 保存 NCCL 通信端口，用于建立分布式通信连接。
         self.nccl_port = port_args.nccl_port
+        # 保存请求调度策略名称。
         self.schedule_policy = server_args.schedule_policy
+        # 记录是否启用基于优先级的请求调度。
         self.enable_priority_scheduling = server_args.enable_priority_scheduling
+        # 记录未启用优先级调度时，收到带优先级请求是否直接中止。
         self.abort_on_priority_when_disabled = (
             server_args.abort_on_priority_when_disabled
         )
+        # 记录优先级数值越小的请求是否应越先被调度。
         self.schedule_low_priority_values_first = (
             server_args.schedule_low_priority_values_first
         )
+        # 保存触发优先级抢占所需达到的阈值。
         self.priority_scheduling_preemption_threshold = (
             server_args.priority_scheduling_preemption_threshold
         )
+        # 记录是否启用 LoRA 适配器。
         self.enable_lora = server_args.enable_lora
+        # 记录是否允许 LoRA 权重与推理重叠加载。
         self.enable_lora_overlap_loading = server_args.enable_lora_overlap_loading
+        # 保存单个批次最多可同时使用的 LoRA 数量。
         self.max_loras_per_batch = server_args.max_loras_per_batch
+        # 非 MLX 后端仅在未显式禁用时启用重叠调度。
         self.enable_overlap = not server_args.disable_overlap_schedule and not use_mlx()
+        # MLX 后端使用独立的重叠调度开关。
         self.enable_overlap_mlx = not server_args.disable_overlap_schedule and use_mlx()
+        # 记录是否启用预填充/解码多路复用模式。
         self.enable_pdmux = server_args.enable_pdmux
+        # 记录是否跳过分词器初始化。
         self.skip_tokenizer_init = server_args.skip_tokenizer_init
+        # 保存流式输出时两次返回之间的 token 间隔。
         self.stream_interval = server_args.stream_interval
+        # 将字符串形式的投机解码算法解析成内部枚举。
         self.spec_algorithm = SpeculativeAlgorithm.from_string(
             server_args.speculative_algorithm
         )
+        # 保存 KV 缓存每页包含的 token 数量。
         self.page_size = server_args.page_size
+        # 记录是否启用分层缓存。
         self.enable_hierarchical_cache = server_args.enable_hierarchical_cache
+        # 根据是否配置存储后端判断 HiCache 持久化能力是否启用。
         self.enable_hicache_storage = server_args.hicache_storage_backend is not None
+        # 仅在解码端允许基数缓存且启用分层缓存时启用解码 HiCache。
         self.enable_decode_hicache = (
             server_args.disaggregation_decode_enable_radix_cache
             and self.enable_hierarchical_cache
         )
+        # 从环境变量读取每次轮询最多接收的消息数量。
         self.max_recv_per_poll = envs.SGLANG_SCHEDULER_MAX_RECV_PER_POLL.get()
+        # 从环境变量读取单个请求允许生成的新 token 上限。
         self.max_new_tokens_limit = envs.SGLANG_MAX_NEW_TOKENS_LIMIT.get()
+        # 记录是否启用 HiSparse 稀疏推理功能。
         self.enable_hisparse = server_args.enable_hisparse
+        # 记录注意力计算是否使用数据并行模式。
         self.enable_dp_attention = server_args.enable_dp_attention
+        # 记录是否允许使用统一内存。
         self.enable_unified_memory = server_args.enable_unified_memory
 
-        # Distributed rank info
+        # 根据并行配置计算注意力模块的 TP/DP 序号及组大小。
         attn_tp_rank, attn_tp_size, attn_dp_rank, attn_dp_size = (
             compute_dp_attention_world_info(
+                # 指定注意力模块是否采用数据并行划分。
                 server_args.enable_dp_attention,
+                # 传入当前张量并行序号。
                 tp_rank,
+                # 传入张量并行组大小。
                 server_args.tp_size,
+                # 传入数据并行组大小。
                 server_args.dp_size,
+                # 传入注意力上下文并行组大小。
                 server_args.attn_cp_size,
             )
         )
+        # 汇总当前进程在各类并行组中的序号和规模，形成统一并行状态。
         self.ps = ParallelState(
+            # 设置张量并行序号。
             tp_rank=tp_rank,
+            # 设置张量并行组大小。
             tp_size=server_args.tp_size,
+            # 设置流水线并行序号。
             pp_rank=pp_rank,
+            # 设置流水线并行组大小。
             pp_size=server_args.pp_size,
+            # 设置数据并行序号。
             dp_rank=dp_rank,
+            # 设置数据并行组大小。
             dp_size=server_args.dp_size,
+            # 设置注意力张量并行序号。
             attn_tp_rank=attn_tp_rank,
+            # 设置注意力张量并行组大小。
             attn_tp_size=attn_tp_size,
+            # 设置注意力上下文并行序号。
             attn_cp_rank=attn_cp_rank,
+            # 设置注意力上下文并行组大小。
             attn_cp_size=server_args.attn_cp_size,
+            # 设置注意力数据并行序号。
             attn_dp_rank=attn_dp_rank,
+            # 设置注意力数据并行组大小。
             attn_dp_size=attn_dp_size,
+            # 设置 MoE 专家并行序号。
             moe_ep_rank=moe_ep_rank,
+            # 设置 MoE 专家并行组大小。
             moe_ep_size=server_args.ep_size,
+            # 设置 MoE 数据并行序号。
             moe_dp_rank=moe_dp_rank,
+            # 设置 MoE 数据并行组大小。
             moe_dp_size=server_args.moe_dp_size,
+            # 设置解码上下文并行组大小。
             dcp_size=server_args.dcp_size,
+            # 记录当前进程绑定的 GPU 编号。
             gpu_id=gpu_id,
         )
 
-        # Init model configs
+        # 解析并初始化模型配置。
         self.init_model_config()
 
-        # Init metrics stats
+        # 初始化当前并行进程对应的指标收集器。
         self.init_metrics_collector(tp_rank, pp_rank, dp_rank)
 
-        # Init inter-process communication
+        # 建立调度器与其他进程之间的 IPC 通道。
         self.init_ipc_channels(port_args)
+        # 初始化空闲休眠器，以降低无请求时的资源占用。
         self.init_idle_sleeper()
 
-        # Init ZBAL, switch allocator should before any torch alloc action
+        # 在任何 PyTorch 内存分配前初始化 NPU 的 ZBAL 并切换分配器。
         self.init_zbal_on_npu()
 
-        # Init PD-multiplexing context
+        # 仅在启用 PD 多路复用时创建相应运行上下文。
         if self.enable_pdmux:
+            # 初始化预填充/解码多路复用组件。
             self.init_pdmux()
 
-        # Init tokenizer
+        # 根据配置初始化分词器或建立跳过分词器时所需的状态。
         self.init_tokenizer()
 
-        # Init moe config and GEMM config (FP8 GEMM, etc.)
+        # 初始化 MoE 及 GEMM（包括 FP8 GEMM 等）配置。
         self.init_moe_gemm_config()
 
-        # Init mamba backend
+        # 初始化 Mamba 模型使用的执行后端。
         self.init_mamba_backend()
 
-        # Must precede init_model_worker: revert targets like _init_pools run during it,
-        # so patching them afterwards is a no-op.
+        # 在模型工作进程启动前按需回退修复，确保其中的池初始化等目标能够被正确替换。
         maybe_revert_pr_fix()
 
-        # Launch a model worker and draft model worker if using speculative decoding
+        # 启动模型工作进程；使用投机解码时同时启动草稿模型工作进程。
         self.init_model_worker()
 
+        # 测试环境可通过环境变量模拟调度器初始化卡顿。
         if (t := envs.SGLANG_TEST_STUCK_SCHEDULER_INIT.get()) > 0:
+            # 按配置的秒数暂停初始化流程。
             time.sleep(t)
 
-        # Init cache and memory pool
+        # 构建模型运行所需的 KV 缓存、内存池及基数树缓存。
         result = kv_cache_builder.build_kv_cache(
+            # 传入服务级缓存及运行配置。
             server_args=self.server_args,
+            # 传入已解析的模型配置。
             model_config=self.model_config,
+            # 传入张量并行模型工作进程。
             tp_worker=self.tp_worker,
+            # 指定 KV 缓存页大小。
             page_size=self.page_size,
+            # 指定当前使用的投机解码算法。
             spec_algorithm=self.spec_algorithm,
+            # 传入注意力张量并行 CPU 通信组。
             attn_tp_cpu_group=self.attn_tp_cpu_group,
+            # 传入全模型张量并行 CPU 通信组。
             tp_cpu_group=self.tp_cpu_group,
+            # 传入注意力上下文并行 CPU 通信组。
             attn_cp_cpu_group=self.attn_cp_cpu_group,
+            # 指定是否收集缓存相关指标。
             enable_metrics=self.server_args.enable_metrics,
+            # 仅由首个流水线、注意力 TP 和注意力 CP 进程发布 KV 缓存事件。
             enable_kv_cache_events=bool(
                 self.server_args.kv_events_config
                 and self.ps.pp_rank == 0
                 and self.ps.attn_tp_rank == 0
                 and self.ps.attn_cp_rank == 0
             ),
+            # 传入统一并行状态。
             ps=self.ps,
+            # 传入张量并行设备通信组。
             tp_group=self.tp_group,
+            # 传入流水线并行设备通信组。
             pp_group=self.pp_group,
+            # 指定是否构建分层缓存。
             enable_hierarchical_cache=self.enable_hierarchical_cache,
         )
+        # 保存模型是否混合使用滑动窗口注意力。
         self.is_hybrid_swa = result.is_hybrid_swa
+        # 保存模型是否混合使用状态空间模型层。
         self.is_hybrid_ssm = result.is_hybrid_ssm
+        # 保存滑动窗口注意力的窗口大小。
         self.sliding_window_size = result.sliding_window_size
+        # 保存每个全注意力层可使用的 token 容量。
         self.full_tokens_per_layer = result.full_tokens_per_layer
+        # 保存每个滑动窗口注意力层可使用的 token 容量。
         self.swa_tokens_per_layer = result.swa_tokens_per_layer
+        # 保存请求到 token 槽位的映射池。
         self.req_to_token_pool = result.req_to_token_pool
+        # 保存 token 到 KV 缓存槽位的分配器。
         self.token_to_kv_pool_allocator = result.token_to_kv_pool_allocator
+        # 保存是否禁用基数树缓存的最终判定结果。
         self.disable_radix_cache = result.disable_radix_cache
+        # 保存已构建的基数树缓存实例。
         self.tree_cache = result.tree_cache
 
+        # NPU 上运行 DeepSeek V4 时预热 HCCL 数据并行通信组。
         if _is_npu and is_deepseek_v4(
             self.tp_worker.model_runner.model_config.hf_config
         ):
+            # 优先使用数据并行序号，未配置时回退到 TP 组内序号。
             rank = (
                 self.ps.dp_rank
                 if self.ps.dp_rank is not None
                 else self.tp_group.rank_in_group
             )
+            # 记录当前进程开始预热 HCCL 通信组。
             logger.info("HCCL DP prewarm start: rank=%s", rank)
+            # 在当前设备及设备通信组上执行 HCCL 预热。
             _prewarm_hccl_group(
+                # 指定预热使用的设备。
                 device=self.tp_group.device,
+                # 指定预热使用的设备通信组。
                 group=self.tp_group.device_group,
+                # 指定设备后端模块。
                 device_module=self.tp_group.device_module,
             )
+            # 记录当前进程已完成 HCCL 通信组预热。
             logger.info("HCCL DP prewarm done: rank=%s", rank)
 
+        # 若模型运行器提供金丝雀管理器，则将其连接到基数树缓存。
         if (c := self.tp_worker.model_runner.canary_manager) is not None:
+            # 向金丝雀管理器注册当前基数树缓存实例。
             c.attach_radix_cache(self.tree_cache)
 
+        # 初始化 HiSparse 协调器，统一管理稀疏推理状态。
         self.init_hisparse_coordinator()
 
+        # 仅在解码分离模式且启用 KV 缓存卸载时创建卸载管理器。
         if (
             self.server_args.disaggregation_mode == "decode"
             and self.server_args.disaggregation_decode_enable_offload_kvcache
         ):
+            # 创建解码端 KV 缓存卸载管理器。
             self.decode_offload_manager = DecodeKVCacheOffloadManager(
+                # 传入请求到 token 的映射池。
                 req_to_token_pool=self.req_to_token_pool,
+                # 传入 token 到 KV 缓存的分配器。
                 token_to_kv_pool_allocator=self.token_to_kv_pool_allocator,
+                # DP 注意力启用时使用注意力 TP 组，否则使用完整 TP 组。
                 tp_group=(
                     self.attn_tp_cpu_group
                     if self.enable_dp_attention
                     else self.tp_cpu_group
                 ),
+                # 传入基数树缓存以协调缓存迁移。
                 tree_cache=self.tree_cache,
+                # 传入服务参数以读取卸载配置。
                 server_args=self.server_args,
             )
         else:
+            # 未启用解码 KV 缓存卸载时显式置空管理器。
             self.decode_offload_manager = None
 
-        # Register draft KV pool (when spec + HiCache co-enabled).
+        # 在投机解码与 HiCache 同时启用时注册草稿模型的 KV 池。
         kv_cache_builder.maybe_register_hicache_draft(
+            # 传入主模型使用的基数树缓存。
             tree_cache=self.tree_cache,
+            # 传入可选的草稿模型工作进程。
             draft_worker=self.draft_worker,
+            # 传入投机解码算法以判断是否需要注册。
             spec_algorithm=self.spec_algorithm,
+            # 传入服务参数以读取 HiCache 配置。
             server_args=self.server_args,
+            # 传入分层缓存启用状态。
             enable_hierarchical_cache=self.enable_hierarchical_cache,
+            # 传入主缓存页大小。
             page_size=self.page_size,
         )
 
-        # Init running status
+        # 初始化等待队列、运行批次等调度运行状态。
         self.init_running_status()
 
-        # Init chunked prefill
+        # 初始化分块预填充所需的阈值与状态。
         self.init_chunked_prefill()
 
-        # Init diffusion LLM
+        # 初始化扩散式大语言模型相关组件。
         self.init_diffusion_llm()
 
+        # 初始化当前并行进程负责的指标上报器。
         self.init_metrics_reporter(tp_rank, pp_rank, dp_rank)
 
-        # Init schedule policy and new token estimation
+        # 初始化调度策略及新 token 数量估算逻辑。
         self.init_schedule_policy()
 
-        # Init watchdog, memory saver, input blocker and recv skipper
+        # 初始化看门狗、内存节省器、输入阻塞器和接收跳过器。
         self.init_watch_dog_memory_saver_input_blocker()
 
-        # Init profiler
+        # 初始化性能分析器。
         self.init_profiler()
 
-        # Init prefill-decodedisaggregation
+        # 初始化预填充与解码分离模式所需的通信及状态。
         self.init_disaggregation()
 
-        # Init overlap schedule
+        # 初始化可将调度与模型执行重叠的调度机制。
         self.init_overlap()
 
-        # Init Ngram Embedding
+        # 在配置允许时初始化 N-gram 嵌入模块。
         self.maybe_init_ngram_embedding()
 
-        # Init prefill kv split size when deterministic inference is enabled with various attention backends
+        # 为不同注意力后端下的确定性推理初始化预填充 KV 分片大小。
         self.init_deterministic_inference_config()
 
+        # 初始化运行时模型权重更新器。
         self.init_weight_updater()
 
-        # Init request dispatcher
+        # 初始化将请求分发至合适执行路径的分发器。
         self.init_request_dispatcher()
 
-        # Init LoRA drainer for fair scheduling
+        # 初始化 LoRA 排空器，以保证不同适配器请求之间的调度公平性。
         self.init_lora_drainer()
 
-        # Init LoRA overlap loader
+        # 初始化可与推理重叠执行的 LoRA 加载器。
         self.init_lora_overlap_loader()
 
-        # Init the grammar backend for constrained generation
+        # 初始化约束生成使用的语法后端管理器。
         self.init_grammar_manager()
 
+        # 如果配置了脚本化调度钩子，则完成其初始化。
         self.maybe_init_scripted_scheduler_hook()
 
+        # 初始化来自 TokenizerManager 等上游组件的请求接收器。
         self.init_request_receiver()
 
+        # 初始化数据并行注意力适配器。
         self.init_dp_attn_adapter()
 
+        # 初始化内存池统计观察器。
         self.init_pool_stats_observer()
 
+        # 初始化调度器不变量检查器，用于发现内部状态异常。
         self.init_invariant_checker()
 
+        # 初始化 KV 缓存事件发布器。
         self.init_kv_events_publisher()
 
+        # 初始化负载查询器，以向外部提供当前调度负载。
         self.init_load_inquirer()
 
+        # 初始化模型输出流式发送组件。
         self.init_output_streamer()
 
+        # 初始化批次执行结果处理器。
         self.init_batch_result_processor()
 
+        # 所有依赖组件已就绪，清除初始化中标记。
         self.is_initializing = False
 
     def init_zbal_on_npu(self):
@@ -626,15 +753,21 @@ class Scheduler(
             )  # only switch allocator if is mix mode
 
     def init_model_config(self):
+        """根据服务启动参数初始化主模型配置及 NPU 专用的扩散模型配置。"""
+        # 从服务启动参数解析并创建调度器使用的主模型配置。
         self.model_config = ModelConfig.from_server_args(self.server_args)
+        # 仅 NPU 后端需要额外初始化扩散式大语言模型配置。
         if _is_npu:
-            # make sure the page size is not larger than block_size and chunked_prefill_size on NPU backend
-            # the npu backend request the defined page size to be no larger than block_size and chunked_prefill_size
+            # 延迟导入 NPU 路径所需的扩散式大语言模型配置类，避免影响其他后端。
             from sglang.srt.dllm.config import DllmConfig
 
-            self.dllm_config = (  # For diffusion LLM
+            # 启用扩散算法时解析其配置，否则明确记录当前未使用扩散模型。
+            self.dllm_config = (
+                # 根据服务启动参数创建扩散模型配置。
                 DllmConfig.from_server_args(self.server_args)
+                # 通过扩散算法参数是否存在来判断该功能是否启用。
                 if self.server_args.dllm_algorithm is not None
+                # 未指定扩散算法时不创建扩散模型配置。
                 else None
             )
 
@@ -718,13 +851,17 @@ class Scheduler(
             logger.warning("load snapshot publish failed: %s", e)
 
     def init_tokenizer(self):
+        logger.info("init_tokenizer: start")
         server_args = self.server_args
         self.is_generation = self.model_config.is_generation
 
         if server_args.skip_tokenizer_init:
+            logger.info("init_tokenizer: skip_tokenizer_init branch")
             self.tokenizer = self.processor = None
         else:
+            logger.info("init_tokenizer: tokenizer initialization branch")
             if self.model_config.is_multimodal:
+                logger.info("init_tokenizer: multimodal model branch")
                 self.processor = get_processor(
                     server_args.tokenizer_path,
                     tokenizer_mode=server_args.tokenizer_mode,
@@ -736,6 +873,7 @@ class Scheduler(
                 )
                 self.tokenizer = get_tokenizer_from_processor(self.processor)
             else:
+                logger.info("init_tokenizer: text-only model branch")
                 self.tokenizer = get_tokenizer(
                     server_args.tokenizer_path,
                     tokenizer_mode=server_args.tokenizer_mode,
@@ -747,6 +885,7 @@ class Scheduler(
         # Load multimodal processor for M-RoPE fallback computation.
         self._mm_processor = None
         if self.model_config.is_multimodal and self.processor is not None:
+            logger.info("init_tokenizer: M-RoPE fallback processor branch")
             try:
                 import_processors("sglang.srt.multimodal.processors")
                 self._mm_processor = get_mm_processor(
@@ -764,6 +903,7 @@ class Scheduler(
 
         # Set reasoning_parser and think_end_id if --reasoning_parser is enabled
         if self.server_args.reasoning_parser and self.tokenizer:
+            logger.info("init_tokenizer: reasoning parser branch")
             reasoning_parser = ReasoningParser(
                 model_type=self.server_args.reasoning_parser,
                 stream_reasoning=False,
@@ -772,6 +912,8 @@ class Scheduler(
             self.model_config.think_end_id = self.tokenizer.encode(
                 reasoning_parser.detector.think_end_token, add_special_tokens=False
             )[0]
+
+        logger.info("init_tokenizer: finished")
 
     def init_mamba_backend(self) -> None:
         initialize_mamba_selective_state_update_backend(self.server_args)
@@ -4642,55 +4784,123 @@ def configure_scheduler_process(
     display_dp_rank: Optional[int] = None,
     display_moe_ep_rank: Optional[int] = None,
 ) -> Optional[int]:
-    """Configure scheduler worker logging and process title.
+    """配置 Scheduler 子进程的基础运行环境并返回最终生效的 DP rank。
 
-    display_* ranks are cosmetic; runtime ranks stay local.
+    该函数在创建 ``Scheduler`` 对象之前执行，主要负责：
+
+    1. 建立父进程死亡保护，避免父进程退出后遗留孤儿 Scheduler 进程。
+    2. 确定日志和进程名中展示的 DP/TP/MoE EP rank，并生成统一前缀。
+    3. 设置进程标题、Python 故障处理器和日志系统。
+    4. 根据环境变量配置 GPU 进程的 CPU 亲和性及 NUMA 绑定。
+
+    ``display_*_rank`` 只影响日志和进程标题中的展示编号，不会修改 Scheduler
+    实际参与模型计算及分布式通信时使用的本地 rank。
+
+    参数：
+        server_args: 服务启动参数，提供并行规模、日志及 NUMA 等配置。
+        gpu_id: 当前 Scheduler 子进程绑定的物理 GPU 编号。
+        tp_rank: 当前 Scheduler 实际使用的张量并行（TP）rank。
+        attn_cp_rank: 当前 Scheduler 的 Attention CP 局部 rank。
+        moe_dp_rank: 当前 Scheduler 的 MoE DP 局部 rank。
+        moe_ep_rank: 当前 Scheduler 实际使用的 MoE EP 局部 rank。
+        pp_rank: 当前 Scheduler 的流水线并行（PP）rank。
+        dp_rank: 当前 Scheduler 的数据并行（DP）rank；可以为 None。
+        display_tp_rank: 可选的日志展示用 TP rank。
+        display_dp_rank: 可选的日志展示用 DP rank。
+        display_moe_ep_rank: 可选的日志展示用 MoE EP rank。
+
+    返回：
+        最终生效的 ``dp_rank``。当传入值为 None 且环境变量
+        ``SGLANG_DP_RANK`` 存在时，返回从该环境变量解析出的整数；否则原样返回。
     """
+
+    # 注册父进程死亡保护：父进程意外退出后，使当前 Scheduler 子进程也随之退出，
+    # 防止遗留进程继续占用 GPU、共享内存和通信端口。
     kill_itself_when_parent_died()
 
-    # Generate the logger prefix
+    # Router 场景可能不直接传入 DP rank，而是通过环境变量向 Scheduler 注入该值。
     if dp_rank is None and "SGLANG_DP_RANK" in os.environ:
-        # [For Router] if env var "SGLANG_DP_RANK" exist, set dp_rank to the value of the env var
+        # 将环境变量中的字符串 DP rank 转换为整数，作为最终运行时 DP rank。
         dp_rank = int(os.environ["SGLANG_DP_RANK"])
 
+    # 优先使用专门指定的展示用 DP rank；未指定时展示实际运行的 DP rank。
     shown_dp = display_dp_rank if display_dp_rank is not None else dp_rank
+
+    # 优先使用专门指定的展示用 TP rank；未指定时展示实际运行的 TP rank。
     shown_tp = display_tp_rank if display_tp_rank is not None else tp_rank
+
+    # 优先使用展示用 MoE EP rank；未指定时展示实际运行的 MoE EP rank。
     shown_moe_ep = (
         display_moe_ep_rank if display_moe_ep_rank is not None else moe_ep_rank
     )
 
+    # 从空字符串开始构建日志前缀；只有实际启用或存在的并行维度才会被追加。
     prefix = ""
+
+    # DP rank 可用时，将其加入日志前缀，例如 `` DP0``。
     if shown_dp is not None:
+        # 使用展示用 DP rank，避免跨节点等场景下日志编号不直观。
         prefix += f" DP{shown_dp}"
+
+    # 只有 PP 规模大于 1 时才展示 PP rank，避免单 rank 日志包含冗余信息。
     if server_args.pp_size > 1:
+        # 将当前实际 PP rank 追加到日志前缀。
         prefix += f" PP{pp_rank}"
+
+    # 只有 Attention CP 规模大于 1 时才展示其局部 rank。
     if server_args.attn_cp_size > 1:
+        # 将当前 Attention CP rank 追加到日志前缀。
         prefix += f" ATTN_CP{attn_cp_rank}"
+
+    # 只有 MoE DP 规模大于 1 时才展示其局部 rank。
     if server_args.moe_dp_size > 1:
+        # 将当前 MoE DP rank 追加到日志前缀。
         prefix += f" MOE_DP{moe_dp_rank}"
+
+    # 只有 TP 规模大于 1 时才展示 TP rank。
     if server_args.tp_size > 1:
+        # 将展示用 TP rank 追加到日志前缀。
         prefix += f" TP{shown_tp}"
+
+    # 只有 EP 规模大于 1 时才展示 MoE EP rank。
     if server_args.ep_size > 1:
+        # 将展示用 MoE EP rank 追加到日志前缀。
         prefix += f" EP{shown_moe_ep}"
 
-    # Config the process
+    # 将空格替换为下划线后设置操作系统进程标题，使 ps/top 等工具能够根据
+    # Scheduler 类型及各并行 rank 快速识别当前进程。
     setproctitle.setproctitle(f"sglang::scheduler{prefix.replace(' ', '_')}")
+
+    # 启用 Python faulthandler，使段错误、SIGABRT 等严重故障能够输出 Python 栈。
     faulthandler.enable()
 
-    # Configure the logger
+    # 使用生成的 rank 前缀配置当前 Scheduler 子进程的日志格式和输出级别。
     configure_logger(server_args, prefix=prefix)
+
+    # 抑制其他依赖库的冗余日志，避免多 Scheduler 场景产生大量重复输出。
     suppress_other_loggers()
 
-    # Set cpu affinity to this gpu process
+    # 仅在 SGLANG_SET_CPU_AFFINITY 开启时，为当前 GPU 进程分配对应的 CPU 核心。
     if envs.SGLANG_SET_CPU_AFFINITY.get():
+        # 根据 PP/TP 规模、节点数和 GPU 编号计算并设置当前进程的 CPU 亲和性。
         set_gpu_proc_affinity(
-            server_args.pp_size, server_args.tp_size, server_args.nnodes, gpu_id
+            server_args.pp_size,  # 全局流水线并行规模。
+            server_args.tp_size,  # 全局张量并行规模。
+            server_args.nnodes,  # 参与推理服务的节点总数。
+            gpu_id,  # 当前 Scheduler 使用的 GPU 编号。
         )
+
+    # NUMA Bind V2 已在子进程启动上下文中完成绑定；未启用 V2 时在此执行旧版绑定。
     if not envs.SGLANG_NUMA_BIND_V2.get():
+        # 优先读取显式 NUMA 配置，否则尝试根据当前 GPU 查询其所属 NUMA 节点。
         numa_node = get_numa_node_if_available(server_args, gpu_id)
+
+        # 只有成功获得 NUMA 节点编号时才执行绑定；不可用时保持系统默认策略。
         if numa_node is not None:
+            # 将当前进程绑定到目标 NUMA 节点的 CPU，并设置首选内存分配节点。
             numa_bind_to_node(numa_node)
 
+    # 返回可能由 SGLANG_DP_RANK 补充后的最终 DP rank，供 Scheduler 初始化使用。
     return dp_rank
 
 
@@ -4709,75 +4919,143 @@ def run_scheduler_process(
     display_dp_rank: Optional[int] = None,
     display_moe_ep_rank: Optional[int] = None,
 ):
-    # Load plugins so hooks can override Scheduler and its dependencies.
+    """初始化并运行一个 Scheduler 子进程。
+
+    该函数是 ``multiprocessing.Process`` 启动 Scheduler 时执行的入口函数，
+    主要按照以下顺序完成工作：
+
+    1. 加载插件，并配置子进程名称、日志、CPU/NUMA 亲和性等运行环境。
+    2. 根据配置初始化分布式链路追踪信息。
+    3. 创建 ``Scheduler``，完成模型、通信组、KV Cache 和 IPC 通道等初始化。
+    4. 通过单向 Pipe 将初始化结果发送给父进程，然后进入阻塞式调度事件循环。
+    5. 发生异常时通知父进程并按配置终止进程组；退出时清理指标上报器及
+       可安全释放的宿主机资源。
+
+    参数：
+        server_args: 服务启动参数及模型、设备和并行策略等配置。
+        port_args: Scheduler 与其他组件进行 IPC/ZMQ 通信所需的端口配置。
+        gpu_id: 当前 Scheduler 子进程绑定的物理 GPU 编号。
+        tp_rank: 当前 Scheduler 在全局张量并行（TP）维度上的 rank。
+        attn_cp_rank: 当前 Scheduler 在 Attention CP 维度上的局部 rank。
+        moe_dp_rank: 当前 Scheduler 在 MoE DP 维度上的局部 rank。
+        moe_ep_rank: 当前 Scheduler 在 MoE EP 维度上的局部 rank。
+        pp_rank: 当前 Scheduler 在流水线并行（PP）维度上的 rank。
+        dp_rank: 当前 Scheduler 的数据并行（DP）rank；允许稍后从环境变量推导。
+        pipe_writer: 父子进程单向 Pipe 的写端，用于向父进程报告初始化结果。
+        display_tp_rank: 可选的日志展示用 TP rank，不改变实际运行 rank。
+        display_dp_rank: 可选的日志展示用 DP rank，不改变实际运行 rank。
+        display_moe_ep_rank: 可选的日志展示用 MoE EP rank，不改变实际运行 rank。
+
+    返回：
+        无。函数在 Scheduler 事件循环结束或异常处理完成后退出子进程入口。
+    """
+
+    # 加载已配置的插件，使插件钩子可以在 Scheduler 初始化前替换其实现或依赖。
     load_plugins()
+
+    # 配置当前 Scheduler 子进程，并获取最终生效的 DP rank；该过程会设置进程名、
+    # 日志前缀、故障处理器、CPU 亲和性和 NUMA 绑定等运行环境。
     dp_rank = configure_scheduler_process(
-        server_args,
-        gpu_id,
-        tp_rank,
-        attn_cp_rank,
-        moe_dp_rank,
-        moe_ep_rank,
-        pp_rank,
-        dp_rank,
-        display_tp_rank=display_tp_rank,
-        display_dp_rank=display_dp_rank,
-        display_moe_ep_rank=display_moe_ep_rank,
+        server_args,  # 传入服务、模型和并行策略配置。
+        gpu_id,  # 传入当前子进程需要绑定的 GPU 编号。
+        tp_rank,  # 传入实际参与计算和通信的 TP rank。
+        attn_cp_rank,  # 传入 Attention CP 局部 rank。
+        moe_dp_rank,  # 传入 MoE DP 局部 rank。
+        moe_ep_rank,  # 传入 MoE EP 局部 rank。
+        pp_rank,  # 传入流水线并行 PP rank。
+        dp_rank,  # 传入已有 DP rank；为 None 时可从环境变量补充。
+        display_tp_rank=display_tp_rank,  # 指定日志中展示的 TP rank。
+        display_dp_rank=display_dp_rank,  # 指定日志中展示的 DP rank。
+        display_moe_ep_rank=display_moe_ep_rank,  # 指定日志展示的 MoE EP rank。
     )
+
+    # 获取启动当前 Scheduler 的父进程对象，异常时用它通知主进程终止服务。
     parent_process = psutil.Process().parent()
 
-    # Set up tracing
+    # 仅在显式启用链路追踪时初始化 OpenTelemetry 相关配置。
     if server_args.enable_trace:
+        # 初始化当前进程的 tracing provider 和 OTLP 导出目标。
         process_tracing_init(
-            server_args.otlp_traces_endpoint,
-            "sglang",
-            trace_modules=server_args.trace_modules,
+            server_args.otlp_traces_endpoint,  # OTLP trace 数据的上报地址。
+            "sglang",  # 将 tracing service name 设置为 sglang。
+            trace_modules=server_args.trace_modules,  # 限定需要追踪的模块。
         )
+
+        # 默认将当前执行线程标记为普通 Scheduler。
         thread_label = "Scheduler"
+
+        # Prefill/Decode 解耦模式下使用更明确的线程名称，便于区分 trace。
         if server_args.disaggregation_mode == "prefill":
+            # 当前进程负责预填充阶段，在线程标签中标记 Prefill。
             thread_label = "Prefill Scheduler"
         elif server_args.disaggregation_mode == "decode":
+            # 当前进程负责解码阶段，在线程标签中标记 Decode。
             thread_label = "Decode Scheduler"
+
+        # 将线程标签及 TP/DP/PP rank 写入 tracing 上下文，便于定位具体进程。
         trace_set_thread_info(thread_label, tp_rank, dp_rank, pp_rank)
 
-    # Create a scheduler and run the event loop
+    # 先将 Scheduler 引用初始化为 None，避免构造失败后 finally 访问未赋值变量。
     scheduler = None
+
+    # Scheduler 初始化和事件循环都可能抛出异常，因此统一在此处捕获并清理。
     try:
+        # 创建当前 GPU/rank 对应的 Scheduler；构造过程会初始化模型、通信组、
+        # KV Cache、调度状态以及与其他服务组件之间的 IPC 通道。
         scheduler = Scheduler(
-            server_args,
-            port_args,
-            gpu_id,
-            tp_rank,
-            moe_ep_rank,
-            pp_rank,
-            attn_cp_rank,
-            moe_dp_rank,
-            dp_rank,
+            server_args,  # 服务、模型和并行策略配置。
+            port_args,  # Scheduler 与其他组件通信使用的端口配置。
+            gpu_id,  # 当前 Scheduler 绑定的 GPU 编号。
+            tp_rank,  # 当前 Scheduler 的全局 TP rank。
+            moe_ep_rank,  # 当前 Scheduler 的 MoE EP 局部 rank。
+            pp_rank,  # 当前 Scheduler 的流水线并行 PP rank。
+            attn_cp_rank,  # 当前 Scheduler 的 Attention CP 局部 rank。
+            moe_dp_rank,  # 当前 Scheduler 的 MoE DP 局部 rank。
+            dp_rank,  # 配置后最终生效的数据并行 DP rank。
         )
 
-        # Send initialization info back to the parent process
+        # Scheduler 构造成功后，通过 Pipe 告知父进程该子进程已经就绪，并返回
+        # 最大 token 容量、最大请求输入长度等初始化握手信息。
         pipe_writer.send(scheduler.get_init_info())
 
-        # Run the event loop (blocks until a ShutdownReq sets gracefully_exit)
+        # 进入阻塞式调度事件循环；收到 ShutdownReq 并将 gracefully_exit 置为 True
+        # 后，事件循环才会结束并进入 finally 执行资源清理。
         scheduler.run_event_loop()
 
+    # 捕获 Scheduler 构造或事件循环中的普通异常，避免子进程静默退出。
     except Exception:
+        # 获取包含完整调用栈的异常文本，供日志记录和故障排查使用。
         traceback = get_exception_traceback()
+
+        # 记录 Scheduler 异常及其完整 traceback。
         logger.error(f"Scheduler hit an exception: {traceback}")
+
+        # 向父进程发送 SIGQUIT，通知父进程 Scheduler 已失败并触发整体退出流程。
         parent_process.send_signal(signal.SIGQUIT)
-        # Opt-in: SIGKILL the pgroup so sibling ranks don't spew thousands
-        # of NCCL/TCPStore tracebacks before they finally die.
+
+        # 如果显式启用异常时终止进程组，则直接杀死当前进程组，避免同组的其他
+        # rank 在通信失联后持续输出大量 NCCL/TCPStore 异常堆栈。
         if envs.SGLANG_KILLPG_ON_SCHEDULER_EXCEPTION.get():
+            # killpg 可能因权限、平台或进程组状态失败，因此使用内层 try 隔离错误。
             try:
+                # 获取当前进程组 ID，并向整个进程组发送不可捕获的 SIGKILL。
                 os.killpg(os.getpgrp(), signal.SIGKILL)
+
+            # 终止进程组失败时不覆盖最初的 Scheduler 异常。
             except Exception:
+                # 忽略清理阶段的附加异常，让外层 finally 继续执行可行的清理工作。
                 pass
+
+    # 无论正常退出还是发生异常，都执行已经成功创建对象的清理逻辑。
     finally:
+        # 只有 Scheduler 构造成功后才存在需要释放的内部资源。
         if scheduler is not None:
-            # FPM has a background ZMQ publisher thread that needs explicit
-            # teardown to flush queued metrics and close the socket cleanly.
+            # FPM 使用后台 ZMQ publisher 线程；显式关闭它以刷新待发送指标并
+            # 正常关闭 ZMQ socket，防止后台线程和连接残留。
             scheduler.metrics_reporter._shutdown_fpm()
-            # Graceful path only: on the exception path the GPU may be wedged
-            # and the synchronize() in destroy() could itself hang.
+
+            # 仅在收到 ShutdownReq 后的优雅退出路径释放宿主机资源。异常路径中
+            # GPU 可能已经卡死，而 destroy() 内部的 synchronize() 也可能永久阻塞。
             if scheduler.gracefully_exit:
+                # 释放 pinned host buffer、HiCache/HiSparse 及 decode offload 等资源。
                 scheduler.release_host_resources()

@@ -1145,29 +1145,68 @@ def get_device_sm_nvidia_smi():
         return (0, 0)  # Default/fallback value
 
 
+# 将包含 yield 的生成器函数转换为可通过 with 使用的上下文管理器。
 @contextmanager
 def maybe_reindex_device_id(gpu_id: int):
+    """按需把指定 GPU 设置为进程唯一可见设备，并返回重映射后的设备编号。
 
+    该上下文管理器主要在父进程创建 GPU 子进程时使用。当
+    ``SGLANG_ONE_VISIBLE_DEVICE_PER_PROCESS`` 开启且后端为 CUDA/HIP 时，它会：
+
+    1. 保存父进程原有的 ``CUDA_VISIBLE_DEVICES``。
+    2. 从当前可见设备中选出 ``gpu_id`` 对应的设备，并临时将其设为唯一可见设备。
+    3. 向 ``with ... as`` 返回 ``0``，因为选中的设备在新的可见设备列表中会被
+       重新编号为逻辑设备 0。
+    4. 上下文代码正常结束后恢复父进程原有的 ``CUDA_VISIBLE_DEVICES``。
+
+    这样，在上下文内启动的子进程会从创建之初只看到目标 GPU，而父进程退出
+    上下文后仍保持原来的设备可见性配置。若功能未开启或当前不是 CUDA/HIP
+    后端，则不修改环境变量，直接返回传入的 ``gpu_id``。
+
+    参数：
+        gpu_id: 要选择的 GPU 编号；已有 ``CUDA_VISIBLE_DEVICES`` 时，它是该列表
+            中的索引，否则它直接表示设备编号。
+
+    生成：
+        上下文内应使用的设备编号。发生重映射时为 ``0``，否则为原 ``gpu_id``。
+    """
+
+    # 未开启“每进程单可见设备”，或当前后端不是 CUDA/HIP 时，无需重映射。
     if envs.SGLANG_ONE_VISIBLE_DEVICE_PER_PROCESS.get() is False or not is_cuda_alike():
+        # 将原始设备编号交给 with 语句中的 as 变量。
         yield gpu_id
+        # 无需修改或恢复环境变量，直接结束上下文管理器。
         return
 
+    # 保存父进程进入上下文前的可见设备配置，供正常退出上下文时恢复。
     original_cuda_visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
+
+    # 如果已经限制过可见设备，则 gpu_id 表示该逗号分隔列表中的索引。
     if original_cuda_visible_devices:
+        # 将例如 "2,4,6" 拆成 ["2", "4", "6"]，保留设备的原始标识。
         cuda_visible_devices = original_cuda_visible_devices.split(",")
     else:
+        # 未设置 CUDA_VISIBLE_DEVICES 时，后续直接把 gpu_id 当作设备编号。
         cuda_visible_devices = []
 
+    # 有既有列表时取出 gpu_id 索引对应的真实设备；否则直接转换传入的编号。
     str_gpu_id = cuda_visible_devices[gpu_id] if cuda_visible_devices else str(gpu_id)
+
+    # 临时只暴露选中的一个设备；在此环境中它会被 CUDA/HIP 重新编号为设备 0。
     os.environ["CUDA_VISIBLE_DEVICES"] = str_gpu_id
 
+    # 记录实际写入环境变量的设备标识，便于排查子进程的设备绑定问题。
     logger.debug(f"Set CUDA_VISIBLE_DEVICES to {str_gpu_id}")
 
+    # 将重映射后的逻辑设备编号 0 交给上下文；子进程应使用该编号访问目标 GPU。
     yield 0
 
+    # 上下文代码正常结束后，恢复进入上下文前的 CUDA_VISIBLE_DEVICES。
     if original_cuda_visible_devices:
+        # 原环境变量存在且非空时，恢复其完整内容和原有设备顺序。
         os.environ["CUDA_VISIBLE_DEVICES"] = original_cuda_visible_devices
     else:
+        # 原环境变量不存在或为空时，移除上下文期间临时创建的环境变量。
         del os.environ["CUDA_VISIBLE_DEVICES"]
 
 

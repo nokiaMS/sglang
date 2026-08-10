@@ -1,0 +1,30 @@
+.mermaid {
+    display: block !important;
+    max-width: 100% !important;
+    overflow-x: auto !important;
+    overflow-y: hidden;
+}
+
+.mermaid svg {
+    display: block;
+    max-width: none !important;
+}
+
+#ddd41 {
+    scroll-margin: 40vh 45vw;
+}
+
+a[href="./启动流程.md#ddd41"] {
+    display: inline-block;
+    padding: 6px 12px;
+    border: 1px solid #d65a31;
+    border-radius: 6px;
+    background: #ff6b45;
+    color: #ffffff !important;
+    font-weight: 600;
+    text-decoration: none !important;
+}
+
+a[href="./启动流程.md#ddd41"]:hover {
+    background: #e9532f;
+}

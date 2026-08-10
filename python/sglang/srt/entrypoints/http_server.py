@@ -2662,21 +2662,25 @@ def launch_server(
     launch_callback: Optional[Callable[[], None]] = None,
 ):
     """
-    Launch SRT (SGLang Runtime) Server.
+    启动 SRT（SGLang Runtime）服务。
 
-    The SRT server consists of an HTTP server and an SRT engine.
+    SRT 服务由 HTTP Server 和 SRT Engine 两部分组成：
 
-    - HTTP server: A FastAPI server that routes requests to the engine.
-    - The engine consists of three components:
-        1. TokenizerManager: Tokenizes the requests and sends them to the scheduler.
-        2. Scheduler (subprocess): Receives requests from the Tokenizer Manager, schedules batches, forwards them, and sends the output tokens to the Detokenizer Manager.
-        3. DetokenizerManager (subprocess): Detokenizes the output tokens and sends the result back to the Tokenizer Manager.
+    - HTTP Server：接收 HTTP 请求，并通过 FastAPI 路由将请求交给 Engine。
+    - SRT Engine：负责推理请求的处理，主要包含以下三个组件：
+        1. TokenizerManager：在主进程中完成请求分词，并将请求发送给 Scheduler。
+        2. Scheduler：在子进程中接收请求、执行批次调度和模型推理，再将输出
+           token 发送给 DetokenizerManager。
+        3. DetokenizerManager：在子进程中将输出 token 转回文本，并把结果发送给
+           TokenizerManager。
 
-    Note:
-    1. The HTTP server, Engine, and TokenizerManager all run in the main process.
-    2. Inter-process communication is done through IPC (each process uses a different port) via the ZMQ library.
+    注意：
+    1. HTTP Server、Engine 和 TokenizerManager 均运行在主进程中。
+    2. 各组件使用不同的 IPC 地址，并通过 ZMQ 进行进程间通信。
+    3. init/run/execute 函数以参数形式传入，便于不同运行后端替换实现以及测试注入。
     """
-    # Launch subprocesses
+    # 先启动 Engine 的后台组件。该调用会完成通信端口分配，拉起 Scheduler 和
+    # Detokenizer 子进程，在主进程中初始化 TokenizerManager，并等待模型加载完成。
     (
         tokenizer_manager,
         template_manager,
@@ -2691,6 +2695,9 @@ def launch_server(
         run_detokenizer_process_func=run_detokenizer_process_func,
     )
 
+    # Engine 就绪后配置并运行 HTTP Server：注册全局状态和中间件，将子进程监控器
+    # 绑定到 TokenizerManager，并在服务生命周期中执行 warmup 和 launch_callback。
+    # 该调用会进入 Uvicorn/Granian 的服务循环，正常情况下持续阻塞直到服务退出。
     _setup_and_run_http_server(
         server_args,
         tokenizer_manager,

@@ -809,25 +809,32 @@ class Engine(EngineScoreMixin, EngineBase):
         port_args: PortArgs,
         run_scheduler_process_func: Callable,
     ) -> Tuple[SchedulerInitResult, Optional[List]]:
-        """Launch scheduler processes using multiprocessing.
-        Override in subclasses for different backends (e.g. Ray).
+        """使用 multiprocessing 启动 Scheduler 进程。
 
-        Returns:
-            Tuple of (SchedulerInitResult, scheduler_procs).
-            scheduler_procs is None for RayEngine (uses Ray actors instead).
+        子类可以重写该方法以接入不同的进程后端，例如 RayEngine 使用 Ray Actor。
+
+        返回：
+            (SchedulerInitResult, scheduler_procs)；RayEngine 不使用 mp.Process，
+            因此它返回的 scheduler_procs 可以为 None。
         """
         scheduler_procs = []
+
+        # DP 大于 1 或弹性 EP 处于扩缩容模式时，由 DataParallelController 统一创建
+        # 和管理各 DP Scheduler；其他情况由当前主进程直接创建本节点的 Scheduler。
         use_dp_controller = (
             server_args.dp_size > 1 or server_args.ep_join_mode == "scale"
         )
 
         if not use_dp_controller:
-            # Launch tensor parallel scheduler processes
+            # 非 DP Controller 模式：按照本节点负责的 PP/TP rank 启动 Scheduler。
+            # MemorySaverAdapter 会为子进程配置内存节省机制（未启用时为空操作）。
             memory_saver_adapter = TorchMemorySaverAdapter.create(
                 enable=server_args.enable_memory_saver
             )
-            scheduler_pipe_readers = []
 
+            scheduler_pipe_readers = []
+            # 计算当前 node_rank 实际负责的 PP/TP rank 范围，以及每个节点上的
+            # PP/TP 规模；多节点场景下每个节点只创建属于自己的 Scheduler。
             pp_rank_range, tp_rank_range, pp_size_per_node, tp_size_per_node = (
                 _calculate_rank_ranges(
                     server_args.nnodes,
@@ -837,18 +844,33 @@ class Engine(EngineScoreMixin, EngineBase):
                 )
             )
 
+            # 遍历当前节点负责的所有 (pp_rank, tp_rank) 组合，并为每个组合启动一个
+            # 独立的 Scheduler 子进程。每个 Scheduler 会绑定到计算得到的 GPU，使用
+            # 对应的 PP/TP 及 Attention/MoE 并行 rank 初始化模型和通信组，并通过专属
+            # 单向 Pipe 向父进程报告启动状态。创建完成后，父进程统一保存 Process 和
+            # Pipe reader，分别用于进程生命周期管理以及等待 Scheduler 初始化完成。
             for pp_rank in pp_rank_range:
                 for tp_rank in tp_rank_range:
+                    # 使用单向 Pipe 接收子进程的就绪信号和初始化信息：
+                    # 父进程持有 reader，Scheduler 子进程持有 writer。
                     reader, writer = mp.Pipe(duplex=False)
+
+                    # 根据本节点内的 PP/TP 位置计算物理 GPU 编号。gpu_id_step
+                    # 支持按固定步长选择设备，例如只使用编号为 0、2、4、6 的 GPU。
                     gpu_id = (
                         server_args.base_gpu_id
                         + ((pp_rank % pp_size_per_node) * tp_size_per_node)
                         + (tp_rank % tp_size_per_node) * server_args.gpu_id_step
                     )
+
+                    # 由全局 TP rank 推导 Attention CP、MoE DP 和 MoE EP rank，(这三个rank都是局部rank。)
+                    # 并作为独立参数传给 Scheduler 初始化并行通信组。
                     attn_cp_rank, moe_dp_rank, moe_ep_rank = _compute_parallelism_ranks(
                         server_args, tp_rank
                     )
 
+                    # maybe_reindex_device_id 处理 CUDA_VISIBLE_DEVICES 等设备重映射；
+                    # 创建进程时同时配置 MemorySaver 和 NUMA 亲和性。
                     with maybe_reindex_device_id(gpu_id) as gpu_id:
                         proc = mp.Process(
                             target=run_scheduler_process_func,
@@ -865,16 +887,26 @@ class Engine(EngineScoreMixin, EngineBase):
                                 writer,
                             ),
                         )
+
+                        # 同时进入 MemorySaver 和 NUMA 两个子进程配置上下文；它们按
+                        # 从上到下的顺序生效，并在离开 with 块时按相反顺序恢复父进程配置。
                         with (
+                            # 为即将启动的 Scheduler 配置 torch-memory-saver；未启用
+                            # enable_memory_saver 时，该上下文管理器不执行任何操作。
                             memory_saver_adapter.configure_subprocess(),
+                            # 根据 server_args 和目标 gpu_id 配置子进程的 NUMA CPU/内存
+                            # 亲和性；未开启 NUMA 绑定或无法绑定时按配置降级为空操作。
                             numa_utils.configure_subprocess(server_args, gpu_id),
                         ):
+                            # 在两个临时配置都生效期间真正启动进程，使 Scheduler 子进程
+                            # 继承 MemorySaver 配置，并在可用时通过 numactl 完成 NUMA 绑定。
                             proc.start()
 
                     scheduler_procs.append(proc)
                     scheduler_pipe_readers.append(reader)
         else:
-            # Launch the data parallel controller
+            # DP Controller 模式：这里只启动一个控制器进程。控制器随后负责创建和
+            # 管理各 DP Scheduler，并通过 Pipe 将所有 Scheduler 的初始化信息传回。
             reader, writer = mp.Pipe(duplex=False)
             scheduler_pipe_readers = [reader]
             proc = mp.Process(
@@ -889,18 +921,28 @@ class Engine(EngineScoreMixin, EngineBase):
             proc.start()
             scheduler_procs.append(proc)
 
+        # 直接启动模式记录所有 Scheduler PID；DP Controller 模式此时只能记录
+        # Controller PID，实际 Scheduler PID 会在 wait_for_ready 中补充。
         all_child_pids = [proc.pid for proc in scheduler_procs]
+
+        # 该列表会在 wait_for_ready 被调用时原地填充。SchedulerInitResult 持有同一个
+        # 列表对象，因此调用方等待完成后即可从中读取模型限制等初始化信息。
         scheduler_infos = []
 
         def wait_for_ready():
+            # 等待每个 Pipe 返回初始化结果；若子进程提前退出，辅助函数会报告启动失败。
             infos = _wait_for_scheduler_ready(scheduler_pipe_readers, scheduler_procs)
             scheduler_infos.extend(infos)
             if use_dp_controller:
+                # Controller 创建的 Scheduler 不是当前进程的直接子进程，需要从
+                # Controller 上报的信息中取出 PID，供 Engine 退出时统一清理进程树。
                 for info in infos:
                     if SCHEDULER_PIDS_ARG in info:
                         all_child_pids.extend(info[SCHEDULER_PIDS_ARG])
 
         def wait_for_completion():
+            # 服务型启动方式使用该回调持续等待 Scheduler/Controller 退出，并记录
+            # 退出码；join 返回通常意味着推理后端已经停止工作。
             for proc in scheduler_procs:
                 proc.join()
                 logger.error(
@@ -908,6 +950,8 @@ class Engine(EngineScoreMixin, EngineBase):
                     f"terminated with {proc.exitcode}"
                 )
 
+        # 将可延迟执行的等待操作封装进结果对象：调用方可以先完成其他组件初始化，
+        # 再通过 wait_for_ready 与 Scheduler 的模型加载阶段同步。
         return (
             SchedulerInitResult(
                 scheduler_infos=scheduler_infos,
@@ -995,23 +1039,27 @@ class Engine(EngineScoreMixin, EngineBase):
         Returns:
             Tuple of (tokenizer_manager, template_manager, port_args, scheduler_init_result, subprocess_watchdog, weight_cache_daemon_procs).
         """
-        # Configure global environment
+        # 配置日志、环境变量和全局运行参数；这些设置必须在创建子进程前完成，
+        # 以便使用 spawn 启动的进程能够继承一致的运行环境。
         configure_logger(server_args)
         _set_envs_and_config(server_args)
 
-        # Defensive: ensure plugins loaded (may already be loaded by
-        # Engine.__init__ or CLI entry).
+        # 防御性地再次加载插件。正常情况下 Engine.__init__ 或 CLI 入口已经加载，
+        # 此处确保直接调用该方法时也不会遗漏插件注册。
         load_plugins()
 
+        # 在分配端口和拉起进程之前完成参数校验及 GC 配置，尽早暴露无效配置。
         server_args.check_server_args()
         _set_gc(server_args)
 
-        # Allocate ports for inter-process communications
+        # 为 Scheduler、TokenizerManager、DetokenizerManager 等组件分配进程间通信端口。
+        # 调用方传入 port_args 时复用已有端口，常用于多节点或外部统一分配端口的场景。
         if port_args is None:
             port_args = PortArgs.init_new(server_args)
         logger.info(f"{server_args=}")
 
-        # Start the engine info bootstrap server if per-rank info is needed.
+        # 某些远程权重加载模式需要在 rank 0 上启动引擎信息引导服务，
+        # 供其他 rank 获取启动种子等初始化信息。
         engine_info_bootstrap_server = None
         if (
             server_args.remote_instance_weight_loader_start_seed_via_transfer_engine
@@ -1032,16 +1080,17 @@ class Engine(EngineScoreMixin, EngineBase):
             server_args.reasoning_parser == "auto"
             or server_args.tool_call_parser == "auto"
         ):
+            # 根据模型配置自动选择推理内容和工具调用的解析器。
             resolve_auto_parsers(server_args)
 
-        # Launch daemons (daemon mode only). Handles are threaded back to the
-        # owning Engine instance (not a class attr) so two Engines in one process
-        # don't clobber each other's daemon list.
+        # daemon 模式下先启动权重缓存守护进程。进程句柄最终返回给当前 Engine 实例，
+        # 而不是保存在类属性中，避免同一主进程内多个 Engine 相互覆盖守护进程列表。
         weight_cache_daemon_procs: List = []
         if server_args.weight_cache_mode == "daemon":
             weight_cache_daemon_procs = cls._launch_weight_cache_daemons(server_args)
 
-        # Launch scheduler processes
+        # 启动 Scheduler（或 DataParallelController）子进程。
+        # wait_for_ready 会在稍后等待模型加载完成，并收集各 Scheduler 的初始化信息。
         scheduler_init_result, scheduler_procs = cls._launch_scheduler_processes(
             server_args, port_args, run_scheduler_process_func
         )
@@ -1053,14 +1102,16 @@ class Engine(EngineScoreMixin, EngineBase):
             server_args.enable_elastic_expert_backup
             and server_args.elastic_ep_backend is not None
         ):
+            # 启用弹性专家备份时，在 Scheduler 启动后初始化专家备份管理器。
             run_expert_backup_manager(server_args, port_args)
 
         if server_args.node_rank >= 1:
-            # Non-zero-rank nodes do not run tokenizer processes.
+            # 非 rank 0 节点只承载 Scheduler，不启动 Tokenizer/Detokenizer。
+            # 必须先等待 Scheduler 就绪，确保模型已成功加载。
             scheduler_init_result.wait_for_ready()
 
             if os.getenv("SGLANG_BLOCK_NONZERO_RANK_CHILDREN") == "0":
-                # When using `Engine` as a Python API, we don't want to block here.
+                # 通过 Python API 使用 Engine 时允许直接返回，避免当前调用被子进程阻塞。
                 return (
                     None,
                     None,
@@ -1070,6 +1121,7 @@ class Engine(EngineScoreMixin, EngineBase):
                     weight_cache_daemon_procs,
                 )
 
+            # CLI/服务模式下提供最小健康检查服务，并持续等待 Scheduler 退出。
             launch_dummy_health_check_server(
                 server_args.host, server_args.port, server_args.enable_metrics
             )
@@ -1084,36 +1136,39 @@ class Engine(EngineScoreMixin, EngineBase):
                 weight_cache_daemon_procs,
             )
 
-        # Launch detokenizer process(es) — optionally fronted by a router when
-        # detokenizer_worker_num > 1.
+        # 在 rank 0 上启动 Detokenizer 子进程；存在多个 worker 时，额外启动 Router，
+        # 由 Router 接收统一入口上的消息并分发给各 Detokenizer worker。
         detoken_procs, detoken_names = cls._launch_detokenizer_subprocesses(
             server_args=server_args,
             port_args=port_args,
             run_detokenizer_process_func=run_detokenizer_process_func,
         )
+        # 将 Detokenizer PID 纳入统一的子进程清理范围。
         for p in detoken_procs:
             scheduler_init_result.all_child_pids.append(p.pid)
 
-        # Init tokenizer manager first, as the bootstrap server is initialized here
+        # 在主进程中初始化 TokenizerManager。单 worker 直接创建管理器；多 worker
+        # 则创建 MultiTokenizerRouter，由它负责把请求路由到不同 Tokenizer worker。
+        # 引导服务也会在这一初始化阶段完成，因此要先于等待 Scheduler 就绪执行。
         if server_args.tokenizer_worker_num == 1:
             tokenizer_manager, template_manager = init_tokenizer_manager_func(
                 server_args, port_args
             )
         else:
-            # Launch multi-tokenizer router
             tokenizer_manager = MultiTokenizerRouter(server_args, port_args)
             template_manager = None
 
-        # Wait for the model to finish loading
+        # 阻塞到所有 Scheduler 完成模型加载；启动失败会在这里被感知并向上抛出。
         scheduler_init_result.wait_for_ready()
 
-        # Get back some info from scheduler to tokenizer_manager
+        # 将 Scheduler 根据模型和运行配置计算出的最大输入长度同步给 TokenizerManager，
+        # 供主进程在接收请求时进行长度校验。
         tokenizer_manager.max_req_input_len = scheduler_init_result.scheduler_infos[0][
             "max_req_input_len"
         ]
 
-        # Set up subprocess liveness watchdog to detect crashes
-        # Note: RayEngine returns scheduler_procs=None as it uses Ray actors instead of mp.Process
+        # 启动存活监控线程，统一检测 Scheduler 和 Detokenizer 是否异常退出。
+        # RayEngine 使用 Ray Actor 而非 mp.Process，因此其 scheduler_procs 可能为 None。
         processes = list(scheduler_procs or [])
         names = [f"scheduler_{i}" for i in range(len(processes))]
         processes.extend(detoken_procs)
@@ -1123,6 +1178,8 @@ class Engine(EngineScoreMixin, EngineBase):
         )
         subprocess_watchdog.start()
 
+        # 返回主进程组件、通信配置、Scheduler 初始化结果以及所有需要随 Engine
+        # 生命周期管理的后台进程句柄。
         return (
             tokenizer_manager,
             template_manager,
@@ -1642,20 +1699,38 @@ def _wait_for_scheduler_ready(
 def _calculate_rank_ranges(
     nnodes: int, pp_size: int, tp_size: int, node_rank: int
 ) -> Tuple[range, range, int, int]:
-    """Calculate pp_rank_range and tp_rank_range for a given node.
+    """计算指定节点负责的流水线并行（PP）和张量并行（TP）rank 范围。
 
-    Args:
-        nnodes: Total number of nodes.
-        pp_size: Pipeline parallel size.
-        tp_size: Tensor parallel size.
-        node_rank: The rank of the node to compute ranges for.
+    该函数把全局 PP/TP 拓扑映射到当前 ``node_rank``，供调用方只在本节点上
+    启动对应的 Scheduler 进程。计算逻辑如下：
 
-    Returns:
-        A tuple of (pp_rank_range, tp_rank_range, pp_size_per_node, tp_size_per_node):
-        - pp_rank_range: range of pipeline-parallel ranks assigned to this node.
-        - tp_rank_range: range of tensor-parallel ranks assigned to this node.
-        - pp_size_per_node: number of PP ranks per node.
-        - tp_size_per_node: number of TP ranks per node.
+    1. 使用 ``max(pp_size // nnodes, 1)`` 计算每个节点承载的 PP rank 数量。
+       当 PP 数量不少于节点数时，每个节点获得一段连续的 PP rank；当节点数
+       多于 PP 数量时，每个节点至少承载一个 PP rank。
+    2. 使用 ``max(nnodes // pp_size, 1)`` 计算同一个 PP rank 横跨的节点数。
+       节点数多于 PP 数量时，相邻的若干节点组成一个 PP 组，并共享同一个
+       PP rank；否则一个 PP rank 只位于一个节点上。
+    3. ``node_rank // nnodes_per_pp_rank`` 确定当前节点属于哪个 PP 组，进而
+       得到该节点负责的半开区间 ``pp_rank_range``。
+    4. 同一个 PP 组内的节点共同划分 TP ranks。先计算每个节点负责的 TP rank
+       数量，再通过 ``node_rank % nnodes_per_tp_group`` 得到节点在组内的位置，
+       最终生成该节点对应的连续半开区间 ``tp_rank_range``。
+
+    这里使用整数除法，依赖调用方已经完成并行规模的整除性和合法性校验。
+
+    参数：
+        nnodes: 集群的节点总数。
+        pp_size: 全局流水线并行规模。
+        tp_size: 全局张量并行规模。
+        node_rank: 当前节点的编号，取值范围为 ``[0, nnodes)``。
+
+    返回：
+        ``(pp_rank_range, tp_rank_range, pp_size_per_node, tp_size_per_node)``：
+
+        - ``pp_rank_range``：当前节点负责的 PP rank 半开区间。
+        - ``tp_rank_range``：当前节点负责的 TP rank 半开区间。
+        - ``pp_size_per_node``：每个节点承载的 PP rank 数量。
+        - ``tp_size_per_node``：每个节点承载的 TP rank 数量。
     """
     pp_size_per_node = max(pp_size // nnodes, 1)
     nnodes_per_pp_rank = max(nnodes // pp_size, 1)
@@ -1677,18 +1752,55 @@ def _calculate_rank_ranges(
 def _compute_parallelism_ranks(
     server_args: ServerArgs, tp_rank: int
 ) -> Tuple[int, int, int]:
-    """Compute attention-CP, MoE-DP, and MoE-EP ranks for a TP rank."""
+    """根据全局 TP rank 计算 Attention CP、MoE DP 和 MoE EP 的局部 rank。
+
+    同一个全局 TP rank 在 Attention 和 MoE 模块中会按照不同的并行层级重新解释：
+
+    - Attention：``Global TP -> Attention DP -> Attention CP -> Attention TP``。
+    - MoE：``Global TP -> MoE DP -> EP -> MoE TP``。
+
+    该函数通过整数除法定位外层并行分组，通过取模定位当前 TP rank 在分组内的
+    位置。计算依赖 ``tp_size`` 能被相关 DP、CP 和 EP 规模整除；这些合法性条件
+    应在 ServerArgs 校验阶段保证。
+
+    参数：
+        server_args: 服务器及并行配置，提供 TP、DP、Attention CP、MoE DP 和
+            EP 的规模。
+        tp_rank: 当前 Scheduler 对应的全局 TP rank。
+
+    返回：
+        ``(attn_cp_rank, moe_dp_rank, moe_ep_rank)``：
+
+        - ``attn_cp_rank``：当前 TP rank 在 Attention CP 维度上的编号。
+        - ``moe_dp_rank``：当前 TP rank 所属的 MoE DP 组编号。
+        - ``moe_ep_rank``：当前 TP rank 在所属 MoE DP 组内的 EP 编号。
+    """
+
+    # 只有启用 DP Attention 时才按实际 dp_size 划分 Attention DP 维度；
+    # 未启用时将该维度视为 1，即所有 TP ranks 属于同一个 Attention DP 组。
     attn_dp_size = server_args.dp_size if server_args.enable_dp_attention else 1
 
-    # Parallelism hierarchy (outermost to innermost):
-    # - Attention: Global(TP) -> DP -> ATTN_CP -> ATTN_TP (innermost)
-    # - MoE: Global(TP) -> MOE_DP -> EP -> MOE_TP (innermost)
+    # 从全局 tp_size 中依次除去 Attention DP 和 CP 维度，得到最内层每个
+    # Attention TP 组包含的 rank 数量。
     attn_tp_size = server_args.tp_size // attn_dp_size // server_args.attn_cp_size
+
+    # 先整除 attn_tp_size 跳过最内层 Attention TP 维度，再对 attn_cp_size
+    # 取模，得到当前 TP rank 在 Attention CP 维度上的局部编号。
     attn_cp_rank = (tp_rank // attn_tp_size) % server_args.attn_cp_size
+
+    # 每个 MoE DP 组包含 tp_size // moe_dp_size 个全局 TP ranks；整除该组大小
+    # 即可得到当前 TP rank 位于第几个 MoE DP 组。
     moe_dp_rank = tp_rank // (server_args.tp_size // server_args.moe_dp_size)
+
+    # 计算当前 TP rank 在所属 MoE DP 组中的 EP 编号。
     moe_ep_rank = (
+        # 先对每个 MoE DP 组的大小取模，去掉外层 MoE DP 维度，得到组内 rank。
         tp_rank
         % (server_args.tp_size // server_args.moe_dp_size)
+        # 每个 EP 分片包含 tp_size // moe_dp_size // ep_size 个 MoE TP ranks；
+        # 用组内 rank 整除该分片大小，即得到当前 rank 所属的 EP 分片编号。
         // (server_args.tp_size // server_args.moe_dp_size // server_args.ep_size)
     )
+
+    # 将三个并行维度上的局部 rank 返回给 Scheduler，用于初始化对应通信组。
     return attn_cp_rank, moe_dp_rank, moe_ep_rank
